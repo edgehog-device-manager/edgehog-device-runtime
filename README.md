@@ -16,6 +16,11 @@ At the moment only Linux-based systems are supported.
 
 ## Implemented Features
 
+The following information are sent to remote Edgehog instance:
+- OS info (data is read from `/etc/os-release`)
+- Hardware info
+- System status (data is read from proc filesystem)
+
 ## How it Works
 
 Edgehog Device Runtime relies on [Astarte](https://github.com/astarte-platform/astarte) in order to

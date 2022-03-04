@@ -18,6 +18,49 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-fn main() {
-    println!("Edgehog-device-runtime!");
+use clap::Parser;
+use edgehog_device_runtime::DeviceManagerOptions;
+
+#[derive(Debug, Parser)]
+struct Cli {
+    // Realm name
+    #[clap(short, long)]
+    realm: String,
+    // Device id
+    #[clap(short, long)]
+    device_id: String,
+    // Credentials secret
+    #[clap(short, long)]
+    credentials_secret: String,
+    // Pairing URL
+    #[clap(short, long)]
+    pairing_url: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError> {
+    env_logger::init();
+
+    let Cli {
+        realm,
+        device_id,
+        credentials_secret,
+        pairing_url,
+    } = Parser::parse();
+
+    let options = DeviceManagerOptions {
+        realm,
+        device_id,
+        credentials_secret,
+        pairing_url,
+        interface_json_path: "./interfaces".to_string(),
+    };
+
+    let mut dm = edgehog_device_runtime::DeviceManager::new(options).await?;
+
+    dm.init().await?;
+
+    dm.run().await;
+
+    Ok(())
 }
