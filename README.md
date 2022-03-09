@@ -23,6 +23,7 @@ The following information are sent to remote Edgehog instance:
 - Hardware info
 - System status (data is read from proc filesystem)
 - Runtime info and compiler version
+- OTA update using RAUC
 
 ## How it Works
 
