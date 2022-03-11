@@ -36,7 +36,7 @@ pub fn get_system_status() -> Result<SystemStatus, DeviceManagerError> {
 
     Ok(SystemStatus {
         avail_memory_bytes: meminfo.mem_available.unwrap_or(0) as i64,
-        boot_id: String::new(),
+        boot_id: procfs::sys::kernel::random::boot_id()?,
         task_count: procfs::process::all_processes()?.len() as i32,
         uptime_millis: procfs::Uptime::new()?.uptime_duration().as_millis() as i64,
     })
