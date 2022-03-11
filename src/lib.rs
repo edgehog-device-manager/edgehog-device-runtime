@@ -60,7 +60,7 @@ impl DeviceManager {
 
                 w.send_object(
                     "io.edgehog.devicemanager.SystemStatus",
-                    "/systemStatus/",
+                    "/systemStatus",
                     systatus,
                 )
                 .await
