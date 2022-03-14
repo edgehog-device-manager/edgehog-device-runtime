@@ -89,16 +89,25 @@ impl DeviceManager {
     pub async fn send_initial_telemetry(&self) -> Result<(), DeviceManagerError> {
         let device = &self.sdk;
 
-        for i in telemetry::os_info::get_os_info()? {
-            device
-                .send("io.edgehog.devicemanager.OSInfo", &i.0, i.1)
-                .await?;
-        }
+        let data = [
+            (
+                "io.edgehog.devicemanager.OSInfo",
+                telemetry::os_info::get_os_info()?,
+            ),
+            (
+                "io.edgehog.devicemanager.HardwareInfo",
+                telemetry::hardware_info::get_hardware_info()?,
+            ),
+            (
+                "io.edgehog.devicemanager.RuntimeInfo",
+                telemetry::runtime_info::get_runtime_info()?,
+            ),
+        ];
 
-        for i in telemetry::hardware_info::get_hardware_info()? {
-            device
-                .send("io.edgehog.devicemanager.HardwareInfo", &i.0, i.1)
-                .await?;
+        for (ifc, fields) in data {
+            for (path, data) in fields {
+                device.send(ifc, &path, data).await?;
+            }
         }
 
         Ok(())
