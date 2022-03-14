@@ -38,7 +38,10 @@ pub fn get_runtime_info() -> Result<HashMap<String, AstarteType>, DeviceManagerE
         ret.insert("/version".to_owned(), f.into());
     }
 
-    ret.insert("/environment".to_owned(), "Rust".to_owned().into());
+    ret.insert(
+        "/environment".to_owned(),
+        format!("Rust {}", rustc_version_runtime::version()).into(),
+    );
 
     Ok(ret)
 }
