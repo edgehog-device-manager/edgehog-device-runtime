@@ -25,6 +25,10 @@ use astarte_sdk::types::AstarteType;
 use astarte_sdk::{registration, Aggregation, AstarteSdk};
 use log::{debug, info, warn};
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::fs::File;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use device::DeviceProxy;
@@ -63,6 +67,7 @@ pub struct DeviceManager {
     sdk: AstarteSdk,
     //we pass the ota event through a channel, to avoid blocking the main loop
     ota_event_channel: Sender<HashMap<String, AstarteType>>,
+    telemetry: Arc<telemetry::Telemetry>,
 }
 
 impl DeviceManager {
@@ -115,8 +120,17 @@ impl DeviceManager {
             }
         });
 
+        let telemetry_default_config = vec![crate::telemetry::TelemetryInterfaceConfig {
+            interface_name: "io.edgehog.devicemanager.SystemStatus".to_owned(),
+            enabled: true,
+            period: 10,
+        }];
+
+        let tel = telemetry::Telemetry::from_default_config(telemetry_default_config);
+
         Ok(Self {
-            sdk: astarte_client.device_sdk,
+            sdk: device,
+            telemetry: Arc::new(tel),
             ota_event_channel: tx,
         })
     }
@@ -124,20 +138,10 @@ impl DeviceManager {
     pub async fn run(&mut self) {
         wrapper::systemd::systemd_notify_status("Running");
         let w = self.sdk.clone();
+
+        let tel = self.telemetry.clone();
         tokio::task::spawn(async move {
-            loop {
-                let systatus = telemetry::system_status::get_system_status().unwrap();
-
-                w.send_object(
-                    "io.edgehog.devicemanager.SystemStatus",
-                    "/systemStatus",
-                    systatus,
-                )
-                .await
-                .unwrap();
-
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
+            tel.run_telemetry(w).await;
         });
 
         loop {
@@ -166,6 +170,16 @@ impl DeviceManager {
                             ["request"],
                             Aggregation::Individual(AstarteType::String(command)),
                         ) => commands::execute_command(command),
+
+                        (
+                            "io.edgehog.devicemanager.config.Telemetry",
+                            ["request", interface_name, endpoint],
+                            Aggregation::Individual(data),
+                        ) => {
+                            self.telemetry
+                                .telemetry_config_event(interface_name, endpoint, data)
+                                .await
+                        }
 
                         _ => {
                             warn!("Receiving data from an unknown path/interface: {clientbound:?}");
