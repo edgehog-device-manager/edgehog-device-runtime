@@ -56,7 +56,7 @@ impl DeviceManager {
         let w = self.sdk.clone();
         tokio::task::spawn(async move {
             loop {
-                let systatus = telemetry::systemstatus::get_system_status().unwrap();
+                let systatus = telemetry::system_status::get_system_status().unwrap();
 
                 w.send_object(
                     "io.edgehog.devicemanager.SystemStatus",
@@ -89,13 +89,13 @@ impl DeviceManager {
     pub async fn send_initial_telemetry(&self) -> Result<(), DeviceManagerError> {
         let device = &self.sdk;
 
-        for i in telemetry::osinfo::get_os_info()? {
+        for i in telemetry::os_info::get_os_info()? {
             device
                 .send("io.edgehog.devicemanager.OSInfo", &i.0, i.1)
                 .await?;
         }
 
-        for i in telemetry::hardwareinfo::get_hardware_info()? {
+        for i in telemetry::hardware_info::get_hardware_info()? {
             device
                 .send("io.edgehog.devicemanager.HardwareInfo", &i.0, i.1)
                 .await?;

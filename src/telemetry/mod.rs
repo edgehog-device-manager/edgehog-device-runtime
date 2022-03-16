@@ -18,6 +18,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-pub(crate) mod hardwareinfo;
-pub(crate) mod osinfo;
-pub(crate) mod systemstatus;
+pub(crate) mod hardware_info;
+pub(crate) mod os_info;
+pub(crate) mod system_status;
