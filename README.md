@@ -13,10 +13,12 @@ enables remote device management using
 ## Supported Operating System
 
 At the moment only Linux-based systems are supported.
-On Linux system if `edgehog-device-runtime` is a `systemd` service, it can notify `systemd` its status changes.
-This is provided via `rust-systemd` crate that is a rust interface to `libsystemd/libelogind` APIs.
+On Linux systems if `edgehog-device-runtime` is a `systemd` service, it can notify `systemd` of its status changes.
+This is provided via the `rust-systemd` crate, a Rust interface to `libsystemd/libelogind` APIs.
+
 To build the `runtime` make sure you have `libsystemd-dev` installed on your system
 and the systemd feature enabled.
+
 ```shell
 cargo build --features systemd
 ```
@@ -31,6 +33,7 @@ The following information are sent to remote Edgehog instance:
 - System status (data is read from proc filesystem)
 - Runtime info and compiler version
 - OTA update using RAUC
+- `Edgehog Device Runtime` status changes via systemd.
 
 ## How it Works
 

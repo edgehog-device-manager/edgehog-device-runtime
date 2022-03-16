@@ -37,6 +37,7 @@ mod ota_handler;
 mod power_management;
 mod rauc;
 mod telemetry;
+pub mod wrapper;
 
 #[derive(Debug, Deserialize)]
 pub struct DeviceManagerOptions {
@@ -71,6 +72,7 @@ impl DeviceManager {
         .build();
         info!("Starting");
 
+        wrapper::systemd::systemd_notify_status("Initializing");
         let device = astarte_sdk::AstarteSdk::new(&sdk_options).await?;
 
         let mut ota_handler = ota_handler::OTAHandler::new(&opts).await?;
@@ -93,6 +95,7 @@ impl DeviceManager {
     }
 
     pub async fn run(&mut self) {
+        wrapper::systemd::systemd_notify_status("Running");
         let w = self.sdk.clone();
         tokio::task::spawn(async move {
             loop {
@@ -148,6 +151,7 @@ impl DeviceManager {
     }
 
     pub async fn init(&self) -> Result<(), DeviceManagerError> {
+        wrapper::systemd::systemd_notify_status("Sending initial telemetry");
         self.send_initial_telemetry().await?;
 
         Ok(())
