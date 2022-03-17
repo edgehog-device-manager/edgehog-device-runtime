@@ -29,6 +29,10 @@ jobs:
   check:
     name: cargo check
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -36,7 +40,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           override: true
 
       - name: Run cargo check
@@ -47,6 +51,10 @@ jobs:
   test:
     name: cargo test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -54,7 +62,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           override: true
       - name: Run cargo test
         uses: actions-rs/cargo@v1
