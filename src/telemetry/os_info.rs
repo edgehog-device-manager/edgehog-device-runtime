@@ -66,7 +66,7 @@ fn parse_os_info(os: &str) -> Result<HashMap<String, AstarteType>, DeviceManager
 
 #[cfg(test)]
 mod tests {
-    use crate::telemetry::osinfo::parse_os_info;
+    use crate::telemetry::os_info::parse_os_info;
 
     #[test]
     fn os_release_parsing() {
