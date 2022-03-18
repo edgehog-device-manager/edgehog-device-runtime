@@ -100,4 +100,32 @@ BUG_REPORT_URL="https://bugs.debian.org/""#;
         assert_eq!(data["/osName"], "Debian GNU/Linux");
         assert_eq!(data["/osVersion"], "11");
     }
+
+    #[test]
+    fn os_release_parsing_with_middle_empty_line() {
+        let file = r#"NAME="Debian GNU/Linux"
+
+VERSION_ID="11""#;
+
+        let data = parse_os_info(file).unwrap();
+        assert_eq!(data["/osName"], "Debian GNU/Linux");
+        assert_eq!(data["/osVersion"], "11");
+    }
+
+    #[test]
+    fn os_release_with_only_name() {
+        let file = r#"NAME="Arch Linux"#;
+
+        let data = parse_os_info(file).unwrap();
+        assert_eq!(data["/osName"], "Arch Linux");
+        assert!(!data.contains_key("/osVersion"));
+    }
+
+    #[test]
+    fn os_release_malformed() {
+        let file = r#"NAM["Arch Linux"@@"#;
+
+        let data = parse_os_info(file).unwrap();
+        assert!(data.is_empty());
+    }
 }
