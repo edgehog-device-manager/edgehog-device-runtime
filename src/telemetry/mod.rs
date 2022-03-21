@@ -20,4 +20,5 @@
 
 pub(crate) mod hardware_info;
 pub(crate) mod os_info;
+pub(crate) mod runtime_info;
 pub(crate) mod system_status;

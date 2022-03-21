@@ -9,6 +9,7 @@
 name = "edgehog-device-runtime"
 version = "0.1.0"
 edition = "2021"
+homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,3 +23,4 @@ clap = { version = "3.1.6", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 serde = "1.0.136"
 procfs = "0.12.0"
+rustc_version_runtime = "0.1"

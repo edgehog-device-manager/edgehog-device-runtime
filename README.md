@@ -20,6 +20,7 @@ The following information are sent to remote Edgehog instance:
 - OS info (data is read from `/etc/os-release`)
 - Hardware info
 - System status (data is read from proc filesystem)
+- Runtime info and compiler version
 
 ## How it Works
 
