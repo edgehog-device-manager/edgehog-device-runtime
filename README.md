@@ -14,6 +14,8 @@ enables remote device management using
 
 At the moment only Linux-based systems are supported.
 
+See also [OS requirements](doc/os_requirements.md) for further information.
+
 ## Implemented Features
 
 The following information are sent to remote Edgehog instance:
