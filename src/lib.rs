@@ -20,10 +20,14 @@
 
 use astarte_sdk::AstarteSdk;
 pub mod error;
+mod ota_handler;
+mod rauc;
 mod telemetry;
 
 use astarte_sdk::builder::AstarteOptions;
 use error::DeviceManagerError;
+use log::{debug, info};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct DeviceManagerOptions {
     pub realm: String,
@@ -31,9 +35,12 @@ pub struct DeviceManagerOptions {
     pub credentials_secret: String,
     pub pairing_url: String,
     pub interface_json_path: String,
+    pub state_file_path: String,
+    pub download_file_path: String,
 }
 pub struct DeviceManager {
     sdk: AstarteSdk,
+    ota_event_channel: Sender<astarte_sdk::Clientbound>,
 }
 
 impl DeviceManager {
@@ -46,10 +53,30 @@ impl DeviceManager {
         )
         .interface_directory(&opts.interface_json_path)?
         .build();
+        info!("Starting");
 
         let device = astarte_sdk::AstarteSdk::new(&sdk_options).await?;
 
-        Ok(Self { sdk: device })
+        let mut ota_handler = ota_handler::OTAHandler::new(&opts).await?;
+
+        ota_handler.ensure_pending_ota_response(&device).await?;
+
+        let (tx, mut rx): (
+            Sender<astarte_sdk::Clientbound>,
+            Receiver<astarte_sdk::Clientbound>,
+        ) = tokio::sync::mpsc::channel(32);
+
+        let sdk_clone = device.clone();
+        tokio::spawn(async move {
+            while let Some(data) = rx.recv().await {
+                ota_handler.ota_event(&sdk_clone, data).await.ok();
+            }
+        });
+
+        Ok(Self {
+            sdk: device,
+            ota_event_channel: tx,
+        })
     }
 
     pub async fn run(&mut self) {
@@ -73,7 +100,12 @@ impl DeviceManager {
         loop {
             match self.sdk.poll().await {
                 Ok(data) => {
-                    println!("incoming: {:?}", data);
+                    debug!("incoming: {:?}", data);
+
+                    if data.interface == "io.edgehog.devicemanager.OTARequest" {
+                        //using a channel to avoid blocking the main loop
+                        self.ota_event_channel.send(data).await.unwrap();
+                    }
                 }
                 Err(err) => log::error!("{:?}", err),
             }

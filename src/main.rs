@@ -54,6 +54,9 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         credentials_secret,
         pairing_url,
         interface_json_path: "./interfaces".to_string(),
+        // TODO: change following paths
+        state_file_path: "/data/dm-update".to_string(),
+        download_file_path: "/tmp/".to_string(),
     };
 
     let mut dm = edgehog_device_runtime::DeviceManager::new(options).await?;
