@@ -18,20 +18,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::collections::HashMap;
-
+use astarte_sdk::builder::AstarteOptions;
+use astarte_sdk::types::AstarteType;
 use astarte_sdk::{Aggregation, AstarteSdk};
+use error::DeviceManagerError;
+use log::{debug, info, warn};
+use std::collections::HashMap;
+use tokio::sync::mpsc::Sender;
+
+mod commands;
 pub mod error;
 mod ota_handler;
 mod power_management;
 mod rauc;
 mod telemetry;
-
-use astarte_sdk::builder::AstarteOptions;
-use astarte_sdk::types::AstarteType;
-use error::DeviceManagerError;
-use log::{info, warn};
-use tokio::sync::mpsc::Sender;
 
 pub struct DeviceManagerOptions {
     pub realm: String,
@@ -102,7 +102,7 @@ impl DeviceManager {
         loop {
             match self.sdk.poll().await {
                 Ok(clientbound) => {
-                    println!("incoming: {:?}", clientbound);
+                    debug!("incoming: {:?}", clientbound);
 
                     match (
                         clientbound.interface.as_str(),
@@ -112,13 +112,19 @@ impl DeviceManager {
                             .split('/')
                             .collect::<Vec<&str>>()
                             .as_slice(),
-                        clientbound.data.clone(),
+                        &clientbound.data,
                     ) {
                         (
                             "io.edgehog.devicemanager.OTARequest",
                             ["request"],
                             Aggregation::Object(data),
-                        ) => self.ota_event_channel.send(data).await.unwrap(),
+                        ) => self.ota_event_channel.send(data.clone()).await.unwrap(),
+
+                        (
+                            "io.edgehog.devicemanager.Commands",
+                            ["request"],
+                            Aggregation::Individual(AstarteType::String(command)),
+                        ) => commands::execute_command(command),
 
                         _ => {
                             warn!("Receiving data from an unknown path/interface: {clientbound:?}");
