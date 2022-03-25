@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 use zbus::export::futures_util::StreamExt;
 
 use crate::error::DeviceManagerError;
+use crate::ota::rauc::RaucProxy;
 use crate::power_management;
-use crate::rauc::RaucProxy;
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
 
@@ -289,7 +289,7 @@ async fn wget(url: &str, file_path: &str) -> Result<(), DeviceManagerError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ota_handler::{OTAError, OTAStatus};
+    use crate::ota::ota_handler::{OTAError, OTAStatus};
 
     #[test]
     fn ota_status() {

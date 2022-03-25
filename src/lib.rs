@@ -33,12 +33,13 @@ use tokio::sync::mpsc::Sender;
 mod commands;
 mod device;
 pub mod error;
-mod ota_handler;
+mod ota;
 mod power_management;
-mod rauc;
 mod repository;
 mod telemetry;
 pub mod wrapper;
+
+use crate::ota::ota_handler::OTAHandler;
 
 #[derive(Debug, Deserialize)]
 pub struct DeviceManagerOptions {
@@ -76,7 +77,7 @@ impl DeviceManager {
         wrapper::systemd::systemd_notify_status("Initializing");
         let device = astarte_sdk::AstarteSdk::new(&sdk_options).await?;
 
-        let mut ota_handler = ota_handler::OTAHandler::new(&opts).await?;
+        let mut ota_handler = OTAHandler::new(&opts).await?;
 
         ota_handler.ensure_pending_ota_response(&device).await?;
 

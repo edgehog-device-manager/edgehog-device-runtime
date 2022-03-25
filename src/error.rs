@@ -50,7 +50,7 @@ pub enum DeviceManagerError {
     SerdeJsonError(#[from] serde_json::Error),
 
     #[error(transparent)]
-    OTAError(#[from] crate::ota_handler::OTAError),
+    OTAError(#[from] crate::ota::ota_handler::OTAError),
 
     #[error("configuration file error")]
     ConfigFileError(#[from] toml::de::Error),
