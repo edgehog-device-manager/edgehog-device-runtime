@@ -28,7 +28,7 @@ pub struct FileStateRepository {
 
 impl<T> StateRepository<T> for FileStateRepository
 where
-    T: Serialize + DeserializeOwned,
+    T: Serialize + DeserializeOwned + Send + Sync,
 {
     fn write(&self, value: &T) -> Result<(), DeviceManagerError> {
         let mut file = std::fs::File::create(&self.path)?;

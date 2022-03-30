@@ -23,17 +23,19 @@ use std::collections::HashMap;
 use astarte_sdk::types::AstarteType;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use zbus::export::futures_util::StreamExt;
+use uuid::Uuid;
 
+use crate::data::Publisher;
 use crate::error::DeviceManagerError;
-use crate::ota::rauc::RaucProxy;
+use crate::ota::rauc::OTARauc;
+use crate::ota::OTA;
 use crate::power_management;
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
-    uuid: String,
+    uuid: Uuid,
     slot: String,
 }
 
@@ -57,6 +59,14 @@ enum OTAStatus {
     Error(OTAError),
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OTAResponse {
+    uuid: Uuid,
+    status: String,
+    status_code: String,
+}
+
 impl OTAStatus {
     fn to_status_code(&self) -> (String, String) {
         match self {
@@ -68,7 +78,7 @@ impl OTAStatus {
 }
 
 pub struct OTAHandler<'a> {
-    rauc: RaucProxy<'a>,
+    ota: Box<dyn OTA + 'a>,
     state_repository: Box<dyn StateRepository<PersistentState> + 'a>,
     download_file_path: String,
 }
@@ -77,15 +87,10 @@ impl<'a> OTAHandler<'a> {
     pub async fn new(
         opts: &crate::DeviceManagerOptions,
     ) -> Result<OTAHandler<'a>, DeviceManagerError> {
-        let connection = zbus::Connection::system().await?;
-
-        let proxy = RaucProxy::new(&connection).await?;
-
-        info!("boot slot = {:?}", proxy.boot_slot().await);
-        info!("primary slot = {:?}", proxy.get_primary().await);
+        let ota = OTARauc::new().await?;
 
         Ok(OTAHandler {
-            rauc: proxy,
+            ota: Box::new(ota),
             state_repository: Box::new(FileStateRepository {
                 path: opts.state_file.clone(),
             }),
@@ -94,51 +99,70 @@ impl<'a> OTAHandler<'a> {
     }
 
     pub async fn last_error(&self) -> Result<String, DeviceManagerError> {
-        Ok(self.rauc.last_error().await?)
+        self.ota.last_error().await
     }
 
     pub async fn ota_event(
         &mut self,
-        sdk: &astarte_sdk::AstarteSdk,
+        sdk: &impl Publisher,
         data: HashMap<String, AstarteType>,
     ) -> Result<(), DeviceManagerError> {
-        if let (AstarteType::String(request_url), AstarteType::String(request_uuid)) =
+        if !data.contains_key("url") || !data.contains_key("uuid") {
+            return Err(DeviceManagerError::UpdateError(
+                "Unable to find keys in OTA request".to_owned(),
+            ));
+        }
+
+        if let (AstarteType::String(request_url), AstarteType::String(request_uuid_str)) =
             (&data["url"], &data["uuid"])
         {
-            let result = self.handle_ota_event(sdk, request_url, request_uuid).await;
+            let request_uuid = Uuid::parse_str(request_uuid_str).map_err(|_| {
+                DeviceManagerError::UpdateError("Unable to parse request_uuid".to_owned())
+            })?;
 
-            if let Err(err) = result {
-                error!("Update failed!");
-                error!("{:?}", err);
-                error!("{:?}", self.last_error().await);
+            match self.handle_ota_event(sdk, request_url, request_uuid).await {
+                Err(err) => {
+                    error!("Update failed!");
+                    error!("{:?}", err);
+                    error!("{:?}", self.last_error().await);
 
-                match err {
-                    DeviceManagerError::OTAError(err) => self
-                        .send_ota_response(sdk, request_uuid, OTAStatus::Error(err))
-                        .await
-                        .ok(),
-                    _ => self
-                        .send_ota_response(sdk, request_uuid, OTAStatus::Error(OTAError::Failed))
-                        .await
-                        .ok(),
-                };
+                    match err {
+                        DeviceManagerError::OTAError(err) => self
+                            .send_ota_response(sdk, &request_uuid, OTAStatus::Error(err))
+                            .await
+                            .ok(),
+                        _ => self
+                            .send_ota_response(
+                                sdk,
+                                &request_uuid,
+                                OTAStatus::Error(OTAError::Failed),
+                            )
+                            .await
+                            .ok(),
+                    };
+                    Err(DeviceManagerError::UpdateError(
+                        "Unable to handle OTA event".to_owned(),
+                    ))
+                }
+                _ => Ok(()),
             }
         } else {
             error!("Got bad data in OTARequest ({data:?})");
+            Err(DeviceManagerError::UpdateError(
+                "Got bad data in OTARequest".to_owned(),
+            ))
         }
-
-        Ok(())
     }
 
     async fn handle_ota_event(
         &mut self,
-        sdk: &astarte_sdk::AstarteSdk,
+        sdk: &impl Publisher,
         request_url: &str,
-        request_uuid: &str,
+        request_uuid: Uuid,
     ) -> Result<(), DeviceManagerError> {
         info!("Got update event");
 
-        self.send_ota_response(sdk, request_uuid, OTAStatus::InProgress)
+        self.send_ota_response(sdk, &request_uuid, OTAStatus::InProgress)
             .await?;
 
         let path = std::path::Path::new(&self.download_file_path).join("update.bin");
@@ -146,12 +170,13 @@ impl<'a> OTAHandler<'a> {
             DeviceManagerError::FatalError("wrong download file path".to_string())
         })?;
 
+        #[cfg(not(test))]
         wget(request_url, path).await?;
 
-        let bundle_info = self.rauc.info(path).await?;
+        let bundle_info = self.ota.info(path).await?;
         debug!("bundle info: {:?}", bundle_info);
 
-        let compatible = self.rauc.compatible().await?;
+        let compatible = self.ota.compatible().await?;
 
         if bundle_info.compatible != compatible {
             error!(
@@ -164,26 +189,21 @@ impl<'a> OTAHandler<'a> {
         }
 
         self.state_repository.write(&PersistentState {
-            uuid: request_uuid.to_string(),
-            slot: self.rauc.boot_slot().await?,
+            uuid: request_uuid.clone(),
+            slot: self.ota.boot_slot().await?,
         })?;
 
-        self.rauc.install_bundle(path, HashMap::new()).await?;
+        self.ota.install_bundle(path).await?;
 
         debug!(
             "install_bundle done, last_error={:?}",
             self.last_error().await
         );
 
-        debug!("rauc operation = {}", self.rauc.operation().await?);
-
-        let mut completed_update = self.rauc.receive_completed().await?;
+        debug!("rauc operation = {}", self.ota.operation().await?);
 
         info!("Waiting for signal...");
-        if let Some(completed) = completed_update.next().await {
-            let signal = completed.args().unwrap();
-            let signal = *signal.result();
-
+        if let Ok(signal) = self.ota.receive_completed().await {
             info!("Completed signal! {:?}", signal);
 
             match signal {
@@ -193,6 +213,7 @@ impl<'a> OTAHandler<'a> {
 
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
+                    #[cfg(not(test))]
                     power_management::reboot()?;
                 }
                 _ => {
@@ -207,13 +228,13 @@ impl<'a> OTAHandler<'a> {
 
     pub async fn ensure_pending_ota_response(
         &self,
-        sdk: &astarte_sdk::AstarteSdk,
+        sdk: &impl Publisher,
     ) -> Result<(), DeviceManagerError> {
         if self.state_repository.exists() {
             info!("Found pending update");
             let state = self.state_repository.read()?;
 
-            if state.slot != self.rauc.boot_slot().await? {
+            if state.slot != self.ota.boot_slot().await? {
                 info!("OTA successful");
                 self.send_ota_response(sdk, &state.uuid, OTAStatus::Done)
                     .await?;
@@ -231,27 +252,19 @@ impl<'a> OTAHandler<'a> {
 
     async fn send_ota_response(
         &self,
-        sdk: &astarte_sdk::AstarteSdk,
-        request_uuid: &str,
+        sdk: &impl Publisher,
+        request_uuid: &Uuid,
         status: OTAStatus,
     ) -> Result<(), DeviceManagerError> {
         info!("Sending ota response {:?}", status);
 
         let (status, status_code) = status.to_status_code();
 
-        #[derive(serde::Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct OTAResponse {
-            uuid: String,
-            status: String,
-            status_code: String,
-        }
-
         sdk.send_object(
             "io.edgehog.devicemanager.OTAResponse",
             "/response",
             OTAResponse {
-                uuid: request_uuid.to_string(),
+                uuid: request_uuid.clone(),
                 status,
                 status_code,
             },
@@ -289,7 +302,18 @@ async fn wget(url: &str, file_path: &str) -> Result<(), DeviceManagerError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ota::ota_handler::{OTAError, OTAStatus};
+    use std::collections::HashMap;
+
+    use astarte_sdk::types::AstarteType;
+    use astarte_sdk::AstarteError;
+    use uuid::Uuid;
+
+    use crate::data::MockPublisher;
+    use crate::error::DeviceManagerError;
+    use crate::ota::ota_handler::{OTAError, OTAHandler, OTAResponse, OTAStatus, PersistentState};
+    use crate::ota::rauc::BundleInfo;
+    use crate::ota::MockOTA;
+    use crate::repository::MockStateRepository;
 
     #[test]
     fn ota_status() {
@@ -313,5 +337,409 @@ mod tests {
             ("InProgress".to_owned(), "".to_owned()),
             OTAStatus::InProgress.to_status_code()
         );
+    }
+
+    #[tokio::test]
+    async fn handle_ota_event_bundle_not_compatible() {
+        let mut publisher = MockPublisher::new();
+        publisher
+            .expect_send_object()
+            .returning(|_, _: &str, _: OTAResponse| Ok(()));
+
+        let mut ota = MockOTA::new();
+        ota.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        ota.expect_compatible()
+            .returning(|| Ok("rauc-demo-arm".to_string()));
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_write().returning(|_| Ok(()));
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let result = ota_handler
+            .handle_ota_event(&publisher, "", Uuid::new_v4())
+            .await;
+        assert!(result.is_err());
+
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "bundle is not compatible".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn handle_ota_event_bundle_install_bundle_fail() {
+        let mut ota = MockOTA::new();
+
+        let mut publisher = MockPublisher::new();
+        publisher
+            .expect_send_object()
+            .returning(|_, _: &str, _: OTAResponse| Ok(()));
+
+        ota.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        ota.expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+        ota.expect_operation().returning(|| Ok("".to_string()));
+        ota.expect_receive_completed().returning(|| Ok(-1));
+        ota.expect_install_bundle().returning(|_| Ok(()));
+        ota.expect_boot_slot().returning(|| Ok("".to_owned()));
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_write().returning(|_| Ok(()));
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let result = ota_handler
+            .handle_ota_event(&publisher, "", Uuid::new_v4())
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.err().unwrap(),
+            DeviceManagerError::OTAError(OTAError::Deploy)
+        ));
+    }
+
+    #[tokio::test]
+    async fn ensure_pending_ota_response_ota_fail() {
+        let mut ota = MockOTA::new();
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+
+        ota.expect_boot_slot().returning(|| Ok("A".to_owned()));
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid: uuid.clone(),
+                slot: slot.to_owned(),
+            })
+        });
+
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let mut publisher = MockPublisher::new();
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, response: &OTAResponse| {
+                let status = OTAStatus::Error(OTAError::Failed).to_status_code();
+                response.status.eq(&status.0)
+                    && response.status_code.eq(&status.1)
+                    && response.uuid == uuid.clone()
+            })
+            .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
+
+        let result = ota_handler.ensure_pending_ota_response(&publisher).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ensure_pending_ota_response_ota_success() {
+        let mut ota = MockOTA::new();
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+
+        ota.expect_boot_slot().returning(|| Ok("B".to_owned()));
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid: uuid.to_owned(),
+                slot: slot.to_owned(),
+            })
+        });
+
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let mut publisher = MockPublisher::new();
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, response: &OTAResponse| {
+                let status = OTAStatus::Done.to_status_code();
+                response.status.eq(&status.0)
+                    && response.status_code.eq(&status.1)
+                    && response.uuid == uuid.to_owned()
+            })
+            .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
+
+        let result = ota_handler.ensure_pending_ota_response(&publisher).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ota_event_fail_empty_keys() {
+        let ota = MockOTA::new();
+        let state_mock = MockStateRepository::<PersistentState>::new();
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let result = ota_handler
+            .ota_event(&MockPublisher::new(), HashMap::new())
+            .await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Unable to find keys in OTA request".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn ota_event_fail_with_one_key() {
+        let ota = MockOTA::new();
+        let state_mock = MockStateRepository::<PersistentState>::new();
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert(
+            "url".to_owned(),
+            AstarteType::String("http://ota.bin".to_owned()),
+        );
+
+        let result = ota_handler
+            .ota_event(&MockPublisher::new(), ota_req_map)
+            .await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Unable to find keys in OTA request".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn ota_event_fail_with_wrong_astarte_type() {
+        let ota = MockOTA::new();
+        let state_mock = MockStateRepository::<PersistentState>::new();
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert(
+            "url".to_owned(),
+            AstarteType::String("http://ota.bin".to_owned()),
+        );
+        ota_req_map.insert("uuid".to_owned(), AstarteType::Integer(0));
+
+        let result = ota_handler
+            .ota_event(&MockPublisher::new(), ota_req_map)
+            .await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Got bad data in OTARequest".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn ota_event_fail_with_wrong_uuid() {
+        let ota = MockOTA::new();
+        let state_mock = MockStateRepository::<PersistentState>::new();
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert(
+            "url".to_owned(),
+            AstarteType::String("http://ota.bin".to_owned()),
+        );
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String("bad_uuid".to_owned()),
+        );
+
+        let result = ota_handler
+            .ota_event(&MockPublisher::new(), ota_req_map)
+            .await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Unable to parse request_uuid".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn ota_event_fail() {
+        let ota = MockOTA::new();
+        let uuid = Uuid::new_v4();
+        let mut publisher = MockPublisher::new();
+        publisher
+            .expect_send_object()
+            .returning(|_: &str, _: &str, _: OTAResponse| {
+                Err(AstarteError::SendError("test".to_owned()))
+            });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert(
+            "url".to_owned(),
+            AstarteType::String("http://ota.bin".to_owned()),
+        );
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+
+        let state_mock = MockStateRepository::<PersistentState>::new();
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Unable to handle OTA event".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn ota_event_success() {
+        let mut ota = MockOTA::new();
+        ota.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        ota.expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        ota.expect_boot_slot().returning(|| Ok("B".to_owned()));
+        ota.expect_install_bundle().returning(|_: &str| Ok(()));
+        ota.expect_receive_completed().returning(|| Ok(0));
+
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid: uuid.to_owned(),
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let mut publisher = MockPublisher::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, response: &OTAResponse| {
+                let status = OTAStatus::Done.to_status_code();
+                response.status.eq(&status.0)
+                    && response.status_code.eq(&status.1)
+                    && response.uuid == uuid.to_owned()
+            })
+            .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, response: &OTAResponse| {
+                let status = OTAStatus::InProgress.to_status_code();
+                response.status.eq(&status.0)
+                    && response.status_code.eq(&status.1)
+                    && response.uuid == uuid.to_owned()
+            })
+            .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert(
+            "url".to_owned(),
+            AstarteType::String("http://ota.bin".to_owned()),
+        );
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+
+        assert!(result.is_ok());
     }
 }

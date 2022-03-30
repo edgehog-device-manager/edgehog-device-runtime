@@ -30,7 +30,12 @@ use std::fs::File;
 use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
+use crate::astarte::Astarte;
+use crate::data::astarte;
+use crate::ota::ota_handler::OTAHandler;
+
 mod commands;
+mod data;
 mod device;
 pub mod error;
 mod ota;
@@ -38,8 +43,6 @@ mod power_management;
 mod repository;
 mod telemetry;
 pub mod wrapper;
-
-use crate::ota::ota_handler::OTAHandler;
 
 #[derive(Debug, Deserialize)]
 pub struct DeviceManagerOptions {
@@ -75,23 +78,28 @@ impl DeviceManager {
         info!("Starting");
 
         wrapper::systemd::systemd_notify_status("Initializing");
-        let device = astarte_sdk::AstarteSdk::new(&sdk_options).await?;
+        let astarte_client = Astarte::new(&sdk_options).await?;
 
         let mut ota_handler = OTAHandler::new(&opts).await?;
 
-        ota_handler.ensure_pending_ota_response(&device).await?;
+        ota_handler
+            .ensure_pending_ota_response(&astarte_client)
+            .await?;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
 
-        let sdk_clone = device.clone();
+        let astarte_client_clone = astarte_client.clone();
         tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
-                ota_handler.ota_event(&sdk_clone, data).await.ok();
+                ota_handler
+                    .ota_event(&astarte_client_clone, data)
+                    .await
+                    .ok();
             }
         });
 
         Ok(Self {
-            sdk: device,
+            sdk: astarte_client.device_sdk,
             ota_event_channel: tx,
         })
     }
