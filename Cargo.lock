@@ -411,6 +411,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+ "uuid",
  "zbus",
 ]
 
