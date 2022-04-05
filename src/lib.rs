@@ -199,6 +199,16 @@ impl DeviceManager {
             }
         }
 
+        let disks = telemetry::storage_usage::get_storage_usage()?;
+        for (disk_name, storage) in &disks {
+            device
+                .send_object(
+                    "io.edgehog.devicemanager.StorageUsage",
+                    format!("/{}", disk_name).as_str(),
+                    storage,
+                )
+                .await?;
+        }
         Ok(())
     }
 }
