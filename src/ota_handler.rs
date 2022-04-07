@@ -18,11 +18,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::collections::HashMap;
+
+use astarte_sdk::types::AstarteType;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use zbus::export::futures_util::StreamExt;
 
 use crate::error::DeviceManagerError;
+use crate::power_management;
 use crate::rauc::RaucProxy;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -92,36 +96,31 @@ impl<'a> OTAHandler<'a> {
     pub async fn ota_event(
         &mut self,
         sdk: &astarte_sdk::AstarteSdk,
-        data: astarte_sdk::Clientbound,
+        data: HashMap<String, AstarteType>,
     ) -> Result<(), DeviceManagerError> {
-        if let astarte_sdk::Aggregation::Object(obj) = data.data {
-            use astarte_sdk::types::AstarteType;
-            if let (AstarteType::String(request_url), AstarteType::String(request_uuid)) =
-                (&obj["url"], &obj["uuid"])
-            {
-                let result = self.handle_ota_event(sdk, request_url, request_uuid).await;
+        if let (AstarteType::String(request_url), AstarteType::String(request_uuid)) =
+            (&data["url"], &data["uuid"])
+        {
+            let result = self.handle_ota_event(sdk, request_url, request_uuid).await;
 
-                if let Err(err) = result {
-                    error!("Update failed!");
-                    error!("{:?}", err);
-                    error!("{:?}", self.last_error().await);
+            if let Err(err) = result {
+                error!("Update failed!");
+                error!("{:?}", err);
+                error!("{:?}", self.last_error().await);
 
-                    match err {
-                        DeviceManagerError::OTAError(err) => self
-                            .send_ota_response(sdk, request_uuid, OTAStatus::Error(err))
-                            .await
-                            .ok(),
-                        _ => self
-                            .send_ota_response(
-                                sdk,
-                                request_uuid,
-                                OTAStatus::Error(OTAError::Failed),
-                            )
-                            .await
-                            .ok(),
-                    };
-                }
+                match err {
+                    DeviceManagerError::OTAError(err) => self
+                        .send_ota_response(sdk, request_uuid, OTAStatus::Error(err))
+                        .await
+                        .ok(),
+                    _ => self
+                        .send_ota_response(sdk, request_uuid, OTAStatus::Error(OTAError::Failed))
+                        .await
+                        .ok(),
+                };
             }
+        } else {
+            error!("Got bad data in OTARequest ({data:?})");
         }
 
         Ok(())
@@ -188,40 +187,17 @@ impl<'a> OTAHandler<'a> {
             match signal {
                 0 => {
                     info!("Update successful");
-                    OTAHandler::reboot().await?;
+                    info!("Rebooting in 5 seconds");
+
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                    power_management::reboot()?;
                 }
                 _ => {
                     error!("Update failed with signal {signal}");
                     return Err(OTAError::Deploy.into());
                 }
             }
-        }
-
-        Ok(())
-    }
-
-    async fn reboot() -> Result<(), DeviceManagerError> {
-        info!("Rebooting in 5 seconds");
-
-        if std::env::var("DM_DRYRUN").is_ok() {
-            info!("Dry run, exiting");
-
-            std::process::exit(0);
-        }
-
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-        // TODO: use systemd api
-        let mut cmd = std::process::Command::new("shutdown");
-        cmd.arg("-r");
-        cmd.arg("now");
-
-        let output = cmd.output()?;
-
-        if output.status.success() && output.stderr.is_empty() {
-            panic!("Reboot command was successful, bye");
-        } else {
-            error!("Reboot failed {:?}", output.stderr);
         }
 
         Ok(())

@@ -18,16 +18,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_sdk::AstarteSdk;
+use astarte_sdk::builder::AstarteOptions;
+use astarte_sdk::types::AstarteType;
+use astarte_sdk::{Aggregation, AstarteSdk};
+use error::DeviceManagerError;
+use log::{debug, info, warn};
+use std::collections::HashMap;
+use tokio::sync::mpsc::Sender;
+
+mod commands;
 pub mod error;
 mod ota_handler;
+mod power_management;
 mod rauc;
 mod telemetry;
-
-use astarte_sdk::builder::AstarteOptions;
-use error::DeviceManagerError;
-use log::{debug, info};
-use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct DeviceManagerOptions {
     pub realm: String,
@@ -40,7 +44,8 @@ pub struct DeviceManagerOptions {
 }
 pub struct DeviceManager {
     sdk: AstarteSdk,
-    ota_event_channel: Sender<astarte_sdk::Clientbound>,
+    //we pass the ota event through a channel, to avoid blocking the main loop
+    ota_event_channel: Sender<HashMap<String, AstarteType>>,
 }
 
 impl DeviceManager {
@@ -61,10 +66,7 @@ impl DeviceManager {
 
         ota_handler.ensure_pending_ota_response(&device).await?;
 
-        let (tx, mut rx): (
-            Sender<astarte_sdk::Clientbound>,
-            Receiver<astarte_sdk::Clientbound>,
-        ) = tokio::sync::mpsc::channel(32);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
 
         let sdk_clone = device.clone();
         tokio::spawn(async move {
@@ -99,12 +101,34 @@ impl DeviceManager {
 
         loop {
             match self.sdk.poll().await {
-                Ok(data) => {
-                    debug!("incoming: {:?}", data);
+                Ok(clientbound) => {
+                    debug!("incoming: {:?}", clientbound);
 
-                    if data.interface == "io.edgehog.devicemanager.OTARequest" {
-                        //using a channel to avoid blocking the main loop
-                        self.ota_event_channel.send(data).await.unwrap();
+                    match (
+                        clientbound.interface.as_str(),
+                        clientbound
+                            .path
+                            .trim_matches('/')
+                            .split('/')
+                            .collect::<Vec<&str>>()
+                            .as_slice(),
+                        &clientbound.data,
+                    ) {
+                        (
+                            "io.edgehog.devicemanager.OTARequest",
+                            ["request"],
+                            Aggregation::Object(data),
+                        ) => self.ota_event_channel.send(data.clone()).await.unwrap(),
+
+                        (
+                            "io.edgehog.devicemanager.Commands",
+                            ["request"],
+                            Aggregation::Individual(AstarteType::String(command)),
+                        ) => commands::execute_command(command),
+
+                        _ => {
+                            warn!("Receiving data from an unknown path/interface: {clientbound:?}");
+                        }
                     }
                 }
                 Err(err) => log::error!("{:?}", err),
