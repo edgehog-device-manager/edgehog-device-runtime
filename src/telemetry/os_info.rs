@@ -38,19 +38,19 @@ pub fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError>
     ))
 }
 
+fn parse_key_value_line(line: &str) -> Option<(&str, &str)> {
+    let mut tokens = line.split('=');
+
+    let key = tokens.next()?;
+    let value = tokens.next()?.trim_matches('"');
+
+    Some((key, value))
+}
+
 fn parse_os_info(os: &str) -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
     let mut ret: HashMap<String, AstarteType> = HashMap::new();
 
-    fn parse_line(line: &str) -> Option<(&str, &str)> {
-        let mut line = line.split('=');
-
-        let key = line.next()?;
-        let value = line.next()?.trim_matches('"');
-
-        Some((key, value))
-    }
-
-    let lines: HashMap<&str, &str> = os.lines().filter_map(parse_line).collect();
+    let lines: HashMap<&str, &str> = os.lines().filter_map(parse_key_value_line).collect();
 
     if let Some(field) = lines.get("NAME") {
         ret.insert("/osName".to_owned(), field.into());
@@ -66,7 +66,7 @@ fn parse_os_info(os: &str) -> Result<HashMap<String, AstarteType>, DeviceManager
 
 #[cfg(test)]
 mod tests {
-    use crate::telemetry::os_info::parse_os_info;
+    use crate::telemetry::os_info::{parse_key_value_line, parse_os_info};
 
     #[test]
     fn os_release_parsing() {
@@ -99,5 +99,58 @@ BUG_REPORT_URL="https://bugs.debian.org/""#;
         let data = parse_os_info(file).unwrap();
         assert_eq!(data["/osName"], "Debian GNU/Linux");
         assert_eq!(data["/osVersion"], "11");
+    }
+
+    #[test]
+    fn os_release_parsing_with_middle_empty_line() {
+        let file = r#"NAME="Debian GNU/Linux"
+
+VERSION_ID="11""#;
+
+        let data = parse_os_info(file).unwrap();
+        assert_eq!(data["/osName"], "Debian GNU/Linux");
+        assert_eq!(data["/osVersion"], "11");
+    }
+
+    #[test]
+    fn os_release_with_only_name() {
+        let file = r#"NAME="Arch Linux"#;
+
+        let data = parse_os_info(file).unwrap();
+        assert_eq!(data["/osName"], "Arch Linux");
+        assert!(!data.contains_key("/osVersion"));
+    }
+
+    #[test]
+    fn os_release_malformed() {
+        let file = r#"NAM["Arch Linux"@@"#;
+
+        let data = parse_os_info(file).unwrap();
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn parse_key_value_line_empty() {
+        let line = "";
+
+        let data = parse_key_value_line(line);
+        assert!(data.is_none());
+    }
+
+    #[test]
+    fn parse_key_value_line_malformed() {
+        let line = r#"OS;"Arch"#;
+
+        let data = parse_key_value_line(line);
+        assert!(data.is_none());
+    }
+
+    #[test]
+    fn parse_key_value_line_valid() {
+        let line = r#"OS="Arch"#;
+
+        let (key, value) = parse_key_value_line(line).unwrap();
+        assert_eq!(key, "OS");
+        assert_eq!(value, "Arch");
     }
 }
