@@ -51,4 +51,7 @@ pub enum DeviceManagerError {
 
     #[error(transparent)]
     OTAError(#[from] crate::ota_handler::OTAError),
+
+    #[error("configuration file error")]
+    ConfigFileError(#[from] toml::de::Error),
 }

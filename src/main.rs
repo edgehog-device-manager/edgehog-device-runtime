@@ -19,22 +19,15 @@
  */
 
 use clap::Parser;
-use edgehog_device_runtime::DeviceManagerOptions;
+use config::read_options;
+
+mod config;
 
 #[derive(Debug, Parser)]
 struct Cli {
-    // Realm name
+    /// Override configuration file path
     #[clap(short, long)]
-    realm: String,
-    // Device id
-    #[clap(short, long)]
-    device_id: String,
-    // Credentials secret
-    #[clap(short, long)]
-    credentials_secret: String,
-    // Pairing URL
-    #[clap(short, long)]
-    pairing_url: String,
+    configuration_file: Option<String>,
 }
 
 #[tokio::main]
@@ -42,22 +35,10 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     env_logger::init();
 
     let Cli {
-        realm,
-        device_id,
-        credentials_secret,
-        pairing_url,
+        configuration_file: config_file_path,
     } = Parser::parse();
 
-    let options = DeviceManagerOptions {
-        realm,
-        device_id,
-        credentials_secret,
-        pairing_url,
-        interface_json_path: "./interfaces".to_string(),
-        // TODO: change following paths
-        state_file_path: "/data/dm-update".to_string(),
-        download_file_path: "/tmp/".to_string(),
-    };
+    let options = read_options(config_file_path)?;
 
     let mut dm = edgehog_device_runtime::DeviceManager::new(options).await?;
 

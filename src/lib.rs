@@ -23,6 +23,7 @@ use astarte_sdk::types::AstarteType;
 use astarte_sdk::{Aggregation, AstarteSdk};
 use error::DeviceManagerError;
 use log::{debug, info, warn};
+use serde::Deserialize;
 use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 
@@ -33,14 +34,15 @@ mod power_management;
 mod rauc;
 mod telemetry;
 
+#[derive(Debug, Deserialize)]
 pub struct DeviceManagerOptions {
     pub realm: String,
     pub device_id: String,
     pub credentials_secret: String,
     pub pairing_url: String,
-    pub interface_json_path: String,
-    pub state_file_path: String,
-    pub download_file_path: String,
+    pub interfaces_directory: String,
+    pub state_file: String,
+    pub download_directory: String,
 }
 pub struct DeviceManager {
     sdk: AstarteSdk,
@@ -56,7 +58,7 @@ impl DeviceManager {
             &opts.credentials_secret,
             &opts.pairing_url,
         )
-        .interface_directory(&opts.interface_json_path)?
+        .interface_directory(&opts.interfaces_directory)?
         .build();
         info!("Starting");
 
