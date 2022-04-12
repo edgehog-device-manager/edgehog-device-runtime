@@ -34,6 +34,8 @@ jobs:
         toolchain:
           - stable
     steps:
+      - name: Install libudev
+        run: sudo apt-get install -y libudev-dev
       - name: Checkout sources
         uses: actions/checkout@v2
       - name: Install toolchain
@@ -56,6 +58,8 @@ jobs:
         toolchain:
           - stable
     steps:
+      - name: Install libudev
+        run: sudo apt-get install -y libudev-dev
       - name: Checkout sources
         uses: actions/checkout@v2
       - name: Install toolchain

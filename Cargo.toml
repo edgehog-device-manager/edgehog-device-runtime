@@ -28,3 +28,4 @@ rustc_version_runtime = "0.2"
 zbus = { version = "2", default-features = false, features = ["tokio"] }
 reqwest = "0.11.9"
 toml = "0.5.8"
+udev = "0.6.3"
