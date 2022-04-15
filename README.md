@@ -35,6 +35,21 @@ Edgehog Device Runtime is a reference implementation of
 Astarte interfaces describe how data are exchanged with the remote instance, and what kind of
 features are implemented.
 
+## Configuration
+
+Edgehog Device Runtime can be configured using a [TOML](https://en.wikipedia.org/wiki/TOML) file located either in $PWD/edgehog-config.toml or /etc/edgehog/config.toml, or in a custom path, run `cargo run -- --help` for more informations.
+
+Example configuration:
+```toml
+credentials_secret = "YOUR_CREDENTIAL_SECRET"
+device_id = "YOUR_UNIQUE_DEVIDE_ID"
+pairing_url = "https://api.astarte.EXAMPLE.COM/pairing"
+realm = "examplerealm"
+interfaces_directory = "/usr/share/edgehog/astarte-interfaces/"
+state_file = "/var/lib/edgehog/state.json"
+download_directory = "/var/tmp/edgehog-updates/"
+```
+
 ## Contributing
 
 We are open to any contribution:

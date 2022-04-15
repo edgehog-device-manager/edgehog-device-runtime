@@ -84,8 +84,8 @@ impl<'a> OTAHandler<'a> {
 
         Ok(OTAHandler {
             rauc: proxy,
-            state_file_path: opts.state_file_path.clone(),
-            download_file_path: opts.download_file_path.clone(),
+            state_file_path: opts.state_file.clone(),
+            download_file_path: opts.download_directory.clone(),
         })
     }
 
