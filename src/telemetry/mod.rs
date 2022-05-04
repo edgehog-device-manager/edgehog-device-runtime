@@ -23,4 +23,5 @@ pub(crate) mod net_if_properties;
 pub(crate) mod os_info;
 pub(crate) mod runtime_info;
 pub(crate) mod storage_usage;
+pub(crate) mod system_info;
 pub(crate) mod system_status;

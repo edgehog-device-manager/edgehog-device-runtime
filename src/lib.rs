@@ -204,6 +204,10 @@ impl DeviceManager {
                 "io.edgehog.devicemanager.NetworkInterfaceProperties",
                 telemetry::net_if_properties::get_network_interface_properties().await?,
             ),
+            (
+                "io.edgehog.devicemanager.SystemInfo",
+                telemetry::system_info::get_system_info()?,
+            ),
         ];
 
         for (ifc, fields) in data {
