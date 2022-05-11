@@ -30,6 +30,7 @@ use tokio::sync::mpsc::Sender;
 mod commands;
 pub mod error;
 mod ota_handler;
+mod partition_handler;
 mod power_management;
 mod rauc;
 mod telemetry;

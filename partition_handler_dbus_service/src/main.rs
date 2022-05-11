@@ -36,22 +36,14 @@ struct PartitionHandler {
 impl PartitionHandler {
     // Get boot consecutive fails
     fn get_consecutive_fail_boot(&self) -> String {
-        self.get_value_for_key_from_info(&self.get_info_stdout(), "Consecutive fail boot")
+        let info_stdout = get_info_stdout(&self.partition_path);
+        get_value_for_key_from_info(&info_stdout, "Consecutive fail boot")
     }
 
     // Get fail counter state
     fn get_boot_fail_counter_state(&self) -> String {
-        self.get_value_for_key_from_info(&self.get_info_stdout(), "Boot fail counter state")
-    }
-
-    fn get_value_for_key_from_info(&self, stdout: &str, key: &str) -> String {
-        let stdout: Vec<String> = stdout
-            .lines()
-            .filter(|line| line.starts_with(key))
-            .map(|line| line.split(":").nth(1).unwrap().to_owned())
-            .collect();
-
-        stdout.first().unwrap().trim().to_string()
+        let info_stdout = get_info_stdout(&self.partition_path);
+        get_value_for_key_from_info(&info_stdout, "Boot fail counter state")
     }
 
     fn switch_partition(&self) -> bool {
@@ -64,19 +56,29 @@ impl PartitionHandler {
 
         result.success()
     }
+}
 
-    fn get_info_stdout(&self) -> String {
-        String::from_utf8(
-            Command::new("fw_sysdata")
-                .args(["-t", "switchslot"])
-                .arg("-p")
-                .args(["-d", &self.partition_path])
-                .output()
-                .expect("Failed to execute fw_sysdata")
-                .stdout,
-        )
-        .expect("Failed to read output")
-    }
+fn get_info_stdout(partition_path: &str) -> String {
+    String::from_utf8(
+        Command::new("fw_sysdata")
+            .args(["-t", "switchslot"])
+            .arg("-p")
+            .args(["-d", partition_path])
+            .output()
+            .expect("Failed to execute fw_sysdata")
+            .stdout,
+    )
+    .expect("Failed to read output")
+}
+
+fn get_value_for_key_from_info(stdout: &str, key: &str) -> String {
+    let stdout: Vec<String> = stdout
+        .lines()
+        .filter(|line| line.starts_with(key))
+        .map(|line| line.split(":").nth(1).unwrap().to_owned())
+        .collect();
+
+    stdout.first().unwrap().trim().to_string()
 }
 
 // Simple DBUS service that exposes some info and the switch partition function of fw_sysdata
@@ -99,14 +101,10 @@ async fn main() -> zbus::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::PartitionHandler;
+    use super::get_value_for_key_from_info;
 
     #[test]
     fn partition_handler_info_test() {
-        let partition_handler = PartitionHandler {
-            partition_path: "".to_string(),
-        };
-
         let mock_output = "Switchslot - current state:
 Boot from slot @: 00002
 Boot from slot A: 00001
@@ -116,11 +114,11 @@ Consecutive fail boot: 0
 Boot fail counter state: disabled";
 
         assert_eq!(
-            partition_handler.get_value_for_key_from_info(mock_output, "Consecutive fail boot"),
+            get_value_for_key_from_info(mock_output, "Consecutive fail boot"),
             "0".to_string()
         );
         assert_eq!(
-            partition_handler.get_value_for_key_from_info(mock_output, "Boot fail counter state"),
+            get_value_for_key_from_info(mock_output, "Boot fail counter state"),
             "disabled".to_string()
         );
     }

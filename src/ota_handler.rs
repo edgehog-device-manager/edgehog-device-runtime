@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use zbus::export::futures_util::StreamExt;
 
 use crate::error::DeviceManagerError;
+use crate::partition_handler::PartitionHandlerProxy;
 use crate::power_management;
 use crate::rauc::RaucProxy;
 
@@ -186,6 +187,14 @@ impl<'a> OTAHandler<'a> {
 
             match signal {
                 0 => {
+                    let connection = zbus::Connection::system().await?;
+                    let proxy = PartitionHandlerProxy::new(&connection).await?;
+
+                    if !proxy.switch_partition().await? {
+                        error!("Unable to switch partition");
+                        return Err(OTAError::Deploy.into());
+                    }
+
                     info!("Update successful");
                     info!("Rebooting in 5 seconds");
 
