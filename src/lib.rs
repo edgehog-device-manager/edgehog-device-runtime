@@ -61,6 +61,7 @@ pub struct DeviceManagerOptions {
     pub store_directory: String,
     pub download_directory: String,
     pub astarte_ignore_ssl: Option<bool>,
+    pub telemetry_config: Vec<telemetry::TelemetryInterfaceConfig>,
 }
 
 pub struct DeviceManager {
@@ -120,13 +121,7 @@ impl DeviceManager {
             }
         });
 
-        let telemetry_default_config = vec![crate::telemetry::TelemetryInterfaceConfig {
-            interface_name: "io.edgehog.devicemanager.SystemStatus".to_owned(),
-            enabled: true,
-            period: 10,
-        }];
-
-        let tel = telemetry::Telemetry::from_default_config(telemetry_default_config);
+        let tel = telemetry::Telemetry::from_default_config(opts.telemetry_config).await;
 
         Ok(Self {
             sdk: device,
@@ -138,7 +133,6 @@ impl DeviceManager {
     pub async fn run(&mut self) {
         wrapper::systemd::systemd_notify_status("Running");
         let w = self.sdk.clone();
-
         let tel = self.telemetry.clone();
         tokio::task::spawn(async move {
             tel.run_telemetry(w).await;
@@ -327,6 +321,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         assert_eq!(
             get_credentials_secret("device_id", &options, state_mock)
