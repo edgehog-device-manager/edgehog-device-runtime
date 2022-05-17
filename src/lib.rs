@@ -55,6 +55,7 @@ pub struct DeviceManagerOptions {
     pub store_directory: String,
     pub download_directory: String,
     pub astarte_ignore_ssl: Option<bool>,
+    pub telemetry_config: Vec<telemetry::TelemetryInterfaceConfig>,
 }
 
 pub struct DeviceManager<T: Publisher + Clone> {
@@ -80,13 +81,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         let (ota_tx, ota_rx) = tokio::sync::mpsc::channel(1);
         let (data_tx, data_rx) = tokio::sync::mpsc::channel(32);
 
-        let telemetry_default_config = vec![crate::telemetry::TelemetryInterfaceConfig {
-            interface_name: "io.edgehog.devicemanager.SystemStatus".to_owned(),
-            enabled: true,
-            period: 10,
-        }];
-
-        let tel = telemetry::Telemetry::from_default_config(telemetry_default_config);
+        let tel = telemetry::Telemetry::from_default_config(opts.telemetry_config).await;
 
         let device_runtime = Self {
             publisher,
@@ -169,6 +164,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
     pub async fn run(&mut self) {
         wrapper::systemd::systemd_notify_status("Running");
         let w = self.publisher.clone();
+        let tel = self.telemetry.clone();
         tokio::task::spawn(async move {
             loop {
                 let systatus = telemetry::system_status::get_system_status().unwrap();
