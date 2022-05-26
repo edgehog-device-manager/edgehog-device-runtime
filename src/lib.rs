@@ -36,6 +36,7 @@ pub mod error;
 mod ota_handler;
 mod power_management;
 mod rauc;
+mod repository;
 mod telemetry;
 
 #[derive(Debug, Deserialize)]
