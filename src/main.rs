@@ -20,8 +20,15 @@
 
 use clap::Parser;
 use config::read_options;
+use edgehog_device_runtime::DeviceManagerOptions;
+#[cfg(feature = "systemd")]
+use std::panic::{self, PanicInfo};
 
 mod config;
+
+//Error code state not recoverable
+#[allow(unused)]
+const ENOTRECOVERABLE: i32 = 131;
 
 #[derive(Debug, Parser)]
 struct Cli {
@@ -33,7 +40,14 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError> {
     env_logger::init();
-
+    #[cfg(feature = "systemd")]
+    {
+        let default_panic_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |panic_info| {
+            default_panic_hook(panic_info);
+            systemd_panic_hook(panic_info);
+        }));
+    }
     let Cli {
         configuration_file: config_file_path,
     } = Parser::parse();
@@ -47,4 +61,24 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     dm.run().await;
 
     Ok(())
+}
+
+#[cfg(feature = "systemd")]
+fn systemd_panic_hook(panic_info: &PanicInfo) {
+    use edgehog_device_runtime::wrapper;
+
+    let message = if let Some(panic_msg) = panic_info.payload().downcast_ref::<&str>() {
+        panic_msg
+    } else {
+        "panic occurred"
+    };
+
+    let location = if let Some(location) = panic_info.location() {
+        format!("in file '{}' at line {}", location.file(), location.line(),)
+    } else {
+        ""
+    };
+
+    let status = format!("{} {}", message, location);
+    wrapper::systemd::systemd_notify_errno_status(ENOTRECOVERABLE, &status);
 }
