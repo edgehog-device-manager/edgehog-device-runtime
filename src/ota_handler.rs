@@ -28,6 +28,8 @@ use zbus::export::futures_util::StreamExt;
 use crate::error::DeviceManagerError;
 use crate::power_management;
 use crate::rauc::RaucProxy;
+use crate::repository::file_state_repository::FileStateRepository;
+use crate::repository::StateRepository;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -67,7 +69,7 @@ impl OTAStatus {
 
 pub struct OTAHandler<'a> {
     rauc: RaucProxy<'a>,
-    state_file_path: String,
+    state_repository: Box<dyn StateRepository<PersistentState> + 'a>,
     download_file_path: String,
 }
 
@@ -84,7 +86,9 @@ impl<'a> OTAHandler<'a> {
 
         Ok(OTAHandler {
             rauc: proxy,
-            state_file_path: opts.state_file.clone(),
+            state_repository: Box::new(FileStateRepository {
+                path: opts.state_file.clone(),
+            }),
             download_file_path: opts.download_directory.clone(),
         })
     }
@@ -159,14 +163,12 @@ impl<'a> OTAHandler<'a> {
             ));
         }
 
-        self.write_state_json(PersistentState {
+        self.state_repository.write(&PersistentState {
             uuid: request_uuid.to_string(),
             slot: self.rauc.boot_slot().await?,
         })?;
 
-        self.rauc
-            .install_bundle(path, std::collections::HashMap::new())
-            .await?;
+        self.rauc.install_bundle(path, HashMap::new()).await?;
 
         debug!(
             "install_bundle done, last_error={:?}",
@@ -207,9 +209,9 @@ impl<'a> OTAHandler<'a> {
         &self,
         sdk: &astarte_sdk::AstarteSdk,
     ) -> Result<(), DeviceManagerError> {
-        if std::path::Path::new(&self.state_file_path).exists() {
+        if self.state_repository.exists() {
             info!("Found pending update");
-            let state = self.read_state_json()?;
+            let state = self.state_repository.read()?;
 
             if state.slot != self.rauc.boot_slot().await? {
                 info!("OTA successful");
@@ -221,7 +223,7 @@ impl<'a> OTAHandler<'a> {
                     .await?;
             }
 
-            std::fs::remove_file(&self.state_file_path)?;
+            self.state_repository.clear()?;
         }
 
         Ok(())
@@ -255,21 +257,6 @@ impl<'a> OTAHandler<'a> {
             },
         )
         .await?;
-
-        Ok(())
-    }
-
-    fn read_state_json(&self) -> Result<PersistentState, DeviceManagerError> {
-        let str = std::fs::read_to_string(&self.state_file_path)?;
-
-        let state: PersistentState = serde_json::from_str(&str)?;
-
-        Ok(state)
-    }
-
-    fn write_state_json(&self, state: PersistentState) -> Result<(), DeviceManagerError> {
-        let mut file = std::fs::File::create(&self.state_file_path)?;
-        std::io::Write::write_all(&mut file, serde_json::to_string(&state)?.as_bytes())?;
 
         Ok(())
     }
