@@ -13,15 +13,6 @@ enables remote device management using
 ## Supported Operating System
 
 At the moment only Linux-based systems are supported.
-On Linux systems if `edgehog-device-runtime` is a `systemd` service, it can notify `systemd` of its status changes.
-This is provided via the `rust-systemd` crate, a Rust interface to `libsystemd/libelogind` APIs.
-
-To build the `runtime` make sure you have `libsystemd-dev` installed on your system
-and the systemd feature enabled.
-
-```shell
-cargo build --features systemd
-```
 
 See also [OS requirements](doc/os_requirements.md) for further information.
 
