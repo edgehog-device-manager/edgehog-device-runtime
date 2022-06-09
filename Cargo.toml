@@ -15,7 +15,7 @@ homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 
 [dependencies]
 nix = "0.23.1"
-thiserror = "1.0.30"
+thiserror = "1.0.31"
 astarte_sdk = {git ="https://github.com/astarte-platform/astarte-device-sdk-rust.git" }
 log = "0.4"
 env_logger = "0.9.0"
