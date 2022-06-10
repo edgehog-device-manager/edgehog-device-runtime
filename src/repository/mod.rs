@@ -21,7 +21,6 @@
 pub(crate) mod file_state_repository;
 
 use crate::error::DeviceManagerError;
-use serde::{de::DeserializeOwned, Serialize};
 
 pub trait StateRepository<T>: Send + Sync {
     fn write(&self, value: &T) -> Result<(), DeviceManagerError>;

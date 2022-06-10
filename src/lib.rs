@@ -190,16 +190,20 @@ async fn get_device_id(opt_device_id: Option<String>) -> Result<String, DeviceMa
     if let Some(device_id) = opt_device_id {
         Ok(device_id)
     } else {
-        let connection = zbus::Connection::system().await?;
-        let proxy = DeviceProxy::new(&connection).await?;
-        let hardware_id: String = proxy.get_hardware_id("").await?;
-        if hardware_id.is_empty() {
-            return Err(DeviceManagerError::FatalError(
-                "No hardware id provided".to_string(),
-            ));
-        }
-        Ok(hardware_id)
+        get_hardware_id_from_dbus().await
     }
+}
+
+async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
+    let connection = zbus::Connection::system().await?;
+    let proxy = DeviceProxy::new(&connection).await?;
+    let hardware_id: String = proxy.get_hardware_id("").await?;
+    if hardware_id.is_empty() {
+        return Err(DeviceManagerError::FatalError(
+            "No hardware id provided".to_string(),
+        ));
+    }
+    Ok(hardware_id)
 }
 
 async fn get_credentials_secret(
@@ -209,21 +213,79 @@ async fn get_credentials_secret(
     if let Some(secret) = opts.credentials_secret.clone() {
         Ok(secret)
     } else if Path::new(&format!("./{}.json", device_id)).exists() {
-        let reader = File::open(&format!("./{}.json", device_id)).unwrap();
-        Ok(serde_json::from_reader(reader).expect("Unable to read secret"))
+        get_credentials_secret_from_persistence(device_id)
     } else if let Some(token) = opts.pairing_token.clone() {
-        let registration =
-            registration::register_device(&token, &opts.pairing_url, &opts.realm, &device_id).await;
-        if let Ok(credential_secret) = registration {
-            let writer = File::create(&format!("./{}.json", device_id)).unwrap();
-            serde_json::to_writer(writer, &credential_secret).expect("Unable to write secret");
-            Ok(credential_secret)
-        } else {
-            Err(DeviceManagerError::FatalError("Pairing error".to_string()))
-        }
+        get_credentials_secret_from_registration(device_id, &token, opts).await
     } else {
         Err(DeviceManagerError::FatalError(
             "Missing arguments".to_string(),
         ))
+    }
+}
+
+fn get_credentials_secret_from_persistence(device_id: &str) -> Result<String, DeviceManagerError> {
+    let reader = File::open(&format!("./{}.json", device_id)).unwrap();
+    Ok(serde_json::from_reader(reader).expect("Unable to read secret"))
+}
+
+async fn get_credentials_secret_from_registration(
+    device_id: &str,
+    token: &str,
+    opts: &DeviceManagerOptions,
+) -> Result<String, DeviceManagerError> {
+    let registration =
+        registration::register_device(token, &opts.pairing_url, &opts.realm, &device_id).await;
+    if let Ok(credential_secret) = registration {
+        let writer = File::create(&format!("./{}.json", device_id)).unwrap();
+        serde_json::to_writer(writer, &credential_secret).expect("Unable to write secret");
+        Ok(credential_secret)
+    } else {
+        Err(DeviceManagerError::FatalError("Pairing error".to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{get_credentials_secret, get_device_id, DeviceManagerOptions};
+
+    #[tokio::test]
+    async fn device_id_test() {
+        assert_eq!(
+            get_device_id(Some("target".to_string())).await.unwrap(),
+            "target".to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn credentials_secret_test() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: None,
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "".to_string(),
+            state_file: "".to_string(),
+            download_directory: "".to_string(),
+        };
+        assert_eq!(
+            get_credentials_secret("device_id", &options).await.unwrap(),
+            "credentials_secret".to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn not_enough_arguments_credentials_secret_test() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: None,
+            credentials_secret: None,
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "".to_string(),
+            state_file: "".to_string(),
+            download_directory: "".to_string(),
+        };
+        assert!(get_credentials_secret("device_id", &options).await.is_err());
     }
 }
