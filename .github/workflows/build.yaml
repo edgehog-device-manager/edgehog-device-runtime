@@ -37,6 +37,10 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
+      - name: Install dependencies
+        run: |
+           sudo apt update
+           sudo apt -y install libsystemd-dev
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -48,6 +52,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
+          args: --features systemd
 
   test:
     name: cargo test
