@@ -48,7 +48,8 @@ struct NetworkInterfaceProperties {
     technology_type: TechnologyType,
 }
 
-fn get_ethernet_wifi() -> Result<Vec<NetworkInterfaceProperties>, DeviceManagerError> {
+fn get_supported_network_interfaces() -> Result<Vec<NetworkInterfaceProperties>, DeviceManagerError>
+{
     const ARPHRD_ETHER: &str = "1";
     const ARPHRD_PPP: &str = "512";
 
@@ -109,15 +110,21 @@ fn get_ethernet_wifi() -> Result<Vec<NetworkInterfaceProperties>, DeviceManagerE
 /// get structured data for `io.edgehog.devicemanager.NetworkInterfaceProperties` interface
 pub async fn get_network_interface_properties(
 ) -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-    let mut ret: HashMap<String, AstarteType> = HashMap::new();
-
-    let eth_wifi = get_ethernet_wifi().map_or_else(
+    let supported_networks_interfaces = get_supported_network_interfaces().map_or_else(
         |err| {
             warn!("{err}");
             Default::default()
         },
         |d| d,
     );
+
+    Ok(network_interface_to_astarte(supported_networks_interfaces))
+}
+
+fn network_interface_to_astarte(
+    eth_wifi: Vec<NetworkInterfaceProperties>,
+) -> HashMap<String, AstarteType> {
+    let mut ret: HashMap<String, AstarteType> = HashMap::new();
 
     for iff in eth_wifi {
         ret.insert(
@@ -130,5 +137,75 @@ pub async fn get_network_interface_properties(
         );
     }
 
-    Ok(ret)
+    ret
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::telemetry::net_if_properties::{
+        get_supported_network_interfaces, network_interface_to_astarte, NetworkInterfaceProperties,
+        TechnologyType,
+    };
+    use astarte_sdk::types::AstarteType;
+
+    #[test]
+    fn technology_type_to_string_test() {
+        assert_eq!(TechnologyType::Ethernet.to_string(), "Ethernet".to_string());
+        assert_eq!(TechnologyType::Cellular.to_string(), "Cellular".to_string());
+        assert_eq!(TechnologyType::WiFi.to_string(), "WiFi".to_string());
+    }
+
+    #[test]
+    fn network_interface_to_astarte_test() {
+        let mut eth_wifi = Vec::new();
+        eth_wifi.push(NetworkInterfaceProperties {
+            interface: "wifi_test".to_string(),
+            mac_address: "00:11:22:33:44:55".to_string(),
+            technology_type: TechnologyType::WiFi,
+        });
+        eth_wifi.push(NetworkInterfaceProperties {
+            interface: "eth_test".to_string(),
+            mac_address: "11:22:33:44:55:66".to_string(),
+            technology_type: TechnologyType::Ethernet,
+        });
+        eth_wifi.push(NetworkInterfaceProperties {
+            interface: "cellular_test".to_string(),
+            mac_address: "22:33:44:55:66:77".to_string(),
+            technology_type: TechnologyType::Cellular,
+        });
+
+        let astarte_payload = network_interface_to_astarte(eth_wifi);
+
+        assert_eq!(
+            astarte_payload.get("/wifi_test/macAddress").unwrap(),
+            &AstarteType::String("00:11:22:33:44:55".to_string())
+        );
+        assert_eq!(
+            astarte_payload.get("/wifi_test/technologyType").unwrap(),
+            &AstarteType::String("WiFi".to_string())
+        );
+        assert_eq!(
+            astarte_payload.get("/eth_test/macAddress").unwrap(),
+            &AstarteType::String("11:22:33:44:55:66".to_string())
+        );
+        assert_eq!(
+            astarte_payload.get("/eth_test/technologyType").unwrap(),
+            &AstarteType::String("Ethernet".to_string())
+        );
+        assert_eq!(
+            astarte_payload.get("/cellular_test/macAddress").unwrap(),
+            &AstarteType::String("22:33:44:55:66:77".to_string())
+        );
+        assert_eq!(
+            astarte_payload
+                .get("/cellular_test/technologyType")
+                .unwrap(),
+            &AstarteType::String("Cellular".to_string())
+        );
+    }
+
+    #[test]
+    fn get_supported_network_interfaces_run_test() {
+        assert!(get_supported_network_interfaces().is_ok());
+    }
 }
