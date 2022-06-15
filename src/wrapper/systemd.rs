@@ -47,7 +47,7 @@ pub fn systemd_notify_errno_status(err_no: i32, service_status: &str) {
     {
         let systemd_state_pairs = vec![
             (STATE_ERRNO, err_no.to_string()),
-            (STATE_STATUS, service_status),
+            (STATE_STATUS, service_status.to_string()),
         ];
         daemon::notify(false, systemd_state_pairs.iter());
     }

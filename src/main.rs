@@ -76,7 +76,7 @@ fn systemd_panic_hook(panic_info: &PanicInfo) {
     let location = if let Some(location) = panic_info.location() {
         format!("in file '{}' at line {}", location.file(), location.line(),)
     } else {
-        ""
+        "".to_string()
     };
 
     let status = format!("{} {}", message, location);
