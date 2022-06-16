@@ -20,7 +20,7 @@
 
 use clap::Parser;
 use config::read_options;
-use edgehog_device_runtime::DeviceManagerOptions;
+
 #[cfg(feature = "systemd")]
 use std::panic::{self, PanicInfo};
 

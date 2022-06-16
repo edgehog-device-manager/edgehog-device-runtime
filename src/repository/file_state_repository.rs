@@ -52,3 +52,21 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::repository::file_state_repository::FileStateRepository;
+    use crate::repository::StateRepository;
+
+    #[test]
+    fn file_state_test() {
+        let repository: Box<dyn StateRepository<i32>> = Box::new(FileStateRepository {
+            path: "test.json".to_string(),
+        });
+        let value: i32 = 0;
+        repository.write(&value).unwrap();
+        assert!(repository.exists());
+        assert_eq!(repository.read().unwrap(), value);
+        repository.clear().unwrap();
+    }
+}
