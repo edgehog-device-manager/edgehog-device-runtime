@@ -26,6 +26,17 @@ pub struct FileStateRepository {
     pub path: String,
 }
 
+impl FileStateRepository {
+    pub fn new(path: String, name: String) -> Self {
+        let path = if path.ends_with("/") {
+            path + &name
+        } else {
+            path + "/" + &name
+        };
+        FileStateRepository { path }
+    }
+}
+
 impl<T> StateRepository<T> for FileStateRepository
 where
     T: Serialize + DeserializeOwned + Send + Sync,
@@ -68,5 +79,19 @@ mod tests {
         assert!(repository.exists());
         assert_eq!(repository.read().unwrap(), value);
         repository.clear().unwrap();
+    }
+
+    #[test]
+    fn file_repository_new_end_without_slash() {
+        let file = FileStateRepository::new("/tmp/path".to_owned(), "state.json".to_owned());
+
+        assert_eq!(file.path, "/tmp/path/state.json".to_owned())
+    }
+
+    #[test]
+    fn file_repository_new_end_with_slash() {
+        let file = FileStateRepository::new("/tmp/path/".to_owned(), "state.json".to_owned());
+
+        assert_eq!(file.path, "/tmp/path/state.json".to_owned())
     }
 }
