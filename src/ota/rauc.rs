@@ -182,6 +182,24 @@ impl<'a> OTA for OTARauc<'a> {
             ))
         }
     }
+
+    async fn get_primary(&self) -> Result<String, DeviceManagerError> {
+        self.rauc
+            .get_primary()
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
+
+    async fn mark(
+        &self,
+        state: &str,
+        slot_identifier: &str,
+    ) -> Result<(String, String), DeviceManagerError> {
+        self.rauc
+            .mark(state, slot_identifier)
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
 }
 
 impl<'a> OTARauc<'a> {
