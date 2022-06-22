@@ -30,7 +30,7 @@ const DEFAULT_NAMESPACE: &str = "f79ad91f-c638-4889-ae74-9d001a3b4cf8";
 #[derive(Debug, Parser)]
 struct Cli {
     // Retrieve hardware id from file
-    #[clap(short, long, conflicts_with_all=&["use-dmi-serial ","kernel-cmdline-key"])]
+    #[clap(short, long, conflicts_with_all=&["use-dmi-serial","kernel-cmdline-key"])]
     file_path: Option<String>,
 
     // Shortcut per file-path = "/sys/class/dmi/id/board_serial"
@@ -38,7 +38,7 @@ struct Cli {
     use_dmi_serial : bool,
 
     // Retrieve hardware id from Kernel parameters in the form key=value
-    #[clap(short, long, conflicts_with_all=&["use-dmi-serial ","file-path"])]
+    #[clap(short, long, conflicts_with_all=&["use-dmi-serial","file-path"])]
     kernel_cmdline_key: Option<String>,
 }
 
