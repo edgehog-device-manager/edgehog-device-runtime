@@ -18,16 +18,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_sdk::AstarteError;
+use async_trait::async_trait;
 use mockall::automock;
 
-use crate::error::DeviceManagerError;
-
-pub(crate) mod file_state_repository;
+pub(crate) mod astarte;
 
 #[automock]
-pub trait StateRepository<T: Send + Sync>: Send + Sync {
-    fn write(&self, value: &T) -> Result<(), DeviceManagerError>;
-    fn read(&self) -> Result<T, DeviceManagerError>;
-    fn exists(&self) -> bool;
-    fn clear(&self) -> Result<(), DeviceManagerError>;
+#[async_trait]
+pub trait Publisher: Send + Sync {
+    async fn send_object<T: 'static>(
+        &self,
+        interface_name: &str,
+        interface_path: &str,
+        data: T,
+    ) -> Result<(), AstarteError>
+    where
+        T: serde::Serialize + Send;
+    //TODO add send and send_object_with_timestamp to this trait
 }

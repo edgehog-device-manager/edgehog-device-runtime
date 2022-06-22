@@ -18,9 +18,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use async_trait::async_trait;
+use log::info;
 use serde::{Deserialize, Serialize};
 use zbus::dbus_proxy;
+use zbus::export::futures_util::StreamExt;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
+
+use crate::ota::OTA;
+use crate::DeviceManagerError;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
 #[zvariant(signature = "dict")]
@@ -112,4 +118,81 @@ trait Rauc {
     /// This signal is emitted when an installation completed, either successfully or with an error.
     #[dbus_proxy(signal)]
     fn completed(&self, result: i32) -> Result<()>;
+}
+
+pub struct OTARauc<'a> {
+    rauc: RaucProxy<'a>,
+}
+
+#[async_trait]
+impl<'a> OTA for OTARauc<'a> {
+    async fn install_bundle(&self, _source: &str) -> Result<(), DeviceManagerError> {
+        self.rauc
+            .install_bundle("path", std::collections::HashMap::new())
+            .await?;
+        Ok(())
+    }
+
+    async fn last_error(&self) -> Result<String, DeviceManagerError> {
+        self.rauc
+            .last_error()
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
+
+    async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError> {
+        self.rauc
+            .info(bundle)
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
+
+    async fn operation(&self) -> Result<String, DeviceManagerError> {
+        self.rauc
+            .operation()
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
+
+    async fn compatible(&self) -> Result<String, DeviceManagerError> {
+        self.rauc
+            .compatible()
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
+
+    async fn boot_slot(&self) -> Result<String, DeviceManagerError> {
+        self.rauc
+            .boot_slot()
+            .await
+            .map_err(|err| DeviceManagerError::ZbusError(err))
+    }
+
+    async fn receive_completed(&self) -> Result<i32, DeviceManagerError> {
+        let mut completed_update = self.rauc.receive_completed().await?;
+
+        if let Some(completed) = completed_update.next().await {
+            let signal = completed.args().unwrap();
+            let signal = *signal.result();
+
+            Ok(signal)
+        } else {
+            Err(DeviceManagerError::UpdateError(
+                "Unable to receive signal from rauc interface".to_owned(),
+            ))
+        }
+    }
+}
+
+impl<'a> OTARauc<'a> {
+    pub async fn new() -> Result<OTARauc<'a>, DeviceManagerError> {
+        let connection = zbus::Connection::system().await?;
+
+        let proxy = RaucProxy::new(&connection).await?;
+
+        info!("boot slot = {:?}", proxy.boot_slot().await);
+        info!("primary slot = {:?}", proxy.get_primary().await);
+
+        Ok(OTARauc { rauc: proxy })
+    }
 }

@@ -18,16 +18,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use async_trait::async_trait;
 use mockall::automock;
 
 use crate::error::DeviceManagerError;
+use crate::ota::rauc::BundleInfo;
 
-pub(crate) mod file_state_repository;
+pub(crate) mod ota_handler;
+pub(crate) mod rauc;
 
 #[automock]
-pub trait StateRepository<T: Send + Sync>: Send + Sync {
-    fn write(&self, value: &T) -> Result<(), DeviceManagerError>;
-    fn read(&self) -> Result<T, DeviceManagerError>;
-    fn exists(&self) -> bool;
-    fn clear(&self) -> Result<(), DeviceManagerError>;
+#[async_trait]
+pub trait OTA: Send + Sync {
+    async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError>;
+    async fn last_error(&self) -> Result<String, DeviceManagerError>;
+    async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError>;
+    async fn operation(&self) -> Result<String, DeviceManagerError>;
+    async fn compatible(&self) -> Result<String, DeviceManagerError>;
+    async fn boot_slot(&self) -> Result<String, DeviceManagerError>;
+    async fn receive_completed(&self) -> Result<i32, DeviceManagerError>;
 }
