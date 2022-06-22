@@ -73,5 +73,7 @@ jobs:
           override: true
       - name: Run cargo test
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: -Awarnings
         with:
           command: test
