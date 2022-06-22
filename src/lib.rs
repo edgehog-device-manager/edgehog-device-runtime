@@ -78,10 +78,23 @@ impl DeviceManager {
         info!("Starting");
 
         wrapper::systemd::systemd_notify_status("Initializing");
-        let astarte_client = Astarte::new(&sdk_options).await?;
+        let mut astarte_client_result = Astarte::new(&sdk_options).await;
+
+        let mut retry: i32 = 0;
+        const MAX_RETRY: i32 = 9; //512 seconds ~ 8,5 min
+        while let Err(astarte_error) = astarte_client_result {
+            warn!("{:#?}", astarte_error);
+
+            tokio::time::sleep(std::time::Duration::from_secs(2_u64.pow(retry as u32))).await;
+            astarte_client_result = Astarte::new(&sdk_options).await;
+            if retry < MAX_RETRY {
+                retry += 1;
+            }
+        }
 
         let mut ota_handler = OTAHandler::new(&opts).await?;
 
+        let astarte_client = astarte_client_result?;
         ota_handler
             .ensure_pending_ota_response(&astarte_client)
             .await?;
