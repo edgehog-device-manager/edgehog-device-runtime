@@ -6,6 +6,9 @@
 
 # Edgehog Device Runtime
 
+![](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/build.yaml/badge.svg?branch=main)
+[![codecov](https://codecov.io/gh/edgehog-device-manager/edgehog-device-runtime/branch/main/graph/badge.svg)](https://app.codecov.io/gh/edgehog-device-manager)
+
 Edgehog Device Runtime is a portable middleware written in [Rust](https://www.rust-lang.org/), that
 enables remote device management using
 [Edgehog](https://github.com/edgehog-device-manager/edgehog).
