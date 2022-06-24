@@ -34,3 +34,11 @@ async-trait = "0.1.56"
 
 [dev-dependencies]
 mockall = "0.11.1"
+
+[features]
+e2e_test = []
+
+[[bin]]
+name = "e2e-test"
+required-features = ["e2e_test"]
+path = "src/e2e_test/e2e_test.rs"
