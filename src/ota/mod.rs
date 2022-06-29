@@ -19,6 +19,7 @@
  */
 
 use async_trait::async_trait;
+#[cfg(test)]
 use mockall::automock;
 
 use crate::error::DeviceManagerError;
@@ -27,7 +28,7 @@ use crate::ota::rauc::BundleInfo;
 pub(crate) mod ota_handler;
 pub(crate) mod rauc;
 
-#[automock]
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait OTA: Send + Sync {
     async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError>;

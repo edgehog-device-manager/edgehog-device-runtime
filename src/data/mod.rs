@@ -20,11 +20,12 @@
 
 use astarte_sdk::AstarteError;
 use async_trait::async_trait;
+#[cfg(test)]
 use mockall::automock;
 
 pub(crate) mod astarte;
 
-#[automock]
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait Publisher: Send + Sync {
     async fn send_object<T: 'static>(

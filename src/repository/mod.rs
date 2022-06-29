@@ -18,13 +18,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#[cfg(test)]
 use mockall::automock;
 
 use crate::error::DeviceManagerError;
 
 pub(crate) mod file_state_repository;
 
-#[automock]
+#[cfg_attr(test, automock)]
 pub trait StateRepository<T: Send + Sync>: Send + Sync {
     fn write(&self, value: &T) -> Result<(), DeviceManagerError>;
     fn read(&self) -> Result<T, DeviceManagerError>;

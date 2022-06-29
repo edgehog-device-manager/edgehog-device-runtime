@@ -30,5 +30,7 @@ reqwest = "0.11.11"
 toml = "0.5.9"
 uuid = {version="0.8.2", features = ["v5", "v4"] }
 systemd = { version = "0.10", optional = true }
-mockall = "0.11.0"
 async-trait = "0.1.53"
+
+[dev-dependencies]
+mockall = "0.11.1"
