@@ -18,21 +18,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::sync::Arc;
+
 use astarte_sdk::types::AstarteType;
 use astarte_sdk::{Aggregation, Clientbound};
 use log::{debug, info, warn};
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::fs::File;
-use std::path::Path;
-use std::sync::Arc;
-use tokio::sync::mpsc::{Receiver, Sender};
-
-use device::DeviceProxy;
-use error::DeviceManagerError;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::RwLock;
 
 use crate::data::Publisher;
+use crate::device::DeviceProxy;
+use crate::error::DeviceManagerError;
 use crate::ota::ota_handler::OTAHandler;
+use crate::telemetry::{TelemetryMessage, TelemetryPayload};
 
 mod commands;
 pub mod data;
@@ -40,7 +39,7 @@ mod device;
 pub mod error;
 mod ota;
 mod power_management;
-mod repository;
+pub mod repository;
 mod telemetry;
 pub mod wrapper;
 
@@ -63,7 +62,7 @@ pub struct DeviceManager<T: Publisher + Clone> {
     //we pass all Astarte event through a channel, to avoid blocking the main loop
     ota_event_channel: Sender<Clientbound>,
     data_event_channel: Sender<Clientbound>,
-    telemetry: Arc<telemetry::Telemetry>,
+    telemetry: Arc<RwLock<telemetry::Telemetry>>,
 }
 
 impl<T: Publisher + Clone + 'static> DeviceManager<T> {
@@ -78,20 +77,28 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
 
         ota_handler.ensure_pending_ota_response(&publisher).await?;
 
-        let (ota_tx, ota_rx) = tokio::sync::mpsc::channel(1);
-        let (data_tx, data_rx) = tokio::sync::mpsc::channel(32);
+        let (ota_tx, ota_rx) = channel(1);
+        let (data_tx, data_rx) = channel(32);
 
-        let tel = telemetry::Telemetry::from_default_config(opts.telemetry_config).await;
+        let (telemetry_tx, telemetry_rx) = channel(32);
+
+        let tel = telemetry::Telemetry::from_default_config(
+            opts.telemetry_config,
+            telemetry_tx,
+            opts.store_directory.clone(),
+        )
+        .await;
 
         let device_runtime = Self {
             publisher,
             ota_event_channel: ota_tx,
             data_event_channel: data_tx,
-            telemetry: Arc::new(tel),
+            telemetry: Arc::new(RwLock::new(tel)),
         };
 
         device_runtime.init_ota_event(ota_handler, ota_rx);
         device_runtime.init_data_event(data_rx);
+        device_runtime.init_telemetry_event(telemetry_rx);
         Ok(device_runtime)
     }
 
@@ -150,8 +157,10 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
                         Aggregation::Individual(data),
                     ) => {
                         self_telemetry
-                            .telemetry_config_event(interface_name, endpoint, data)
+                            .write()
                             .await
+                            .telemetry_config_event(interface_name, endpoint, data)
+                            .await;
                     }
                     _ => {
                         warn!("Receiving data from an unknown path/interface: {clientbound:?}");
@@ -161,24 +170,39 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         });
     }
 
+    fn init_telemetry_event(&self, mut telemetry_rx: Receiver<TelemetryMessage>) {
+        let publisher = self.publisher.clone();
+        tokio::spawn(async move {
+            while let Some(msg) = telemetry_rx.recv().await {
+                match msg.payload {
+                    TelemetryPayload::SystemStatus(data) => {
+                        let _ = publisher
+                            .send_object(
+                                "io.edgehog.devicemanager.SystemStatus",
+                                "/systemStatus",
+                                data,
+                            )
+                            .await;
+                    }
+                    TelemetryPayload::StorageUsage(data) => {
+                        let _ = publisher
+                            .send_object(
+                                "io.edgehog.devicemanager.StorageUsage",
+                                format!("/{}", msg.path).as_str(),
+                                data,
+                            )
+                            .await;
+                    }
+                };
+            }
+        });
+    }
+
     pub async fn run(&mut self) {
         wrapper::systemd::systemd_notify_status("Running");
-        let w = self.publisher.clone();
-        let tel = self.telemetry.clone();
+        let tel_clone = self.telemetry.clone();
         tokio::task::spawn(async move {
-            loop {
-                let systatus = telemetry::system_status::get_system_status().unwrap();
-
-                w.send_object(
-                    "io.edgehog.devicemanager.SystemStatus",
-                    "/systemStatus",
-                    systatus,
-                )
-                .await
-                .unwrap();
-
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            }
+            tel_clone.write().await.run_telemetry().await;
         });
 
         loop {
@@ -310,6 +334,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         let astarte_options = astarte_map_options(&options).await.unwrap();
@@ -331,9 +356,13 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         let dm = DeviceManager::new(options, MockPublisher::new()).await;
+        if let Err(ref e) = dm {
+            println!("{:?}", e);
+        }
         assert!(dm.is_ok());
     }
 
@@ -349,6 +378,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         let os_info = get_os_info().unwrap();

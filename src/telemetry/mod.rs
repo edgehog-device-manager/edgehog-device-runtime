@@ -18,13 +18,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_sdk::{types::AstarteType, AstarteSdk};
+use crate::repository::file_state_repository::FileStateRepository;
+use crate::repository::StateRepository;
+use astarte_sdk::types::AstarteType;
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Notify;
+use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::mpsc::Sender as MpscSender;
+use tokio::sync::RwLock;
+use tokio::task::spawn;
+use tokio::time::interval;
 
 pub(crate) mod hardware_info;
 pub(crate) mod net_if_properties;
@@ -40,151 +45,198 @@ const TELEMETRY_PATH: &str = "telemetry.json";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryInterfaceConfig {
     pub interface_name: String,
-    pub enabled: bool,
-    pub period: u64,
+    pub enabled: Option<bool>,
+    pub period: Option<u64>,
 }
+
+#[derive(Debug, Clone, Default)]
+struct TelemetryTaskConfig {
+    default_enabled: Option<bool>,
+    default_period: Option<u64>,
+    override_enabled: Option<bool>,
+    override_period: Option<u64>,
+}
+
 pub struct Telemetry {
-    default_config: Arc<HashMap<String, TelemetryInterfaceConfig>>,
-    override_enabled: Arc<tokio::sync::RwLock<std::collections::HashMap<String, bool>>>,
-    override_period: Arc<tokio::sync::RwLock<std::collections::HashMap<String, u64>>>,
-    notify: std::collections::HashMap<String, Arc<Notify>>,
+    telemetry_task_configs: Arc<RwLock<HashMap<String, TelemetryTaskConfig>>>,
+    kill_switches: HashMap<String, Sender<()>>,
+    communication_channel: MpscSender<TelemetryMessage>,
+    store_directory: String,
+}
+
+pub enum TelemetryPayload {
+    SystemStatus(crate::telemetry::system_status::SystemStatus),
+    StorageUsage(crate::telemetry::storage_usage::DiskUsage),
+}
+
+pub struct TelemetryMessage {
+    pub path: String,
+    pub payload: TelemetryPayload,
 }
 
 impl Telemetry {
-    pub async fn from_default_config(cfg: Vec<TelemetryInterfaceConfig>) -> Self {
-        let mut default_config = HashMap::new();
-        let mut notify = HashMap::new();
-
+    pub async fn from_default_config(
+        cfg: Vec<TelemetryInterfaceConfig>,
+        communication_channel: MpscSender<TelemetryMessage>,
+        store_directory: String,
+    ) -> Self {
+        let mut telemetry_task_configs = HashMap::new();
         for c in cfg {
-            let name = c.interface_name.clone();
-            default_config.insert(name.clone(), c);
-            let not = Arc::new(Notify::new());
-            not.notify_one();
-            notify.insert(name.clone(), not);
+            telemetry_task_configs.insert(
+                c.interface_name.clone(),
+                TelemetryTaskConfig {
+                    default_enabled: c.enabled.clone(),
+                    default_period: c.period.clone(),
+                    override_enabled: None,
+                    override_period: None,
+                },
+            );
         }
 
-        let ret = Telemetry {
-            default_config: Arc::new(default_config),
-            override_enabled: Default::default(),
-            override_period: Default::default(),
-            notify,
-        };
-
-        // Serde load configs from disk
-        if let Ok(file) = File::open(TELEMETRY_PATH) {
-            let saved_config: HashMap<String, TelemetryInterfaceConfig> =
-                serde_json::from_reader(BufReader::new(file)).unwrap();
-            let self_override_period = ret.override_period.clone();
-            let self_override_enabled = ret.override_enabled.clone();
-            for conf in saved_config.values() {
-                let name = conf.interface_name.clone();
-                *self_override_enabled
-                    .write()
-                    .await
-                    .entry(name.to_string())
-                    .or_insert(conf.enabled) = conf.enabled;
-                *self_override_period
-                    .write()
-                    .await
-                    .entry(name.to_string())
-                    .or_insert(conf.period) = conf.period;
+        let telemetry_repo: Box<dyn StateRepository<Vec<TelemetryInterfaceConfig>>> = Box::new(
+            FileStateRepository::new(store_directory.clone(), TELEMETRY_PATH.to_string()),
+        );
+        if telemetry_repo.exists() {
+            let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
+            for c in saved_config {
+                if let Some(rwlock_default_task) = telemetry_task_configs.get_mut(&c.interface_name)
+                {
+                    let mut default_task = rwlock_default_task;
+                    default_task.override_enabled = c.enabled.clone();
+                    default_task.override_period = c.period.clone();
+                } else {
+                    telemetry_task_configs.insert(
+                        c.interface_name.clone(),
+                        TelemetryTaskConfig {
+                            default_enabled: None,
+                            default_period: None,
+                            override_enabled: c.enabled.clone(),
+                            override_period: c.period.clone(),
+                        },
+                    );
+                };
             }
-        };
-
-        ret
-    }
-
-    pub async fn run_telemetry(&self, sdk: AstarteSdk) {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-
-        for (interface_name, interface_cfg) in (*self.default_config).clone() {
-            let self_override_period = self.override_period.clone();
-            let self_override_enabled = self.override_enabled.clone();
-            let self_notify = self.notify.clone();
-
-            let txcl = tx.clone();
-
-            // task runs for every interface
-            tokio::task::spawn(async move {
-                loop {
-                    self_notify.get(&interface_name).unwrap().notified().await;
-
-                    let enabled = *self_override_enabled
-                        .read()
-                        .await
-                        .get(&interface_name)
-                        .unwrap_or(&interface_cfg.enabled);
-
-                    if enabled {
-                        self_notify.get(&interface_name).unwrap().notify_one();
-                    }
-
-                    txcl.send(interface_name.clone()).await.unwrap();
-
-                    let period = *self_override_period
-                        .read()
-                        .await
-                        .get(&interface_name)
-                        .unwrap_or(&interface_cfg.period);
-
-                    tokio::time::sleep(std::time::Duration::from_secs(period)).await;
-                }
-            });
         }
 
-        while let Some(interface_name) = rx.recv().await {
-            send_data(&sdk, interface_name).await;
+        Telemetry {
+            telemetry_task_configs: Arc::new(RwLock::new(telemetry_task_configs)),
+            kill_switches: HashMap::new(),
+            communication_channel,
+            store_directory,
         }
     }
 
-    pub async fn set_enabled(&self, interface_name: &str, enabled: bool) {
+    pub async fn run_telemetry(&mut self) {
+        for interface_name in self.telemetry_task_configs.clone().read().await.keys() {
+            self.schedule_task(interface_name.clone()).await;
+        }
+    }
+
+    async fn schedule_task(&mut self, interface_name: String) {
+        let telemetry_task_configs_clone = self.telemetry_task_configs.clone();
+        let telemetry_task_configs = telemetry_task_configs_clone.read().await;
+        let telemetry_task_config = telemetry_task_configs.get(&interface_name.clone()).unwrap();
+
+        let period = telemetry_task_config
+            .override_period
+            .unwrap_or(telemetry_task_config.default_period.unwrap_or(0));
+
+        let enabled = telemetry_task_config
+            .override_enabled
+            .unwrap_or(telemetry_task_config.default_enabled.unwrap_or(false));
+
+        if let Some(kill_switch) = self.kill_switches.get(&interface_name.clone()) {
+            let _ = kill_switch.send(());
+        }
+
+        let self_interface_name = interface_name.clone().to_owned();
+        let comm = self.communication_channel.clone();
+
+        if period > 0 && enabled {
+            let (tx, rx) = channel(1);
+            spawn(Telemetry::start_task(rx, self_interface_name, period, comm));
+
+            self.kill_switches.insert(interface_name.to_owned(), tx);
+        }
+    }
+
+    async fn start_task(
+        mut kill_switch: Receiver<()>,
+        interface_name: String,
+        period: u64,
+        communication_channel: MpscSender<TelemetryMessage>,
+    ) {
+        tokio::select! {
+            _output = Telemetry::data_send_loop(interface_name, period, communication_channel) => {debug!("data_send_loop ended")},
+            _ = kill_switch.recv() => {debug!("Kill switch triggered")},
+        }
+    }
+
+    async fn data_send_loop(
+        interface_name: String,
+        period: u64,
+        communication_channel: MpscSender<TelemetryMessage>,
+    ) {
+        let mut interval = interval(Duration::from_secs(period));
+        loop {
+            interval.tick().await;
+            send_data(&communication_channel, interface_name.clone()).await;
+        }
+    }
+
+    async fn set_enabled(&self, interface_name: &str, enabled: bool) {
         debug!("set {interface_name} to enabled {enabled}");
 
-        *self
-            .override_enabled
+        self.telemetry_task_configs
+            .clone()
             .write()
             .await
             .entry(interface_name.to_string())
-            .or_insert(enabled) = enabled;
-
-        if enabled {
-            self.notify.get(interface_name).unwrap().notify_one();
-        }
-
-        self.save_telemetry_config().await;
+            .or_insert(Default::default())
+            .override_enabled = Some(enabled);
     }
 
-    pub async fn unset_enabled(&self, interface_name: &str) {
+    async fn unset_enabled(&self, interface_name: &str) {
         debug!("unset {interface_name} enabled");
 
-        self.override_enabled.write().await.remove(interface_name);
-
-        self.save_telemetry_config().await;
+        if let Some(telemetry_task_config) = self
+            .telemetry_task_configs
+            .clone()
+            .write()
+            .await
+            .get_mut(interface_name)
+        {
+            telemetry_task_config.override_enabled = None;
+        }
     }
 
-    pub async fn set_period(&self, interface_name: &str, period: u64) {
+    async fn set_period(&self, interface_name: &str, period: u64) {
         debug!("set {interface_name} to period {period}");
-
-        *self
-            .override_period
+        self.telemetry_task_configs
+            .clone()
             .write()
             .await
             .entry(interface_name.to_string())
-            .or_insert(period) = period;
-
-        self.save_telemetry_config().await;
+            .or_insert(Default::default())
+            .override_period = Some(period);
     }
 
-    pub async fn unset_period(&self, interface_name: &str) {
+    async fn unset_period(&self, interface_name: &str) {
         debug!("unset {interface_name} period");
 
-        self.override_period.write().await.remove(interface_name);
-
-        self.save_telemetry_config().await;
+        if let Some(telemetry_task_config) = self
+            .telemetry_task_configs
+            .clone()
+            .write()
+            .await
+            .get_mut(interface_name)
+        {
+            telemetry_task_config.override_period = None;
+        }
     }
 
     pub async fn telemetry_config_event(
-        &self,
+        &mut self,
         interface_name: &str,
         endpoint: &str,
         data: &AstarteType,
@@ -214,49 +266,67 @@ impl Telemetry {
                 warn!("Received malformed data from io.edgehog.devicemanager.config.Telemetry: {endpoint} {data:?}");
             }
         }
+
+        self.schedule_task(interface_name.clone().to_string()).await;
+        self.save_telemetry_config().await;
     }
 
     async fn save_telemetry_config(&self) {
-        let mut telemetry_config: HashMap<String, TelemetryInterfaceConfig> = HashMap::new();
-        for path in self.default_config.clone().keys() {
+        let mut telemetry_config: Vec<TelemetryInterfaceConfig> = Vec::new();
+        for (interface_name, telemetry_task_config) in
+            &*self.telemetry_task_configs.clone().read().await
+        {
             let interface_config = TelemetryInterfaceConfig {
-                interface_name: path.to_string(),
-                enabled: if let Some(enabled) = self.override_enabled.read().await.get(path) {
-                    enabled.clone()
-                } else {
-                    self.default_config.clone().get(path).unwrap().enabled
-                },
-                period: if let Some(period) = self.override_period.read().await.get(path) {
-                    period.clone()
-                } else {
-                    self.default_config.clone().get(path).unwrap().period
-                },
+                interface_name: interface_name.to_string(),
+                enabled: telemetry_task_config.override_enabled,
+                period: telemetry_task_config.override_period,
             };
-            telemetry_config.insert(path.to_string(), interface_config);
+
+            telemetry_config.push(interface_config);
         }
-        let file = File::create(TELEMETRY_PATH).unwrap();
-        serde_json::to_writer(BufWriter::new(file), &telemetry_config).unwrap();
+
+        let telemetry_repo =
+            FileStateRepository::new(self.store_directory.clone(), TELEMETRY_PATH.to_string());
+        telemetry_repo.write(&telemetry_config).unwrap();
     }
 }
 
-async fn send_data(sdk: &AstarteSdk, interface_name: String) {
+async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interface_name: String) {
     debug!("sending {interface_name}");
 
-    if interface_name.as_str() == "io.edgehog.devicemanager.SystemStatus" {
-        let sysstatus = system_status::get_system_status().unwrap();
-        sdk.send_object(
-            "io.edgehog.devicemanager.SystemStatus",
-            "/systemStatus",
-            sysstatus,
-        )
-        .await
-        .unwrap();
+    match interface_name.as_str() {
+        "io.edgehog.devicemanager.SystemStatus" => {
+            let sysstatus = system_status::get_system_status().unwrap();
+            let _ = communication_channel
+                .send(TelemetryMessage {
+                    path: "".to_string(),
+                    payload: TelemetryPayload::SystemStatus(sysstatus),
+                })
+                .await;
+        }
+        "io.edgehog.devicemanager.StorageUsage" => {
+            let storage_usage = storage_usage::get_storage_usage().unwrap();
+            for (path, payload) in storage_usage {
+                let _ = communication_channel
+                    .send(TelemetryMessage {
+                        path,
+                        payload: TelemetryPayload::StorageUsage(payload),
+                    })
+                    .await;
+            }
+        }
+        _ => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::repository::file_state_repository::FileStateRepository;
+    use crate::repository::StateRepository;
     use crate::telemetry::{Telemetry, TelemetryInterfaceConfig};
+    use astarte_sdk::types::AstarteType;
+
+    const TELEMETRY_PATH: &str = "telemetry.json";
 
     #[tokio::test]
     async fn telemetry_default_test() {
@@ -264,19 +334,18 @@ mod tests {
         let interface_name = "io.edgehog.devicemanager.SystemStatus";
         config.push(TelemetryInterfaceConfig {
             interface_name: interface_name.to_string(),
-            enabled: true,
-            period: 10,
+            enabled: Some(true),
+            period: Some(10),
         });
-        let tel = Telemetry::from_default_config(config).await;
-        let telemetry_default = &*tel.default_config.clone();
-        let default_interface_config = telemetry_default.get(interface_name).unwrap();
 
-        assert_eq!(
-            default_interface_config.interface_name,
-            interface_name.to_string()
-        );
-        assert!(default_interface_config.enabled);
-        assert_eq!(default_interface_config.period, 10);
+        let (tx, _) = tokio::sync::mpsc::channel(32);
+        let tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
+        let telemetry_config = tel.telemetry_task_configs.clone();
+        let interface_configs = telemetry_config.read().await;
+        let system_status_config = interface_configs.get(interface_name).unwrap();
+
+        assert!(system_status_config.default_enabled.unwrap());
+        assert_eq!(system_status_config.default_period.unwrap(), 10);
     }
 
     #[tokio::test]
@@ -285,28 +354,43 @@ mod tests {
         let interface_name = "io.edgehog.devicemanager.SystemStatus";
         config.push(TelemetryInterfaceConfig {
             interface_name: interface_name.to_string(),
-            enabled: true,
-            period: 10,
+            enabled: Some(true),
+            period: Some(10),
         });
 
-        let tel = Telemetry::from_default_config(config).await;
+        let (tx, _) = tokio::sync::mpsc::channel(32);
+        let mut tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
 
-        tel.set_enabled(&interface_name, false).await;
-        tel.set_period(&interface_name, 30).await;
+        tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(false))
+            .await;
+        tel.telemetry_config_event(
+            interface_name,
+            "periodSeconds",
+            &AstarteType::LongInteger(30),
+        )
+        .await;
 
-        assert!(!(*tel.override_enabled.clone())
-            .read()
-            .await
+        let telemetry_config = tel.telemetry_task_configs.clone();
+        let config = telemetry_config.read().await;
+
+        assert!(!config
             .get(interface_name)
+            .unwrap()
+            .override_enabled
             .unwrap());
         assert_eq!(
-            (*tel.override_period.clone())
-                .read()
-                .await
-                .get(interface_name)
-                .unwrap(),
-            &30
+            config.get(interface_name).unwrap().override_period.unwrap(),
+            30
         );
+
+        let telemetry_repo = FileStateRepository::new("./".to_string(), TELEMETRY_PATH.to_string());
+        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
+
+        assert_eq!(saved_config.len(), 1);
+
+        let system_status_config = saved_config.get(0).unwrap();
+        assert_eq!(system_status_config.enabled, Some(false));
+        assert_eq!(system_status_config.period, Some(30));
     }
 
     #[tokio::test]
@@ -315,24 +399,63 @@ mod tests {
         let interface_name = "io.edgehog.devicemanager.SystemStatus";
         config.push(TelemetryInterfaceConfig {
             interface_name: interface_name.to_string(),
-            enabled: true,
-            period: 10,
+            enabled: Some(true),
+            period: Some(10),
         });
 
-        let tel = Telemetry::from_default_config(config).await;
+        let (tx, _) = tokio::sync::mpsc::channel(32);
+        let mut tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
 
-        tel.unset_enabled(&interface_name).await;
-        tel.unset_period(&interface_name).await;
+        tel.telemetry_config_event(interface_name, "enable", &AstarteType::Unset)
+            .await;
+        tel.telemetry_config_event(interface_name, "periodSeconds", &AstarteType::Unset)
+            .await;
 
-        assert!((*tel.override_enabled.clone())
-            .read()
-            .await
+        let telemetry_config = tel.telemetry_task_configs.clone();
+        let config = telemetry_config.read().await;
+
+        assert!(config
             .get(interface_name)
+            .unwrap()
+            .override_enabled
             .is_none());
-        assert!((*tel.override_period.clone())
-            .read()
-            .await
+        assert!(config
             .get(interface_name)
+            .unwrap()
+            .override_period
             .is_none());
+
+        let telemetry_repo = FileStateRepository::new("./".to_string(), TELEMETRY_PATH.to_string());
+        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
+
+        assert_eq!(saved_config.len(), 1);
+
+        let system_status_config = saved_config.get(0).unwrap();
+        assert!(system_status_config.enabled.is_none());
+        assert!(system_status_config.period.is_none());
+    }
+
+    #[tokio::test]
+    async fn telemetry_message_test() {
+        let mut config = Vec::new();
+        let interface_name = "io.edgehog.devicemanager.SystemStatus";
+        config.push(TelemetryInterfaceConfig {
+            interface_name: interface_name.to_string(),
+            enabled: Some(true),
+            period: Some(10),
+        });
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let mut tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
+        tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(true))
+            .await;
+        tel.telemetry_config_event(
+            interface_name,
+            "periodSeconds",
+            &AstarteType::LongInteger(10),
+        )
+        .await;
+
+        assert!(rx.recv().await.is_some());
     }
 }
