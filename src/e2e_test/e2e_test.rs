@@ -60,6 +60,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         store_directory: "".to_string(),
         download_directory: "".to_string(),
         astarte_ignore_ssl: Some(false),
+        telemetry_config: vec![],
     };
 
     let mut dm = DeviceManager::new(device_options).await?;

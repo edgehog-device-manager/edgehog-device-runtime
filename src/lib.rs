@@ -19,26 +19,25 @@
  */
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use astarte_sdk::builder::AstarteOptions;
 use astarte_sdk::types::AstarteType;
-use astarte_sdk::{registration, Aggregation, AstarteSdk};
+use astarte_sdk::{registration, Aggregation};
 use log::{debug, info, warn};
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::fs::File;
-use std::path::Path;
-use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
-
-use device::DeviceProxy;
-use error::DeviceManagerError;
+use tokio::sync::mpsc::{channel, Sender};
+use tokio::sync::RwLock;
 
 use crate::astarte::Astarte;
 use crate::data::astarte;
+use crate::data::Publisher;
+use crate::device::DeviceProxy;
+use crate::error::DeviceManagerError;
 use crate::ota::ota_handler::OTAHandler;
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
+use crate::telemetry::TelemetryPayload;
 
 mod commands;
 mod data;
@@ -65,10 +64,10 @@ pub struct DeviceManagerOptions {
 }
 
 pub struct DeviceManager {
-    sdk: AstarteSdk,
+    astarte_publisher: Astarte,
     //we pass the ota event through a channel, to avoid blocking the main loop
     ota_event_channel: Sender<HashMap<String, AstarteType>>,
-    telemetry: Arc<telemetry::Telemetry>,
+    telemetry: Arc<RwLock<telemetry::Telemetry>>,
 }
 
 impl DeviceManager {
@@ -109,7 +108,7 @@ impl DeviceManager {
             .ensure_pending_ota_response(&astarte_client)
             .await?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let (tx, mut rx) = channel(32);
 
         let astarte_client_clone = astarte_client.clone();
         tokio::spawn(async move {
@@ -121,25 +120,52 @@ impl DeviceManager {
             }
         });
 
-        let tel = telemetry::Telemetry::from_default_config(opts.telemetry_config).await;
+        let (telemetry_tx, mut telemetry_rx) = channel(32);
+        let astarte_client_telemetry_clone = astarte_client.clone();
+
+        let tel =
+            telemetry::Telemetry::from_default_config(opts.telemetry_config, telemetry_tx).await;
+        tokio::spawn(async move {
+            while let Some(msg) = telemetry_rx.recv().await {
+                match msg.payload {
+                    TelemetryPayload::SystemStatus(data) => {
+                        let _ = astarte_client_telemetry_clone
+                            .send_object(
+                                "io.edgehog.devicemanager.SystemStatus",
+                                "/systemStatus",
+                                data,
+                            )
+                            .await;
+                    }
+                    TelemetryPayload::StorageUsage(data) => {
+                        let _ = astarte_client_telemetry_clone
+                            .send_object(
+                                "io.edgehog.devicemanager.StorageUsage",
+                                format!("/{}", msg.path).as_str(),
+                                data,
+                            )
+                            .await;
+                    }
+                };
+            }
+        });
 
         Ok(Self {
-            sdk: device,
-            telemetry: Arc::new(tel),
+            astarte_publisher: astarte_client,
+            telemetry: Arc::new(RwLock::new(tel)),
             ota_event_channel: tx,
         })
     }
 
     pub async fn run(&mut self) {
         wrapper::systemd::systemd_notify_status("Running");
-        let w = self.sdk.clone();
-        let tel = self.telemetry.clone();
+        let tel_clone = self.telemetry.clone();
         tokio::task::spawn(async move {
-            tel.run_telemetry(w).await;
+            tel_clone.write().await.run_telemetry().await;
         });
 
         loop {
-            match self.sdk.poll().await {
+            match self.astarte_publisher.clone().device_sdk.poll().await {
                 Ok(clientbound) => {
                     debug!("incoming: {:?}", clientbound);
 
@@ -171,8 +197,11 @@ impl DeviceManager {
                             Aggregation::Individual(data),
                         ) => {
                             self.telemetry
-                                .telemetry_config_event(interface_name, endpoint, data)
+                                .clone()
+                                .write()
                                 .await
+                                .telemetry_config_event(interface_name, endpoint, data)
+                                .await;
                         }
 
                         _ => {
@@ -193,7 +222,7 @@ impl DeviceManager {
     }
 
     pub async fn send_initial_telemetry(&self) -> Result<(), DeviceManagerError> {
-        let device = &self.sdk;
+        let device = &self.astarte_publisher;
 
         let data = [
             (
@@ -212,12 +241,12 @@ impl DeviceManager {
 
         for (ifc, fields) in data {
             for (path, data) in fields {
-                device.send(ifc, &path, data).await?;
+                device.device_sdk.send(ifc, &path, data).await?;
             }
         }
 
         let disks = telemetry::storage_usage::get_storage_usage()?;
-        for (disk_name, storage) in &disks {
+        for (disk_name, storage) in disks {
             device
                 .send_object(
                     "io.edgehog.devicemanager.StorageUsage",
@@ -345,6 +374,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
@@ -370,6 +400,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         assert!(get_credentials_secret("device_id", &options, state_mock)
@@ -395,6 +426,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
@@ -413,6 +445,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         let mut dm = DeviceManager::new(options).await;
 
@@ -432,6 +465,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         let mut dm = DeviceManager::new(options).await;
 
@@ -450,6 +484,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         let mut state_mock = MockStateRepository::<String>::new();
         let cred_result =

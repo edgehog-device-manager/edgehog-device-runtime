@@ -77,3 +77,4 @@ jobs:
           RUSTFLAGS: -Awarnings
         with:
           command: test
+          args: -- --test-threads 1
