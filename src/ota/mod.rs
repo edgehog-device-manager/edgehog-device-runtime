@@ -37,4 +37,10 @@ pub trait OTA: Send + Sync {
     async fn compatible(&self) -> Result<String, DeviceManagerError>;
     async fn boot_slot(&self) -> Result<String, DeviceManagerError>;
     async fn receive_completed(&self) -> Result<i32, DeviceManagerError>;
+    async fn get_primary(&self) -> Result<String, DeviceManagerError>;
+    async fn mark(
+        &self,
+        state: &str,
+        slot_identifier: &str,
+    ) -> Result<(String, String), DeviceManagerError>;
 }

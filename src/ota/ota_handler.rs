@@ -233,21 +233,53 @@ impl<'a> OTAHandler<'a> {
         if self.state_repository.exists() {
             info!("Found pending update");
             let state = self.state_repository.read()?;
+            let result_response = match self.do_pending_ota(&state).await {
+                Ok(()) => {
+                    info!("OTA successful");
+                    self.send_ota_response(sdk, &state.uuid, OTAStatus::Done)
+                        .await
+                }
+                Err(error) => {
+                    warn!("OTA failed, error -> {:?}", error);
+                    self.send_ota_response(sdk, &state.uuid, OTAStatus::Error(OTAError::Failed))
+                        .await
+                }
+            };
 
-            if state.slot != self.ota.boot_slot().await? {
-                info!("OTA successful");
-                self.send_ota_response(sdk, &state.uuid, OTAStatus::Done)
-                    .await?;
-            } else {
-                warn!("OTA failed");
-                self.send_ota_response(sdk, &state.uuid, OTAStatus::Error(OTAError::Failed))
-                    .await?;
+            if result_response.is_err() {
+                warn!(
+                    "Unable to publish OTA response -> {:?}",
+                    result_response.err()
+                );
+                //TODO Retry the publish response, maybe it should be done on the SDK side.
             }
-
-            self.state_repository.clear()?;
         }
 
         Ok(())
+    }
+
+    async fn do_pending_ota(&self, state: &PersistentState) -> Result<(), DeviceManagerError> {
+        const GOOD_STATE: &str = "good";
+
+        let pending_ota_result = if state.slot != self.ota.boot_slot().await? {
+            let primary_slot = self.ota.get_primary().await?;
+            let (marked_slot, _) = self.ota.mark(GOOD_STATE, &primary_slot).await?;
+            if primary_slot == marked_slot {
+                Ok(())
+            } else {
+                Err(DeviceManagerError::UpdateError(
+                    "Unable to mark slot".to_owned(),
+                ))
+            }
+        } else {
+            Err(DeviceManagerError::UpdateError(
+                "Unable to switch slot".to_owned(),
+            ))
+        };
+
+        self.state_repository.clear()?;
+
+        pending_ota_result
     }
 
     async fn send_ota_response(
@@ -473,6 +505,14 @@ mod tests {
 
         let mut state_mock = MockStateRepository::<PersistentState>::new();
         state_mock.expect_exists().returning(|| true);
+        ota.expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        ota.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
         state_mock.expect_read().returning(move || {
             Ok(PersistentState {
                 uuid: uuid.to_owned(),
@@ -500,6 +540,135 @@ mod tests {
             .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
 
         let result = ota_handler.ensure_pending_ota_response(&publisher).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn do_pending_ota_fail_marked_wrong_slot() {
+        let mut ota = MockOTA::new();
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+
+        ota.expect_boot_slot().returning(|| Ok("B".to_owned()));
+        ota.expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        ota.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.1".to_owned(),
+                "marked slot rootfs.1 as good".to_owned(),
+            ))
+        });
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid: uuid.clone(),
+                slot: slot.to_owned(),
+            })
+        });
+
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let state = ota_handler.state_repository.read().unwrap();
+        let result = ota_handler.do_pending_ota(&state).await;
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Unable to mark slot".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn do_pending_ota_fail_unknown_slot() {
+        let mut ota = MockOTA::new();
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+
+        ota.expect_boot_slot().returning(|| Ok("A".to_owned()));
+        ota.expect_get_primary()
+            .returning(|| Ok("rootfs.2".to_owned()));
+        ota.expect_mark().returning(|_: &str, _: &str| {
+            Err(DeviceManagerError::UpdateError(
+                "No slot with class rootfs and name rootfs.2 found".to_owned(),
+            ))
+        });
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid: uuid.clone(),
+                slot: slot.to_owned(),
+            })
+        });
+
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let state = ota_handler.state_repository.read().unwrap();
+        let result = ota_handler.do_pending_ota(&state).await;
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            DeviceManagerError::UpdateError(val) => {
+                assert_eq!(val, "Unable to switch slot".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn do_pending_ota_success() {
+        let mut ota = MockOTA::new();
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+
+        ota.expect_boot_slot().returning(|| Ok("B".to_owned()));
+        ota.expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        ota.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid: uuid.clone(),
+                slot: slot.to_owned(),
+            })
+        });
+
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let ota_handler = OTAHandler {
+            ota: Box::new(ota),
+            state_repository: Box::new(state_mock),
+            download_file_path: "".to_owned(),
+        };
+
+        let state = ota_handler.state_repository.read().unwrap();
+        let result = ota_handler.do_pending_ota(&state).await;
         assert!(result.is_ok());
     }
 
