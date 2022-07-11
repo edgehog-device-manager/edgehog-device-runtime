@@ -91,9 +91,10 @@ impl<'a> OTAHandler<'a> {
 
         Ok(OTAHandler {
             ota: Box::new(ota),
-            state_repository: Box::new(FileStateRepository {
-                path: opts.state_file.clone(),
-            }),
+            state_repository: Box::new(FileStateRepository::new(
+                opts.store_directory.clone(),
+                "state.json".to_owned(),
+            )),
             download_file_path: opts.download_directory.clone(),
         })
     }

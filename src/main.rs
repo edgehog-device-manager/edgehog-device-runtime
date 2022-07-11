@@ -19,10 +19,13 @@
  */
 
 use clap::Parser;
-use config::read_options;
-
+use std::fs;
 #[cfg(feature = "systemd")]
 use std::panic::{self, PanicInfo};
+use std::path::Path;
+
+use config::read_options;
+use edgehog_device_runtime::error::DeviceManagerError;
 
 mod config;
 
@@ -53,6 +56,22 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     } = Parser::parse();
 
     let options = read_options(config_file_path)?;
+
+    if !Path::new(&options.download_directory).exists() {
+        fs::create_dir_all(&options.download_directory).map_err(|err| {
+            DeviceManagerError::FatalError(
+                "Unable to create OTA download directory. ".to_owned() + &err.to_string(),
+            )
+        })?;
+    }
+
+    if !Path::new(&options.store_directory).exists() {
+        fs::create_dir_all(&options.store_directory).map_err(|err| {
+            DeviceManagerError::FatalError(
+                "Unable to create store directory. ".to_owned() + &err.to_string(),
+            )
+        })?;
+    }
 
     let mut dm = edgehog_device_runtime::DeviceManager::new(options).await?;
 

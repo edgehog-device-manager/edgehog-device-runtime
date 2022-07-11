@@ -18,6 +18,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use crate::repository::file_state_repository::FileStateRepository;
+use crate::repository::StateRepository;
 use astarte_sdk::builder::AstarteOptions;
 use astarte_sdk::types::AstarteType;
 use astarte_sdk::{registration, Aggregation, AstarteSdk};
@@ -26,8 +28,6 @@ use error::DeviceManagerError;
 use log::{debug, info, warn};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs::File;
-use std::path::Path;
 use tokio::sync::mpsc::Sender;
 
 use crate::astarte::Astarte;
@@ -52,7 +52,7 @@ pub struct DeviceManagerOptions {
     pub pairing_url: String,
     pub pairing_token: Option<String>,
     pub interfaces_directory: String,
-    pub state_file: String,
+    pub store_directory: String,
     pub download_directory: String,
 }
 
@@ -65,12 +65,20 @@ pub struct DeviceManager {
 impl DeviceManager {
     pub async fn new(opts: DeviceManagerOptions) -> Result<DeviceManager, DeviceManagerError> {
         let device_id: String = get_device_id(opts.device_id.clone()).await?;
-        let credential_secret: String = get_credentials_secret(&device_id, &opts).await?;
+        let credentials_secret: String = get_credentials_secret(
+            &device_id,
+            &opts,
+            FileStateRepository::new(
+                opts.store_directory.clone(),
+                format!("credentials_{}.json", device_id),
+            ),
+        )
+        .await?;
 
         let sdk_options = AstarteOptions::new(
             &opts.realm,
             &device_id,
-            &credential_secret,
+            &credentials_secret,
             &opts.pairing_url,
         )
         .interface_directory(&opts.interfaces_directory)?
@@ -218,13 +226,14 @@ async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
 async fn get_credentials_secret(
     device_id: &str,
     opts: &DeviceManagerOptions,
+    cred_state_repo: impl StateRepository<String>,
 ) -> Result<String, DeviceManagerError> {
     if let Some(secret) = opts.credentials_secret.clone() {
         Ok(secret)
-    } else if Path::new(&format!("./{}.json", device_id)).exists() {
-        get_credentials_secret_from_persistence(device_id)
+    } else if cred_state_repo.exists() {
+        get_credentials_secret_from_persistence(cred_state_repo)
     } else if let Some(token) = opts.pairing_token.clone() {
-        get_credentials_secret_from_registration(device_id, &token, opts).await
+        get_credentials_secret_from_registration(device_id, &token, opts, cred_state_repo).await
     } else {
         Err(DeviceManagerError::FatalError(
             "Missing arguments".to_string(),
@@ -232,22 +241,25 @@ async fn get_credentials_secret(
     }
 }
 
-fn get_credentials_secret_from_persistence(device_id: &str) -> Result<String, DeviceManagerError> {
-    let reader = File::open(&format!("./{}.json", device_id)).unwrap();
-    Ok(serde_json::from_reader(reader).expect("Unable to read secret"))
+fn get_credentials_secret_from_persistence(
+    cred_state_repo: impl StateRepository<String>,
+) -> Result<String, DeviceManagerError> {
+    Ok(cred_state_repo.read().expect("Unable to read secret"))
 }
 
 async fn get_credentials_secret_from_registration(
     device_id: &str,
     token: &str,
     opts: &DeviceManagerOptions,
+    cred_state_repo: impl StateRepository<String>,
 ) -> Result<String, DeviceManagerError> {
     let registration =
         registration::register_device(token, &opts.pairing_url, &opts.realm, &device_id).await;
-    if let Ok(credential_secret) = registration {
-        let writer = File::create(&format!("./{}.json", device_id)).unwrap();
-        serde_json::to_writer(writer, &credential_secret).expect("Unable to write secret");
-        Ok(credential_secret)
+    if let Ok(credentials_secret) = registration {
+        cred_state_repo
+            .write(&credentials_secret)
+            .expect("Unable to write secret");
+        Ok(credentials_secret)
     } else {
         Err(DeviceManagerError::FatalError("Pairing error".to_string()))
     }
@@ -255,7 +267,8 @@ async fn get_credentials_secret_from_registration(
 
 #[cfg(test)]
 mod tests {
-    use crate::{get_credentials_secret, get_device_id, DeviceManagerOptions};
+    use crate::repository::MockStateRepository;
+    use crate::{get_credentials_secret, get_device_id, DeviceManagerError, DeviceManagerOptions};
 
     #[tokio::test]
     async fn device_id_test() {
@@ -267,6 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn credentials_secret_test() {
+        let state_mock = MockStateRepository::<String>::new();
         let options = DeviceManagerOptions {
             realm: "".to_string(),
             device_id: None,
@@ -274,17 +288,21 @@ mod tests {
             pairing_url: "".to_string(),
             pairing_token: None,
             interfaces_directory: "".to_string(),
-            state_file: "".to_string(),
+            store_directory: "".to_string(),
             download_directory: "".to_string(),
         };
         assert_eq!(
-            get_credentials_secret("device_id", &options).await.unwrap(),
+            get_credentials_secret("device_id", &options, state_mock)
+                .await
+                .unwrap(),
             "credentials_secret".to_string()
         );
     }
 
     #[tokio::test]
     async fn not_enough_arguments_credentials_secret_test() {
+        let mut state_mock = MockStateRepository::<String>::new();
+        state_mock.expect_exists().returning(|| false);
         let options = DeviceManagerOptions {
             realm: "".to_string(),
             device_id: None,
@@ -292,9 +310,59 @@ mod tests {
             pairing_url: "".to_string(),
             pairing_token: None,
             interfaces_directory: "".to_string(),
-            state_file: "".to_string(),
+            store_directory: "".to_string(),
             download_directory: "".to_string(),
         };
-        assert!(get_credentials_secret("device_id", &options).await.is_err());
+        assert!(get_credentials_secret("device_id", &options, state_mock)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Unable to read secret: FatalError(\"\")")]
+    async fn get_credentials_secret_persistence_fail() {
+        let mut state_mock = MockStateRepository::<String>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock
+            .expect_read()
+            .returning(move || Err(DeviceManagerError::FatalError("".to_owned())));
+
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_owned()),
+            credentials_secret: None,
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+        };
+
+        assert!(get_credentials_secret("device_id", &options, state_mock)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn get_credentials_secret_persistence_success() {
+        let mut state_mock = MockStateRepository::<String>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock
+            .expect_read()
+            .returning(move || Ok("cred_secret".to_owned()));
+
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_owned()),
+            credentials_secret: None,
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+        };
+        assert!(get_credentials_secret("device_id", &options, state_mock)
+            .await
+            .is_ok());
     }
 }
