@@ -18,21 +18,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::repository::file_state_repository::FileStateRepository;
-use crate::repository::StateRepository;
+use std::collections::HashMap;
+
 use astarte_sdk::builder::AstarteOptions;
 use astarte_sdk::types::AstarteType;
 use astarte_sdk::{registration, Aggregation, AstarteSdk};
-use device::DeviceProxy;
-use error::DeviceManagerError;
 use log::{debug, info, warn};
 use serde::Deserialize;
-use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
+
+use device::DeviceProxy;
+use error::DeviceManagerError;
 
 use crate::astarte::Astarte;
 use crate::data::astarte;
 use crate::ota::ota_handler::OTAHandler;
+use crate::repository::file_state_repository::FileStateRepository;
+use crate::repository::StateRepository;
 
 mod commands;
 mod data;
@@ -278,7 +280,10 @@ async fn get_credentials_secret_from_registration(
 #[cfg(test)]
 mod tests {
     use crate::repository::MockStateRepository;
-    use crate::{get_credentials_secret, get_device_id, DeviceManagerError, DeviceManagerOptions};
+    use crate::{
+        get_credentials_secret, get_credentials_secret_from_registration, get_device_id,
+        DeviceManager, DeviceManagerError, DeviceManagerOptions,
+    };
 
     #[tokio::test]
     async fn device_id_test() {
@@ -374,5 +379,66 @@ mod tests {
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn device_option_empty_interface_path_fail() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_string()),
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+        };
+        let mut dm = DeviceManager::new(options).await;
+
+        assert!(dm.is_err());
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn device_new_sdk_panic_fail() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_string()),
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "./".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+        };
+        let mut dm = DeviceManager::new(options).await;
+
+        assert!(dm.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_credentials_secret_from_registration_fail() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_string()),
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "./".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+        };
+        let mut state_mock = MockStateRepository::<String>::new();
+        let cred_result =
+            get_credentials_secret_from_registration("", "", &options, state_mock).await;
+        assert!(cred_result.is_err());
+        match cred_result.err().unwrap() {
+            DeviceManagerError::FatalError(val) => {
+                assert_eq!(val, "Pairing error".to_owned())
+            }
+            _ => {
+                panic!("Wrong DeviceManagerError type");
+            }
+        };
     }
 }
