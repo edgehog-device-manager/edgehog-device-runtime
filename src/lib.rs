@@ -54,6 +54,7 @@ pub struct DeviceManagerOptions {
     pub interfaces_directory: String,
     pub store_directory: String,
     pub download_directory: String,
+    pub astarte_ignore_ssl: Option<bool>,
 }
 
 pub struct DeviceManager {
@@ -75,14 +76,20 @@ impl DeviceManager {
         )
         .await?;
 
-        let sdk_options = AstarteOptions::new(
+        let mut sdk_options = AstarteOptions::new(
             &opts.realm,
             &device_id,
             &credentials_secret,
             &opts.pairing_url,
-        )
-        .interface_directory(&opts.interfaces_directory)?
-        .build();
+        );
+
+        if Some(true) == opts.astarte_ignore_ssl {
+            sdk_options.ignore_ssl_errors();
+        }
+
+        let sdk_options = sdk_options
+            .interface_directory(&opts.interfaces_directory)?
+            .build();
         info!("Starting");
 
         wrapper::systemd::systemd_notify_status("Initializing");
@@ -300,6 +307,7 @@ mod tests {
             interfaces_directory: "".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
         assert_eq!(
             get_credentials_secret("device_id", &options, state_mock)
@@ -322,6 +330,7 @@ mod tests {
             interfaces_directory: "".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
@@ -346,6 +355,7 @@ mod tests {
             interfaces_directory: "".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
 
         assert!(get_credentials_secret("device_id", &options, state_mock)
@@ -370,6 +380,7 @@ mod tests {
             interfaces_directory: "".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
