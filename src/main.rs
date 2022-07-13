@@ -41,7 +41,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError> {
+async fn main() -> Result<(), DeviceManagerError> {
     env_logger::init();
     #[cfg(feature = "systemd")]
     {
