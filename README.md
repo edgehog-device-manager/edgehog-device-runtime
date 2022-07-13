@@ -50,7 +50,7 @@ device_id = "YOUR_UNIQUE_DEVIDE_ID"
 pairing_url = "https://api.astarte.EXAMPLE.COM/pairing"
 realm = "examplerealm"
 interfaces_directory = "/usr/share/edgehog/astarte-interfaces/"
-state_file = "/var/lib/edgehog/state.json"
+store_directory = "/var/lib/edgehog/"
 download_directory = "/var/tmp/edgehog-updates/"
 ```
 
