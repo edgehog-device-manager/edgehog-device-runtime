@@ -403,6 +403,7 @@ mod tests {
             interfaces_directory: "".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
         let mut dm = DeviceManager::new(options).await;
 
@@ -421,6 +422,7 @@ mod tests {
             interfaces_directory: "./".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
         let mut dm = DeviceManager::new(options).await;
 
@@ -438,6 +440,7 @@ mod tests {
             interfaces_directory: "./".to_string(),
             store_directory: "".to_string(),
             download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
         };
         let mut state_mock = MockStateRepository::<String>::new();
         let cred_result =

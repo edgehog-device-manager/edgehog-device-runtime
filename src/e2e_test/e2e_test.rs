@@ -59,6 +59,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         interfaces_directory: "./edgehog/astarte-interfaces".to_string(),
         store_directory: "".to_string(),
         download_directory: "".to_string(),
+        astarte_ignore_ssl: Some(false),
     };
 
     let mut dm = DeviceManager::new(device_options).await?;
