@@ -37,7 +37,24 @@ pub fn get_system_status() -> Result<SystemStatus, DeviceManagerError> {
     Ok(SystemStatus {
         avail_memory_bytes: meminfo.mem_available.unwrap_or(0) as i64,
         boot_id: procfs::sys::kernel::random::boot_id()?,
-        task_count: procfs::process::all_processes()?.len() as i32,
+        task_count: procfs::process::all_processes()?.count() as i32,
         uptime_millis: procfs::Uptime::new()?.uptime_duration().as_millis() as i64,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::telemetry::system_status::get_system_status;
+
+    #[test]
+    fn get_system_status_test() {
+        let system_status_result = get_system_status();
+        assert!(system_status_result.is_ok());
+
+        let system_status = system_status_result.unwrap();
+        assert!(system_status.avail_memory_bytes > 0);
+        assert!(!system_status.boot_id.is_empty());
+        assert!(system_status.task_count > 0);
+        assert!(system_status.uptime_millis > 0);
+    }
 }
