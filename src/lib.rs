@@ -18,14 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::collections::HashMap;
-
 use astarte_sdk::builder::AstarteOptions;
 use astarte_sdk::types::AstarteType;
-use astarte_sdk::{registration, Aggregation, AstarteSdk};
+use astarte_sdk::{registration, Aggregation, Clientbound};
 use log::{debug, info, warn};
 use serde::Deserialize;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use device::DeviceProxy;
 use error::DeviceManagerError;
@@ -60,9 +58,10 @@ pub struct DeviceManagerOptions {
 }
 
 pub struct DeviceManager {
-    sdk: AstarteSdk,
-    //we pass the ota event through a channel, to avoid blocking the main loop
-    ota_event_channel: Sender<HashMap<String, AstarteType>>,
+    sdk: Astarte,
+    //we pass all Astarte event through a channel, to avoid blocking the main loop
+    ota_event_channel: Sender<Clientbound>,
+    data_event_channel: Sender<Clientbound>,
 }
 
 impl DeviceManager {
@@ -97,33 +96,85 @@ impl DeviceManager {
         wrapper::systemd::systemd_notify_status("Initializing");
         let astarte_client = Astarte::new(&sdk_options).await?;
 
-        let mut ota_handler = OTAHandler::new(&opts).await?;
+        let ota_handler = OTAHandler::new(&opts).await?;
 
         ota_handler
             .ensure_pending_ota_response(&astarte_client)
             .await?;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let (ota_tx, ota_rx) = tokio::sync::mpsc::channel(1);
+        let (data_tx, data_rx) = tokio::sync::mpsc::channel(32);
 
-        let astarte_client_clone = astarte_client.clone();
+        let device_runtime = Self {
+            sdk: astarte_client,
+            ota_event_channel: ota_tx,
+            data_event_channel: data_tx,
+        };
+
+        device_runtime.init_ota_event(ota_handler, ota_rx);
+        device_runtime.init_data_event(data_rx);
+        Ok(device_runtime)
+    }
+
+    fn init_ota_event(
+        &self,
+        mut ota_handler: OTAHandler<'static>,
+        mut ota_rx: Receiver<Clientbound>,
+    ) {
+        let astarte_client_clone = self.sdk.clone();
         tokio::spawn(async move {
-            while let Some(data) = rx.recv().await {
-                ota_handler
-                    .ota_event(&astarte_client_clone, data)
-                    .await
-                    .ok();
+            while let Some(clientbound) = ota_rx.recv().await {
+                match (
+                    clientbound
+                        .path
+                        .trim_matches('/')
+                        .split('/')
+                        .collect::<Vec<&str>>()
+                        .as_slice(),
+                    &clientbound.data,
+                ) {
+                    (["request"], Aggregation::Object(data)) => ota_handler
+                        .ota_event(&astarte_client_clone, data.clone())
+                        .await
+                        .ok(),
+                    _ => {
+                        warn!("Receiving data from an unknown path/interface: {clientbound:?}");
+                        Some(())
+                    }
+                };
             }
         });
+    }
 
-        Ok(Self {
-            sdk: astarte_client.device_sdk,
-            ota_event_channel: tx,
-        })
+    fn init_data_event(&self, mut data_rx: Receiver<Clientbound>) {
+        tokio::spawn(async move {
+            while let Some(clientbound) = data_rx.recv().await {
+                match (
+                    clientbound.interface.as_str(),
+                    clientbound
+                        .path
+                        .trim_matches('/')
+                        .split('/')
+                        .collect::<Vec<&str>>()
+                        .as_slice(),
+                    &clientbound.data,
+                ) {
+                    (
+                        "io.edgehog.devicemanager.Commands",
+                        ["request"],
+                        Aggregation::Individual(AstarteType::String(command)),
+                    ) => commands::execute_command(command),
+                    _ => {
+                        warn!("Receiving data from an unknown path/interface: {clientbound:?}");
+                    }
+                }
+            }
+        });
     }
 
     pub async fn run(&mut self) {
         wrapper::systemd::systemd_notify_status("Running");
-        let w = self.sdk.clone();
+        let w = self.sdk.device_sdk.clone();
         tokio::task::spawn(async move {
             loop {
                 let systatus = telemetry::system_status::get_system_status().unwrap();
@@ -141,34 +192,16 @@ impl DeviceManager {
         });
 
         loop {
-            match self.sdk.poll().await {
+            match self.sdk.device_sdk.poll().await {
                 Ok(clientbound) => {
                     debug!("incoming: {:?}", clientbound);
 
-                    match (
-                        clientbound.interface.as_str(),
-                        clientbound
-                            .path
-                            .trim_matches('/')
-                            .split('/')
-                            .collect::<Vec<&str>>()
-                            .as_slice(),
-                        &clientbound.data,
-                    ) {
-                        (
-                            "io.edgehog.devicemanager.OTARequest",
-                            ["request"],
-                            Aggregation::Object(data),
-                        ) => self.ota_event_channel.send(data.clone()).await.unwrap(),
-
-                        (
-                            "io.edgehog.devicemanager.Commands",
-                            ["request"],
-                            Aggregation::Individual(AstarteType::String(command)),
-                        ) => commands::execute_command(command),
-
+                    match clientbound.interface.as_str() {
+                        "io.edgehog.devicemanager.OTARequest" => {
+                            self.ota_event_channel.send(clientbound).await.unwrap()
+                        }
                         _ => {
-                            warn!("Receiving data from an unknown path/interface: {clientbound:?}");
+                            self.data_event_channel.send(clientbound).await.unwrap();
                         }
                     }
                 }
@@ -185,7 +218,7 @@ impl DeviceManager {
     }
 
     pub async fn send_initial_telemetry(&self) -> Result<(), DeviceManagerError> {
-        let device = &self.sdk;
+        let device = &self.sdk.device_sdk;
 
         let data = [
             (
