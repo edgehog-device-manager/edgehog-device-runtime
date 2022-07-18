@@ -25,6 +25,7 @@ use std::panic::{self, PanicInfo};
 use std::path::Path;
 
 use config::read_options;
+use edgehog_device_runtime::data::astarte::Astarte;
 use edgehog_device_runtime::error::DeviceManagerError;
 
 mod config;
@@ -73,7 +74,8 @@ async fn main() -> Result<(), DeviceManagerError> {
         })?;
     }
 
-    let mut dm = edgehog_device_runtime::DeviceManager::new(options).await?;
+    let astarte = Astarte::new(options.clone().into(), options.store_directory.clone()).await?;
+    let mut dm = edgehog_device_runtime::DeviceManager::new(options, astarte).await?;
 
     dm.init().await?;
 

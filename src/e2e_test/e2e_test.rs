@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::panic;
 
+use edgehog_device_runtime::data::astarte::Astarte;
 use edgehog_device_runtime::e2e_test::{get_hardware_info, get_os_info, get_runtime_info};
 use edgehog_device_runtime::{DeviceManager, DeviceManagerOptions};
 
@@ -62,7 +63,12 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         astarte_ignore_ssl: Some(false),
     };
 
-    let mut dm = DeviceManager::new(device_options).await?;
+    let astarte = Astarte::new(
+        device_options.clone().into(),
+        device_options.store_directory.clone(),
+    )
+    .await?;
+    let mut dm = DeviceManager::new(device_options, astarte).await?;
 
     dm.init().await?;
 
