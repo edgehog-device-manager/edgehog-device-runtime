@@ -59,7 +59,7 @@ fn get_cpu_info() -> ProcResult<CpuInfo> {
 
 #[cfg(not(test))]
 fn get_machine_architecture() -> String {
-    nix::sys::utsname::uname().machine().to_owned()
+    std::env::consts::ARCH.to_owned()
 }
 
 #[cfg(not(test))]
