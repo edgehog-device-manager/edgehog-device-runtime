@@ -247,8 +247,16 @@ pub async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
 
 #[cfg(test)]
 mod tests {
+    use crate::data::astarte::{astarte_map_options, Astarte};
     use crate::data::MockPublisher;
+    use crate::telemetry::hardware_info::get_hardware_info;
+    use crate::telemetry::net_if_properties::get_network_interface_properties;
+    use crate::telemetry::os_info::get_os_info;
+    use crate::telemetry::runtime_info::get_runtime_info;
+    use crate::telemetry::storage_usage::{get_storage_usage, DiskUsage};
+    use crate::telemetry::system_info::get_system_info;
     use crate::{DeviceManager, DeviceManagerOptions};
+    use astarte_sdk::types::AstarteType;
 
     impl Clone for MockPublisher {
         fn clone(&self) -> Self {
@@ -256,24 +264,6 @@ mod tests {
         }
 
         fn clone_from(&mut self, _: &Self) {}
-    }
-
-    #[tokio::test]
-    async fn device_option_empty_interface_path_fail() {
-        let options = DeviceManagerOptions {
-            realm: "".to_string(),
-            device_id: Some("device_id".to_string()),
-            credentials_secret: Some("credentials_secret".to_string()),
-            pairing_url: "".to_string(),
-            pairing_token: None,
-            interfaces_directory: "".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
-            astarte_ignore_ssl: Some(false),
-        };
-        let dm = DeviceManager::new(options, MockPublisher::new()).await;
-
-        assert!(dm.is_err());
     }
 
     #[tokio::test]
@@ -290,9 +280,118 @@ mod tests {
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
         };
-        let dm = DeviceManager::new(options, MockPublisher::new()).await;
+
+        let astarte_options = astarte_map_options(&options).await.unwrap();
+        let astarte = Astarte::new(astarte_options).await.unwrap();
+        let dm = DeviceManager::new(options, astarte).await;
 
         assert!(dm.is_ok());
+    }
+
+    #[tokio::test]
+    async fn device_manager_new_success() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_string()),
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
+        };
+
+        let dm = DeviceManager::new(options, MockPublisher::new()).await;
+        assert!(dm.is_ok());
+    }
+
+    #[tokio::test]
+    async fn send_initial_telemetry_success() {
+        let options = DeviceManagerOptions {
+            realm: "".to_string(),
+            device_id: Some("device_id".to_string()),
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            interfaces_directory: "./".to_string(),
+            store_directory: "".to_string(),
+            download_directory: "".to_string(),
+            astarte_ignore_ssl: Some(false),
+        };
+
+        let os_info = get_os_info().unwrap();
+        let mut publisher = MockPublisher::new();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.OSInfo"
+                        && os_info.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let hardware_info = get_hardware_info().unwrap();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.HardwareInfo"
+                        && hardware_info.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let runtime_info = get_runtime_info().unwrap();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.RuntimeInfo"
+                        && runtime_info.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let storage_usage = get_storage_usage().unwrap();
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, interface_path: &str, _: &DiskUsage| {
+                    interface_name == "io.edgehog.devicemanager.StorageUsage"
+                        && storage_usage.contains_key(&interface_path[1..])
+                },
+            )
+            .returning(|_: &str, _: &str, _: DiskUsage| Ok(()));
+
+        let network_iface_props = get_network_interface_properties().await.unwrap();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.NetworkInterfaceProperties"
+                        && network_iface_props.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let system_info = get_system_info().unwrap();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.SystemInfo"
+                        && system_info.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let dm = DeviceManager::new(options, publisher).await;
+        assert!(dm.is_ok());
+
+        let telemetry_result = dm.unwrap().send_initial_telemetry().await;
+        assert!(telemetry_result.is_ok());
     }
 }
 
