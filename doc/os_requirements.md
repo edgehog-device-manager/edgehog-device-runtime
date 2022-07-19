@@ -13,6 +13,7 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
 ### Dependencies
 * **Rust** >= 1.58
 * **libsystemd** (optional)
+* **libudev**: Gathering information about network interfaces.
 
 ### Runtime Dependencies
 * **[dbus](https://www.freedesktop.org/wiki/Software/dbus/)** (optional): Needed for communicating with 3rd party services, such as RAUC.

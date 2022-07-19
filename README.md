@@ -28,6 +28,7 @@ The following information are sent to remote Edgehog instance:
 - Runtime info and compiler version
 - OTA update using RAUC
 - `Edgehog Device Runtime` status changes via systemd.
+- Network interface info
 
 ## How it Works
 
@@ -53,22 +54,6 @@ interfaces_directory = "/usr/share/edgehog/astarte-interfaces/"
 store_directory = "/var/lib/edgehog/"
 download_directory = "/var/tmp/edgehog-updates/"
 ```
-
-## Dependencies
-
-In order to use the Edgehog Device Runtime, you must have a Linux system with the libudev library installed where it can be found by pkg-config. To install libudev on Debian-based Linux distributions, execute the following command:
-
-```
-sudo apt-get install libudev-dev
-```
-
-For Red Hat distributions (e.g. Fedora):
-
-```
-sudo dnf install systemd-devel
-```
-
-`libudev` is a Linux-specific package. It is not available for Windows, OSX, or other operating systems.
 
 ## Contributing
 
