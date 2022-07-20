@@ -19,6 +19,7 @@
  */
 
 pub(crate) mod hardware_info;
+pub(crate) mod net_if_properties;
 pub(crate) mod os_info;
 pub(crate) mod runtime_info;
 pub(crate) mod storage_usage;

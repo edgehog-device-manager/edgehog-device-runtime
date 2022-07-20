@@ -35,6 +35,8 @@ jobs:
           - stable
           - 1.59.0
     steps:
+      - name: Install libudev
+        run: sudo apt-get install -y libudev-dev
       - name: Checkout sources
         uses: actions/checkout@v2
       - name: Install dependencies
@@ -63,6 +65,8 @@ jobs:
           - stable
           - 1.59.0
     steps:
+      - name: Install libudev
+        run: sudo apt-get install -y libudev-dev
       - name: Checkout sources
         uses: actions/checkout@v2
       - name: Install toolchain

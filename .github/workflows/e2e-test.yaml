@@ -33,6 +33,8 @@ jobs:
       REALM_NAME: edgehogdevicetest
       ASTARTE_API_URL: https://api.autotest.astarte-platform.org
     steps:
+      - name: Install libudev
+        run: sudo apt-get install -y libudev-dev
       - name: Create Astarte Cluster
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1

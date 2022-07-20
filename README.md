@@ -28,6 +28,7 @@ The following information are sent to remote Edgehog instance:
 - Runtime info and compiler version
 - OTA update using RAUC
 - `Edgehog Device Runtime` status changes via systemd.
+- Network interface info
 
 ## How it Works
 
