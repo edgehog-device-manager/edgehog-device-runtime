@@ -32,7 +32,7 @@ pub struct Astarte {
 
 #[async_trait]
 impl Publisher for Astarte {
-    async fn send_object<T>(
+    async fn send_object<T: 'static>(
         &self,
         interface_name: &str,
         interface_path: &str,
