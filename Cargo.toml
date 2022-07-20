@@ -15,7 +15,6 @@ default-run = "edgehog-device-runtime"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nix = "0.23.1"
 thiserror = "1.0.31"
 astarte_sdk = {git ="https://github.com/astarte-platform/astarte-device-sdk-rust.git" }
 log = "0.4"

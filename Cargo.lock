@@ -490,7 +490,6 @@ dependencies = [
  "env_logger",
  "log",
  "mockall",
- "nix",
  "procfs",
  "reqwest",
  "rustc_version_runtime",
