@@ -35,7 +35,7 @@ sysinfo = "0.24.6"
 udev = "0.6.3"
 
 [dev-dependencies]
-mockall = "0.11.1"
+mockall = "0.11.2"
 
 [features]
 e2e_test = []
