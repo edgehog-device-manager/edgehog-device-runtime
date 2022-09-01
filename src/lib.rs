@@ -174,26 +174,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         let publisher = self.publisher.clone();
         tokio::spawn(async move {
             while let Some(msg) = telemetry_rx.recv().await {
-                match msg.payload {
-                    TelemetryPayload::SystemStatus(data) => {
-                        let _ = publisher
-                            .send_object(
-                                "io.edgehog.devicemanager.SystemStatus",
-                                "/systemStatus",
-                                data,
-                            )
-                            .await;
-                    }
-                    TelemetryPayload::StorageUsage(data) => {
-                        let _ = publisher
-                            .send_object(
-                                "io.edgehog.devicemanager.StorageUsage",
-                                format!("/{}", msg.path).as_str(),
-                                data,
-                            )
-                            .await;
-                    }
-                };
+                Self::send_telemetry(&publisher, msg).await;
             }
         });
     }
@@ -290,6 +271,38 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
 
         Ok(())
     }
+
+    async fn send_telemetry(publisher: &impl Publisher, msg: TelemetryMessage) {
+        match msg.payload {
+            TelemetryPayload::SystemStatus(data) => {
+                let _ = publisher
+                    .send_object(
+                        "io.edgehog.devicemanager.SystemStatus",
+                        "/systemStatus",
+                        data,
+                    )
+                    .await;
+            }
+            TelemetryPayload::StorageUsage(data) => {
+                let _ = publisher
+                    .send_object(
+                        "io.edgehog.devicemanager.StorageUsage",
+                        format!("/{}", msg.path).as_str(),
+                        data,
+                    )
+                    .await;
+            }
+            TelemetryPayload::BatteryStatus(data) => {
+                let _ = publisher
+                    .send_object(
+                        "io.edgehog.devicemanager.BatteryStatus",
+                        format!("/{}", msg.path).as_str(),
+                        data,
+                    )
+                    .await;
+            }
+        };
+    }
 }
 
 pub async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
@@ -309,13 +322,15 @@ mod tests {
     use crate::data::astarte::{astarte_map_options, Astarte};
     use crate::data::MockPublisher;
     use crate::telemetry::base_image::get_base_image;
+    use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
     use crate::telemetry::hardware_info::get_hardware_info;
     use crate::telemetry::net_if_properties::get_network_interface_properties;
     use crate::telemetry::os_info::get_os_info;
     use crate::telemetry::runtime_info::get_runtime_info;
     use crate::telemetry::storage_usage::{get_storage_usage, DiskUsage};
     use crate::telemetry::system_info::get_system_info;
-    use crate::{DeviceManager, DeviceManagerOptions};
+    use crate::telemetry::system_status::{get_system_status, SystemStatus};
+    use crate::{DeviceManager, DeviceManagerOptions, TelemetryMessage, TelemetryPayload};
     use astarte_sdk::types::AstarteType;
 
     impl Clone for MockPublisher {
@@ -469,6 +484,72 @@ mod tests {
 
         let telemetry_result = dm.unwrap().send_initial_telemetry().await;
         assert!(telemetry_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn send_telemetry_success() {
+        let system_status = get_system_status().unwrap();
+        let mut publisher: MockPublisher = MockPublisher::new();
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, interface_path: &str, _: &SystemStatus| {
+                    interface_name == "io.edgehog.devicemanager.SystemStatus"
+                        && interface_path == "/systemStatus"
+                },
+            )
+            .returning(|_: &str, _: &str, _: SystemStatus| Ok(()));
+
+        let storage_usage = get_storage_usage().unwrap();
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, interface_path: &str, _: &DiskUsage| {
+                    interface_name == "io.edgehog.devicemanager.StorageUsage"
+                        && storage_usage.contains_key(&interface_path[1..])
+                },
+            )
+            .returning(|_: &str, _: &str, _: DiskUsage| Ok(()));
+
+        let battery_status = get_battery_status().await.unwrap();
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, interface_path: &str, _: &BatteryStatus| {
+                    interface_name == "io.edgehog.devicemanager.BatteryStatus"
+                        && battery_status.contains_key(&interface_path[1..])
+                },
+            )
+            .returning(|_: &str, _: &str, _: BatteryStatus| Ok(()));
+
+        DeviceManager::<MockPublisher>::send_telemetry(
+            &publisher,
+            TelemetryMessage {
+                path: "".to_string(),
+                payload: TelemetryPayload::SystemStatus(system_status),
+            },
+        )
+        .await;
+        for (path, payload) in get_storage_usage().unwrap() {
+            DeviceManager::<MockPublisher>::send_telemetry(
+                &publisher,
+                TelemetryMessage {
+                    path,
+                    payload: TelemetryPayload::StorageUsage(payload),
+                },
+            )
+            .await;
+        }
+        for (path, payload) in get_battery_status().await.unwrap() {
+            DeviceManager::<MockPublisher>::send_telemetry(
+                &publisher,
+                TelemetryMessage {
+                    path,
+                    payload: TelemetryPayload::BatteryStatus(payload),
+                },
+            )
+            .await;
+        }
     }
 }
 

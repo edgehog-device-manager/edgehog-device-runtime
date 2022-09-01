@@ -30,6 +30,7 @@ The following information are sent to remote Edgehog instance:
 - `Edgehog Device Runtime` status changes via systemd.
 - Network interface info
 - Base image (data is read from `/etc/os-release`)
+- Battery status data
 
 ## How it Works
 
