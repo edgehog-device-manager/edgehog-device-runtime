@@ -259,6 +259,10 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
                 "io.edgehog.devicemanager.BaseImage",
                 telemetry::base_image::get_base_image()?,
             ),
+            (
+                "io.edgehog.devicemanager.CellularConnectionProperties",
+                telemetry::cellular_modem::get_cellular_properties().await?,
+            ),
         ];
 
         for (ifc, fields) in data {
@@ -309,6 +313,7 @@ mod tests {
     use crate::data::astarte::{astarte_map_options, Astarte};
     use crate::data::MockPublisher;
     use crate::telemetry::base_image::get_base_image;
+    use crate::telemetry::cellular_modem::get_cellular_properties;
     use crate::telemetry::hardware_info::get_hardware_info;
     use crate::telemetry::net_if_properties::get_network_interface_properties;
     use crate::telemetry::os_info::get_os_info;
@@ -460,6 +465,17 @@ mod tests {
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
                     interface_name == "io.edgehog.devicemanager.BaseImage"
                         && base_image.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let cellular_properties = get_cellular_properties().await.unwrap();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.CellularConnectionProperties"
+                        && cellular_properties.get(interface_path).unwrap() == data
                 },
             )
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));

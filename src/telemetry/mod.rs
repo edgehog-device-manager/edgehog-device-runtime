@@ -32,6 +32,7 @@ use tokio::task::spawn;
 use tokio::time::interval;
 
 pub(crate) mod base_image;
+pub(crate) mod cellular_modem;
 pub(crate) mod hardware_info;
 pub(crate) mod net_if_properties;
 pub(crate) mod os_info;
