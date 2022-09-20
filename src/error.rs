@@ -54,4 +54,7 @@ pub enum DeviceManagerError {
 
     #[error("configuration file error")]
     ConfigFileError(#[from] toml::de::Error),
+
+    #[error("integer parse error")]
+    ParseIntError(#[from] std::num::ParseIntError),
 }

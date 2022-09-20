@@ -229,6 +229,17 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
                 )
                 .await?;
         }
+
+        for wifi_scan_result in telemetry::wifi_scan::get_wifi_scan_results()? {
+            device
+                .send_object(
+                    "io.edgehog.devicemanager.WiFiScanResults",
+                    "/ap",
+                    wifi_scan_result,
+                )
+                .await?;
+        }
+
         Ok(())
     }
 }

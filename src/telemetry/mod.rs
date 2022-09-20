@@ -25,3 +25,4 @@ pub(crate) mod runtime_info;
 pub(crate) mod storage_usage;
 pub(crate) mod system_info;
 pub(crate) mod system_status;
+pub(crate) mod wifi_scan;
