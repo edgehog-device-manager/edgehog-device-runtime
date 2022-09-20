@@ -37,7 +37,7 @@ pub struct Astarte {
 
 #[async_trait]
 impl Publisher for Astarte {
-    async fn send_object<T>(
+    async fn send_object<T: 'static>(
         &self,
         interface_name: &str,
         interface_path: &str,
@@ -182,6 +182,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         assert_eq!(
             get_credentials_secret("device_id", &options, state_mock)
@@ -205,6 +206,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
@@ -230,6 +232,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         assert!(get_credentials_secret("device_id", &options, state_mock)
@@ -255,6 +258,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         assert!(get_credentials_secret("device_id", &options, state_mock)
@@ -274,6 +278,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
+            telemetry_config: vec![],
         };
 
         let state_mock = MockStateRepository::<String>::new();
