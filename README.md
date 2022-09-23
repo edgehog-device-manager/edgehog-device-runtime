@@ -29,6 +29,7 @@ The following information are sent to remote Edgehog instance:
 - OTA update using RAUC
 - `Edgehog Device Runtime` status changes via systemd.
 - Network interface info
+- Base image (data is read from `/etc/os-release`)
 
 ## How it Works
 

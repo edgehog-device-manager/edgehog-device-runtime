@@ -255,6 +255,10 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
                 "io.edgehog.devicemanager.SystemInfo",
                 telemetry::system_info::get_system_info()?,
             ),
+            (
+                "io.edgehog.devicemanager.BaseImage",
+                telemetry::base_image::get_base_image()?,
+            ),
         ];
 
         for (ifc, fields) in data {
@@ -304,6 +308,7 @@ pub async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
 mod tests {
     use crate::data::astarte::{astarte_map_options, Astarte};
     use crate::data::MockPublisher;
+    use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::hardware_info::get_hardware_info;
     use crate::telemetry::net_if_properties::get_network_interface_properties;
     use crate::telemetry::os_info::get_os_info;
@@ -444,6 +449,17 @@ mod tests {
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
                     interface_name == "io.edgehog.devicemanager.SystemInfo"
                         && system_info.get(interface_path).unwrap() == data
+                },
+            )
+            .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
+
+        let base_image = get_base_image().unwrap();
+        publisher
+            .expect_send()
+            .withf(
+                move |interface_name: &str, interface_path: &str, data: &AstarteType| {
+                    interface_name == "io.edgehog.devicemanager.BaseImage"
+                        && base_image.get(interface_path).unwrap() == data
                 },
             )
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));

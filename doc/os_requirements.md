@@ -22,6 +22,8 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
 ### Filesystem Layout
 * **/tmp**: Software updates will be downloaded here.
 * **/data**: Edgehog Device Runtime will store its state here during the OTA update process.
+* **[/etc/os-release](https://www.freedesktop.org/software/systemd/man/os-release.html)**: NAME,
+  VERSION_ID, BUILD_ID, IMAGE_ID, IMAGE_VERSION entries are used for OSInfo and BaseImage.
 
 ### Optional features
 * **systemd**: If `edgehog-device-runtime` is a `systemd` service, it can notify `systemd` of its status changes. This is provided via the `rust-systemd` crate, a Rust interface to `libsystemd/libelogind` APIs.
