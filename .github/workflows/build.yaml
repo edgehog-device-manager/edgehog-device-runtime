@@ -35,14 +35,12 @@ jobs:
           - stable
           - 1.59.0
     steps:
-      - name: Install libudev
-        run: sudo apt-get install -y libudev-dev
-      - name: Checkout sources
-        uses: actions/checkout@v2
       - name: Install dependencies
         run: |
-           sudo apt update
-           sudo apt -y install libsystemd-dev
+          sudo apt update
+          sudo apt-get install -y libudev-dev libsystemd-dev
+      - name: Checkout sources
+        uses: actions/checkout@v2
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -66,7 +64,9 @@ jobs:
           - 1.59.0
     steps:
       - name: Install libudev
-        run: sudo apt-get install -y libudev-dev
+        run: |
+          sudo apt update
+          sudo apt-get install -y libudev-dev
       - name: Checkout sources
         uses: actions/checkout@v2
       - name: Install toolchain
