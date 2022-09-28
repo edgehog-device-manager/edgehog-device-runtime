@@ -37,10 +37,10 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     ZbusError(#[from] zbus::Error),
 
-    #[error("update error")]
+    #[error("update error ({0})")]
     UpdateError(String),
 
-    #[error("unrecoverable error")]
+    #[error("unrecoverable error ({0})")]
     FatalError(String),
 
     #[error(transparent)]
