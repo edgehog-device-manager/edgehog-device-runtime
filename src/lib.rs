@@ -37,6 +37,7 @@ mod commands;
 pub mod data;
 mod device;
 pub mod error;
+mod led_behavior;
 mod ota;
 mod power_management;
 pub mod repository;
@@ -161,6 +162,16 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
                             .await
                             .telemetry_config_event(interface_name, endpoint, data)
                             .await;
+                    }
+                    (
+                        "io.edgehog.devicemanager.LedBehavior",
+                        [led_id, "behavior"],
+                        Aggregation::Individual(AstarteType::String(behavior)),
+                    ) => {
+                        tokio::spawn(led_behavior::set_behavior(
+                            led_id.to_string(),
+                            behavior.clone(),
+                        ));
                     }
                     _ => {
                         warn!("Receiving data from an unknown path/interface: {clientbound:?}");
