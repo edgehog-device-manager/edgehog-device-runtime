@@ -182,7 +182,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
         assert_eq!(
             get_credentials_secret("device_id", &options, state_mock)
@@ -206,7 +206,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
         assert!(get_credentials_secret("device_id", &options, state_mock)
             .await
@@ -232,7 +232,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
 
         assert!(get_credentials_secret("device_id", &options, state_mock)
@@ -258,7 +258,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
 
         assert!(get_credentials_secret("device_id", &options, state_mock)
@@ -278,7 +278,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
 
         let state_mock = MockStateRepository::<String>::new();

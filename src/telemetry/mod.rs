@@ -58,6 +58,7 @@ struct TelemetryTaskConfig {
     override_period: Option<u64>,
 }
 
+#[derive(Debug)]
 pub struct Telemetry {
     telemetry_task_configs: Arc<RwLock<HashMap<String, TelemetryTaskConfig>>>,
     kill_switches: HashMap<String, Sender<()>>,
@@ -77,10 +78,21 @@ pub struct TelemetryMessage {
 
 impl Telemetry {
     pub async fn from_default_config(
-        cfg: Vec<TelemetryInterfaceConfig>,
+        cfg: Option<Vec<TelemetryInterfaceConfig>>,
         communication_channel: MpscSender<TelemetryMessage>,
         store_directory: String,
     ) -> Self {
+        let cfg = match cfg {
+            None => {
+                return Telemetry {
+                    telemetry_task_configs: Arc::new(Default::default()),
+                    kill_switches: Default::default(),
+                    communication_channel,
+                    store_directory,
+                }
+            }
+            Some(conf) => conf,
+        };
         let mut telemetry_task_configs = HashMap::new();
         for c in cfg {
             telemetry_task_configs.insert(
@@ -340,7 +352,7 @@ mod tests {
         });
 
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
+        let tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
         let telemetry_config = tel.telemetry_task_configs.clone();
         let interface_configs = telemetry_config.read().await;
         let system_status_config = interface_configs.get(interface_name).unwrap();
@@ -360,7 +372,7 @@ mod tests {
         });
 
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let mut tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
+        let mut tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
 
         tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(false))
             .await;
@@ -405,7 +417,7 @@ mod tests {
         });
 
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let mut tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
+        let mut tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
 
         tel.telemetry_config_event(interface_name, "enable", &AstarteType::Unset)
             .await;
@@ -447,7 +459,7 @@ mod tests {
         });
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        let mut tel = Telemetry::from_default_config(config, tx, "./".to_string()).await;
+        let mut tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
         tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(true))
             .await;
         tel.telemetry_config_event(
@@ -458,5 +470,12 @@ mod tests {
         .await;
 
         assert!(rx.recv().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn from_default_config_null_test() {
+        let (tx, _) = tokio::sync::mpsc::channel(32);
+        let tel = Telemetry::from_default_config(None, tx, "./".to_string()).await;
+        assert!(tel.telemetry_task_configs.clone().read().await.is_empty());
     }
 }

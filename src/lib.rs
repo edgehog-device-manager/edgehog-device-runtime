@@ -54,7 +54,7 @@ pub struct DeviceManagerOptions {
     pub store_directory: String,
     pub download_directory: String,
     pub astarte_ignore_ssl: Option<bool>,
-    pub telemetry_config: Vec<telemetry::TelemetryInterfaceConfig>,
+    pub telemetry_config: Option<Vec<telemetry::TelemetryInterfaceConfig>>,
 }
 
 pub struct DeviceManager<T: Publisher + Clone> {
@@ -339,7 +339,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
 
         let astarte_options = astarte_map_options(&options).await.unwrap();
@@ -361,7 +361,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
 
         let dm = DeviceManager::new(options, MockPublisher::new()).await;
@@ -383,7 +383,7 @@ mod tests {
             store_directory: "".to_string(),
             download_directory: "".to_string(),
             astarte_ignore_ssl: Some(false),
-            telemetry_config: vec![],
+            telemetry_config: Some(vec![]),
         };
 
         let os_info = get_os_info().unwrap();

@@ -61,7 +61,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         store_directory: "".to_string(),
         download_directory: "".to_string(),
         astarte_ignore_ssl: Some(false),
-        telemetry_config: vec![],
+        telemetry_config: Some(vec![]),
     };
 
     let astarte_options = astarte_map_options(&device_options).await?;

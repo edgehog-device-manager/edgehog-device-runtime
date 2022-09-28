@@ -54,6 +54,10 @@ realm = "examplerealm"
 interfaces_directory = "/usr/share/edgehog/astarte-interfaces/"
 store_directory = "/var/lib/edgehog/"
 download_directory = "/var/tmp/edgehog-updates/"
+[[telemetry_config]]
+interface_name = "io.edgehog.devicemanager.SystemStatus"
+enabled = true
+period = 60
 ```
 
 ## Contributing
