@@ -104,10 +104,12 @@ pub async fn astarte_map_options(
 
 async fn get_device_id(opt_device_id: Option<String>) -> Result<String, DeviceManagerError> {
     if let Some(device_id) = opt_device_id {
-        Ok(device_id)
-    } else {
-        get_hardware_id_from_dbus().await
+        if !device_id.is_empty() {
+            return Ok(device_id);
+        }
     }
+
+    get_hardware_id_from_dbus().await
 }
 
 async fn get_credentials_secret(
@@ -116,8 +118,11 @@ async fn get_credentials_secret(
     cred_state_repo: impl StateRepository<String>,
 ) -> Result<String, DeviceManagerError> {
     if let Some(secret) = opts.credentials_secret.clone() {
-        Ok(secret)
-    } else if cred_state_repo.exists() {
+        if !secret.is_empty() {
+            return Ok(secret);
+        }
+    }
+    if cred_state_repo.exists() {
         get_credentials_secret_from_persistence(cred_state_repo)
     } else if let Some(token) = opts.pairing_token.clone() {
         get_credentials_secret_from_registration(device_id, &token, opts, cred_state_repo).await
