@@ -148,7 +148,10 @@ async fn get_credentials_secret_from_registration(
             .expect("Unable to write secret");
         Ok(credentials_secret)
     } else {
-        Err(DeviceManagerError::FatalError("Pairing error".to_string()))
+        Err(DeviceManagerError::FatalError(format!(
+            "Pairing error ({:?})",
+            registration.err()
+        )))
     }
 }
 
@@ -287,7 +290,10 @@ mod tests {
         assert!(cred_result.is_err());
         match cred_result.err().unwrap() {
             DeviceManagerError::FatalError(val) => {
-                assert_eq!(val, "Pairing error".to_owned())
+                assert_eq!(
+                    val,
+                    "Pairing error (Some(InvalidUrl(RelativeUrlWithoutBase)))".to_string()
+                );
             }
             _ => {
                 panic!("Wrong DeviceManagerError type");
