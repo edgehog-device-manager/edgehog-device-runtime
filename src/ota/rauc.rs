@@ -126,9 +126,9 @@ pub struct OTARauc<'a> {
 
 #[async_trait]
 impl<'a> OTA for OTARauc<'a> {
-    async fn install_bundle(&self, _source: &str) -> Result<(), DeviceManagerError> {
+    async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError> {
         self.rauc
-            .install_bundle("path", std::collections::HashMap::new())
+            .install_bundle(source, std::collections::HashMap::new())
             .await?;
         Ok(())
     }
