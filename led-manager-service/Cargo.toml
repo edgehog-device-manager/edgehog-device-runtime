@@ -1,0 +1,16 @@
+# This file is part of Edgehog.
+#
+# Copyright 2022 SECO Mind Srl
+#
+# SPDX-License-Identifier: CC0-1.0
+
+[package]
+name = "led-manager-service"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+zbus = { version = "2", default-features = false, features = ["tokio"] }
