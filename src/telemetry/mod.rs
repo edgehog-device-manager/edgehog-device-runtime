@@ -32,6 +32,7 @@ use tokio::task::spawn;
 use tokio::time::interval;
 
 pub(crate) mod base_image;
+pub(crate) mod battery_status;
 pub(crate) mod hardware_info;
 pub(crate) mod net_if_properties;
 pub(crate) mod os_info;
@@ -39,6 +40,7 @@ pub(crate) mod runtime_info;
 pub(crate) mod storage_usage;
 pub(crate) mod system_info;
 pub(crate) mod system_status;
+pub(crate) mod upower;
 pub(crate) mod wifi_scan;
 
 const TELEMETRY_PATH: &str = "telemetry.json";
@@ -69,6 +71,7 @@ pub struct Telemetry {
 pub enum TelemetryPayload {
     SystemStatus(crate::telemetry::system_status::SystemStatus),
     StorageUsage(crate::telemetry::storage_usage::DiskUsage),
+    BatteryStatus(crate::telemetry::battery_status::BatteryStatus),
 }
 
 pub struct TelemetryMessage {
@@ -328,6 +331,17 @@ async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interfa
                     .await;
             }
         }
+        "io.edgehog.devicemanager.BatteryStatus" => {
+            let battery_status = battery_status::get_battery_status().await.unwrap();
+            for (path, payload) in battery_status {
+                let _ = communication_channel
+                    .send(TelemetryMessage {
+                        path,
+                        payload: TelemetryPayload::BatteryStatus(payload),
+                    })
+                    .await;
+            }
+        }
         _ => {}
     }
 }
@@ -336,7 +350,7 @@ async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interfa
 mod tests {
     use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
-    use crate::telemetry::{Telemetry, TelemetryInterfaceConfig};
+    use crate::telemetry::{send_data, Telemetry, TelemetryInterfaceConfig};
     use astarte_sdk::types::AstarteType;
 
     const TELEMETRY_PATH: &str = "telemetry.json";
@@ -477,5 +491,16 @@ mod tests {
         let (tx, _) = tokio::sync::mpsc::channel(32);
         let tel = Telemetry::from_default_config(None, tx, "./".to_string()).await;
         assert!(tel.telemetry_task_configs.clone().read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn send_data_test() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        send_data(&tx, "io.edgehog.devicemanager.SystemStatus".to_string()).await;
+        assert!(rx.recv().await.is_some());
+        send_data(&tx, "io.edgehog.devicemanager.StorageUsage".to_string()).await;
+        assert!(rx.recv().await.is_some());
+        send_data(&tx, "io.edgehog.devicemanager.BatteryStatus".to_string()).await;
+        assert!(rx.recv().await.is_some());
     }
 }

@@ -18,6 +18,7 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
 ### Runtime Dependencies
 * **[dbus](https://www.freedesktop.org/wiki/Software/dbus/)** (optional): Needed for communicating with 3rd party services, such as RAUC.
 * **[RAUC](https://rauc.io/) ~> v1.5** (optional): Needed for OS updates.
+* **[UPower](https://upower.freedesktop.org/)**: (optional) Needed to gather information about the battery status.
 
 ### Filesystem Layout
 * **/tmp**: Software updates will be downloaded here.
