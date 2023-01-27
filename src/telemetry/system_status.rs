@@ -19,15 +19,15 @@
  */
 
 use crate::error::DeviceManagerError;
-use serde::Serialize;
+use astarte_device_sdk::AstarteAggregate;
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, AstarteAggregate)]
+#[allow(non_snake_case)]
 pub struct SystemStatus {
-    pub avail_memory_bytes: i64,
-    pub boot_id: String,
-    pub task_count: i32,
-    pub uptime_millis: i64,
+    pub availMemoryBytes: i64,
+    pub bootId: String,
+    pub taskCount: i32,
+    pub uptimeMillis: i64,
 }
 
 /// get structured data for `io.edgehog.devicemanager.SystemStatus` interface
@@ -35,10 +35,10 @@ pub fn get_system_status() -> Result<SystemStatus, DeviceManagerError> {
     let meminfo = procfs::Meminfo::new()?;
 
     Ok(SystemStatus {
-        avail_memory_bytes: meminfo.mem_available.unwrap_or(0) as i64,
-        boot_id: procfs::sys::kernel::random::boot_id()?,
-        task_count: procfs::process::all_processes()?.count() as i32,
-        uptime_millis: procfs::Uptime::new()?.uptime_duration().as_millis() as i64,
+        availMemoryBytes: meminfo.mem_available.unwrap_or(0) as i64,
+        bootId: procfs::sys::kernel::random::boot_id()?,
+        taskCount: procfs::process::all_processes()?.count() as i32,
+        uptimeMillis: procfs::Uptime::new()?.uptime_duration().as_millis() as i64,
     })
 }
 
@@ -52,9 +52,9 @@ mod tests {
         assert!(system_status_result.is_ok());
 
         let system_status = system_status_result.unwrap();
-        assert!(system_status.avail_memory_bytes > 0);
-        assert!(!system_status.boot_id.is_empty());
-        assert!(system_status.task_count > 0);
-        assert!(system_status.uptime_millis > 0);
+        assert!(system_status.availMemoryBytes > 0);
+        assert!(!system_status.bootId.is_empty());
+        assert!(system_status.taskCount > 0);
+        assert!(system_status.uptimeMillis > 0);
     }
 }

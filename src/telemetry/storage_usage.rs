@@ -19,15 +19,15 @@
  */
 
 use crate::error::DeviceManagerError;
-use serde::Serialize;
+use astarte_device_sdk::AstarteAggregate;
 use std::collections::HashMap;
 use sysinfo::{DiskExt, System, SystemExt};
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, AstarteAggregate)]
+#[allow(non_snake_case)]
 pub struct DiskUsage {
-    pub total_bytes: i64,
-    pub free_bytes: i64,
+    pub totalBytes: i64,
+    pub freeBytes: i64,
 }
 
 /// get structured data for `io.edgehog.devicemanager.StorageUsage` interface
@@ -42,8 +42,8 @@ pub fn get_storage_usage() -> Result<HashMap<String, DiskUsage>, DeviceManagerEr
         ret.insert(
             disk_name.to_owned() as String,
             DiskUsage {
-                total_bytes: disk.total_space() as i64,
-                free_bytes: disk.available_space() as i64,
+                totalBytes: disk.total_space() as i64,
+                freeBytes: disk.available_space() as i64,
             },
         );
     }

@@ -18,8 +18,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_sdk::types::AstarteType;
-use astarte_sdk::{AstarteError, Clientbound};
+use astarte_device_sdk::types::AstarteType;
+use astarte_device_sdk::{AstarteAggregate, AstarteDeviceDataEvent, AstarteError};
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
@@ -36,7 +36,7 @@ pub trait Publisher: Send + Sync {
         data: T,
     ) -> Result<(), AstarteError>
     where
-        T: serde::Serialize + Send;
+        T: AstarteAggregate + Send;
     //TODO add send_object_with_timestamp to this trait
     async fn send(
         &self,
@@ -45,5 +45,5 @@ pub trait Publisher: Send + Sync {
         data: AstarteType,
     ) -> Result<(), AstarteError>;
 
-    async fn on_event(&mut self) -> Result<Clientbound, AstarteError>;
+    async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, AstarteError>;
 }

@@ -19,7 +19,7 @@
  */
 
 use crate::error::DeviceManagerError;
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use std::collections::HashMap;
 
 /// get structured data for `io.edgehog.devicemanager.RuntimeInfo` interface

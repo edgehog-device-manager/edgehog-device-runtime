@@ -18,18 +18,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use serde::Serialize;
+use astarte_device_sdk::AstarteAggregate;
 use std::collections::HashMap;
 
 use crate::error::DeviceManagerError;
 use crate::telemetry::upower::device::{BatteryState, DeviceProxy, PowerDeviceType};
 use crate::telemetry::upower::upower::UPowerProxy;
 
-#[derive(Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, AstarteAggregate, PartialEq)]
+#[allow(non_snake_case)]
 pub struct BatteryStatus {
-    level_percentage: f64,
-    level_absolute_error: f64,
+    levelPercentage: f64,
+    levelAbsoluteError: f64,
     /// "Battery status string, any of: Charging, Discharging, Idle, EitherIdleOrCharging, Failure, Removed, Unknown",
     status: String,
 }
@@ -40,8 +40,8 @@ impl BatteryStatus {
         let level_absolute_error = get_error_level(device_state);
 
         BatteryStatus {
-            level_percentage,
-            level_absolute_error,
+            levelPercentage: level_percentage,
+            levelAbsoluteError: level_absolute_error,
             status,
         }
     }
@@ -126,8 +126,8 @@ mod tests {
         assert_eq!(
             battery,
             BatteryStatus {
-                level_percentage,
-                level_absolute_error: 100.0,
+                levelPercentage: level_percentage,
+                levelAbsoluteError: 100.0,
                 status: "Unknown".to_string()
             }
         )
@@ -144,8 +144,8 @@ mod tests {
         assert_eq!(
             battery,
             BatteryStatus {
-                level_percentage,
-                level_absolute_error: 0.0,
+                levelPercentage: level_percentage,
+                levelAbsoluteError: 0.0,
                 status: "Charging".to_string()
             }
         )
@@ -162,8 +162,8 @@ mod tests {
         assert_eq!(
             battery,
             BatteryStatus {
-                level_percentage,
-                level_absolute_error: 0.0,
+                levelPercentage: level_percentage,
+                levelAbsoluteError: 0.0,
                 status: "Discharging".to_string()
             }
         )
@@ -180,8 +180,8 @@ mod tests {
         assert_eq!(
             battery,
             BatteryStatus {
-                level_percentage,
-                level_absolute_error: 0.0,
+                levelPercentage: level_percentage,
+                levelAbsoluteError: 0.0,
                 status: "Idle".to_string()
             }
         )
@@ -198,8 +198,8 @@ mod tests {
         assert_eq!(
             battery,
             BatteryStatus {
-                level_percentage,
-                level_absolute_error: 0.0,
+                levelPercentage: level_percentage,
+                levelAbsoluteError: 0.0,
                 status: "Removed".to_string()
             }
         )

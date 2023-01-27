@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::error::DeviceManagerError;
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use procfs::cmdline;
 use std::collections::HashMap;
 use std::env;
@@ -50,7 +50,7 @@ pub fn get_system_info() -> Result<HashMap<String, AstarteType>, DeviceManagerEr
 #[cfg(test)]
 mod tests {
     use crate::telemetry::system_info::get_system_info;
-    use astarte_sdk::types::AstarteType;
+    use astarte_device_sdk::types::AstarteType;
     use std::env;
 
     #[test]

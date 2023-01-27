@@ -19,7 +19,7 @@
  */
 
 use crate::error::DeviceManagerError;
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use procfs::{CpuInfo, Meminfo, ProcResult};
 use std::collections::HashMap;
 
@@ -149,7 +149,7 @@ CmaFree:          194196 kB
 #[cfg(test)]
 mod tests {
     use crate::telemetry::hardware_info::get_hardware_info;
-    use astarte_sdk::types::AstarteType;
+    use astarte_device_sdk::types::AstarteType;
 
     #[test]
     fn hardware_info_test() {

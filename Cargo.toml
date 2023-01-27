@@ -16,7 +16,7 @@ default-run = "edgehog-device-runtime"
 
 [dependencies]
 thiserror = "1.0.37"
-astarte_sdk = {git ="https://github.com/astarte-platform/astarte-device-sdk-rust.git" }
+astarte-device-sdk = {version = "0.5.1" , features = ["derive"]}
 log = "0.4"
 env_logger = "0.9.1"
 clap = { version = "3.2.22", features = ["derive"] }

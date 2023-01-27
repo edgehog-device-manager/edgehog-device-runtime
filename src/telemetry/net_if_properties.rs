@@ -19,7 +19,7 @@
  */
 
 use crate::error::DeviceManagerError;
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use log::warn;
 use std::collections::HashMap;
 
@@ -129,11 +129,11 @@ fn network_interface_to_astarte(
     for iff in eth_wifi {
         ret.insert(
             format!("/{}/macAddress", iff.interface),
-            astarte_sdk::types::AstarteType::String(iff.mac_address.to_ascii_lowercase()),
+            AstarteType::String(iff.mac_address.to_ascii_lowercase()),
         );
         ret.insert(
             format!("/{}/technologyType", iff.interface),
-            astarte_sdk::types::AstarteType::String(iff.technology_type.to_string()),
+            AstarteType::String(iff.technology_type.to_string()),
         );
     }
 
@@ -146,7 +146,7 @@ mod tests {
         get_supported_network_interfaces, network_interface_to_astarte, NetworkInterfaceProperties,
         TechnologyType,
     };
-    use astarte_sdk::types::AstarteType;
+    use astarte_device_sdk::types::AstarteType;
 
     #[test]
     fn technology_type_to_string_test() {

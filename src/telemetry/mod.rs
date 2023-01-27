@@ -20,7 +20,7 @@
 
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -351,7 +351,7 @@ mod tests {
     use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
     use crate::telemetry::{send_data, Telemetry, TelemetryInterfaceConfig};
-    use astarte_sdk::types::AstarteType;
+    use astarte_device_sdk::types::AstarteType;
 
     const TELEMETRY_PATH: &str = "telemetry.json";
 
