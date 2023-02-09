@@ -20,6 +20,7 @@
 
 use astarte_device_sdk::AstarteAggregate;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use astarte_device_sdk::types::AstarteType;
 use log::{debug, error, info, warn};
@@ -104,6 +105,10 @@ impl<'a> OTAHandler<'a> {
         self.ota.last_error().await
     }
 
+    fn get_update_file_path(&self) -> PathBuf {
+        std::path::Path::new(&self.download_file_path).join("update.bin")
+    }
+
     pub async fn ota_event(
         &mut self,
         sdk: &impl Publisher,
@@ -122,7 +127,7 @@ impl<'a> OTAHandler<'a> {
                 DeviceManagerError::UpdateError("Unable to parse request_uuid".to_owned())
             })?;
 
-            match self.handle_ota_event(sdk, request_url, request_uuid).await {
+            let result = match self.handle_ota_event(sdk, request_url, request_uuid).await {
                 Err(err) => {
                     error!("Update failed!");
                     error!("{:?}", err);
@@ -147,7 +152,26 @@ impl<'a> OTAHandler<'a> {
                     ))
                 }
                 _ => Ok(()),
+            };
+
+            // Installation error, we can remove the update file
+            if let Some(path) = self.get_update_file_path().to_str() {
+                if let Err(e) = std::fs::remove_file(path) {
+                    error!("Unable to remove {}: {}", path, e);
+                }
             }
+
+            if result.is_ok() {
+                info!("Update successful");
+                info!("Rebooting in 5 seconds");
+
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                #[cfg(not(test))]
+                power_management::reboot()?;
+            }
+
+            return result;
         } else {
             error!("Got bad data in OTARequest ({data:?})");
             Err(DeviceManagerError::UpdateError(
@@ -167,7 +191,7 @@ impl<'a> OTAHandler<'a> {
         self.send_ota_response(sdk, &request_uuid, OTAStatus::InProgress)
             .await?;
 
-        let path = std::path::Path::new(&self.download_file_path).join("update.bin");
+        let path = self.get_update_file_path();
         let path = path.to_str().ok_or_else(|| {
             DeviceManagerError::FatalError("wrong download file path".to_string())
         })?;
@@ -205,27 +229,17 @@ impl<'a> OTAHandler<'a> {
         debug!("rauc operation = {}", self.ota.operation().await?);
 
         info!("Waiting for signal...");
-        if let Ok(signal) = self.ota.receive_completed().await {
-            info!("Completed signal! {:?}", signal);
+        let signal = self.ota.receive_completed().await?;
 
-            match signal {
-                0 => {
-                    info!("Update successful");
-                    info!("Rebooting in 5 seconds");
+        info!("Completed signal! {:?}", signal);
 
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-                    #[cfg(not(test))]
-                    power_management::reboot()?;
-                }
-                _ => {
-                    error!("Update failed with signal {signal}");
-                    return Err(OTAError::Deploy.into());
-                }
+        match signal {
+            0 => Ok(()),
+            _ => {
+                error!("Update failed with signal {signal}");
+                Err(OTAError::Deploy.into())
             }
         }
-
-        Ok(())
     }
 
     pub async fn ensure_pending_ota_response(
@@ -310,6 +324,9 @@ impl<'a> OTAHandler<'a> {
 }
 
 async fn wget(url: &str, file_path: &str) -> Result<(), DeviceManagerError> {
+    if std::path::Path::new(file_path).exists() {
+        std::fs::remove_file(file_path).expect(&format!("Unable to remove {}", file_path));
+    }
     info!("Downloading {:?}", url);
     for i in 0..5 {
         let response = reqwest::get(url).await;
