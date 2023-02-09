@@ -18,9 +18,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::AstarteAggregate;
 use std::collections::HashMap;
 
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -59,12 +60,12 @@ enum OTAStatus {
     Error(OTAError),
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(AstarteAggregate)]
+#[allow(non_snake_case)]
 struct OTAResponse {
-    uuid: Uuid,
+    uuid: String,
     status: String,
-    status_code: String,
+    statusCode: String,
 }
 
 impl OTAStatus {
@@ -297,9 +298,9 @@ impl<'a> OTAHandler<'a> {
             "io.edgehog.devicemanager.OTAResponse",
             "/response",
             OTAResponse {
-                uuid: request_uuid.clone(),
+                uuid: request_uuid.to_string(),
                 status,
-                status_code,
+                statusCode: status_code,
             },
         )
         .await?;
@@ -337,8 +338,8 @@ async fn wget(url: &str, file_path: &str) -> Result<(), DeviceManagerError> {
 mod tests {
     use std::collections::HashMap;
 
-    use astarte_sdk::types::AstarteType;
-    use astarte_sdk::AstarteError;
+    use astarte_device_sdk::types::AstarteType;
+    use astarte_device_sdk::AstarteError;
     use uuid::Uuid;
 
     use crate::data::MockPublisher;
@@ -487,8 +488,8 @@ mod tests {
             .withf(move |_: &str, _: &str, response: &OTAResponse| {
                 let status = OTAStatus::Error(OTAError::Failed).to_status_code();
                 response.status.eq(&status.0)
-                    && response.status_code.eq(&status.1)
-                    && response.uuid == uuid.clone()
+                    && response.statusCode.eq(&status.1)
+                    && response.uuid == uuid.to_string()
             })
             .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
 
@@ -535,8 +536,8 @@ mod tests {
             .withf(move |_: &str, _: &str, response: &OTAResponse| {
                 let status = OTAStatus::Done.to_status_code();
                 response.status.eq(&status.0)
-                    && response.status_code.eq(&status.1)
-                    && response.uuid == uuid.to_owned()
+                    && response.statusCode.eq(&status.1)
+                    && response.uuid == uuid.to_string()
             })
             .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
 
@@ -884,8 +885,8 @@ mod tests {
             .withf(move |_: &str, _: &str, response: &OTAResponse| {
                 let status = OTAStatus::Done.to_status_code();
                 response.status.eq(&status.0)
-                    && response.status_code.eq(&status.1)
-                    && response.uuid == uuid.to_owned()
+                    && response.statusCode.eq(&status.1)
+                    && response.uuid == uuid.to_string()
             })
             .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
 
@@ -894,8 +895,8 @@ mod tests {
             .withf(move |_: &str, _: &str, response: &OTAResponse| {
                 let status = OTAStatus::InProgress.to_status_code();
                 response.status.eq(&status.0)
-                    && response.status_code.eq(&status.1)
-                    && response.uuid == uuid.to_owned()
+                    && response.statusCode.eq(&status.1)
+                    && response.uuid == uuid.to_string()
             })
             .returning(|_: &str, _: &str, _: OTAResponse| Ok(()));
 

@@ -19,17 +19,17 @@
  */
 
 use crate::DeviceManagerError;
-use serde::Serialize;
+use astarte_device_sdk::AstarteAggregate;
 use wifiscanner;
 use wifiscanner::Wifi;
 
-#[derive(Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, AstarteAggregate, PartialEq)]
+#[allow(non_snake_case)]
 pub struct WifiScanResult {
     channel: i32,
     connected: bool,
     essid: String,
-    mac_address: String,
+    macAddress: String,
     rssi: i32,
 }
 
@@ -52,7 +52,7 @@ impl TryFrom<Wifi> for WifiScanResult {
             channel: wifi.channel.parse::<i32>()?,
             connected: false,
             essid: wifi.ssid.into(),
-            mac_address: wifi.mac.into(),
+            macAddress: wifi.mac.into(),
             rssi: wifi.signal_level.parse::<i32>()?,
         })
     }
@@ -85,7 +85,7 @@ mod tests {
                 channel: 6,
                 connected: false,
                 essid: "Vodafone Hotspot".to_string(),
-                mac_address: "ab:cd:ef:01:23:45".to_string(),
+                macAddress: "ab:cd:ef:01:23:45".to_string(),
                 rssi: -92
             }
         );

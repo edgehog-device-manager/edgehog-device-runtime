@@ -19,7 +19,7 @@
  */
 
 use crate::DeviceManagerError;
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -66,7 +66,7 @@ fn get_from_iter(
 #[cfg(test)]
 mod tests {
     use crate::telemetry::base_image::{get_base_image, get_from_iter};
-    use astarte_sdk::types::AstarteType;
+    use astarte_device_sdk::types::AstarteType;
     use std::collections::HashMap;
 
     #[test]

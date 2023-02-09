@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_sdk::types::AstarteType;
+use astarte_device_sdk::types::AstarteType;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::panic;

@@ -18,11 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_sdk::builder::AstarteOptions;
-use astarte_sdk::types::AstarteType;
-use astarte_sdk::{registration, AstarteError, AstarteSdk, Clientbound};
+use astarte_device_sdk::options::AstarteOptions;
+use astarte_device_sdk::types::AstarteType;
+use astarte_device_sdk::{
+    registration, AstarteAggregate, AstarteDeviceDataEvent, AstarteDeviceSdk, AstarteError,
+};
 use async_trait::async_trait;
-use serde::Serialize;
 
 use crate::data::Publisher;
 use crate::error::DeviceManagerError;
@@ -32,7 +33,7 @@ use crate::{get_hardware_id_from_dbus, DeviceManagerOptions};
 
 #[derive(Clone)]
 pub struct Astarte {
-    pub device_sdk: AstarteSdk,
+    pub device_sdk: AstarteDeviceSdk,
 }
 
 #[async_trait]
@@ -44,7 +45,7 @@ impl Publisher for Astarte {
         data: T,
     ) -> Result<(), AstarteError>
     where
-        T: Serialize + Send,
+        T: AstarteAggregate + Send,
     {
         self.device_sdk
             .send_object(interface_name, interface_path, data)
@@ -62,14 +63,14 @@ impl Publisher for Astarte {
             .await
     }
 
-    async fn on_event(&mut self) -> Result<Clientbound, AstarteError> {
-        self.device_sdk.poll().await
+    async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, AstarteError> {
+        self.device_sdk.handle_events().await
     }
 }
 
 impl Astarte {
     pub async fn new(sdk_options: AstarteOptions) -> Result<Astarte, DeviceManagerError> {
-        let device = AstarteSdk::new(&sdk_options).await?;
+        let device = AstarteDeviceSdk::new(&sdk_options).await?;
         Ok(Astarte { device_sdk: device })
     }
 }
@@ -94,12 +95,10 @@ pub async fn astarte_map_options(
     );
 
     if Some(true) == opts.astarte_ignore_ssl {
-        sdk_options.ignore_ssl_errors();
+        sdk_options = sdk_options.ignore_ssl_errors();
     }
 
-    Ok(sdk_options
-        .interface_directory(&opts.interfaces_directory)?
-        .build())
+    Ok(sdk_options.interface_directory(&opts.interfaces_directory)?)
 }
 
 async fn get_device_id(opt_device_id: Option<String>) -> Result<String, DeviceManagerError> {

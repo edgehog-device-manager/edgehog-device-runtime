@@ -23,10 +23,10 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum DeviceManagerError {
     #[error(transparent)]
-    AstarteBuilderError(#[from] astarte_sdk::builder::AstarteBuilderError),
+    AstarteBuilderError(#[from] astarte_device_sdk::options::AstarteOptionsError),
 
     #[error(transparent)]
-    AstarteError(#[from] astarte_sdk::AstarteError),
+    AstarteError(#[from] astarte_device_sdk::AstarteError),
 
     #[error(transparent)]
     ProcError(#[from] procfs::ProcError),
