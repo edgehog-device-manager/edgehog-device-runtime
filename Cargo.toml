@@ -7,7 +7,7 @@
 
 [package]
 name = "edgehog-device-runtime"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 default-run = "edgehog-device-runtime"
