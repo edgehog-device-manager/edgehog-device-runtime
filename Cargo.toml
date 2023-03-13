@@ -31,7 +31,7 @@ toml = "0.5.9"
 uuid = {version="0.8.2", features = ["v5", "v4"] }
 systemd = { version = "0.10", optional = true }
 async-trait = "0.1.57"
-sysinfo = "0.26.2"
+sysinfo = "0.28.2"
 udev = "0.6.3"
 wifiscanner = "0.5.*"
 
