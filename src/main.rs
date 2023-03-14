@@ -25,8 +25,8 @@ use std::panic::{self, PanicInfo};
 use std::path::Path;
 
 use config::read_options;
-use edgehog_device_runtime::data::astarte::{astarte_map_options, Astarte};
 use edgehog_device_runtime::error::DeviceManagerError;
+use edgehog_device_runtime::AstarteLibrary;
 
 mod config;
 
@@ -74,13 +74,38 @@ async fn main() -> Result<(), DeviceManagerError> {
         })?;
     }
 
-    let astarte_options = astarte_map_options(&options).await?;
-    let astarte = Astarte::new(astarte_options).await?;
-    let mut dm = edgehog_device_runtime::DeviceManager::new(options, astarte).await?;
+    match &options.astarte_library {
+        AstarteLibrary::AstarteDeviceSDK => {
+            use edgehog_device_runtime::data::astarte_device_sdk_lib::{astarte_map_options, Astarte};
 
-    dm.init().await?;
+            let astarte_options = astarte_map_options(&options).await?;
+            let mut dm = edgehog_device_runtime::DeviceManager::new(
+                options,
+                Astarte::new(astarte_options).await?,
+            )
+            .await?;
 
-    dm.run().await;
+            dm.init().await?;
+
+            dm.run().await;
+        }
+        AstarteLibrary::AstarteMessageHub => {
+            use edgehog_device_runtime::data::astarte_message_hub_node::{
+                AstarteMessageHubNode, AstarteMessageHubOptions,
+            };
+
+            let astarte_message_hub_options = AstarteMessageHubOptions::try_from(&options)?;
+            let mut dm = edgehog_device_runtime::DeviceManager::new(
+                options,
+                AstarteMessageHubNode::new(astarte_message_hub_options).await?,
+            )
+            .await?;
+
+            dm.init().await?;
+
+            dm.run().await;
+        }
+    };
 
     Ok(())
 }
