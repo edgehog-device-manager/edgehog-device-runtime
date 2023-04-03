@@ -36,6 +36,7 @@ wifiscanner = "0.5.*"
 
 [dev-dependencies]
 mockall = "0.11.3"
+tempdir = "0.3.7"
 
 [features]
 e2e_test = []
