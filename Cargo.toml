@@ -3,14 +3,13 @@
 # Copyright 2022 SECO Mind Srl
 #
 # SPDX-License-Identifier: CC0-1.0
-
-
 [package]
 name = "edgehog-device-runtime"
 version = "0.6.0"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 default-run = "edgehog-device-runtime"
+rust-version = "1.59.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
