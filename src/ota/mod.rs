@@ -30,7 +30,7 @@ pub(crate) mod rauc;
 
 #[cfg_attr(test, automock)]
 #[async_trait]
-pub trait OTA: Send + Sync {
+pub trait Ota: Send + Sync {
     async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError>;
     async fn last_error(&self) -> Result<String, DeviceManagerError>;
     async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError>;

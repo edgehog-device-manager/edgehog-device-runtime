@@ -101,8 +101,8 @@ impl Telemetry {
             telemetry_task_configs.insert(
                 c.interface_name.clone(),
                 TelemetryTaskConfig {
-                    default_enabled: c.enabled.clone(),
-                    default_period: c.period.clone(),
+                    default_enabled: c.enabled,
+                    default_period: c.period,
                     override_enabled: None,
                     override_period: None,
                 },
@@ -118,16 +118,16 @@ impl Telemetry {
                 if let Some(rwlock_default_task) = telemetry_task_configs.get_mut(&c.interface_name)
                 {
                     let mut default_task = rwlock_default_task;
-                    default_task.override_enabled = c.enabled.clone();
-                    default_task.override_period = c.period.clone();
+                    default_task.override_enabled = c.enabled;
+                    default_task.override_period = c.period;
                 } else {
                     telemetry_task_configs.insert(
                         c.interface_name.clone(),
                         TelemetryTaskConfig {
                             default_enabled: None,
                             default_period: None,
-                            override_enabled: c.enabled.clone(),
-                            override_period: c.period.clone(),
+                            override_enabled: c.enabled,
+                            override_period: c.period,
                         },
                     );
                 };
@@ -155,24 +155,28 @@ impl Telemetry {
 
         let period = telemetry_task_config
             .override_period
-            .unwrap_or(telemetry_task_config.default_period.unwrap_or(0));
+            .unwrap_or_else(|| telemetry_task_config.default_period.unwrap_or(0));
 
         let enabled = telemetry_task_config
             .override_enabled
-            .unwrap_or(telemetry_task_config.default_enabled.unwrap_or(false));
+            .unwrap_or_else(|| telemetry_task_config.default_enabled.unwrap_or(false));
 
         if let Some(kill_switch) = self.kill_switches.get(&interface_name.clone()) {
             let _ = kill_switch.send(());
         }
 
-        let self_interface_name = interface_name.clone().to_owned();
         let comm = self.communication_channel.clone();
 
         if period > 0 && enabled {
             let (tx, rx) = channel(1);
-            spawn(Telemetry::start_task(rx, self_interface_name, period, comm));
+            spawn(Telemetry::start_task(
+                rx,
+                interface_name.clone(),
+                period,
+                comm,
+            ));
 
-            self.kill_switches.insert(interface_name.to_owned(), tx);
+            self.kill_switches.insert(interface_name, tx);
         }
     }
 
@@ -208,7 +212,7 @@ impl Telemetry {
             .write()
             .await
             .entry(interface_name.to_string())
-            .or_insert(Default::default())
+            .or_insert_with(Default::default)
             .override_enabled = Some(enabled);
     }
 
@@ -233,7 +237,7 @@ impl Telemetry {
             .write()
             .await
             .entry(interface_name.to_string())
-            .or_insert(Default::default())
+            .or_insert_with(Default::default)
             .override_period = Some(period);
     }
 
@@ -283,7 +287,7 @@ impl Telemetry {
             }
         }
 
-        self.schedule_task(interface_name.clone().to_string()).await;
+        self.schedule_task(interface_name.to_string()).await;
         self.save_telemetry_config().await;
     }
 

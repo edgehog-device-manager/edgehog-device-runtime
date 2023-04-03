@@ -125,172 +125,153 @@ async fn do_e2e_test(api_url: String, realm: String, device_id: String, e2e_toke
     test.run(runtime_info_test, "runtime_info_test").await;
 }
 
-fn os_info_test(
-    api_url: String,
-    realm: String,
-    device_id: String,
-    e2e_token: String,
-) -> impl Future<Output = ()> {
-    async move {
-        let os_info_from_lib = get_os_info().unwrap();
-        let json_os_info = reqwest::Client::new()
-            .get(format!(
-                "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.OSInfo",
-                api_url, realm, device_id
-            ))
-            .header("Authorization", format!("Bearer {}", e2e_token))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
+async fn os_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
+    let os_info_from_lib = get_os_info().unwrap();
+    let json_os_info = reqwest::Client::new()
+        .get(format!(
+            "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.OSInfo",
+            api_url, realm, device_id
+        ))
+        .header("Authorization", format!("Bearer {}", e2e_token))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
 
-        #[derive(Serialize, Deserialize)]
-        struct OsInfo {
-            osName: String,
-            osVersion: String,
-        }
-
-        let os_info_from_astarte: AstartePayload<OsInfo> =
-            serde_json::from_str(&json_os_info).unwrap();
-        assert_eq!(
-            AstarteType::String(os_info_from_astarte.data.osName),
-            os_info_from_lib.get("/osName").unwrap().to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(os_info_from_astarte.data.osVersion),
-            os_info_from_lib.get("/osVersion").unwrap().to_owned()
-        );
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct OsInfo {
+        os_name: String,
+        os_version: String,
     }
+
+    let os_info_from_astarte: AstartePayload<OsInfo> = serde_json::from_str(&json_os_info).unwrap();
+    assert_eq!(
+        AstarteType::String(os_info_from_astarte.data.os_name),
+        os_info_from_lib.get("/osName").unwrap().to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(os_info_from_astarte.data.os_version),
+        os_info_from_lib.get("/osVersion").unwrap().to_owned()
+    );
 }
 
-fn hardware_info_test(
-    api_url: String,
-    realm: String,
-    device_id: String,
-    e2e_token: String,
-) -> impl Future<Output = ()> {
-    async move {
-        let hardware_info_from_lib = get_hardware_info().unwrap();
-        let json_hardware_info = reqwest::Client::new()
-            .get(format!(
-                "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.HardwareInfo",
-                api_url, realm, device_id
-            ))
-            .header("Authorization", format!("Bearer {}", e2e_token))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
+async fn hardware_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
+    let hardware_info_from_lib = get_hardware_info().unwrap();
+    let json_hardware_info = reqwest::Client::new()
+        .get(format!(
+            "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.HardwareInfo",
+            api_url, realm, device_id
+        ))
+        .header("Authorization", format!("Bearer {}", e2e_token))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
 
-        #[derive(Serialize, Deserialize)]
-        struct HardwareInfo {
-            cpu: Cpu,
-            mem: Mem,
-        }
-
-        #[derive(Serialize, Deserialize)]
-        struct Cpu {
-            architecture: String,
-            model: String,
-            modelName: String,
-            vendor: String,
-        }
-
-        #[derive(Serialize, Deserialize)]
-        struct Mem {
-            totalBytes: i64,
-        }
-
-        let hardware_info_from_astarte: AstartePayload<HardwareInfo> =
-            serde_json::from_str(&json_hardware_info).unwrap();
-        assert_eq!(
-            AstarteType::String(hardware_info_from_astarte.data.cpu.architecture),
-            hardware_info_from_lib
-                .get("/cpu/architecture")
-                .unwrap()
-                .to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(hardware_info_from_astarte.data.cpu.model),
-            hardware_info_from_lib.get("/cpu/model").unwrap().to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(hardware_info_from_astarte.data.cpu.modelName),
-            hardware_info_from_lib
-                .get("/cpu/modelName")
-                .unwrap()
-                .to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(hardware_info_from_astarte.data.cpu.vendor),
-            hardware_info_from_lib
-                .get("/cpu/vendor")
-                .unwrap()
-                .to_owned()
-        );
-        assert_eq!(
-            AstarteType::LongInteger(hardware_info_from_astarte.data.mem.totalBytes),
-            hardware_info_from_lib
-                .get("/mem/totalBytes")
-                .unwrap()
-                .to_owned()
-        );
+    #[derive(Serialize, Deserialize)]
+    struct HardwareInfo {
+        cpu: Cpu,
+        mem: Mem,
     }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Cpu {
+        architecture: String,
+        model: String,
+        model_name: String,
+        vendor: String,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Mem {
+        total_bytes: i64,
+    }
+
+    let hardware_info_from_astarte: AstartePayload<HardwareInfo> =
+        serde_json::from_str(&json_hardware_info).unwrap();
+    assert_eq!(
+        AstarteType::String(hardware_info_from_astarte.data.cpu.architecture),
+        hardware_info_from_lib
+            .get("/cpu/architecture")
+            .unwrap()
+            .to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(hardware_info_from_astarte.data.cpu.model),
+        hardware_info_from_lib.get("/cpu/model").unwrap().to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(hardware_info_from_astarte.data.cpu.model_name),
+        hardware_info_from_lib
+            .get("/cpu/modelName")
+            .unwrap()
+            .to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(hardware_info_from_astarte.data.cpu.vendor),
+        hardware_info_from_lib
+            .get("/cpu/vendor")
+            .unwrap()
+            .to_owned()
+    );
+    assert_eq!(
+        AstarteType::LongInteger(hardware_info_from_astarte.data.mem.total_bytes),
+        hardware_info_from_lib
+            .get("/mem/totalBytes")
+            .unwrap()
+            .to_owned()
+    );
 }
 
-fn runtime_info_test(
-    api_url: String,
-    realm: String,
-    device_id: String,
-    e2e_token: String,
-) -> impl Future<Output = ()> {
-    async move {
-        let runtime_info_from_lib = get_runtime_info().unwrap();
-        let runtime_info_json = reqwest::Client::new()
-            .get(format!(
-                "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.RuntimeInfo",
-                api_url, realm, device_id
-            ))
-            .header("Authorization", format!("Bearer {}", e2e_token))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
+async fn runtime_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
+    let runtime_info_from_lib = get_runtime_info().unwrap();
+    let runtime_info_json = reqwest::Client::new()
+        .get(format!(
+            "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.RuntimeInfo",
+            api_url, realm, device_id
+        ))
+        .header("Authorization", format!("Bearer {}", e2e_token))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
 
-        #[derive(Serialize, Deserialize)]
-        struct RuntimeInfo {
-            environment: String,
-            name: String,
-            url: String,
-            version: String,
-        }
-
-        let runtime_info_from_astarte: AstartePayload<RuntimeInfo> =
-            serde_json::from_str(&runtime_info_json).unwrap();
-        assert_eq!(
-            AstarteType::String(runtime_info_from_astarte.data.environment),
-            runtime_info_from_lib
-                .get("/environment")
-                .unwrap()
-                .to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(runtime_info_from_astarte.data.name),
-            runtime_info_from_lib.get("/name").unwrap().to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(runtime_info_from_astarte.data.url),
-            runtime_info_from_lib.get("/url").unwrap().to_owned()
-        );
-        assert_eq!(
-            AstarteType::String(runtime_info_from_astarte.data.version),
-            runtime_info_from_lib.get("/version").unwrap().to_owned()
-        );
+    #[derive(Serialize, Deserialize)]
+    struct RuntimeInfo {
+        environment: String,
+        name: String,
+        url: String,
+        version: String,
     }
+
+    let runtime_info_from_astarte: AstartePayload<RuntimeInfo> =
+        serde_json::from_str(&runtime_info_json).unwrap();
+    assert_eq!(
+        AstarteType::String(runtime_info_from_astarte.data.environment),
+        runtime_info_from_lib
+            .get("/environment")
+            .unwrap()
+            .to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(runtime_info_from_astarte.data.name),
+        runtime_info_from_lib.get("/name").unwrap().to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(runtime_info_from_astarte.data.url),
+        runtime_info_from_lib.get("/url").unwrap().to_owned()
+    );
+    assert_eq!(
+        AstarteType::String(runtime_info_from_astarte.data.version),
+        runtime_info_from_lib.get("/version").unwrap().to_owned()
+    );
 }

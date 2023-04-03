@@ -23,7 +23,7 @@ use std::collections::HashMap;
 
 use crate::error::DeviceManagerError;
 use crate::telemetry::upower::device::{BatteryState, DeviceProxy, PowerDeviceType};
-use crate::telemetry::upower::upower::UPowerProxy;
+use crate::telemetry::upower::UPowerProxy;
 
 #[derive(Debug, AstarteAggregate, PartialEq)]
 #[allow(non_snake_case)]
@@ -102,9 +102,9 @@ fn get_status(device_state: BatteryState, is_present: bool) -> String {
 
 fn get_error_level(device_state: BatteryState) -> f64 {
     if device_state == BatteryState::Unknown {
-        100 as f64
+        100_f64
     } else {
-        0 as f64
+        0_f64
     }
 }
 
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn get_error_level_test() {
-        assert_eq!(get_error_level(BatteryState::Charging), 0 as f64);
-        assert_eq!(get_error_level(BatteryState::Unknown), 100 as f64);
+        assert_eq!(get_error_level(BatteryState::Charging), 0_f64);
+        assert_eq!(get_error_level(BatteryState::Unknown), 100_f64);
     }
 }

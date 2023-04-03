@@ -20,7 +20,6 @@
 
 use crate::DeviceManagerError;
 use astarte_device_sdk::AstarteAggregate;
-use wifiscanner;
 use wifiscanner::Wifi;
 
 #[derive(Debug, AstarteAggregate, PartialEq)]
@@ -51,8 +50,8 @@ impl TryFrom<Wifi> for WifiScanResult {
         Ok(WifiScanResult {
             channel: wifi.channel.parse::<i32>()?,
             connected: false,
-            essid: wifi.ssid.into(),
-            macAddress: wifi.mac.into(),
+            essid: wifi.ssid,
+            macAddress: wifi.mac,
             rssi: wifi.signal_level.parse::<i32>()?,
         })
     }

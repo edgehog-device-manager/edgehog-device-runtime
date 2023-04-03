@@ -82,7 +82,7 @@ pub async fn astarte_map_options(
     let store_directory = opts.store_directory.to_owned();
     let credentials_secret: String = get_credentials_secret(
         &device_id,
-        &opts,
+        opts,
         FileStateRepository::new(store_directory, format!("credentials_{}.json", device_id)),
     )
     .await?;
@@ -145,7 +145,7 @@ async fn get_credentials_secret_from_registration(
     cred_state_repo: impl StateRepository<String>,
 ) -> Result<String, DeviceManagerError> {
     let registration =
-        registration::register_device(token, &opts.pairing_url, &opts.realm, &device_id).await;
+        registration::register_device(token, &opts.pairing_url, &opts.realm, device_id).await;
     if let Ok(credentials_secret) = registration {
         cred_state_repo
             .write(&credentials_secret)
