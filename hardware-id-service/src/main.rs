@@ -35,7 +35,7 @@ struct Cli {
 
     // Shortcut per file-path = "/sys/class/dmi/id/board_serial"
     #[clap(short, long, takes_value = false, conflicts_with_all=&["file-path","kernel-cmdline-key"])]
-    use_dmi_serial : bool,
+    use_dmi_serial: bool,
 
     // Retrieve hardware id from Kernel parameters in the form key=value
     #[clap(short, long, conflicts_with_all=&["use-dmi-serial","file-path"])]
@@ -81,11 +81,11 @@ impl Device {
 async fn main() -> zbus::Result<()> {
     let Cli {
         file_path,
-        use_dmi_serial ,
+        use_dmi_serial,
         kernel_cmdline_key,
     } = Parser::parse();
 
-    if file_path.is_none() && kernel_cmdline_key.is_none() && !use_dmi_serial  {
+    if file_path.is_none() && kernel_cmdline_key.is_none() && !use_dmi_serial {
         let error_msg = "One parameter must be provided".to_string();
         return Err(zbus::Error::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -93,7 +93,7 @@ async fn main() -> zbus::Result<()> {
         )));
     }
 
-    let device = if use_dmi_serial  {
+    let device = if use_dmi_serial {
         Device {
             file_path: Some(DMI_SERIAL_FILE_PATH.to_string()),
             kernel_cmdline_key,

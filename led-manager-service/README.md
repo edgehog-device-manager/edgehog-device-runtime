@@ -22,7 +22,7 @@ cargo run --release
 
 **Service path**: `/io/edgehog/LedManager`
 
-**Service interface**: `io.edgehog.LedManager1` 
+**Service interface**: `io.edgehog.LedManager1`
 
 ## Methods
 ```
@@ -43,7 +43,7 @@ $ dbus-send --print-reply --dest=io.edgehog.LedManager \
 method return time=1664275555.355858 sender=:1.1 -> destination=:1.3 serial=4 reply_serial=2
 ```
 
-### List 
+### List
 List all available LEds.
 ```bash
 $ dbus-send --print-reply --dest=io.edgehog.LedManager \
