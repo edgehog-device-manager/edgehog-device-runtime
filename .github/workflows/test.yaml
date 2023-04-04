@@ -1,4 +1,5 @@
 # This file is part of Edgehog.
+#
 # Copyright 2023 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,12 +28,12 @@ jobs:
     name: ubuntu / ${{ matrix.toolchain }}
     strategy:
       matrix:
-        toolchain: [1.59.0, stable]
+        toolchain: [stable]
     steps:
       - name: Install libudev
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev
+          sudo apt-get install -y libudev-dev libsystemd-dev
       - uses: actions/checkout@v3
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master

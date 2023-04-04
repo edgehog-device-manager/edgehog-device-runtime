@@ -15,13 +15,14 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
+
+name: check
 permissions:
   contents: read
 on:
   push:
     branches: [main]
   pull_request:
-name: check
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -43,8 +44,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        toolchain: [1.59.0, stable]
+        toolchain: [stable]
     steps:
+      - name: Install libudev
+        run: |
+          sudo apt update
+          sudo apt-get install -y libudev-dev libsystemd-dev
       - uses: actions/checkout@v3
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -59,6 +64,10 @@ jobs:
     runs-on: ubuntu-latest
     name: nightly / doc
     steps:
+      - name: Install libudev
+        run: |
+          sudo apt update
+          sudo apt-get install -y libudev-dev libsystemd-dev
       - uses: actions/checkout@v3
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -68,10 +77,12 @@ jobs:
           RUSTDOCFLAGS: --cfg docsrs
   hack:
     runs-on: ubuntu-latest
-    name: ${{ matrix.toolchain }} / features
-    matrix:
-      toolchain: [1.59.0, stable]
+    name: ubuntu / stable / features
     steps:
+      - name: Install libudev
+        run: |
+          sudo apt update
+          sudo apt-get install -y libudev-dev libsystemd-dev
       - uses: actions/checkout@v3
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
@@ -80,3 +91,23 @@ jobs:
       # intentionally no target specifier; see https://github.com/jonhoo/rust-ci-conf/pull/4
       - name: Run cargo hack
         run: cargo hack --feature-powerset check
+  msrv:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        msrv: [1.59.0]
+    name: ubuntu / ${{ matrix.msrv }}
+    steps:
+      - name: Install libudev
+        run: |
+          sudo apt update
+          sudo apt-get install -y libudev-dev libsystemd-dev
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Install ${{ matrix.msrv }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.msrv }}
+      - name: Run cargo +${{ matrix.msrv }} check
+        run: cargo check
