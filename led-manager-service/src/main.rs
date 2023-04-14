@@ -34,7 +34,7 @@ impl LedManager {
         self.leds.push(id);
     }
 
-    fn set (&self, id: String, status: bool) -> bool{
+    fn set(&self, id: String, status: bool) -> bool {
         let result = true;
         print!("SET {} -> {}: result {}", id, status, result);
         result
@@ -43,9 +43,7 @@ impl LedManager {
 
 #[tokio::main]
 async fn main() -> zbus::Result<()> {
-    let leds = LedManager {
-        leds: Vec::new(),
-    };
+    let leds = LedManager { leds: Vec::new() };
 
     ConnectionBuilder::session()?
         .name("io.edgehog.LedManager")?

@@ -5,11 +5,11 @@
 -->
 
 # Hardware ID dbus Service Example
-Reference project of a service that either fetches hardware id from SMBIOS/DMI 
+Reference project of a service that either fetches hardware id from SMBIOS/DMI
 or from the kernel command line.
 
 ## Setup
-Copy `io.edgehog.Device.conf` to the dbus system configuration directory 
+Copy `io.edgehog.Device.conf` to the dbus system configuration directory
 and reboot your system so dbus reloads its configuration.
 
 ```bash

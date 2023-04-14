@@ -22,8 +22,8 @@ on:
   # Run when pushing to stable branches
   push:
     branches:
-      - 'main'
-      - 'release-*'
+      - "main"
+      - "release-*"
   pull_request:
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1
         with:
-            astarte_realm: $REALM_NAME
+          astarte_realm: $REALM_NAME
       - name: Checkout sources
         uses: actions/checkout@v2
       - name: Checkout edgehog-astarte-interfaces
@@ -52,7 +52,7 @@ jobs:
           ref: v0.5.2
           path: ./edgehog/astarte-interfaces
       - name: Install interface
-        run: | 
+        run: |
           astartectl realm-management interfaces sync $GITHUB_WORKSPACE/edgehog/astarte-interfaces/*.json --non-interactive
           astartectl realm-management interfaces ls
       - name: Register device
@@ -67,10 +67,8 @@ jobs:
           echo "E2E_REALM_NAME=$REALM_NAME" >> $GITHUB_ENV
           echo "E2E_ASTARTE_API_URL=$ASTARTE_API_URL" >> $GITHUB_ENV
       - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
-          override: true
       - name: Run test
         run: cargo run --bin e2e-test --features e2e_test

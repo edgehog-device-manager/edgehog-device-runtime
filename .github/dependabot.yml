@@ -16,10 +16,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-
 version: 2
 updates:
-- package-ecosystem: cargo
-  directory: "/"
-  schedule:
-    interval: weekly
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: weekly
+    - package-ecosystem: cargo
+      directory: "/"
+      schedule:
+          interval: weekly
+      ignore:
+          - dependency-name: "*"
+            # patch and minor updates don't matter for libraries
+            # remove this ignore rule if your package has binaries
+            update-types:
+                - "version-update:semver-patch"
+                - "version-update:semver-minor"
