@@ -37,9 +37,6 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     ZbusError(#[from] zbus::Error),
 
-    #[error("update error ({0})")]
-    UpdateError(String),
-
     #[error("unrecoverable error ({0})")]
     FatalError(String),
 
@@ -50,7 +47,7 @@ pub enum DeviceManagerError {
     SerdeJsonError(#[from] serde_json::Error),
 
     #[error(transparent)]
-    OTAError(#[from] crate::ota::ota_handler::OTAError),
+    OtaError(#[from] crate::ota::ota_handler::OtaError),
 
     #[error("configuration file error")]
     ConfigFileError(#[from] toml::de::Error),

@@ -30,7 +30,7 @@ use tokio::sync::RwLock;
 use crate::data::Publisher;
 use crate::device::DeviceProxy;
 use crate::error::DeviceManagerError;
-use crate::ota::ota_handler::OTAHandler;
+use crate::ota::ota_handler::OtaHandler;
 use crate::telemetry::{TelemetryMessage, TelemetryPayload};
 
 mod commands;
@@ -74,7 +74,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         wrapper::systemd::systemd_notify_status("Initializing");
         info!("Starting");
 
-        let ota_handler = OTAHandler::new(&opts).await?;
+        let mut ota_handler = OtaHandler::new(&opts).await?;
 
         ota_handler.ensure_pending_ota_response(&publisher).await?;
 
@@ -105,7 +105,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
 
     fn init_ota_event(
         &self,
-        mut ota_handler: OTAHandler<'static>,
+        mut ota_handler: OtaHandler<'static>,
         mut ota_rx: Receiver<AstarteDeviceDataEvent>,
     ) {
         let astarte_client_clone = self.publisher.clone();
