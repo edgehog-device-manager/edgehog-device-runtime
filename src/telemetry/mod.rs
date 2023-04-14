@@ -101,8 +101,8 @@ impl Telemetry {
             telemetry_task_configs.insert(
                 c.interface_name.clone(),
                 TelemetryTaskConfig {
-                    default_enabled: c.enabled.clone(),
-                    default_period: c.period.clone(),
+                    default_enabled: c.enabled,
+                    default_period: c.period,
                     override_enabled: None,
                     override_period: None,
                 },
@@ -118,16 +118,16 @@ impl Telemetry {
                 if let Some(rwlock_default_task) = telemetry_task_configs.get_mut(&c.interface_name)
                 {
                     let mut default_task = rwlock_default_task;
-                    default_task.override_enabled = c.enabled.clone();
-                    default_task.override_period = c.period.clone();
+                    default_task.override_enabled = c.enabled;
+                    default_task.override_period = c.period;
                 } else {
                     telemetry_task_configs.insert(
                         c.interface_name.clone(),
                         TelemetryTaskConfig {
                             default_enabled: None,
                             default_period: None,
-                            override_enabled: c.enabled.clone(),
-                            override_period: c.period.clone(),
+                            override_enabled: c.enabled,
+                            override_period: c.period,
                         },
                     );
                 };
@@ -155,24 +155,28 @@ impl Telemetry {
 
         let period = telemetry_task_config
             .override_period
-            .unwrap_or(telemetry_task_config.default_period.unwrap_or(0));
+            .unwrap_or_else(|| telemetry_task_config.default_period.unwrap_or(0));
 
         let enabled = telemetry_task_config
             .override_enabled
-            .unwrap_or(telemetry_task_config.default_enabled.unwrap_or(false));
+            .unwrap_or_else(|| telemetry_task_config.default_enabled.unwrap_or(false));
 
         if let Some(kill_switch) = self.kill_switches.get(&interface_name.clone()) {
             let _ = kill_switch.send(());
         }
 
-        let self_interface_name = interface_name.clone().to_owned();
         let comm = self.communication_channel.clone();
 
         if period > 0 && enabled {
             let (tx, rx) = channel(1);
-            spawn(Telemetry::start_task(rx, self_interface_name, period, comm));
+            spawn(Telemetry::start_task(
+                rx,
+                interface_name.clone(),
+                period,
+                comm,
+            ));
 
-            self.kill_switches.insert(interface_name.to_owned(), tx);
+            self.kill_switches.insert(interface_name, tx);
         }
     }
 
@@ -208,7 +212,7 @@ impl Telemetry {
             .write()
             .await
             .entry(interface_name.to_string())
-            .or_insert(Default::default())
+            .or_insert_with(Default::default)
             .override_enabled = Some(enabled);
     }
 
@@ -233,7 +237,7 @@ impl Telemetry {
             .write()
             .await
             .entry(interface_name.to_string())
-            .or_insert(Default::default())
+            .or_insert_with(Default::default)
             .override_period = Some(period);
     }
 
@@ -283,7 +287,7 @@ impl Telemetry {
             }
         }
 
-        self.schedule_task(interface_name.clone().to_string()).await;
+        self.schedule_task(interface_name.to_string()).await;
         self.save_telemetry_config().await;
     }
 
@@ -351,9 +355,19 @@ mod tests {
     use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
     use crate::telemetry::{send_data, Telemetry, TelemetryInterfaceConfig};
+
     use astarte_device_sdk::types::AstarteType;
+    use tempdir::TempDir;
 
     const TELEMETRY_PATH: &str = "telemetry.json";
+
+    /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
+    fn temp_dir() -> (TempDir, String) {
+        let dir = TempDir::new("edgehog").unwrap();
+        let str = dir.path().to_str().unwrap().to_string();
+
+        (dir, str)
+    }
 
     #[tokio::test]
     async fn telemetry_default_test() {
@@ -365,8 +379,10 @@ mod tests {
             period: Some(10),
         });
 
+        let (_dir, t_dir) = temp_dir();
+
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
+        let tel = Telemetry::from_default_config(Some(config), tx, t_dir).await;
         let telemetry_config = tel.telemetry_task_configs.clone();
         let interface_configs = telemetry_config.read().await;
         let system_status_config = interface_configs.get(interface_name).unwrap();
@@ -385,8 +401,10 @@ mod tests {
             period: Some(10),
         });
 
+        let (_dir, t_dir) = temp_dir();
+
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let mut tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
+        let mut tel = Telemetry::from_default_config(Some(config), tx, t_dir.clone()).await;
 
         tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(false))
             .await;
@@ -410,7 +428,7 @@ mod tests {
             30
         );
 
-        let telemetry_repo = FileStateRepository::new("./".to_string(), TELEMETRY_PATH.to_string());
+        let telemetry_repo = FileStateRepository::new(t_dir, TELEMETRY_PATH.to_string());
         let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
 
         assert_eq!(saved_config.len(), 1);
@@ -430,8 +448,10 @@ mod tests {
             period: Some(10),
         });
 
+        let (_dir, t_dir) = temp_dir();
+
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let mut tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
+        let mut tel = Telemetry::from_default_config(Some(config), tx, t_dir.clone()).await;
 
         tel.telemetry_config_event(interface_name, "enable", &AstarteType::Unset)
             .await;
@@ -452,7 +472,7 @@ mod tests {
             .override_period
             .is_none());
 
-        let telemetry_repo = FileStateRepository::new("./".to_string(), TELEMETRY_PATH.to_string());
+        let telemetry_repo = FileStateRepository::new(t_dir, TELEMETRY_PATH.to_string());
         let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
 
         assert_eq!(saved_config.len(), 1);
@@ -472,8 +492,10 @@ mod tests {
             period: Some(10),
         });
 
+        let (_dir, t_dir) = temp_dir();
+
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        let mut tel = Telemetry::from_default_config(Some(config), tx, "./".to_string()).await;
+        let mut tel = Telemetry::from_default_config(Some(config), tx, t_dir).await;
         tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(true))
             .await;
         tel.telemetry_config_event(
@@ -488,8 +510,10 @@ mod tests {
 
     #[tokio::test]
     async fn from_default_config_null_test() {
+        let (_dir, t_dir) = temp_dir();
+
         let (tx, _) = tokio::sync::mpsc::channel(32);
-        let tel = Telemetry::from_default_config(None, tx, "./".to_string()).await;
+        let tel = Telemetry::from_default_config(None, tx, t_dir).await;
         assert!(tel.telemetry_task_configs.clone().read().await.is_empty());
     }
 

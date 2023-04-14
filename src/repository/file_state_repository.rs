@@ -28,7 +28,7 @@ pub struct FileStateRepository {
 
 impl FileStateRepository {
     pub fn new(path: String, name: String) -> Self {
-        let path = if path.ends_with("/") {
+        let path = if path.ends_with('/') {
             path + &name
         } else {
             path + "/" + &name

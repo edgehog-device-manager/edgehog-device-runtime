@@ -30,8 +30,7 @@ use uuid::Uuid;
 use crate::data::Publisher;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::OTARauc;
-use crate::ota::OTA;
-use crate::power_management;
+use crate::ota::Ota;
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
 
@@ -80,7 +79,7 @@ impl OTAStatus {
 }
 
 pub struct OTAHandler<'a> {
-    ota: Box<dyn OTA + 'a>,
+    ota: Box<dyn Ota + 'a>,
     state_repository: Box<dyn StateRepository<PersistentState> + 'a>,
     download_file_path: String,
 }
@@ -168,10 +167,10 @@ impl<'a> OTAHandler<'a> {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                 #[cfg(not(test))]
-                power_management::reboot()?;
+                crate::power_management::reboot()?;
             }
 
-            return result;
+            result
         } else {
             error!("Got bad data in OTARequest ({data:?})");
             Err(DeviceManagerError::UpdateError(
@@ -196,7 +195,6 @@ impl<'a> OTAHandler<'a> {
             DeviceManagerError::FatalError("wrong download file path".to_string())
         })?;
 
-        #[cfg(not(test))]
         wget(request_url, path).await?;
 
         let bundle_info = self.ota.info(path).await?;
@@ -215,7 +213,7 @@ impl<'a> OTAHandler<'a> {
         }
 
         self.state_repository.write(&PersistentState {
-            uuid: request_uuid.clone(),
+            uuid: request_uuid,
             slot: self.ota.boot_slot().await?,
         })?;
 
@@ -323,9 +321,11 @@ impl<'a> OTAHandler<'a> {
     }
 }
 
+#[cfg(not(test))]
 async fn wget(url: &str, file_path: &str) -> Result<(), DeviceManagerError> {
     if std::path::Path::new(file_path).exists() {
-        std::fs::remove_file(file_path).expect(&format!("Unable to remove {}", file_path));
+        std::fs::remove_file(file_path)
+            .unwrap_or_else(|e| panic!("Unable to remove {}: {}", file_path, e));
     }
     info!("Downloading {:?}", url);
     for i in 0..5 {
@@ -352,6 +352,12 @@ async fn wget(url: &str, file_path: &str) -> Result<(), DeviceManagerError> {
 }
 
 #[cfg(test)]
+async fn wget(_url: &str, _file_path: &str) -> Result<(), DeviceManagerError> {
+    // Do noting in test
+    Ok(())
+}
+
+#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
@@ -363,7 +369,7 @@ mod tests {
     use crate::error::DeviceManagerError;
     use crate::ota::ota_handler::{OTAError, OTAHandler, OTAResponse, OTAStatus, PersistentState};
     use crate::ota::rauc::BundleInfo;
-    use crate::ota::MockOTA;
+    use crate::ota::MockOta;
     use crate::repository::MockStateRepository;
 
     #[test]
@@ -397,7 +403,7 @@ mod tests {
             .expect_send_object()
             .returning(|_, _: &str, _: OTAResponse| Ok(()));
 
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         ota.expect_info().returning(|_: &str| {
             Ok(BundleInfo {
                 compatible: "rauc-demo-x86".to_string(),
@@ -434,7 +440,7 @@ mod tests {
 
     #[tokio::test]
     async fn handle_ota_event_bundle_install_bundle_fail() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
 
         let mut publisher = MockPublisher::new();
         publisher
@@ -476,7 +482,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_pending_ota_response_ota_fail() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         let uuid = Uuid::new_v4();
         let slot = "A";
 
@@ -486,7 +492,7 @@ mod tests {
         state_mock.expect_exists().returning(|| true);
         state_mock.expect_read().returning(move || {
             Ok(PersistentState {
-                uuid: uuid.clone(),
+                uuid,
                 slot: slot.to_owned(),
             })
         });
@@ -516,7 +522,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_pending_ota_response_ota_success() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         let uuid = Uuid::new_v4();
         let slot = "A";
 
@@ -564,7 +570,7 @@ mod tests {
 
     #[tokio::test]
     async fn do_pending_ota_fail_marked_wrong_slot() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         let uuid = Uuid::new_v4();
         let slot = "A";
 
@@ -582,7 +588,7 @@ mod tests {
         state_mock.expect_exists().returning(|| true);
         state_mock.expect_read().returning(move || {
             Ok(PersistentState {
-                uuid: uuid.clone(),
+                uuid,
                 slot: slot.to_owned(),
             })
         });
@@ -610,7 +616,7 @@ mod tests {
 
     #[tokio::test]
     async fn do_pending_ota_fail_unknown_slot() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         let uuid = Uuid::new_v4();
         let slot = "A";
 
@@ -627,7 +633,7 @@ mod tests {
         state_mock.expect_exists().returning(|| true);
         state_mock.expect_read().returning(move || {
             Ok(PersistentState {
-                uuid: uuid.clone(),
+                uuid,
                 slot: slot.to_owned(),
             })
         });
@@ -655,7 +661,7 @@ mod tests {
 
     #[tokio::test]
     async fn do_pending_ota_success() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         let uuid = Uuid::new_v4();
         let slot = "A";
 
@@ -673,7 +679,7 @@ mod tests {
         state_mock.expect_exists().returning(|| true);
         state_mock.expect_read().returning(move || {
             Ok(PersistentState {
-                uuid: uuid.clone(),
+                uuid,
                 slot: slot.to_owned(),
             })
         });
@@ -693,7 +699,7 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_fail_empty_keys() {
-        let ota = MockOTA::new();
+        let ota = MockOta::new();
         let state_mock = MockStateRepository::<PersistentState>::new();
 
         let mut ota_handler = OTAHandler {
@@ -719,7 +725,7 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_fail_with_one_key() {
-        let ota = MockOTA::new();
+        let ota = MockOta::new();
         let state_mock = MockStateRepository::<PersistentState>::new();
 
         let mut ota_handler = OTAHandler {
@@ -751,7 +757,7 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_fail_with_wrong_astarte_type() {
-        let ota = MockOTA::new();
+        let ota = MockOta::new();
         let state_mock = MockStateRepository::<PersistentState>::new();
 
         let mut ota_handler = OTAHandler {
@@ -784,7 +790,7 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_fail_with_wrong_uuid() {
-        let ota = MockOTA::new();
+        let ota = MockOta::new();
         let state_mock = MockStateRepository::<PersistentState>::new();
 
         let mut ota_handler = OTAHandler {
@@ -820,7 +826,7 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_fail() {
-        let ota = MockOTA::new();
+        let ota = MockOta::new();
         let uuid = Uuid::new_v4();
         let mut publisher = MockPublisher::new();
         publisher
@@ -861,7 +867,7 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_success() {
-        let mut ota = MockOTA::new();
+        let mut ota = MockOta::new();
         ota.expect_info().returning(|_: &str| {
             Ok(BundleInfo {
                 compatible: "rauc-demo-x86".to_string(),
@@ -882,7 +888,7 @@ mod tests {
         state_mock.expect_exists().returning(|| true);
         state_mock.expect_read().returning(move || {
             Ok(PersistentState {
-                uuid: uuid.to_owned(),
+                uuid,
                 slot: slot.to_owned(),
             })
         });

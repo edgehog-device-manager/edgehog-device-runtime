@@ -26,10 +26,7 @@ use std::io::{BufRead, BufReader};
 
 pub fn get_base_image() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
     let file = BufReader::new(File::open("/etc/os-release")?);
-    Ok(file
-        .lines()
-        .flat_map(|line| line)
-        .fold(HashMap::new(), get_from_iter))
+    Ok(file.lines().flatten().fold(HashMap::new(), get_from_iter))
 }
 
 fn get_from_iter(

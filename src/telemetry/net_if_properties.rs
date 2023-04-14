@@ -157,22 +157,23 @@ mod tests {
 
     #[test]
     fn network_interface_to_astarte_test() {
-        let mut eth_wifi = Vec::new();
-        eth_wifi.push(NetworkInterfaceProperties {
-            interface: "wifi_test".to_string(),
-            mac_address: "00:11:22:33:44:55".to_string(),
-            technology_type: TechnologyType::WiFi,
-        });
-        eth_wifi.push(NetworkInterfaceProperties {
-            interface: "eth_test".to_string(),
-            mac_address: "11:22:33:44:55:66".to_string(),
-            technology_type: TechnologyType::Ethernet,
-        });
-        eth_wifi.push(NetworkInterfaceProperties {
-            interface: "cellular_test".to_string(),
-            mac_address: "22:33:44:55:66:77".to_string(),
-            technology_type: TechnologyType::Cellular,
-        });
+        let eth_wifi = vec![
+            NetworkInterfaceProperties {
+                interface: "wifi_test".to_string(),
+                mac_address: "00:11:22:33:44:55".to_string(),
+                technology_type: TechnologyType::WiFi,
+            },
+            NetworkInterfaceProperties {
+                interface: "eth_test".to_string(),
+                mac_address: "11:22:33:44:55:66".to_string(),
+                technology_type: TechnologyType::Ethernet,
+            },
+            NetworkInterfaceProperties {
+                interface: "cellular_test".to_string(),
+                mac_address: "22:33:44:55:66:77".to_string(),
+                technology_type: TechnologyType::Cellular,
+            },
+        ];
 
         let astarte_payload = network_interface_to_astarte(eth_wifi);
 

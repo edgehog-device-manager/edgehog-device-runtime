@@ -51,11 +51,7 @@ pub(crate) async fn set_behavior(led_id: String, behavior: String) -> bool {
         }
     };
 
-    return if let Ok(result) = set_behavior {
-        result
-    } else {
-        false
-    };
+    set_behavior.unwrap_or(false)
 }
 
 async fn blink_60_seconds(led_id: String) -> zbus::Result<bool> {
@@ -103,20 +99,20 @@ async fn blink(led_id: String, conf: BlinkConf) -> zbus::Result<bool> {
             if !led_manager.set(led_id.clone(), true).await? {
                 return Ok(false);
             }
-            sleep(Duration::from_millis(conf.after_on_delay_millis.clone())).await;
+            sleep(Duration::from_millis(conf.after_on_delay_millis)).await;
             println!("OFF");
             if !led_manager.set(led_id.clone(), false).await? {
                 return Ok(false);
             }
-            sleep(Duration::from_millis(conf.after_off_delay_millis.clone())).await;
+            sleep(Duration::from_millis(conf.after_off_delay_millis)).await;
         }
-        sleep(Duration::from_millis(conf.end_cycle_delay_millis.clone())).await;
+        sleep(Duration::from_millis(conf.end_cycle_delay_millis)).await;
     }
     Ok(true)
 }
 
 #[cfg(test)]
-async fn blink(led_id: String, conf: BlinkConf) -> zbus::Result<bool> {
+async fn blink(_led_id: String, conf: BlinkConf) -> zbus::Result<bool> {
     use std::io::Write;
     let mut out = std::io::stdout();
     let start = Instant::now();
@@ -124,12 +120,12 @@ async fn blink(led_id: String, conf: BlinkConf) -> zbus::Result<bool> {
         for _i in 0..conf.repetitions {
             print!("█");
             out.flush().unwrap();
-            sleep(Duration::from_millis(conf.after_on_delay_millis.clone())).await;
+            sleep(Duration::from_millis(conf.after_on_delay_millis)).await;
             print!("\r \r");
             out.flush().unwrap();
-            sleep(Duration::from_millis(conf.after_off_delay_millis.clone())).await;
+            sleep(Duration::from_millis(conf.after_off_delay_millis)).await;
         }
-        sleep(Duration::from_millis(conf.end_cycle_delay_millis.clone())).await;
+        sleep(Duration::from_millis(conf.end_cycle_delay_millis)).await;
     }
     println!();
     Ok(true)
