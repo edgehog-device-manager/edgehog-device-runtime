@@ -52,6 +52,6 @@ jobs:
           version: '0.20.1'
           args: '--ignore-tests --lib -- --test-threads 1'
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v2
+        uses: codecov/codecov-action@v3
         with:
           token: ${{secrets.CODECOV_TOKEN}}
