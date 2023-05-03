@@ -25,7 +25,7 @@ use zbus::dbus_proxy;
 use zbus::export::futures_util::StreamExt;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::ota::{ota_handler, Ota};
+use crate::ota::{ota_handler, SystemUpdate};
 use crate::DeviceManagerError;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
@@ -125,7 +125,7 @@ pub struct OTARauc<'a> {
 }
 
 #[async_trait]
-impl<'a> Ota for OTARauc<'a> {
+impl<'a> SystemUpdate for OTARauc<'a> {
     async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError> {
         self.rauc
             .install_bundle(source, std::collections::HashMap::new())
