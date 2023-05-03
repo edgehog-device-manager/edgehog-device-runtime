@@ -78,4 +78,4 @@ jobs:
         with:
           toolchain: stable
       - name: Run test
-        run: cargo run --bin e2e-test --features e2e_test
+        run: cargo e2e-test

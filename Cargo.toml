@@ -3,6 +3,14 @@
 # Copyright 2022 SECO Mind Srl
 #
 # SPDX-License-Identifier: CC0-1.0
+
+[workspace]
+members = [
+    "e2e-test",
+    "hardware-id-service",
+    "led-manager-service",
+]
+
 [package]
 name = "edgehog-device-runtime"
 version = "0.7.1"
@@ -53,8 +61,3 @@ tokio = { version = "1.29.1", features = ["test-util"] }
 
 [features]
 e2e_test = []
-
-[[bin]]
-name = "e2e-test"
-required-features = ["e2e_test"]
-path = "src/e2e_test/e2e_test.rs"
