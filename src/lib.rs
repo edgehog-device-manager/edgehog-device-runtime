@@ -103,11 +103,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         Ok(device_runtime)
     }
 
-    fn init_ota_event(
-        &self,
-        mut ota_handler: OtaHandler<'static>,
-        mut ota_rx: Receiver<AstarteDeviceDataEvent>,
-    ) {
+    fn init_ota_event(&self, ota_handler: OtaHandler, mut ota_rx: Receiver<AstarteDeviceDataEvent>) {
         let astarte_client_clone = self.publisher.clone();
         tokio::spawn(async move {
             while let Some(data_event) = ota_rx.recv().await {
