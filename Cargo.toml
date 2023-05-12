@@ -35,6 +35,7 @@ sysinfo = "0.26.2"
 udev = "0.6.3"
 wifiscanner = "0.5.*"
 bytes = "1"
+tokio-util = "0.7.8"
 
 [dev-dependencies]
 mockall = "0.11.3"

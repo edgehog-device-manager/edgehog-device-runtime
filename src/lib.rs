@@ -44,6 +44,8 @@ pub mod repository;
 mod telemetry;
 pub mod wrapper;
 
+const MAX_OTA_OPERATION: usize = 2;
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct DeviceManagerOptions {
     pub realm: String,
@@ -74,11 +76,11 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         wrapper::systemd::systemd_notify_status("Initializing");
         info!("Starting");
 
-        let mut ota_handler = OtaHandler::new(&opts).await?;
+        let ota_handler = OtaHandler::new(&opts).await?;
 
         ota_handler.ensure_pending_ota_response(&publisher).await?;
 
-        let (ota_tx, ota_rx) = channel(1);
+        let (ota_tx, ota_rx) = channel(MAX_OTA_OPERATION);
         let (data_tx, data_rx) = channel(32);
 
         let (telemetry_tx, telemetry_rx) = channel(32);
@@ -103,8 +105,13 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
         Ok(device_runtime)
     }
 
-    fn init_ota_event(&self, ota_handler: OtaHandler, mut ota_rx: Receiver<AstarteDeviceDataEvent>) {
-        let astarte_client_clone = self.publisher.clone();
+    fn init_ota_event(
+        &self,
+        ota_handler: OtaHandler,
+        mut ota_rx: Receiver<AstarteDeviceDataEvent>,
+    ) {
+        let publisher = self.publisher.clone();
+        let ota_handler = Arc::new(ota_handler);
         tokio::spawn(async move {
             while let Some(data_event) = ota_rx.recv().await {
                 match (
@@ -116,15 +123,18 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
                         .as_slice(),
                     &data_event.data,
                 ) {
-                    (["request"], Aggregation::Object(data)) => ota_handler
-                        .ota_event(&astarte_client_clone, data.clone())
-                        .await
-                        .ok(),
+                    (["request"], Aggregation::Object(data)) => {
+                        let publisher = publisher.clone();
+                        let data = data.clone();
+                        let ota_handler = ota_handler.clone();
+                        tokio::spawn(async move {
+                            let _ = ota_handler.ota_event(&publisher, data).await;
+                        });
+                    }
                     _ => {
                         warn!("Receiving data from an unknown path/interface: {data_event:?}");
-                        Some(())
                     }
-                };
+                }
             }
         });
     }

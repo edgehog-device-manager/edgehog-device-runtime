@@ -177,9 +177,9 @@ impl<'a> SystemUpdate for OTARauc<'a> {
 
             Ok(signal)
         } else {
-            Err(ota_handler::OtaError::Internal(
-                "Unable to receive signal from rauc interface".to_owned(),
-            ))?
+            return Err(DeviceManagerError::OtaError(
+                ota_handler::OtaError::Internal("Unable to receive signal from rauc interface"),
+            ));
         }
     }
 

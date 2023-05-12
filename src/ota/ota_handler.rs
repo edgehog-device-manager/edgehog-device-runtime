@@ -20,12 +20,16 @@
 
 use astarte_device_sdk::AstarteAggregate;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
 
 use astarte_device_sdk::types::AstarteType;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::data::Publisher;
@@ -44,7 +48,7 @@ struct PersistentState {
 #[derive(thiserror::Error, Debug, Clone, PartialEq)]
 pub enum OtaError {
     #[error("InvalidRequestError: {0}")]
-    Request(String),
+    Request(&'static str),
     #[error("UpdateAlreadyInProgress")]
     UpdateAlreadyInProgress,
     #[error("NetworkError: {0}")]
@@ -52,17 +56,23 @@ pub enum OtaError {
     #[error("IOError: {0}")]
     IO(String),
     #[error("InternalError: {0}")]
-    Internal(String),
+    Internal(&'static str),
     #[error("InvalidBaseImage: {0}")]
     InvalidBaseImage(String),
     #[error("SystemRollback: {0}")]
-    SystemRollback(String),
+    SystemRollback(&'static str),
     #[error("Cancelled")]
     Cancelled,
 }
 
-#[derive(Clone, PartialEq)]
+enum OtaOperation {
+    Cancel,
+    Update,
+}
+
+#[derive(Clone, PartialEq, Debug)]
 enum OtaStatus {
+    Idle,
     Init,
     NoPendingOta,
     Acknowledged(OtaRequest),
@@ -91,7 +101,7 @@ struct OtaStatusMessage {
     message: String,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct OtaRequest {
     uuid: Uuid,
     url: String,
@@ -99,20 +109,23 @@ pub struct OtaRequest {
 
 /// Provides ota resource accessibility only by talking with it.
 pub struct Ota<'a> {
-    receiver: mpsc::Receiver<OtaMessage>,
     system_update: Box<dyn SystemUpdate + 'a>,
     state_repository: Box<dyn StateRepository<PersistentState> + 'a>,
     download_file_path: String,
-    ota_status: OtaStatus,
+    ota_status: Arc<RwLock<OtaStatus>>,
 }
 
 /// An enum that defines the kind of messages we can send to the OtaActor.
 enum OtaMessage {
-    HandleOtaEvent {
-        data: HashMap<String, AstarteType>,
-        respond_to: mpsc::Sender<OtaStatus>,
+    GetOtaStatus {
+        respond_to: oneshot::Sender<OtaStatus>,
     },
     EnsurePendingOta {
+        respond_to: mpsc::Sender<OtaStatus>,
+    },
+    HandleOtaEvent {
+        data: HashMap<String, AstarteType>,
+        cancel_token: CancellationToken,
         respond_to: mpsc::Sender<OtaStatus>,
     },
 }
@@ -121,6 +134,7 @@ enum OtaMessage {
 #[derive(Clone)]
 pub struct OtaHandler {
     sender: mpsc::Sender<OtaMessage>,
+    ota_cancellation: Arc<RwLock<Option<CancellationToken>>>,
 }
 
 impl OtaStatus {
@@ -133,35 +147,38 @@ impl OtaStatus {
             | OtaStatus::Rebooting(ota_request)
             | OtaStatus::Success(ota_request)
             | OtaStatus::Error(_, ota_request) => Some(ota_request),
-            OtaStatus::Failure(_, ota_request) => {
-                if let Some(ota_request) = ota_request {
-                    Some(ota_request)
-                } else {
-                    None
-                }
-            }
+            OtaStatus::Failure(_, ota_request) => ota_request.as_ref(),
             _ => None,
         }
     }
 }
 
-async fn run_ota<'a>(mut ota: Ota<'a>) {
-    while let Some(msg) = ota.receiver.recv().await {
-        ota.handle_message(msg).await;
+impl FromStr for OtaOperation {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<OtaOperation, ()> {
+        match s {
+            "Cancel" => Ok(OtaOperation::Cancel),
+            "Update" => Ok(OtaOperation::Update),
+            _ => Err(()),
+        }
     }
 }
 
 impl OtaHandler {
     pub async fn new(opts: &crate::DeviceManagerOptions) -> Result<Self, DeviceManagerError> {
         let (sender, receiver) = mpsc::channel(8);
-        let ota = Ota::new(opts, receiver).await?;
-        tokio::spawn(run_ota(ota));
+        let ota = Ota::new(opts).await?;
+        tokio::spawn(run_ota(ota, receiver));
 
-        Ok(Self { sender })
+        Ok(Self {
+            sender,
+            ota_cancellation: Arc::new(RwLock::new(None)),
+        })
     }
 
     pub async fn ensure_pending_ota_response(
-        &mut self,
+        &self,
         sdk: &impl Publisher,
     ) -> Result<(), DeviceManagerError> {
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(8);
@@ -169,8 +186,10 @@ impl OtaHandler {
             respond_to: ota_status_publisher,
         };
 
-        if let Err(_) = self.sender.send(msg).await {
-            warn!("Ota receiver dropped");
+        if self.sender.send(msg).await.is_err() {
+            return Err(DeviceManagerError::OtaError(OtaError::Internal(
+                "Unable to execute EnsurePendingOta, receiver channel dropped",
+            )));
         }
 
         while let Some(ota_status) = ota_status_receiver.recv().await {
@@ -182,6 +201,23 @@ impl OtaHandler {
         }
 
         Ok(())
+    }
+
+    async fn get_ota_status(&self) -> Result<OtaStatus, DeviceManagerError> {
+        let (ota_status_publisher, ota_status_receiver) = oneshot::channel();
+        let msg = OtaMessage::GetOtaStatus {
+            respond_to: ota_status_publisher,
+        };
+
+        self.sender.send(msg).await.map_err(|_| {
+            DeviceManagerError::OtaError(OtaError::Internal(
+                "Unable to get the ota status, receiver channel dropped",
+            ))
+        })?;
+
+        ota_status_receiver.await.map_err(|_| {
+            DeviceManagerError::OtaError(OtaError::Internal("Unable to get the ota status"))
+        })
     }
 
     pub async fn ota_event(
@@ -189,60 +225,225 @@ impl OtaHandler {
         sdk: &impl Publisher,
         data: HashMap<String, AstarteType>,
     ) -> Result<(), DeviceManagerError> {
-        let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(8);
-        let msg = OtaMessage::HandleOtaEvent {
-            data,
-            respond_to: ota_status_publisher,
-        };
-
-        if let Err(_) = self.sender.send(msg).await {
-            warn!("Ota receiver dropped");
+        if let AstarteType::String(operation_str) = &data["operation"] {
+            match operation_str.parse::<OtaOperation>() {
+                Ok(OtaOperation::Update) => self.handle_update(sdk, data).await,
+                Ok(OtaOperation::Cancel) => self.handle_cancel(sdk, data).await,
+                Err(_) => Err(DeviceManagerError::OtaError(OtaError::Request(
+                    "Ota operation unsupported",
+                ))),
+            }
+        } else {
+            Err(DeviceManagerError::OtaError(OtaError::Request(
+                "Ota operation unsupported",
+            )))
         }
+    }
 
-        while let Some(ota_status) = ota_status_receiver.recv().await {
-            send_ota_event(sdk, &ota_status).await?;
+    async fn handle_update(
+        &self,
+        sdk: &impl Publisher,
+        data: HashMap<String, AstarteType>,
+    ) -> Result<(), DeviceManagerError> {
+        let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(8);
+        if let AstarteType::String(operation_str) = &data["uuid"] {
+            let uuid = Uuid::parse_str(operation_str).map_err(|_| {
+                DeviceManagerError::OtaError(OtaError::Request("Unable to parse request_uuid"))
+            })?;
 
-            if let OtaStatus::Failure(ota_error, _) = ota_status {
-                return Err(DeviceManagerError::OtaError(ota_error));
+            if let Ok(ota_status) = self.get_ota_status().await {
+                if ota_status != OtaStatus::Idle {
+                    if let Some(current_ota_request) = ota_status.ota_request() {
+                        if current_ota_request.uuid == uuid {
+                            let _ = send_ota_event(sdk, &ota_status).await;
+                            return Err(DeviceManagerError::OtaError(
+                                OtaError::UpdateAlreadyInProgress,
+                            ));
+                        }
+                    }
+
+                    let _ = send_ota_event(
+                        sdk,
+                        &OtaStatus::Failure(
+                            OtaError::UpdateAlreadyInProgress,
+                            Some(OtaRequest {
+                                uuid,
+                                url: "".to_string(),
+                            }),
+                        ),
+                    )
+                    .await;
+                    return Err(DeviceManagerError::OtaError(
+                        OtaError::UpdateAlreadyInProgress,
+                    ));
+                }
+            }
+
+            let cancel_token = CancellationToken::new();
+            *self.ota_cancellation.write().await = Some(cancel_token.clone());
+            let msg = OtaMessage::HandleOtaEvent {
+                data,
+                cancel_token,
+                respond_to: ota_status_publisher,
+            };
+
+            if self.sender.send(msg).await.is_err() {
+                return Err(DeviceManagerError::OtaError(OtaError::Internal(
+                    "Unable to execute HandleOtaEvent, receiver channel dropped",
+                )));
+            }
+
+            while let Some(ota_status) = ota_status_receiver.recv().await {
+                send_ota_event(sdk, &ota_status).await?;
+
+                //After entering in Deploying state the OTA cannot be stopped.
+                if let OtaStatus::Deploying(_) = &ota_status {
+                    *self.ota_cancellation.write().await = None;
+                } else if let OtaStatus::Failure(ota_error, _) = ota_status {
+                    *self.ota_cancellation.write().await = None;
+                    return Err(DeviceManagerError::OtaError(ota_error));
+                }
             }
         }
+        Ok(())
+    }
 
+    async fn handle_cancel(
+        &self,
+        sdk: &impl Publisher,
+        data: HashMap<String, AstarteType>,
+    ) -> Result<(), DeviceManagerError> {
+        if let AstarteType::String(request_uuid_str) = &data["uuid"] {
+            let request_uuid = Uuid::parse_str(request_uuid_str).map_err(|_| {
+                DeviceManagerError::OtaError(OtaError::Request("Unable to parse request_uuid"))
+            })?;
+
+            let cancel_ota_request = OtaRequest {
+                uuid: request_uuid,
+                url: "".to_string(),
+            };
+
+            let ota_status = match self.get_ota_status().await {
+                Ok(ota_status) => ota_status,
+                Err(_) => {
+                    send_ota_event(
+                        sdk,
+                        &OtaStatus::Failure(
+                            OtaError::Internal("Unable to cancel OTA request"),
+                            Some(cancel_ota_request),
+                        ),
+                    )
+                    .await?;
+
+                    return Ok(());
+                }
+            };
+
+            let current_ota_request = match ota_status.ota_request() {
+                Some(ota_request) => ota_request,
+                None => {
+                    send_ota_event(
+                        sdk,
+                        &OtaStatus::Failure(
+                            OtaError::Internal(
+                                "Unable to cancel OTA request, internal request is empty",
+                            ),
+                            Some(cancel_ota_request),
+                        ),
+                    )
+                    .await?;
+
+                    return Ok(());
+                }
+            };
+
+            if cancel_ota_request.uuid != current_ota_request.uuid {
+                send_ota_event(
+                    sdk,
+                    &OtaStatus::Failure(
+                        OtaError::Internal(
+                            "Unable to cancel OTA request, they have different identifier",
+                        ),
+                        Some(cancel_ota_request),
+                    ),
+                )
+                .await?;
+                return Ok(());
+            }
+
+            let mut ota_cancellation = self.ota_cancellation.write().await;
+            if let Some(ota_token) = ota_cancellation.take() {
+                ota_token.cancel();
+                send_ota_event(
+                    sdk,
+                    &OtaStatus::Failure(OtaError::Cancelled, Some(cancel_ota_request)),
+                )
+                .await?;
+            } else {
+                send_ota_event(
+                    sdk,
+                    &OtaStatus::Failure(
+                        OtaError::Internal("Unable to cancel OTA request"),
+                        Some(cancel_ota_request),
+                    ),
+                )
+                .await?
+            }
+        }
         Ok(())
     }
 }
 
+async fn run_ota(ota: Ota<'static>, mut receiver: mpsc::Receiver<OtaMessage>) {
+    let ota_handle = Arc::new(RwLock::new(ota));
+    while let Some(msg) = receiver.recv().await {
+        let ota_handle_cloned = ota_handle.clone();
+        tokio::spawn(async move {
+            let ota_guard = ota_handle_cloned.read().await;
+            ota_guard.handle_message(msg).await;
+        });
+    }
+}
+
 impl<'a> Ota<'a> {
-    async fn new(
-        opts: &crate::DeviceManagerOptions,
-        receiver: mpsc::Receiver<OtaMessage>,
-    ) -> Result<Ota<'a>, DeviceManagerError> {
+    async fn new(opts: &crate::DeviceManagerOptions) -> Result<Ota<'a>, DeviceManagerError> {
         let ota = OTARauc::new().await?;
 
         Ok(Ota {
-            receiver,
             system_update: Box::new(ota),
             state_repository: Box::new(FileStateRepository::new(
                 opts.store_directory.clone(),
                 "state.json".to_owned(),
             )),
             download_file_path: opts.download_directory.clone(),
-            ota_status: OtaStatus::Rebooted,
+            ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
         })
     }
 
-    async fn handle_message(&mut self, msg: OtaMessage) {
+    async fn handle_message(&self, msg: OtaMessage) {
         match msg {
-            OtaMessage::HandleOtaEvent { data, respond_to } => {
-                let ota_status = self
-                    .handle_ota_event(OtaStatus::Init, &respond_to, data)
-                    .await;
-                let _ = respond_to.send(ota_status).await;
+            OtaMessage::HandleOtaEvent {
+                data,
+                cancel_token,
+                respond_to,
+            } => {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        debug!("OTA update channel closed by handle");
+                    }
+                 ota_status = self.handle_ota_event(OtaStatus::Idle, &respond_to, data) => {
+                        let _ = respond_to.send(ota_status).await;
+                    }
+                }
             }
             OtaMessage::EnsurePendingOta { respond_to } => {
                 let ota_status = self
                     .handle_ota_event(OtaStatus::Rebooted, &respond_to, HashMap::new())
                     .await;
                 let _ = respond_to.send(ota_status).await;
+            }
+            OtaMessage::GetOtaStatus { respond_to } => {
+                let _ = respond_to.send(self.ota_status.read().await.clone());
             }
         }
     }
@@ -262,7 +463,7 @@ impl<'a> Ota<'a> {
     ) -> OtaStatus {
         if !data.contains_key("url") || !data.contains_key("uuid") {
             return OtaStatus::Failure(
-                OtaError::Request("Unable to find data in the OTA request".to_owned()),
+                OtaError::Request("Unable to find data in the OTA request"),
                 None,
             );
         }
@@ -270,25 +471,28 @@ impl<'a> Ota<'a> {
         if let (AstarteType::String(request_url), AstarteType::String(request_uuid_str)) =
             (&data["url"], &data["uuid"])
         {
-            let request_uuid = Uuid::parse_str(request_uuid_str);
-            if request_uuid.is_err() {
-                return OtaStatus::Failure(
-                    OtaError::Request("Unable to parse request_uuid".to_owned()),
-                    None,
-                );
-            }
+            let request_uuid = match Uuid::parse_str(request_uuid_str) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    return OtaStatus::Failure(
+                        OtaError::Request("Unable to parse request_uuid"),
+                        None,
+                    )
+                }
+            };
 
-            let request_uuid = request_uuid.unwrap();
-
-            let ack_status = OtaStatus::Acknowledged(OtaRequest {
+            let ota_request = OtaRequest {
                 uuid: request_uuid,
                 url: request_url.to_string(),
-            });
+            };
 
-            ota_status_publisher.send(ack_status.clone()).await;
+            let ack_status = OtaStatus::Acknowledged(ota_request);
+            if ota_status_publisher.send(ack_status.clone()).await.is_err() {
+                warn!("ota_status_publisher dropped before send ack_status")
+            }
             ack_status
         } else {
-            let message = "Got invalid data in OTARequest".to_string();
+            let message = "Got invalid data in OTARequest";
             error!("{message}: {:?}", data);
             OtaStatus::Failure(OtaError::Request(message), None)
         }
@@ -300,7 +504,13 @@ impl<'a> Ota<'a> {
         ota_status_publisher: &mpsc::Sender<OtaStatus>,
     ) -> OtaStatus {
         let downloading_status = OtaStatus::Downloading(ota_request, 0);
-        ota_status_publisher.send(downloading_status.clone()).await;
+        if ota_status_publisher
+            .send(downloading_status.clone())
+            .await
+            .is_err()
+        {
+            warn!("ota_status_publisher dropped before send downloading_status")
+        }
         downloading_status
     }
 
@@ -311,15 +521,15 @@ impl<'a> Ota<'a> {
     ) -> OtaStatus {
         let download_file_path = self.get_update_file_path();
 
-        let download_file_path = download_file_path.to_str();
-        if download_file_path.is_none() {
-            return OtaStatus::Failure(
-                OtaError::IO("Wrong download file path".to_string()),
-                Some(ota_request),
-            );
-        }
-
-        let download_file_path = download_file_path.unwrap();
+        let download_file_path = match download_file_path.to_str() {
+            Some(path) => path,
+            None => {
+                return OtaStatus::Failure(
+                    OtaError::IO("Wrong download file path".to_string()),
+                    Some(ota_request),
+                )
+            }
+        };
 
         let mut ota_download_result = wget(
             &ota_request.url,
@@ -335,9 +545,13 @@ impl<'a> Ota<'a> {
                 error!("{message}: {:?}", error);
                 error!("Next attempt in {}s", wait);
 
-                ota_status_publisher
+                if ota_status_publisher
                     .send(OtaStatus::Error(error, ota_request.clone()))
-                    .await;
+                    .await
+                    .is_err()
+                {
+                    warn!("ota_status_publisher dropped before send error_status")
+                }
 
                 tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 ota_download_result = wget(
@@ -398,7 +612,7 @@ impl<'a> Ota<'a> {
 
             let booted_slot = self.system_update.boot_slot().await;
             if booted_slot.is_err() {
-                let message = "Unable to identify the booted slot".to_string();
+                let message = "Unable to identify the booted slot";
                 error!("{message}: {}", booted_slot.unwrap_err());
                 return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
             }
@@ -415,7 +629,13 @@ impl<'a> Ota<'a> {
             };
 
             let deploying_state = OtaStatus::Deploying(ota_request.clone());
-            ota_status_publisher.send(deploying_state.clone()).await;
+            if ota_status_publisher
+                .send(deploying_state.clone())
+                .await
+                .is_err()
+            {
+                warn!("ota_status_publisher dropped before send deploying_state")
+            }
 
             deploying_state
         }
@@ -442,7 +662,7 @@ impl<'a> Ota<'a> {
         );
 
         if let Err(error) = self.system_update.operation().await {
-            let message = "Unable to get status of ota operation".to_string();
+            let message = "Unable to get status of ota operation";
             error!("{message} : {error}");
             return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
         }
@@ -450,7 +670,7 @@ impl<'a> Ota<'a> {
         info!("Waiting for signal...");
         let signal = self.system_update.receive_completed().await;
         if signal.is_err() {
-            let message = "Unable to receive the install completed event".to_string();
+            let message = "Unable to receive the install completed event";
             error!("{message} : {}", signal.unwrap_err());
             return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
         }
@@ -463,7 +683,13 @@ impl<'a> Ota<'a> {
                 info!("Update successful");
 
                 let deployed_status = OtaStatus::Deployed(ota_request.clone());
-                ota_status_publisher.send(deployed_status.clone()).await;
+                if ota_status_publisher
+                    .send(deployed_status.clone())
+                    .await
+                    .is_err()
+                {
+                    warn!("ota_status_publisher dropped before send deployed_status")
+                }
                 deployed_status
             }
             _ => {
@@ -482,9 +708,13 @@ impl<'a> Ota<'a> {
         ota_request: OtaRequest,
         ota_status_publisher: &mpsc::Sender<OtaStatus>,
     ) -> OtaStatus {
-        ota_status_publisher
+        if ota_status_publisher
             .send(OtaStatus::Rebooting(ota_request.clone()))
-            .await;
+            .await
+            .is_err()
+        {
+            warn!("ota_status_publisher dropped before send rebooting_status")
+        };
 
         info!("Rebooting in 5 seconds");
 
@@ -492,7 +722,7 @@ impl<'a> Ota<'a> {
 
         #[cfg(not(test))]
         if let Err(error) = crate::power_management::reboot() {
-            let message = "Unable to run reboot command".to_string();
+            let message = "Unable to run reboot command";
             error!("{message} : {error}");
             return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
         }
@@ -500,7 +730,7 @@ impl<'a> Ota<'a> {
         OtaStatus::Rebooted
     }
 
-    async fn success(&mut self) -> OtaStatus {
+    async fn success(&self) -> OtaStatus {
         if self.state_repository.exists() {
             info!("Found pending update");
 
@@ -538,18 +768,18 @@ impl<'a> Ota<'a> {
         const GOOD_STATE: &str = "good";
 
         let booted_slot = self.system_update.boot_slot().await.map_err(|error| {
-            let message = "Unable to identify the booted slot".to_string();
+            let message = "Unable to identify the booted slot";
             error!("{message}: {error}");
             OtaError::Internal(message)
         })?;
 
         if state.slot == booted_slot {
-            let message = "Unable to switch slot".to_string();
+            let message = "Unable to switch slot";
             return Err(OtaError::SystemRollback(message));
         }
 
         let primary_slot = self.system_update.get_primary().await.map_err(|error| {
-            let message = "Unable to get the current primary slot".to_string();
+            let message = "Unable to get the current primary slot";
             error!("{message}: {error}");
             OtaError::Internal(message)
         })?;
@@ -559,13 +789,13 @@ impl<'a> Ota<'a> {
             .mark(GOOD_STATE, &primary_slot)
             .await
             .map_err(|error| {
-                let message = "Unable to run marking slot operation".to_string();
+                let message = "Unable to run marking slot operation";
                 error!("{message}: {error}");
                 OtaError::Internal(message)
             })?;
 
         if primary_slot != marked_slot {
-            let message = "Unable to mark slot".to_string();
+            let message = "Unable to mark slot";
             Err(OtaError::Internal(message))
         } else {
             Ok(())
@@ -573,7 +803,7 @@ impl<'a> Ota<'a> {
     }
 
     async fn handle_ota_event(
-        &mut self,
+        &self,
         ota_status: OtaStatus,
         ota_status_publisher: &mpsc::Sender<OtaStatus>,
         data: HashMap<String, AstarteType>,
@@ -582,6 +812,7 @@ impl<'a> Ota<'a> {
 
         loop {
             ota_status = match ota_status {
+                OtaStatus::Idle => OtaStatus::Init,
                 OtaStatus::Init => self.acknowledged(ota_status_publisher, data.clone()).await,
                 OtaStatus::Acknowledged(ota_request) => {
                     self.downloading(ota_request, ota_status_publisher).await
@@ -605,7 +836,7 @@ impl<'a> Ota<'a> {
                 | OtaStatus::Failure(_, _) => break,
             };
 
-            self.ota_status = ota_status.clone();
+            *self.ota_status.write().await = ota_status.clone();
         }
 
         if let Some(path) = self.get_update_file_path().to_str() {
@@ -614,7 +845,7 @@ impl<'a> Ota<'a> {
             }
         }
 
-        self.ota_status = OtaStatus::Init;
+        *self.ota_status.write().await = OtaStatus::Idle;
         ota_status
     }
 }
@@ -646,10 +877,10 @@ async fn wget(
 
             let total_size = response
                 .content_length()
-                .and_then(|size| if size <= 0 { None } else { Some(size) })
-                .ok_or(OtaError::Network(format!(
-                    "Unable to get content length from: {url}"
-                )))?;
+                .and_then(|size| if size == 0 { None } else { Some(size) })
+                .ok_or_else(|| {
+                    OtaError::Network(format!("Unable to get content length from: {url}"))
+                })?;
 
             let mut downloaded: u64 = 0;
             let mut stream = response.bytes_stream();
@@ -678,15 +909,19 @@ async fn wget(
                 downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
                 let progress = ((downloaded / total_size) * 100) as i32;
 
-                ota_status_publisher
+                if ota_status_publisher
                     .send(OtaStatus::Downloading(
                         OtaRequest {
-                            uuid: request_uuid.clone(),
+                            uuid: *request_uuid,
                             url: "".to_string(),
                         },
                         progress,
                     ))
-                    .await;
+                    .await
+                    .is_err()
+                {
+                    warn!("ota_status_publisher dropped before send downloading_status")
+                }
             }
 
             if total_size != downloaded {
@@ -717,7 +952,7 @@ impl From<&OtaStatus> for OtaEvent {
             }
             OtaStatus::Downloading(ota_request, progress) => {
                 ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.statusProgress = progress.clone();
+                ota_event.statusProgress = *progress;
                 ota_event.status = "Downloading".to_string();
             }
             OtaStatus::Deploying(ota_request) => {
@@ -752,7 +987,7 @@ impl From<&OtaStatus> for OtaEvent {
                 ota_event.statusCode = ota_status_message.status_code;
                 ota_event.message = ota_status_message.message;
             }
-            OtaStatus::Init | OtaStatus::NoPendingOta | OtaStatus::Rebooted => {}
+            OtaStatus::Idle | OtaStatus::Init | OtaStatus::NoPendingOta | OtaStatus::Rebooted => {}
         }
         ota_event
     }
@@ -810,7 +1045,7 @@ async fn send_ota_event(sdk: &impl Publisher, ota_status: &OtaStatus) -> Result<
 
     if ota_event.requestUUID.is_empty() {
         return Err(OtaError::Internal(
-            "Unable to publish ota_event: request_uuid is empty".to_string(),
+            "Unable to publish ota_event: request_uuid is empty",
         ));
     }
 
@@ -832,18 +1067,19 @@ async fn send_ota_event(sdk: &impl Publisher, ota_status: &OtaStatus) -> Result<
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     use astarte_device_sdk::types::AstarteType;
     use httpmock::prelude::*;
     use tempdir::TempDir;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, RwLock};
     use uuid::Uuid;
 
     use crate::data::MockPublisher;
     use crate::error::DeviceManagerError;
     use crate::ota::ota_handler::{
-        run_ota, wget, Ota, OtaError, OtaEvent, OtaHandler, OtaMessage, OtaRequest, OtaStatus,
-        PersistentState,
+        run_ota, wget, Ota, OtaError, OtaEvent, OtaHandler, OtaRequest, OtaStatus, PersistentState,
     };
     use crate::ota::rauc::BundleInfo;
     use crate::ota::MockSystemUpdate;
@@ -871,27 +1107,23 @@ mod tests {
             system_update: MockSystemUpdate,
             state_mock: MockStateRepository<PersistentState>,
         ) -> Self {
-            let (_, receiver) = mpsc::channel(1);
             Ota {
-                receiver,
                 system_update: Box::new(system_update),
                 state_repository: Box::new(state_mock),
                 download_file_path: "".to_owned(),
-                ota_status: OtaStatus::Init,
+                ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
             }
         }
 
         fn mock_new_channel(
             system_update: MockSystemUpdate,
             state_mock: MockStateRepository<PersistentState>,
-            receiver: mpsc::Receiver<OtaMessage>,
         ) -> Self {
             Ota {
-                receiver,
                 system_update: Box::new(system_update),
                 state_repository: Box::new(state_mock),
                 download_file_path: "".to_owned(),
-                ota_status: OtaStatus::Init,
+                ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
             }
         }
     }
@@ -902,10 +1134,13 @@ mod tests {
             state_mock: MockStateRepository<PersistentState>,
         ) -> Result<Self, DeviceManagerError> {
             let (sender, receiver) = mpsc::channel(8);
-            let ota = Ota::mock_new_channel(system_update, state_mock, receiver);
-            tokio::spawn(run_ota(ota));
+            let ota = Ota::mock_new_channel(system_update, state_mock);
+            tokio::spawn(run_ota(ota, receiver));
 
-            Ok(Self { sender })
+            Ok(Self {
+                sender,
+                ota_cancellation: Arc::new(RwLock::new(None)),
+            })
         }
     }
 
@@ -938,7 +1173,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event: OtaEvent = OtaEvent::from(&OtaStatus::Acknowledged(ota_request.clone()));
+        let ota_event: OtaEvent = OtaEvent::from(&OtaStatus::Acknowledged(ota_request));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -957,7 +1192,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Downloading(ota_request.clone(), 100));
+        let ota_event = OtaEvent::from(&OtaStatus::Downloading(ota_request, 100));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -977,7 +1212,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Deploying(ota_request.clone()));
+        let ota_event = OtaEvent::from(&OtaStatus::Deploying(ota_request));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -996,7 +1231,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Deployed(ota_request.clone()));
+        let ota_event = OtaEvent::from(&OtaStatus::Deployed(ota_request));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -1015,7 +1250,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Rebooting(ota_request.clone()));
+        let ota_event = OtaEvent::from(&OtaStatus::Rebooting(ota_request));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -1034,7 +1269,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Success(ota_request.clone()));
+        let ota_event = OtaEvent::from(&OtaStatus::Success(ota_request));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -1054,8 +1289,8 @@ mod tests {
         };
 
         let ota_event = OtaEvent::from(&OtaStatus::Error(
-            OtaError::Request("Invalid data".to_string()),
-            ota_request.clone(),
+            OtaError::Request("Invalid data"),
+            ota_request,
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1076,8 +1311,8 @@ mod tests {
         };
 
         let ota_event = OtaEvent::from(&OtaStatus::Failure(
-            OtaError::Request("Invalid data".to_string()),
-            Some(ota_request.clone()),
+            OtaError::Request("Invalid data"),
+            Some(ota_request),
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1099,7 +1334,7 @@ mod tests {
 
         let ota_event = OtaEvent::from(&OtaStatus::Failure(
             OtaError::Network("no network".to_string()),
-            Some(ota_request.clone()),
+            Some(ota_request),
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1121,7 +1356,7 @@ mod tests {
 
         let ota_event = OtaEvent::from(&OtaStatus::Failure(
             OtaError::IO("Invalid path".to_string()),
-            Some(ota_request.clone()),
+            Some(ota_request),
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1142,8 +1377,8 @@ mod tests {
         };
 
         let ota_event = OtaEvent::from(&OtaStatus::Failure(
-            OtaError::Internal("system damage".to_string()),
-            Some(ota_request.clone()),
+            OtaError::Internal("system damage"),
+            Some(ota_request),
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1165,7 +1400,7 @@ mod tests {
 
         let ota_event = OtaEvent::from(&OtaStatus::Failure(
             OtaError::InvalidBaseImage("Unable to get info from ota".to_string()),
-            Some(ota_request.clone()),
+            Some(ota_request),
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1186,8 +1421,8 @@ mod tests {
         };
 
         let ota_event = OtaEvent::from(&OtaStatus::Failure(
-            OtaError::SystemRollback("Unable to switch partition".to_string()),
-            Some(ota_request.clone()),
+            OtaError::SystemRollback("Unable to switch partition"),
+            Some(ota_request),
         ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
@@ -1363,7 +1598,9 @@ mod tests {
             ),
         ]);
 
-        let ota = Ota::mock_new(system_update, state_mock);
+        let mut ota = Ota::mock_new(system_update, state_mock);
+        ota.ota_status = Arc::new(RwLock::new(OtaStatus::Init));
+
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
         let ota_status = ota.acknowledged(&ota_status_publisher, data).await;
 
@@ -2001,7 +2238,7 @@ mod tests {
 
         state_mock.expect_exists().returning(|| false);
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
+        let ota = Ota::mock_new(system_update, state_mock);
         let ota_status = ota.success().await;
 
         assert!(matches!(ota_status, OtaStatus::NoPendingOta));
@@ -2017,7 +2254,7 @@ mod tests {
             .expect_read()
             .returning(move || Err(DeviceManagerError::FatalError("Unable to read".to_string())));
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
+        let ota = Ota::mock_new(system_update, state_mock);
         let ota_status = ota.success().await;
 
         assert!(matches!(ota_status, OtaStatus::Failure(OtaError::IO(_), _)));
@@ -2043,7 +2280,7 @@ mod tests {
             .expect_boot_slot()
             .returning(|| Ok("A".to_owned()));
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
+        let ota = Ota::mock_new(system_update, state_mock);
         let ota_status = ota.success().await;
 
         assert!(matches!(
@@ -2081,7 +2318,7 @@ mod tests {
             ))
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
+        let ota = Ota::mock_new(system_update, state_mock);
         let ota_status = ota.success().await;
 
         assert!(matches!(ota_status, OtaStatus::Success(_)));
@@ -2306,7 +2543,8 @@ mod tests {
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
-        let expected_message = "Update failed with signal -1";
+        let expected_message = "Update failed with signal -1".to_string();
+        let expected_message_cl = expected_message.clone();
 
         publisher
             .expect_send_object()
@@ -2315,7 +2553,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
                     && ota_event.statusCode.eq("InvalidBaseImage")
-                    && ota_event.message.eq(&expected_message.clone())
+                    && ota_event.message.eq(&expected_message_cl)
             })
             .times(1)
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
@@ -2331,7 +2569,7 @@ mod tests {
 
         if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
             if let OtaError::InvalidBaseImage(error_message) = ota_error {
-                assert_eq!(expected_message.to_string(), error_message)
+                assert_eq!(expected_message, error_message)
             } else {
                 panic!("Wrong OtaError type");
             }
@@ -2480,7 +2718,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ota_event_success() {
+    async fn ota_event_update_success() {
         let uuid = Uuid::new_v4();
         let slot = "A";
         let mut state_mock = MockStateRepository::<PersistentState>::new();
@@ -2646,6 +2884,970 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ota_event_update_already_in_progress_same_uuid() {
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid,
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        system_update.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        system_update
+            .expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        system_update
+            .expect_boot_slot()
+            .returning(|| Ok("B".to_owned()));
+        system_update
+            .expect_install_bundle()
+            .returning(|_: &str| Ok(()));
+        system_update
+            .expect_operation()
+            .returning(|| Ok("".to_string()));
+        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        system_update.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .delay(Duration::from_secs(3))
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Acknowledged")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 100
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deploying")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deployed")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Rebooting")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Success")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
+            .await
+            .unwrap();
+        let ota_handler_cp = ota_handler.clone();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let mut ota_req_map = HashMap::new();
+            ota_req_map.insert(
+                "uuid".to_owned(),
+                AstarteType::String(uuid.clone().to_string()),
+            );
+            ota_req_map.insert(
+                "operation".to_string(),
+                AstarteType::String("Update".to_string()),
+            );
+
+            let mut publisher = MockPublisher::new();
+
+            publisher
+                .expect_send_object()
+                .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                    ota_event.status.eq("Downloading")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                        && ota_event.message.eq("")
+                })
+                .times(1)
+                .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+
+            let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
+            assert!(result.is_err());
+
+            if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
+                assert_eq!(ota_error, OtaError::UpdateAlreadyInProgress)
+            } else {
+                panic!("Wrong DeviceManagerError type");
+            }
+        });
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+
+        assert!(result.is_ok());
+
+        let result = handle.await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ota_event_update_already_in_progress_different_uuid() {
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid,
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        system_update.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        system_update
+            .expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        system_update
+            .expect_boot_slot()
+            .returning(|| Ok("B".to_owned()));
+        system_update
+            .expect_install_bundle()
+            .returning(|_: &str| Ok(()));
+        system_update
+            .expect_operation()
+            .returning(|| Ok("".to_string()));
+        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        system_update.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .delay(Duration::from_secs(3))
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Acknowledged")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 100
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deploying")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deployed")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Rebooting")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Success")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
+            .await
+            .unwrap();
+        let ota_handler_cp = ota_handler.clone();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            let uuid = Uuid::new_v4();
+            let mut ota_req_map = HashMap::new();
+            ota_req_map.insert(
+                "uuid".to_owned(),
+                AstarteType::String(uuid.clone().to_string()),
+            );
+            ota_req_map.insert(
+                "operation".to_string(),
+                AstarteType::String("Update".to_string()),
+            );
+
+            let mut publisher = MockPublisher::new();
+
+            publisher
+                .expect_send_object()
+                .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                    ota_event.status.eq("Failure")
+                        && ota_event.statusCode.eq("UpdateAlreadyInProgress")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                        && ota_event.message.eq("")
+                })
+                .times(1)
+                .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+
+            let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
+            assert!(result.is_err());
+
+            if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
+                assert_eq!(ota_error, OtaError::UpdateAlreadyInProgress)
+            } else {
+                panic!("Wrong DeviceManagerError type");
+            }
+        });
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+
+        assert!(result.is_ok());
+
+        let result = handle.await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ota_event_cancelled() {
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid,
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        system_update.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        system_update
+            .expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        system_update
+            .expect_boot_slot()
+            .returning(|| Ok("B".to_owned()));
+        system_update
+            .expect_install_bundle()
+            .returning(|_: &str| Ok(()));
+        system_update
+            .expect_operation()
+            .returning(|| Ok("".to_string()));
+        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        system_update.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .delay(Duration::from_secs(5))
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Acknowledged")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
+            .await
+            .unwrap();
+
+        let ota_handler_cp = ota_handler.clone();
+        let cancel_handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut ota_req_map = HashMap::new();
+            ota_req_map.insert(
+                "uuid".to_owned(),
+                AstarteType::String(uuid.clone().to_string()),
+            );
+            ota_req_map.insert(
+                "operation".to_string(),
+                AstarteType::String("Cancel".to_string()),
+            );
+
+            let mut publisher = MockPublisher::new();
+
+            publisher
+                .expect_send_object()
+                .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                    ota_event.status.eq("Failure")
+                        && ota_event.statusCode.eq("Cancelled")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                })
+                .times(1)
+                .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+
+            let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
+            assert!(result.is_ok());
+        });
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+        assert!(result.is_ok());
+
+        let result = cancel_handle.await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ota_event_not_cancelled() {
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid,
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        system_update.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        system_update
+            .expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        system_update
+            .expect_boot_slot()
+            .returning(|| Ok("B".to_owned()));
+        system_update
+            .expect_install_bundle()
+            .returning(|_: &str| Ok(()));
+        system_update
+            .expect_operation()
+            .returning(|| Ok("".to_string()));
+        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        system_update.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Acknowledged")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 100
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deploying")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deployed")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Rebooting")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Success")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
+            .await
+            .unwrap();
+        let ota_handler_cp = ota_handler.clone();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut ota_req_map = HashMap::new();
+            ota_req_map.insert(
+                "uuid".to_owned(),
+                AstarteType::String(uuid.clone().to_string()),
+            );
+            ota_req_map.insert(
+                "operation".to_string(),
+                AstarteType::String("Cancel".to_string()),
+            );
+
+            let mut publisher = MockPublisher::new();
+
+            publisher
+                .expect_send_object()
+                .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                    ota_event.status.eq("Failure")
+                        && ota_event.statusCode.eq("InternalError")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                        && ota_event.message.eq("Unable to cancel OTA request")
+                })
+                .times(1)
+                .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+
+            let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
+            assert!(result.is_ok());
+        });
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+
+        assert!(result.is_ok());
+
+        let result = handle.await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ota_event_not_cancelled_different_uuid() {
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid,
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        system_update.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        system_update
+            .expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        system_update
+            .expect_boot_slot()
+            .returning(|| Ok("B".to_owned()));
+        system_update
+            .expect_install_bundle()
+            .returning(|_: &str| Ok(()));
+        system_update
+            .expect_operation()
+            .returning(|| Ok("".to_string()));
+        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        system_update.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .delay(Duration::from_secs(5))
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Acknowledged")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 100
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deploying")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Deployed")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Rebooting")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Success")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .times(1)
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
+            .await
+            .unwrap();
+        let ota_handler_cp = ota_handler.clone();
+
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut ota_req_map = HashMap::new();
+            let uuid_diff = Uuid::new_v4();
+            ota_req_map.insert(
+                "uuid".to_owned(),
+                AstarteType::String(uuid_diff.clone().to_string()),
+            );
+            ota_req_map.insert(
+                "operation".to_string(),
+                AstarteType::String("Cancel".to_string()),
+            );
+
+            let mut publisher = MockPublisher::new();
+
+            publisher
+                .expect_send_object()
+                .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                    ota_event.status.eq("Failure")
+                        && ota_event.statusCode.eq("InternalError")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid_diff.to_string()
+                        && ota_event
+                            .message
+                            .eq("Unable to cancel OTA request, they have different identifier")
+                })
+                .times(1)
+                .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+
+            let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
+            assert!(result.is_ok());
+        });
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+
+        assert!(result.is_ok());
+
+        let result = handle.await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
     async fn ensure_pending_ota_response_fail() {
         let uuid = Uuid::new_v4();
         let slot = "A";
@@ -2679,7 +3881,7 @@ mod tests {
             .times(1)
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
-        let mut ota_handler = OtaHandler::mock_new(system_update, state_mock)
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
             .await
             .unwrap();
         let result = ota_handler.ensure_pending_ota_response(&publisher).await;
@@ -2740,7 +3942,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
-        let mut ota_handler = OtaHandler::mock_new(system_update, state_mock)
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
             .await
             .unwrap();
         let result = ota_handler.ensure_pending_ota_response(&publisher).await;
