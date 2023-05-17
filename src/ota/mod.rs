@@ -26,6 +26,8 @@ use crate::error::DeviceManagerError;
 use crate::ota::rauc::BundleInfo;
 
 pub(crate) mod ota_handler;
+#[cfg(test)]
+mod ota_handler_test;
 pub(crate) mod rauc;
 
 #[cfg_attr(test, automock)]
