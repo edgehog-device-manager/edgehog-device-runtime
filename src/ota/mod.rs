@@ -25,6 +25,7 @@ use mockall::automock;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::BundleInfo;
 
+mod ota_handle;
 pub(crate) mod ota_handler;
 #[cfg(test)]
 mod ota_handler_test;
@@ -46,4 +47,24 @@ pub trait SystemUpdate: Send + Sync {
         state: &str,
         slot_identifier: &str,
     ) -> Result<(String, String), DeviceManagerError>;
+}
+
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
+pub enum OtaError {
+    #[error("InvalidRequestError: {0}")]
+    Request(&'static str),
+    #[error("UpdateAlreadyInProgress")]
+    UpdateAlreadyInProgress,
+    #[error("NetworkError: {0}")]
+    Network(String),
+    #[error("IOError: {0}")]
+    IO(String),
+    #[error("InternalError: {0}")]
+    Internal(&'static str),
+    #[error("InvalidBaseImage: {0}")]
+    InvalidBaseImage(String),
+    #[error("SystemRollback: {0}")]
+    SystemRollback(&'static str),
+    #[error("Cancelled")]
+    Cancelled,
 }

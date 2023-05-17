@@ -25,7 +25,7 @@ use zbus::dbus_proxy;
 use zbus::export::futures_util::StreamExt;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::ota::{ota_handler, SystemUpdate};
+use crate::ota::{OtaError, SystemUpdate};
 use crate::DeviceManagerError;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
@@ -177,9 +177,9 @@ impl<'a> SystemUpdate for OTARauc<'a> {
 
             Ok(signal)
         } else {
-            return Err(DeviceManagerError::OtaError(
-                ota_handler::OtaError::Internal("Unable to receive signal from rauc interface"),
-            ));
+            return Err(DeviceManagerError::OtaError(OtaError::Internal(
+                "Unable to receive signal from rauc interface",
+            )));
         }
     }
 
