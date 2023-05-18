@@ -33,7 +33,9 @@ use uuid::Uuid;
 use crate::data::Publisher;
 use crate::error::DeviceManagerError;
 use crate::ota::ota_handle::{Ota, OtaMessage, OtaRequest, OtaStatus};
+use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
+use crate::repository::file_state_repository::FileStateRepository;
 
 enum OtaOperation {
     Cancel,
@@ -77,7 +79,13 @@ impl FromStr for OtaOperation {
 impl OtaHandler {
     pub async fn new(opts: &crate::DeviceManagerOptions) -> Result<Self, DeviceManagerError> {
         let (sender, receiver) = mpsc::channel(8);
-        let ota = Ota::new(opts).await?;
+        let system_update = OTARauc::new().await?;
+
+        let state_repository =
+            FileStateRepository::new(opts.store_directory.clone(), "state.json".to_owned());
+
+        let ota =
+            Ota::<OTARauc, FileStateRepository>::new(opts, system_update, state_repository).await?;
         tokio::spawn(crate::ota::ota_handle::run_ota(ota, receiver));
 
         Ok(Self {

@@ -31,9 +31,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::error::DeviceManagerError;
-use crate::ota::rauc::OTARauc;
 use crate::ota::{OtaError, SystemUpdate};
-use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -96,23 +94,30 @@ impl OtaStatus {
 }
 
 /// Provides ota resource accessibility only by talking with it.
-pub struct Ota<'a> {
-    pub system_update: Box<dyn SystemUpdate + 'a>,
-    pub state_repository: Box<dyn StateRepository<PersistentState> + 'a>,
+pub struct Ota<T, U>
+where
+    T: SystemUpdate,
+    U: StateRepository<PersistentState>,
+{
+    pub system_update: T,
+    pub state_repository: U,
     pub download_file_path: String,
     pub ota_status: Arc<RwLock<OtaStatus>>,
 }
 
-impl<'a> Ota<'a> {
-    pub async fn new(opts: &crate::DeviceManagerOptions) -> Result<Ota<'a>, DeviceManagerError> {
-        let ota = OTARauc::new().await?;
-
+impl<T, U> Ota<T, U>
+where
+    T: SystemUpdate,
+    U: StateRepository<PersistentState>,
+{
+    pub async fn new(
+        opts: &crate::DeviceManagerOptions,
+        system_update: T,
+        state_repository: U,
+    ) -> Result<Self, DeviceManagerError> {
         Ok(Ota {
-            system_update: Box::new(ota),
-            state_repository: Box::new(FileStateRepository::new(
-                opts.store_directory.clone(),
-                "state.json".to_owned(),
-            )),
+            system_update,
+            state_repository,
             download_file_path: opts.download_directory.clone(),
             ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
         })
@@ -548,7 +553,11 @@ impl<'a> Ota<'a> {
     }
 }
 
-pub async fn run_ota(ota: Ota<'static>, mut receiver: mpsc::Receiver<OtaMessage>) {
+pub async fn run_ota<T, U>(ota: Ota<T, U>, mut receiver: mpsc::Receiver<OtaMessage>)
+where
+    T: SystemUpdate + 'static,
+    U: StateRepository<PersistentState> + 'static,
+{
     let ota_handle = Arc::new(RwLock::new(ota));
     while let Some(msg) = receiver.recv().await {
         let ota_handle_cloned = ota_handle.clone();
@@ -658,8 +667,8 @@ mod tests {
     use crate::error::DeviceManagerError;
     use crate::ota::ota_handle::{wget, Ota, OtaRequest, OtaStatus, PersistentState};
     use crate::ota::rauc::BundleInfo;
-    use crate::ota::{MockSystemUpdate, OtaError};
-    use crate::repository::MockStateRepository;
+    use crate::ota::{MockSystemUpdate, OtaError, SystemUpdate};
+    use crate::repository::{MockStateRepository, StateRepository};
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
     fn temp_dir() -> (TempDir, String) {
@@ -669,14 +678,15 @@ mod tests {
         (dir, str)
     }
 
-    impl<'a> Ota<'a> {
-        pub fn mock_new(
-            system_update: MockSystemUpdate,
-            state_mock: MockStateRepository<PersistentState>,
-        ) -> Self {
+    impl<T, U> Ota<T, U>
+    where
+        T: SystemUpdate,
+        U: StateRepository<PersistentState>,
+    {
+        pub fn mock_new(system_update: T, state_repository: U) -> Self {
             Ota {
-                system_update: Box::new(system_update),
-                state_repository: Box::new(state_mock),
+                system_update,
+                state_repository,
                 download_file_path: "".to_owned(),
                 ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
             }

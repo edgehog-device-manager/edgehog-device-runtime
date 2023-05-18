@@ -43,7 +43,10 @@ mod tests {
             state_mock: MockStateRepository<PersistentState>,
         ) -> Result<Self, DeviceManagerError> {
             let (sender, receiver) = mpsc::channel(8);
-            let ota = Ota::mock_new(system_update, state_mock);
+            let ota = Ota::<MockSystemUpdate, MockStateRepository<PersistentState>>::mock_new(
+                system_update,
+                state_mock,
+            );
             tokio::spawn(run_ota(ota, receiver));
 
             Ok(Self {
