@@ -6,12 +6,11 @@
 
 # Edgehog Device Runtime
 
-![](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/build.yaml/badge.svg?branch=main)
+[![CI](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/check.yaml/badge.svg?branch=main)](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/check.yaml?branch=master)
 [![codecov](https://codecov.io/gh/edgehog-device-manager/edgehog-device-runtime/branch/main/graph/badge.svg)](https://app.codecov.io/gh/edgehog-device-manager)
 
 Edgehog Device Runtime is a portable middleware written in [Rust](https://www.rust-lang.org/), that
-enables remote device management using
-[Edgehog](https://github.com/edgehog-device-manager/edgehog).
+enables remote device management using [Edgehog](https://github.com/edgehog-device-manager/edgehog).
 
 ## Supported Operating System
 
@@ -22,6 +21,7 @@ See also [OS requirements](doc/os_requirements.md) for further information.
 ## Implemented Features
 
 The following information are sent to remote Edgehog instance:
+
 - OS info (data is read from `/etc/os-release`)
 - Hardware info
 - System status (data is read from proc filesystem)
@@ -44,9 +44,12 @@ features are implemented.
 
 ## Configuration
 
-Edgehog Device Runtime can be configured using a [TOML](https://en.wikipedia.org/wiki/TOML) file located either in $PWD/edgehog-config.toml or /etc/edgehog/config.toml, or in a custom path, run `cargo run -- --help` for more informations.
+Edgehog Device Runtime can be configured using a [TOML](https://en.wikipedia.org/wiki/TOML) file
+located either in $PWD/edgehog-config.toml or /etc/edgehog/config.toml, or in a custom path, run
+`cargo run -- --help` for more informations.
 
 Example configuration:
+
 ```toml
 credentials_secret = "YOUR_CREDENTIAL_SECRET"
 device_id = "YOUR_UNIQUE_DEVIDE_ID"
