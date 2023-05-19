@@ -63,6 +63,8 @@ mod tests {
 
         let mut state_mock = MockStateRepository::<PersistentState>::new();
         state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+        state_mock.expect_exists().returning(|| true);
 
         let mut system_update = MockSystemUpdate::new();
         system_update.expect_info().returning(|_: &str| {
@@ -108,7 +110,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -120,7 +122,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -132,7 +134,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -151,7 +153,7 @@ mod tests {
                     && ota_event.statusCode.eq("InvalidBaseImage")
                     && ota_event.message.eq(&expected_message_cp)
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -177,6 +179,8 @@ mod tests {
     async fn handle_ota_event_bundle_install_completed_fail() {
         let mut state_mock = MockStateRepository::<PersistentState>::new();
         state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+        state_mock.expect_exists().returning(|| true);
 
         let mut system_update = MockSystemUpdate::new();
         system_update.expect_info().returning(|_: &str| {
@@ -194,7 +198,7 @@ mod tests {
             .returning(|| Ok("".to_string()));
         system_update
             .expect_receive_completed()
-            .returning(|| Ok(-1));
+            .returning(|_| Ok(-1));
         system_update.expect_install_bundle().returning(|_| Ok(()));
         system_update
             .expect_boot_slot()
@@ -235,7 +239,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -247,7 +251,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -259,7 +263,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -271,7 +275,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -287,7 +291,7 @@ mod tests {
                     && ota_event.statusCode.eq("InvalidBaseImage")
                     && ota_event.message.eq(&expected_message_cl)
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -378,7 +382,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -390,7 +394,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -402,7 +406,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -414,7 +418,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -427,7 +431,7 @@ mod tests {
                     && ota_event.statusCode.eq("InvalidBaseImage")
                     && ota_event.message.eq("Unable to install ota image")
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -485,7 +489,10 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_receive_completed()
+            .once()
+            .returning(|_| Ok(0));
         system_update
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
@@ -524,85 +531,113 @@ mod tests {
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Acknowledged")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 0
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Acknowledged")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Downloading")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 0
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Downloading")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Downloading")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 100
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Downloading")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 100
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Deploying")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 0
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Deploying")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Deployed")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 0
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Deployed")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Rebooting")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 0
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Rebooting")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         publisher
             .expect_send_object()
-            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-                ota_event.status.eq("Success")
-                    && ota_event.statusCode.eq("")
-                    && ota_event.statusProgress == 0
-                    && ota_event.requestUUID == uuid.to_string()
-            })
-            .times(1)
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Success")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -611,7 +646,6 @@ mod tests {
             .unwrap();
         let result = ota_handler.ota_event(&publisher, ota_req_map).await;
         mock_ota_file_request.assert();
-
         assert!(result.is_ok());
     }
 
@@ -651,7 +685,9 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_receive_completed()
+            .returning(|_| Ok(0));
         system_update
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
@@ -697,7 +733,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -709,7 +745,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -721,7 +757,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -733,7 +769,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -745,7 +781,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -757,7 +793,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -769,7 +805,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -801,7 +837,7 @@ mod tests {
                         && ota_event.requestUUID == uuid.to_string()
                         && ota_event.message.eq("")
                 })
-                .times(1)
+                .once()
                 .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
             let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
@@ -859,7 +895,9 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_receive_completed()
+            .returning(|_| Ok(0));
         system_update
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
@@ -905,7 +943,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -917,7 +955,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -929,7 +967,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -941,7 +979,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -953,7 +991,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -965,7 +1003,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -977,7 +1015,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1011,7 +1049,7 @@ mod tests {
                         && ota_event.requestUUID == uuid.to_string()
                         && ota_event.message.eq("")
                 })
-                .times(1)
+                .once()
                 .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
             let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
@@ -1034,7 +1072,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ota_event_cancelled() {
+    async fn ota_event_canceled() {
         let uuid = Uuid::new_v4();
         let slot = "A";
         let mut state_mock = MockStateRepository::<PersistentState>::new();
@@ -1069,7 +1107,9 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_receive_completed()
+            .returning(|_| Ok(0));
         system_update
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
@@ -1115,7 +1155,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1127,7 +1167,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1154,11 +1194,11 @@ mod tests {
                 .expect_send_object()
                 .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
                     ota_event.status.eq("Failure")
-                        && ota_event.statusCode.eq("Cancelled")
+                        && ota_event.statusCode.eq("Canceled")
                         && ota_event.statusProgress == 0
                         && ota_event.requestUUID == uuid.to_string()
                 })
-                .times(1)
+                .once()
                 .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
             let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
@@ -1174,7 +1214,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ota_event_not_cancelled() {
+    async fn ota_event_success_after_canceled_event() {
         let uuid = Uuid::new_v4();
         let slot = "A";
         let mut state_mock = MockStateRepository::<PersistentState>::new();
@@ -1209,7 +1249,293 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_receive_completed()
+            .returning(|_| Ok(0));
+        system_update
+            .expect_get_primary()
+            .returning(|| Ok("rootfs.0".to_owned()));
+        system_update.expect_mark().returning(|_: &str, _: &str| {
+            Ok((
+                "rootfs.0".to_owned(),
+                "marked slot rootfs.0 as good".to_owned(),
+            ))
+        });
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .delay(Duration::from_secs(5))
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Acknowledged")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                ota_event.status.eq("Downloading")
+                    && ota_event.statusCode.eq("")
+                    && ota_event.statusProgress == 0
+                    && ota_event.requestUUID == uuid.to_string()
+            })
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let ota_handler = OtaHandler::mock_new(system_update, state_mock)
+            .await
+            .unwrap();
+
+        let ota_handler_cp = ota_handler.clone();
+        let cancel_handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut ota_req_map = HashMap::new();
+            ota_req_map.insert(
+                "uuid".to_owned(),
+                AstarteType::String(uuid.clone().to_string()),
+            );
+            ota_req_map.insert(
+                "operation".to_string(),
+                AstarteType::String("Cancel".to_string()),
+            );
+
+            let mut publisher = MockPublisher::new();
+
+            publisher
+                .expect_send_object()
+                .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
+                    ota_event.status.eq("Failure")
+                        && ota_event.statusCode.eq("Canceled")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                })
+                .once()
+                .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+
+            let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
+            assert!(result.is_ok());
+        });
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+        assert!(result.is_ok());
+
+        let result = cancel_handle.await;
+        assert!(result.is_ok());
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start();
+        let ota_url = server.url("/ota.bin");
+        let mock_ota_file_request = &server.mock(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        });
+
+        let mut ota_req_map = HashMap::new();
+        ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
+        ota_req_map.insert(
+            "uuid".to_owned(),
+            AstarteType::String(uuid.clone().to_string()),
+        );
+        ota_req_map.insert(
+            "operation".to_string(),
+            AstarteType::String("Update".to_string()),
+        );
+
+        let mut publisher = MockPublisher::new();
+        let mut seq = mockall::Sequence::new();
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Acknowledged")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Downloading")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Downloading")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 100
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Deploying")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Deployed")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Rebooting")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        publisher
+            .expect_send_object()
+            .withf(
+                move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
+                    interface_name.eq("io.edgehog.devicemanager.OTAEvent")
+                        && path.eq("/event")
+                        && ota_event.status.eq("Success")
+                        && ota_event.statusCode.eq("")
+                        && ota_event.statusProgress == 0
+                        && ota_event.requestUUID == uuid.to_string()
+                },
+            )
+            .once()
+            .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+            .in_sequence(&mut seq);
+
+        let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+        mock_ota_file_request.assert();
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn ota_event_not_canceled() {
+        let uuid = Uuid::new_v4();
+        let slot = "A";
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        state_mock.expect_exists().returning(|| true);
+        state_mock.expect_read().returning(move || {
+            Ok(PersistentState {
+                uuid,
+                slot: slot.to_owned(),
+            })
+        });
+        state_mock.expect_write().returning(|_| Ok(()));
+        state_mock.expect_clear().returning(|| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        system_update.expect_info().returning(|_: &str| {
+            Ok(BundleInfo {
+                compatible: "rauc-demo-x86".to_string(),
+                version: "1".to_string(),
+            })
+        });
+
+        system_update
+            .expect_compatible()
+            .returning(|| Ok("rauc-demo-x86".to_string()));
+
+        system_update
+            .expect_boot_slot()
+            .returning(|| Ok("B".to_owned()));
+        system_update
+            .expect_install_bundle()
+            .returning(|_: &str| Ok(()));
+        system_update
+            .expect_operation()
+            .returning(|| Ok("".to_string()));
+        system_update
+            .expect_receive_completed()
+            .returning(|_| Ok(0));
         system_update
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
@@ -1254,7 +1580,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1266,7 +1592,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1278,7 +1604,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1290,7 +1616,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1302,7 +1628,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1314,7 +1640,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1326,7 +1652,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1358,7 +1684,7 @@ mod tests {
                         && ota_event.requestUUID == uuid.to_string()
                         && ota_event.message.eq("Unable to cancel OTA request")
                 })
-                .times(1)
+                .once()
                 .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
             let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
@@ -1375,7 +1701,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ota_event_not_cancelled_different_uuid() {
+    async fn ota_event_not_canceled_different_uuid() {
         let uuid = Uuid::new_v4();
         let slot = "A";
         let mut state_mock = MockStateRepository::<PersistentState>::new();
@@ -1410,7 +1736,9 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update
+            .expect_receive_completed()
+            .returning(|_| Ok(0));
         system_update
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
@@ -1456,7 +1784,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1468,7 +1796,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1480,7 +1808,7 @@ mod tests {
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1492,7 +1820,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1504,7 +1832,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1516,7 +1844,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1528,7 +1856,7 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
@@ -1563,7 +1891,7 @@ mod tests {
                             .message
                             .eq("Unable to cancel OTA request, they have different identifier")
                 })
-                .times(1)
+                .once()
                 .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
             let result = ota_handler_cp.ota_event(&publisher, ota_req_map).await;
@@ -1580,7 +1908,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ensure_pending_ota_response_fail() {
+    async fn ensure_pending_ota_ota_is_done_fail() {
         let uuid = Uuid::new_v4();
         let slot = "A";
 
@@ -1610,13 +1938,13 @@ mod tests {
                     && ota_event.statusCode.eq("SystemRollback")
                     && ota_event.message.eq("Unable to switch slot")
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
         let ota_handler = OtaHandler::mock_new(system_update, state_mock)
             .await
             .unwrap();
-        let result = ota_handler.ensure_pending_ota_response(&publisher).await;
+        let result = ota_handler.ensure_pending_ota_is_done(&publisher).await;
         assert!(result.is_err());
 
         if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
@@ -1631,7 +1959,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ensure_pending_ota_response_ota_success() {
+    async fn ensure_pending_ota_is_done_ota_success() {
         let uuid = Uuid::new_v4();
         let slot = "A";
         let mut state_mock = MockStateRepository::<PersistentState>::new();
@@ -1670,14 +1998,14 @@ mod tests {
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             })
-            .times(1)
+            .once()
             .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
             .in_sequence(&mut seq);
 
         let ota_handler = OtaHandler::mock_new(system_update, state_mock)
             .await
             .unwrap();
-        let result = ota_handler.ensure_pending_ota_response(&publisher).await;
+        let result = ota_handler.ensure_pending_ota_is_done(&publisher).await;
 
         assert!(result.is_ok());
     }

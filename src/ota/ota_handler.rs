@@ -94,7 +94,7 @@ impl OtaHandler {
         })
     }
 
-    pub async fn ensure_pending_ota_response(
+    pub async fn ensure_pending_ota_is_done(
         &self,
         sdk: &impl Publisher,
     ) -> Result<(), DeviceManagerError> {
@@ -168,33 +168,7 @@ impl OtaHandler {
                 DeviceManagerError::OtaError(OtaError::Request("Unable to parse request_uuid"))
             })?;
 
-            if let Ok(ota_status) = self.get_ota_status().await {
-                if ota_status != OtaStatus::Idle {
-                    if let Some(current_ota_request) = ota_status.ota_request() {
-                        if current_ota_request.uuid == uuid {
-                            let _ = send_ota_event(sdk, &ota_status).await;
-                            return Err(DeviceManagerError::OtaError(
-                                OtaError::UpdateAlreadyInProgress,
-                            ));
-                        }
-                    }
-
-                    let _ = send_ota_event(
-                        sdk,
-                        &OtaStatus::Failure(
-                            OtaError::UpdateAlreadyInProgress,
-                            Some(OtaRequest {
-                                uuid,
-                                url: "".to_string(),
-                            }),
-                        ),
-                    )
-                    .await;
-                    return Err(DeviceManagerError::OtaError(
-                        OtaError::UpdateAlreadyInProgress,
-                    ));
-                }
-            }
+            self.check_update_already_in_progress(uuid, sdk).await?;
 
             let cancel_token = CancellationToken::new();
             *self.ota_cancellation.write().await = Some(cancel_token.clone());
@@ -204,17 +178,17 @@ impl OtaHandler {
                 respond_to: ota_status_publisher,
             };
 
-            if self.sender.send(msg).await.is_err() {
-                return Err(DeviceManagerError::OtaError(OtaError::Internal(
+            self.sender.send(msg).await.map_err(|_| {
+                DeviceManagerError::OtaError(OtaError::Internal(
                     "Unable to execute HandleOtaEvent, receiver channel dropped",
-                )));
-            }
+                ))
+            })?;
 
             while let Some(ota_status) = ota_status_receiver.recv().await {
                 send_ota_event(sdk, &ota_status).await?;
 
                 //After entering in Deploying state the OTA cannot be stopped.
-                if let OtaStatus::Deploying(_) = &ota_status {
+                if let OtaStatus::Deploying(_, _) = &ota_status {
                     *self.ota_cancellation.write().await = None;
                 } else if let OtaStatus::Failure(ota_error, _) = ota_status {
                     *self.ota_cancellation.write().await = None;
@@ -223,6 +197,41 @@ impl OtaHandler {
             }
         }
         Ok(())
+    }
+
+    async fn check_update_already_in_progress(
+        &self,
+        uuid: Uuid,
+        sdk: &impl Publisher,
+    ) -> Result<(), DeviceManagerError> {
+        match self.get_ota_status().await {
+            Err(_) => Ok(()),
+            Ok(ota_status) if ota_status == OtaStatus::Idle => Ok(()),
+            Ok(ota_status) => {
+                match ota_status.ota_request() {
+                    Some(current_ota_request) if current_ota_request.uuid == uuid => {
+                        // Send the current ota status
+                        let _ = send_ota_event(sdk, &ota_status).await;
+                    }
+                    _ => {
+                        let _ = send_ota_event(
+                            sdk,
+                            &OtaStatus::Failure(
+                                OtaError::UpdateAlreadyInProgress,
+                                Some(OtaRequest {
+                                    uuid,
+                                    url: "".to_string(),
+                                }),
+                            ),
+                        )
+                        .await;
+                    }
+                }
+                Err(DeviceManagerError::OtaError(
+                    OtaError::UpdateAlreadyInProgress,
+                ))
+            }
+        }
     }
 
     async fn handle_cancel(
@@ -242,13 +251,12 @@ impl OtaHandler {
 
             let ota_status = match self.get_ota_status().await {
                 Ok(ota_status) => ota_status,
-                Err(_) => {
+                Err(err) => {
+                    let message = "Unable to cancel OTA request";
+                    error!("{message} : {err}");
                     send_ota_event(
                         sdk,
-                        &OtaStatus::Failure(
-                            OtaError::Internal("Unable to cancel OTA request"),
-                            Some(cancel_ota_request),
-                        ),
+                        &OtaStatus::Failure(OtaError::Internal(message), Some(cancel_ota_request)),
                     )
                     .await?;
 
@@ -256,8 +264,7 @@ impl OtaHandler {
                 }
             };
 
-            let current_ota_request = match ota_status.ota_request() {
-                Some(ota_request) => ota_request,
+            return match ota_status.ota_request() {
                 None => {
                     send_ota_event(
                         sdk,
@@ -270,42 +277,45 @@ impl OtaHandler {
                     )
                     .await?;
 
-                    return Ok(());
+                    Ok(())
+                }
+                Some(current_ota_request)
+                    if cancel_ota_request.uuid != current_ota_request.uuid =>
+                {
+                    send_ota_event(
+                        sdk,
+                        &OtaStatus::Failure(
+                            OtaError::Internal(
+                                "Unable to cancel OTA request, they have different identifier",
+                            ),
+                            Some(cancel_ota_request),
+                        ),
+                    )
+                    .await?;
+                    Ok(())
+                }
+                _ => {
+                    let mut ota_cancellation = self.ota_cancellation.write().await;
+                    if let Some(ota_token) = ota_cancellation.take() {
+                        ota_token.cancel();
+                        send_ota_event(
+                            sdk,
+                            &OtaStatus::Failure(OtaError::Canceled, Some(cancel_ota_request)),
+                        )
+                        .await?;
+                    } else {
+                        send_ota_event(
+                            sdk,
+                            &OtaStatus::Failure(
+                                OtaError::Internal("Unable to cancel OTA request"),
+                                Some(cancel_ota_request),
+                            ),
+                        )
+                        .await?
+                    }
+                    Ok(())
                 }
             };
-
-            if cancel_ota_request.uuid != current_ota_request.uuid {
-                send_ota_event(
-                    sdk,
-                    &OtaStatus::Failure(
-                        OtaError::Internal(
-                            "Unable to cancel OTA request, they have different identifier",
-                        ),
-                        Some(cancel_ota_request),
-                    ),
-                )
-                .await?;
-                return Ok(());
-            }
-
-            let mut ota_cancellation = self.ota_cancellation.write().await;
-            if let Some(ota_token) = ota_cancellation.take() {
-                ota_token.cancel();
-                send_ota_event(
-                    sdk,
-                    &OtaStatus::Failure(OtaError::Cancelled, Some(cancel_ota_request)),
-                )
-                .await?;
-            } else {
-                send_ota_event(
-                    sdk,
-                    &OtaStatus::Failure(
-                        OtaError::Internal("Unable to cancel OTA request"),
-                        Some(cancel_ota_request),
-                    ),
-                )
-                .await?
-            }
         }
         Ok(())
     }
@@ -331,9 +341,11 @@ impl From<&OtaStatus> for OtaEvent {
                 ota_event.statusProgress = *progress;
                 ota_event.status = "Downloading".to_string();
             }
-            OtaStatus::Deploying(ota_request) => {
+            OtaStatus::Deploying(ota_request, deploying_progress) => {
                 ota_event.requestUUID = ota_request.uuid.to_string();
                 ota_event.status = "Deploying".to_string();
+                ota_event.statusProgress = deploying_progress.percentage;
+                ota_event.message = deploying_progress.clone().message;
             }
             OtaStatus::Deployed(ota_request) => {
                 ota_event.requestUUID = ota_request.uuid.to_string();
@@ -404,7 +416,7 @@ impl From<&OtaError> for OtaStatusMessage {
                 ota_status_message.status_code = "SystemRollback".to_string();
                 ota_status_message.message = message.to_string()
             }
-            OtaError::Cancelled => ota_status_message.status_code = "Cancelled".to_string(),
+            OtaError::Canceled => ota_status_message.status_code = "Canceled".to_string(),
         }
 
         ota_status_message
@@ -425,17 +437,13 @@ async fn send_ota_event(sdk: &impl Publisher, ota_status: &OtaStatus) -> Result<
         ));
     }
 
-    sdk.send_object(
-        "io.edgehog.devicemanager.OTAResponse",
-        "/response",
-        ota_event,
-    )
-    .await
-    .map_err(|error| {
-        let message = "Unable to publish ota_event".to_string();
-        error!("{message} : {error}");
-        OtaError::Network(message)
-    })?;
+    sdk.send_object("io.edgehog.devicemanager.OTAEvent", "/event", ota_event)
+        .await
+        .map_err(|error| {
+            let message = "Unable to publish ota_event".to_string();
+            error!("{message} : {error}");
+            OtaError::Network(message)
+        })?;
 
     Ok(())
 }
@@ -444,7 +452,7 @@ async fn send_ota_event(sdk: &impl Publisher, ota_status: &OtaStatus) -> Result<
 mod tests {
     use crate::ota::ota_handle::{OtaRequest, OtaStatus};
     use crate::ota::ota_handler::OtaEvent;
-    use crate::ota::OtaError;
+    use crate::ota::{DeployingProgress, OtaError};
     use uuid::Uuid;
 
     impl Default for OtaRequest {
@@ -524,7 +532,35 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Deploying(ota_request));
+        let ota_event = OtaEvent::from(&OtaStatus::Deploying(
+            ota_request,
+            DeployingProgress::default(),
+        ));
+        assert_eq!(expected_ota_event.status, ota_event.status);
+        assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
+        assert_eq!(expected_ota_event.message, ota_event.message);
+        assert_eq!(expected_ota_event.requestUUID, ota_event.requestUUID);
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn convert_ota_status_Deploying_100_done_to_OtaStatusMessage() {
+        let ota_request = OtaRequest::default();
+        let expected_ota_event = OtaEvent {
+            requestUUID: ota_request.uuid.to_string(),
+            status: "Deploying".to_string(),
+            statusProgress: 100,
+            statusCode: "".to_string(),
+            message: "done".to_string(),
+        };
+
+        let ota_event = OtaEvent::from(&OtaStatus::Deploying(
+            ota_request,
+            DeployingProgress {
+                percentage: 100,
+                message: "done".to_string(),
+            },
+        ));
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);

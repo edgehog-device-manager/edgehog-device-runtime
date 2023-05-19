@@ -31,8 +31,10 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::error::DeviceManagerError;
-use crate::ota::{OtaError, SystemUpdate};
+use crate::ota::{DeployingProgress, OtaError, SystemUpdate};
 use crate::repository::StateRepository;
+
+const DOWNLOAD_PERC_ROUNDING_STEP: f64 = 10.0;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PersistentState {
@@ -42,17 +44,29 @@ pub struct PersistentState {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum OtaStatus {
+    /// The device is waiting an OTA event
     Idle,
+    /// The device initializing the OTA procedure
     Init,
+    /// The device didn't has an OTA procedure pending
     NoPendingOta,
+    /// The device received a valid OTA Request
     Acknowledged(OtaRequest),
+    /// The device is in downloading process, the i32 identify the progress percentage
     Downloading(OtaRequest, i32),
-    Deploying(OtaRequest),
+    /// The device is in the process of deploying the update
+    Deploying(OtaRequest, DeployingProgress),
+    /// The device deployed the update
     Deployed(OtaRequest),
+    /// The device is in the process of rebooting
     Rebooting(OtaRequest),
+    /// The device was rebooted
     Rebooted,
+    /// The update procedure succeeded.
     Success(OtaRequest),
+    /// An error happened during the update procedure.
     Error(OtaError, OtaRequest),
+    /// The update procedure failed.
     Failure(OtaError, Option<OtaRequest>),
 }
 
@@ -62,7 +76,7 @@ pub struct OtaRequest {
     pub url: String,
 }
 
-/// An enum that defines the kind of messages we can send to the OtaActor.
+/// An enum that defines the kind of messages we can send to the Ota handle.
 pub enum OtaMessage {
     GetOtaStatus {
         respond_to: oneshot::Sender<OtaStatus>,
@@ -82,7 +96,7 @@ impl OtaStatus {
         match self {
             OtaStatus::Acknowledged(ota_request)
             | OtaStatus::Downloading(ota_request, _)
-            | OtaStatus::Deploying(ota_request)
+            | OtaStatus::Deploying(ota_request, _)
             | OtaStatus::Deployed(ota_request)
             | OtaStatus::Rebooting(ota_request)
             | OtaStatus::Success(ota_request)
@@ -133,6 +147,7 @@ where
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         debug!("OTA update channel closed by handle");
+                        self.clear().await;
                     }
                  ota_status = self.handle_ota_event(OtaStatus::Idle, &respond_to, data) => {
                         let _ = respond_to.send(ota_status).await;
@@ -159,6 +174,7 @@ where
         std::path::Path::new(&self.download_file_path).join("update.bin")
     }
 
+    /// Handle the transition to the acknowledged status.
     pub async fn acknowledged(
         &self,
         ota_status_publisher: &mpsc::Sender<OtaStatus>,
@@ -201,6 +217,7 @@ where
         }
     }
 
+    /// Handle the transition to the downloading status.
     pub async fn downloading(
         &self,
         ota_request: OtaRequest,
@@ -217,6 +234,7 @@ where
         downloading_status
     }
 
+    /// Handle the transition to the deploying status.
     pub async fn deploying(
         &self,
         ota_request: OtaRequest,
@@ -331,7 +349,8 @@ where
                 return OtaStatus::Failure(OtaError::IO(message), Some(ota_request.clone()));
             };
 
-            let deploying_state = OtaStatus::Deploying(ota_request.clone());
+            let deploying_state =
+                OtaStatus::Deploying(ota_request.clone(), DeployingProgress::default());
             if ota_status_publisher
                 .send(deploying_state.clone())
                 .await
@@ -344,6 +363,7 @@ where
         }
     }
 
+    /// Handle the transition to the deployed status.
     pub async fn deployed(
         &self,
         ota_request: OtaRequest,
@@ -351,7 +371,7 @@ where
     ) -> OtaStatus {
         if let Err(error) = self
             .system_update
-            .install_bundle(&self.download_file_path)
+            .install_bundle(&self.get_update_file_path().to_string_lossy())
             .await
         {
             let message = "Unable to install ota image".to_string();
@@ -359,19 +379,34 @@ where
             return OtaStatus::Failure(OtaError::InvalidBaseImage(message), Some(ota_request));
         }
 
-        debug!(
-            "install_bundle done, last_error={:?}",
-            self.last_error().await
-        );
-
         if let Err(error) = self.system_update.operation().await {
             let message = "Unable to get status of ota operation";
             error!("{message} : {error}");
             return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
         }
 
-        info!("Waiting for signal...");
-        let signal = self.system_update.receive_completed().await;
+        let (progress_tx, mut progress_rx) = mpsc::channel(2);
+        let ota_request_cl = ota_request.clone();
+        let ota_status_publisher_cl = ota_status_publisher.clone();
+
+        tokio::spawn(async move {
+            debug!("Waiting property changed...");
+            while let Some(deploying_progress) = progress_rx.recv().await {
+                if ota_status_publisher_cl
+                    .send(OtaStatus::Deploying(
+                        ota_request_cl.clone(),
+                        deploying_progress,
+                    ))
+                    .await
+                    .is_err()
+                {
+                    warn!("ota_status_publisher dropped before send deployed_status")
+                }
+            }
+        });
+
+        let signal = self.system_update.receive_completed(progress_tx).await;
+
         if signal.is_err() {
             let message = "Unable to receive the install completed event";
             error!("{message} : {}", signal.unwrap_err());
@@ -406,6 +441,7 @@ where
         }
     }
 
+    /// Handle the transition to rebooting status.
     pub async fn rebooting(
         &self,
         ota_request: OtaRequest,
@@ -433,6 +469,7 @@ where
         OtaStatus::Rebooted
     }
 
+    /// Handle the transition to success status.
     pub async fn success(&self) -> OtaStatus {
         if self.state_repository.exists() {
             info!("Found pending update");
@@ -456,10 +493,6 @@ where
             } else {
                 OtaStatus::Success(ota_request)
             };
-
-            let _ = self.state_repository.clear().map_err(|error| {
-                warn!("Error during clear of state repository-> {:?}", error);
-            });
 
             ota_result
         } else {
@@ -523,7 +556,7 @@ where
                 OtaStatus::Downloading(ota_request, _) => {
                     self.deploying(ota_request, ota_status_publisher).await
                 }
-                OtaStatus::Deploying(ota_request) => {
+                OtaStatus::Deploying(ota_request, _) => {
                     self.deployed(ota_request, ota_status_publisher).await
                 }
                 OtaStatus::Deployed(ota_request) => {
@@ -542,17 +575,30 @@ where
             *self.ota_status.write().await = ota_status.clone();
         }
 
+        self.clear().await;
+        ota_status
+    }
+
+    async fn clear(&self) {
+        if self.state_repository.exists() {
+            let _ = self.state_repository.clear().map_err(|error| {
+                warn!("Error during clear of state repository-> {:?}", error);
+            });
+        }
+
         if let Some(path) = self.get_update_file_path().to_str() {
-            if let Err(e) = std::fs::remove_file(path) {
-                error!("Unable to remove {}: {}", path, e);
+            if std::path::Path::new(&path).exists() {
+                if let Err(e) = std::fs::remove_file(path) {
+                    error!("Unable to remove {}: {}", path, e);
+                }
             }
         }
 
         *self.ota_status.write().await = OtaStatus::Idle;
-        ota_status
     }
 }
 
+/// Runner function for the OTA.
 pub async fn run_ota<T, U>(ota: Ota<T, U>, mut receiver: mpsc::Receiver<OtaMessage>)
 where
     T: SystemUpdate + 'static,
@@ -598,12 +644,13 @@ pub async fn wget(
                 .and_then(|size| if size == 0 { None } else { Some(size) })
                 .ok_or_else(|| {
                     OtaError::Network(format!("Unable to get content length from: {url}"))
-                })?;
+                })? as f64;
 
-            let mut downloaded: u64 = 0;
+            let mut downloaded: f64 = 0.0;
+            let mut last_percentage_sent = 0.0;
             let mut stream = response.bytes_stream();
 
-            let mut os_file = std::fs::File::create(&file_path).map_err(|error| {
+            let mut os_file = tokio::fs::File::create(file_path).await.map_err(|error| {
                 let message = format!("Unable to create ota_file in {file_path:?}");
                 error!("{message} : {error:?}");
                 OtaError::IO(message)
@@ -616,38 +663,48 @@ pub async fn wget(
                     OtaError::Network(message)
                 })?;
 
+                if chunk.is_empty() {
+                    continue;
+                }
+
                 let mut content = std::io::Cursor::new(&chunk);
 
-                std::io::copy(&mut content, &mut os_file).map_err(|error| {
-                    let message = format!("Unable to write chunk to ota_file in {file_path:?}");
-                    error!("{message} : {error:?}");
-                    OtaError::IO(message)
-                })?;
-
-                downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-                let progress = ((downloaded / total_size) * 100) as i32;
-
-                if ota_status_publisher
-                    .send(OtaStatus::Downloading(
-                        OtaRequest {
-                            uuid: *request_uuid,
-                            url: "".to_string(),
-                        },
-                        progress,
-                    ))
+                tokio::io::copy(&mut content, &mut os_file)
                     .await
-                    .is_err()
+                    .map_err(|error| {
+                        let message = format!("Unable to write chunk to ota_file in {file_path:?}");
+                        error!("{message} : {error:?}");
+                        OtaError::IO(message)
+                    })?;
+
+                downloaded += chunk.len() as f64;
+                let progress_percentage = (downloaded / total_size) * 100.0;
+                if progress_percentage == 100.0
+                    || (progress_percentage - last_percentage_sent) >= DOWNLOAD_PERC_ROUNDING_STEP
                 {
-                    warn!("ota_status_publisher dropped before send downloading_status")
+                    last_percentage_sent = progress_percentage;
+                    if ota_status_publisher
+                        .send(OtaStatus::Downloading(
+                            OtaRequest {
+                                uuid: *request_uuid,
+                                url: "".to_string(),
+                            },
+                            progress_percentage as i32,
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        warn!("ota_status_publisher dropped before send downloading_status")
+                    }
                 }
             }
 
-            if total_size != downloaded {
+            if total_size == downloaded {
+                Ok(())
+            } else {
                 let message = "Unable to download file".to_string();
                 error!("{message}");
                 Err(OtaError::Network(message))
-            } else {
-                Ok(())
             }
         }
     }
@@ -657,6 +714,7 @@ pub async fn wget(
 mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use astarte_device_sdk::types::AstarteType;
     use httpmock::prelude::*;
@@ -667,7 +725,7 @@ mod tests {
     use crate::error::DeviceManagerError;
     use crate::ota::ota_handle::{wget, Ota, OtaRequest, OtaStatus, PersistentState};
     use crate::ota::rauc::BundleInfo;
-    use crate::ota::{MockSystemUpdate, OtaError, SystemUpdate};
+    use crate::ota::{DeployingProgress, MockSystemUpdate, OtaError, SystemUpdate};
     use crate::repository::{MockStateRepository, StateRepository};
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
@@ -1318,12 +1376,12 @@ mod tests {
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
         let ota_status_received = receive_result.unwrap();
-        assert!(matches!(ota_status_received, OtaStatus::Deploying(_)));
+        assert!(matches!(ota_status_received, OtaStatus::Deploying(_, _)));
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_err());
 
-        assert!(matches!(ota_status, OtaStatus::Deploying(_)));
+        assert!(matches!(ota_status, OtaStatus::Deploying(_, _)));
     }
 
     #[tokio::test]
@@ -1390,7 +1448,7 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| {
+        system_update.expect_receive_completed().returning(|_| {
             Err(DeviceManagerError::FatalError(
                 "receive_completed call fail".to_string(),
             ))
@@ -1424,7 +1482,7 @@ mod tests {
             .returning(|| Ok("".to_string()));
         system_update
             .expect_receive_completed()
-            .returning(|| Ok(-1));
+            .returning(|_| Ok(-1));
         system_update
             .expect_last_error()
             .returning(|| Ok("Unable to deploy image".to_string()));
@@ -1443,7 +1501,7 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn try_to_deployed_success() {
         let state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
@@ -1452,15 +1510,51 @@ mod tests {
         system_update
             .expect_operation()
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| Ok(0));
+        system_update.expect_receive_completed().returning(
+            |progress_tx: mpsc::Sender<DeployingProgress>| {
+                let handle = tokio::spawn(async move {
+                    let _ = progress_tx
+                        .send(DeployingProgress {
+                            percentage: 50,
+                            message: "Copy image".to_string(),
+                        })
+                        .await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let _ = progress_tx
+                        .send(DeployingProgress {
+                            percentage: 100,
+                            message: "Installing is done".to_string(),
+                        })
+                        .await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                });
+
+                while !handle.is_finished() {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+
+                Ok(0)
+            },
+        );
 
         let ota_request = OtaRequest::default();
 
         let mut ota = Ota::mock_new(system_update, state_mock);
         ota.download_file_path = "/tmp".to_string();
-        let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
+        let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(3);
 
         let ota_status = ota.deployed(ota_request, &ota_status_publisher).await;
+        assert!(matches!(ota_status, OtaStatus::Deployed(_)));
+
+        let receive_result = ota_status_receiver.try_recv();
+        assert!(receive_result.is_ok());
+        let ota_status_received = receive_result.unwrap();
+        assert!(matches!(ota_status_received, OtaStatus::Deploying(_, _)));
+
+        let receive_result = ota_status_receiver.try_recv();
+        assert!(receive_result.is_ok());
+        let ota_status_received = receive_result.unwrap();
+        assert!(matches!(ota_status_received, OtaStatus::Deploying(_, _)));
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1469,8 +1563,6 @@ mod tests {
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_err());
-
-        assert!(matches!(ota_status, OtaStatus::Deployed(_)));
     }
 
     #[tokio::test]

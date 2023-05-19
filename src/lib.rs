@@ -78,7 +78,7 @@ impl<T: Publisher + Clone + 'static> DeviceManager<T> {
 
         let ota_handler = OtaHandler::new(&opts).await?;
 
-        ota_handler.ensure_pending_ota_response(&publisher).await?;
+        ota_handler.ensure_pending_ota_is_done(&publisher).await?;
 
         let (ota_tx, ota_rx) = channel(MAX_OTA_OPERATION);
         let (data_tx, data_rx) = channel(32);
