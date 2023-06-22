@@ -18,45 +18,59 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+//! Contains the implementation for the Astarte message hub node.
+
 use astarte_message_hub::proto_message_hub;
 use async_trait::async_trait;
 use log::warn;
 use serde::Deserialize;
+use std::time::Duration;
+use tonic::Response as TonicResponse;
+use tonic::Streaming as TonicStreaming;
 
 use crate::data::{Publisher, Subscriber};
 use crate::error::DeviceManagerError;
 use crate::DeviceManagerOptions;
 
+/// Device runtime node identifier.
+const DEVICE_RUNTIME_NODE_UUID: &str = "d72a6187-7cf1-44cc-87e8-e991936166db";
+
+/// Struct containing the configuration options for the Astarte message hub.
 #[derive(Debug, Deserialize, Clone)]
-pub struct AstarteMessageHubConfigOptions {
-    pub endpoint: String,
-}
-
 pub struct AstarteMessageHubOptions {
-    pub endpoint: String,
-    pub interfaces_directory: String,
+    /// The Endpoint of the Astarte Message Hub
+    endpoint: String,
 }
 
-type AstarteDataSender = tokio::sync::oneshot::Sender<
+/// Struct containing the configuration options for the Astarte message hub node.
+pub struct AstarteMessageHubNodeOptions {
+    /// The Endpoint of the Astarte Message Hub
+    endpoint: String,
+    /// Directory containing the Astarte interfaces.
+    interfaces_directory: String,
+}
+
+/// Shorthand for the transmit Astarte data event in [`run_node`] function.
+type AstarteDataEventSender = tokio::sync::oneshot::Sender<
     Result<astarte_device_sdk::AstarteDeviceDataEvent, astarte_device_sdk::AstarteError>,
 >;
 
-const DEVICE_RUNTIME_NODE_UUID: &str = "d72a6187-7cf1-44cc-87e8-e991936166db";
-
-/// Provides the communication with Astarte Message Hub Node.
+/// Main struct for the Astarte message hub node.
+/// Contains the communication with Astarte Message Hub.
 #[derive(Clone)]
 pub struct AstarteMessageHubNode {
     transport_channel: tonic::transport::Channel,
-    sender: tokio::sync::mpsc::Sender<AstarteDataSender>,
+    sender: tokio::sync::mpsc::Sender<AstarteDataEventSender>,
 }
 
 impl AstarteMessageHubNode {
-    pub async fn new(options: AstarteMessageHubOptions) -> Result<Self, DeviceManagerError> {
+    pub async fn new(options: AstarteMessageHubNodeOptions) -> Result<Self, DeviceManagerError> {
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
 
         use proto_message_hub::message_hub_client::MessageHubClient;
         let channel = tonic::transport::Channel::from_shared(options.endpoint)
             .map_err(|err| DeviceManagerError::FatalError(err.to_string()))?
+            .http2_keep_alive_interval(Duration::from_secs(5))
             .connect()
             .await?;
 
@@ -73,7 +87,13 @@ impl AstarteMessageHubNode {
             .await?
             .into_inner();
 
-        tokio::spawn(run_node(stream_channel, receiver));
+        let channel_clone = channel.clone();
+        tokio::spawn(run_node(
+            options.interfaces_directory.clone(),
+            channel_clone,
+            stream_channel,
+            receiver,
+        ));
 
         Ok(Self {
             transport_channel: channel,
@@ -81,6 +101,7 @@ impl AstarteMessageHubNode {
         })
     }
 
+    ///Send an Astarte message payload to the Astarte Message Hub.
     async fn send_payload(
         &self,
         interface_name: &str,
@@ -153,7 +174,7 @@ impl Subscriber for AstarteMessageHubNode {
         let (astarte_data_event_tx, astarte_data_event_rx) = tokio::sync::oneshot::channel();
 
         self.sender.send(astarte_data_event_tx).await.map_err(|_| {
-            astarte_device_sdk::AstarteError::SendError("Unable to receive message".to_string())
+            astarte_device_sdk::AstarteError::SendError("Sender dropped".to_string())
         })?;
 
         astarte_data_event_rx.await.map_err(|_| {
@@ -163,13 +184,19 @@ impl Subscriber for AstarteMessageHubNode {
 }
 
 /// Runner function for the AstarteMessageHubNode.
+///
+/// This function receives message from Astarte Message hub and forward it to the device runtime.
+/// If this function receives an Error with Status [`tonic::Code::Unavailable`] or [`tonic::Code::Unknown`]
+/// it will retry to attach the node to Astarte Message Hub.
 pub async fn run_node(
+    path: String,
+    transport_channel: tonic::transport::Channel,
     mut stream_node_event: tonic::Streaming<proto_message_hub::AstarteMessage>,
-    mut receiver: tokio::sync::mpsc::Receiver<AstarteDataSender>,
+    mut receiver: tokio::sync::mpsc::Receiver<AstarteDataEventSender>,
 ) {
     while let Some(respond_to) = receiver.recv().await {
-        let astarte_data_result = if let Ok(option_message) = stream_node_event.message().await {
-            option_message
+        let astarte_data_result = match stream_node_event.message().await {
+            Ok(option_message) => option_message
                 .ok_or_else(|| {
                     astarte_device_sdk::AstarteError::ReceiveError(
                         "Empty message received".to_string(),
@@ -178,17 +205,60 @@ pub async fn run_node(
                 .and_then(|astarte_message| {
                     astarte_device_sdk::AstarteDeviceDataEvent::try_from(astarte_message)
                         .map_err(|_| astarte_device_sdk::AstarteError::Conversion)
-                })
-        } else {
-            Err(astarte_device_sdk::AstarteError::ReceiveError(
+                }),
+            Err(status)
+                if (status.code() == tonic::Code::Unavailable
+                    || status.code() == tonic::Code::Unknown) =>
+            {
+                // Server shutting down or Server side application throws an exception
+                stream_node_event = retry_to_attach_node(&path, transport_channel.clone())
+                    .await
+                    .into_inner();
+
+                Err(astarte_device_sdk::AstarteError::ReceiveError(
+                    "Error during receive message from Astarte Message Hub, Server Unavailable"
+                        .to_string(),
+                ))
+            }
+            _ => Err(astarte_device_sdk::AstarteError::ReceiveError(
                 "Error during receive message from Astarte Message Hub".to_string(),
-            ))
+            )),
         };
 
         if respond_to.send(astarte_data_result).is_err() {
             warn!("respond_sender dropped before reply")
         }
     }
+}
+
+/// Retries to attach the node to the Astarte Message Hub.
+async fn retry_to_attach_node(
+    interface_path: &str,
+    transport_channel: tonic::transport::Channel,
+) -> TonicResponse<TonicStreaming<proto_message_hub::AstarteMessage>> {
+    use proto_message_hub::message_hub_client::MessageHubClient;
+
+    let interface_json = read_interfaces_from_directory(interface_path).unwrap();
+
+    let node = proto_message_hub::Node {
+        uuid: DEVICE_RUNTIME_NODE_UUID.to_string(),
+        interface_jsons: interface_json,
+    };
+
+    let mut attach_node_result = MessageHubClient::new(transport_channel.clone())
+        .attach(tonic::Request::new(node.clone()))
+        .await;
+
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+
+    while attach_node_result.is_err() {
+        interval.tick().await;
+        attach_node_result = MessageHubClient::new(transport_channel.clone())
+            .attach(tonic::Request::new(node.clone()))
+            .await
+    }
+
+    attach_node_result.unwrap()
 }
 
 fn read_interfaces_from_directory(
@@ -211,7 +281,7 @@ fn read_interfaces_from_directory(
         .collect::<Vec<Vec<u8>>>())
 }
 
-impl TryFrom<&DeviceManagerOptions> for AstarteMessageHubOptions {
+impl TryFrom<&DeviceManagerOptions> for AstarteMessageHubNodeOptions {
     type Error = DeviceManagerError;
 
     fn try_from(opts: &DeviceManagerOptions) -> Result<Self, Self::Error> {
@@ -226,7 +296,7 @@ impl TryFrom<&DeviceManagerOptions> for AstarteMessageHubOptions {
             .endpoint
             .clone();
 
-        Ok(AstarteMessageHubOptions {
+        Ok(AstarteMessageHubNodeOptions {
             endpoint,
             interfaces_directory: opts.interfaces_directory.clone(),
         })
@@ -248,7 +318,7 @@ mod tests {
     use tonic::{Code, Request, Response, Status};
 
     use crate::data::astarte_message_hub_node::{
-        read_interfaces_from_directory, AstarteMessageHubConfigOptions, AstarteMessageHubNode,
+        read_interfaces_from_directory, AstarteMessageHubNode, AstarteMessageHubNodeOptions,
         AstarteMessageHubOptions,
     };
     use crate::data::{Publisher, Subscriber};
@@ -314,7 +384,7 @@ mod tests {
             telemetry_config: None,
         };
 
-        let result_try = AstarteMessageHubOptions::try_from(&device_options);
+        let result_try = AstarteMessageHubNodeOptions::try_from(&device_options);
 
         assert!(result_try.is_err())
     }
@@ -324,7 +394,7 @@ mod tests {
         let device_options = DeviceManagerOptions {
             astarte_library: AstarteLibrary::AstarteDeviceSDK,
             astarte_device_sdk: None,
-            astarte_message_hub: Some(AstarteMessageHubConfigOptions {
+            astarte_message_hub: Some(AstarteMessageHubOptions {
                 endpoint: "1".to_string(),
             }),
             interfaces_directory: "/tmp".to_string(),
@@ -334,7 +404,7 @@ mod tests {
             telemetry_config: None,
         };
 
-        let result_try = AstarteMessageHubOptions::try_from(&device_options);
+        let result_try = AstarteMessageHubNodeOptions::try_from(&device_options);
 
         assert!(result_try.is_ok());
 
@@ -394,7 +464,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50052).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50053".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -415,7 +485,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -439,7 +509,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -467,7 +537,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -506,7 +576,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -545,7 +615,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -591,7 +661,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })
@@ -645,7 +715,7 @@ mod tests {
 
         let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
 
-        let node_result = AstarteMessageHubNode::new(AstarteMessageHubOptions {
+        let node_result = AstarteMessageHubNode::new(AstarteMessageHubNodeOptions {
             endpoint: "http://[::1]:50051".to_string(),
             interfaces_directory: "/tmp".to_string(),
         })

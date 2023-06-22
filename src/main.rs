@@ -76,7 +76,9 @@ async fn main() -> Result<(), DeviceManagerError> {
 
     match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSDK => {
-            use edgehog_device_runtime::data::astarte_device_sdk_lib::{astarte_map_options, Astarte};
+            use edgehog_device_runtime::data::astarte_device_sdk_lib::{
+                astarte_map_options, Astarte,
+            };
 
             let astarte_options = astarte_map_options(&options).await?;
             let mut dm = edgehog_device_runtime::DeviceManager::new(
@@ -91,10 +93,10 @@ async fn main() -> Result<(), DeviceManagerError> {
         }
         AstarteLibrary::AstarteMessageHub => {
             use edgehog_device_runtime::data::astarte_message_hub_node::{
-                AstarteMessageHubNode, AstarteMessageHubOptions,
+                AstarteMessageHubNode, AstarteMessageHubNodeOptions,
             };
 
-            let astarte_message_hub_options = AstarteMessageHubOptions::try_from(&options)?;
+            let astarte_message_hub_options = AstarteMessageHubNodeOptions::try_from(&options)?;
             let mut dm = edgehog_device_runtime::DeviceManager::new(
                 options,
                 AstarteMessageHubNode::new(astarte_message_hub_options).await?,
