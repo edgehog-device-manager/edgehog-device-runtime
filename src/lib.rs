@@ -58,7 +58,7 @@ pub enum AstarteLibrary {
 pub struct DeviceManagerOptions {
     pub astarte_library: AstarteLibrary,
     pub astarte_device_sdk: Option<data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions>,
-    pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubConfigOptions>,
+    pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
     pub interfaces_directory: String,
     pub store_directory: String,
     pub download_directory: String,
