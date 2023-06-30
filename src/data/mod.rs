@@ -24,7 +24,8 @@ use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
 
-pub mod astarte;
+pub mod astarte_device_sdk_lib;
+pub mod astarte_message_hub_node;
 
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -44,6 +45,10 @@ pub trait Publisher: Send + Sync {
         interface_path: &str,
         data: AstarteType,
     ) -> Result<(), AstarteError>;
+}
 
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait Subscriber {
     async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, AstarteError>;
 }

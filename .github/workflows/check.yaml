@@ -23,6 +23,10 @@ on:
   push:
     branches: [main, 'release-*']
   pull_request:
+
+env:
+    PB_REL: https://github.com/protocolbuffers/protobuf/releases
+
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -46,10 +50,13 @@ jobs:
       matrix:
         toolchain: [stable]
     steps:
-      - name: Install libudev
+      - name: Install libudev, and Protoc
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev libsystemd-dev
+          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
+          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v3
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -64,10 +71,13 @@ jobs:
     runs-on: ubuntu-latest
     name: nightly / doc
     steps:
-      - name: Install libudev
+      - name: Install libudev, and Protoc
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev libsystemd-dev
+          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
+          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v3
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -79,10 +89,13 @@ jobs:
     runs-on: ubuntu-latest
     name: ubuntu / stable / features
     steps:
-      - name: Install libudev
+      - name: Install libudev, and Protoc
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev libsystemd-dev
+          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
+          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v3
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
@@ -98,10 +111,13 @@ jobs:
         msrv: [1.59.0]
     name: ubuntu / ${{ matrix.msrv }}
     steps:
-      - name: Install libudev
+      - name: Install libudev, and Protoc
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev libsystemd-dev
+          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
+          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v3
         with:
           submodules: true
