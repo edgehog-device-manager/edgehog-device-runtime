@@ -25,6 +25,9 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     AstarteBuilderError(#[from] astarte_device_sdk::options::AstarteOptionsError),
 
+    #[error("Astarte Message Hub Options error ({0})")]
+    AstarteMessageHubOptions(String),
+
     #[error(transparent)]
     AstarteError(#[from] astarte_device_sdk::AstarteError),
 
@@ -54,4 +57,10 @@ pub enum DeviceManagerError {
 
     #[error("integer parse error")]
     ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error(transparent)]
+    TonicTransport(#[from] tonic::transport::Error),
+
+    #[error(transparent)]
+    TonicStatus(#[from] tonic::Status),
 }
