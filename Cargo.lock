@@ -111,8 +111,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-message-hub"
-version = "0.5.1"
-source = "git+https://github.com/astarte-platform/astarte-message-hub.git?branch=release-0.5#d8d12cf6d5d74019b7f91ce0c6713ec23ddc931a"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15bf94f54598b70b3a5c1baf08fa25ba739430d81c5a695499e4a4c5d8a723e2"
 dependencies = [
  "astarte-device-sdk",
  "async-trait",
@@ -843,7 +844,7 @@ checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 
 [[package]]
 name = "edgehog-device-runtime"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "astarte-device-sdk",
  "astarte-message-hub",
