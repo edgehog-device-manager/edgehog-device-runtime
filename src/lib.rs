@@ -340,6 +340,26 @@ pub async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
     Ok(hardware_id)
 }
 
+#[cfg(not(tarpaulin))]
+#[cfg(feature = "e2e_test")]
+pub mod e2e_test {
+    use crate::{telemetry, DeviceManagerError};
+    use astarte_device_sdk::types::AstarteType;
+    use std::collections::HashMap;
+
+    pub fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
+        telemetry::os_info::get_os_info()
+    }
+
+    pub fn get_hardware_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
+        telemetry::hardware_info::get_hardware_info()
+    }
+
+    pub fn get_runtime_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
+        telemetry::runtime_info::get_runtime_info()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::types::AstarteType;
@@ -626,25 +646,5 @@ mod tests {
             )
             .await;
         }
-    }
-}
-
-#[cfg(not(tarpaulin))]
-#[cfg(feature = "e2e_test")]
-pub mod e2e_test {
-    use crate::{telemetry, DeviceManagerError};
-    use astarte_device_sdk::types::AstarteType;
-    use std::collections::HashMap;
-
-    pub fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::os_info::get_os_info()
-    }
-
-    pub fn get_hardware_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::hardware_info::get_hardware_info()
-    }
-
-    pub fn get_runtime_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::runtime_info::get_runtime_info()
     }
 }

@@ -117,9 +117,8 @@ impl Telemetry {
             for c in saved_config {
                 if let Some(rwlock_default_task) = telemetry_task_configs.get_mut(&c.interface_name)
                 {
-                    let mut default_task = rwlock_default_task;
-                    default_task.override_enabled = c.enabled;
-                    default_task.override_period = c.period;
+                    rwlock_default_task.override_enabled = c.enabled;
+                    rwlock_default_task.override_period = c.period;
                 } else {
                     telemetry_task_configs.insert(
                         c.interface_name.clone(),

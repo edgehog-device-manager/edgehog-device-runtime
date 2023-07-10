@@ -21,12 +21,15 @@ permissions:
   contents: read
 on:
   push:
-    branches: [main, 'release-*']
+    branches:
+      - main
+      - release-*
   pull_request:
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 env:
     PB_REL: https://github.com/protocolbuffers/protobuf/releases
-
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -67,6 +70,7 @@ jobs:
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-targets --all-features -- -D warnings
   doc:
     runs-on: ubuntu-latest
     name: nightly / doc
