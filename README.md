@@ -48,16 +48,52 @@ Edgehog Device Runtime can be configured using a [TOML](https://en.wikipedia.org
 located either in $PWD/edgehog-config.toml or /etc/edgehog/config.toml, or in a custom path, run
 `cargo run -- --help` for more informations.
 
+
+### Supported Astarte transport libraries
+Edgehog Device Runtime supports the following libraries to communicate with the remote Edgehog
+instance:
+
+1. `astarte-device-sdk`
+2. `astarte-message-hub`
+
+#### 1. [Astarte Device SDK Rust](https://github.com/astarte-platform/astarte-device-sdk-rust) 
+The Astarte Device SDK for Rust is a ready to use library that provides communication and pairing
+primitives to an Astarte Cluster.
+
 Example configuration:
 
 ```toml
+astarte_library = "astarte-device-sdk"
+interfaces_directory = "/usr/share/edgehog/astarte-interfaces/"
+store_directory = "/var/lib/edgehog/"
+download_directory = "/var/tmp/edgehog-updates/"
+[astarte_device_sdk]
 credentials_secret = "YOUR_CREDENTIAL_SECRET"
 device_id = "YOUR_UNIQUE_DEVIDE_ID"
 pairing_url = "https://api.astarte.EXAMPLE.COM/pairing"
 realm = "examplerealm"
+[[telemetry_config]]
+interface_name = "io.edgehog.devicemanager.SystemStatus"
+enabled = true
+period = 60
+```
+
+#### [Astarte Message Hub](https://github.com/astarte-platform/astarte-message-hub)
+A central service that runs on (Linux) devices for collecting and delivering messages from N apps
+using 1 MQTT connection to Astarte.
+
+**N.B.** When using this option the Astarte Message Hub should already be installed and running
+on your system.
+
+Example configuration:
+
+```toml
+astarte_library = "astarte-message-hub"
 interfaces_directory = "/usr/share/edgehog/astarte-interfaces/"
 store_directory = "/var/lib/edgehog/"
 download_directory = "/var/tmp/edgehog-updates/"
+[astarte_message_hub]
+endpoint = "http://[::1]:50051"
 [[telemetry_config]]
 interface_name = "io.edgehog.devicemanager.SystemStatus"
 enabled = true

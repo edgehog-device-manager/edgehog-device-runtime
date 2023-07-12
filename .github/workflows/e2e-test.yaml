@@ -26,6 +26,9 @@ on:
       - "release-*"
   pull_request:
 
+env:
+  PB_REL: https://github.com/protocolbuffers/protobuf/releases
+
 jobs:
   e2e-test:
     runs-on: ubuntu-latest
@@ -33,10 +36,13 @@ jobs:
       REALM_NAME: edgehogdevicetest
       ASTARTE_API_URL: https://api.autotest.astarte-platform.org
     steps:
-      - name: Install libudev
+      - name: Install libudev, and Protoc
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev
+          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
+          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Create Astarte Cluster
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1

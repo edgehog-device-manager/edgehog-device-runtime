@@ -23,9 +23,11 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::panic;
 
-use edgehog_device_runtime::data::astarte::{astarte_map_options, Astarte};
+use edgehog_device_runtime::data::astarte_device_sdk_lib::{
+    astarte_map_options, AstarteDeviceSdkConfigOptions, AstarteDeviceSdkLib,
+};
 use edgehog_device_runtime::e2e_test::{get_hardware_info, get_os_info, get_runtime_info};
-use edgehog_device_runtime::{DeviceManager, DeviceManagerOptions};
+use edgehog_device_runtime::{AstarteLibrary, DeviceManager, DeviceManagerOptions};
 
 #[derive(Serialize, Deserialize)]
 struct AstartePayload<T> {
@@ -52,21 +54,25 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     let e2e_token: &str = &std::env::var("E2E_TOKEN").unwrap();
 
     let device_options = DeviceManagerOptions {
-        realm: realm.to_owned(),
-        device_id: Some(device_id.to_owned()),
-        credentials_secret: Some(credentials_secret),
-        pairing_url: pairing_url.to_string(),
-        pairing_token: None,
+        astarte_library: AstarteLibrary::AstarteDeviceSDK,
+        astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
+            realm: realm.to_owned(),
+            device_id: Some(device_id.to_owned()),
+            credentials_secret: Some(credentials_secret),
+            pairing_url: pairing_url.to_string(),
+            pairing_token: None,
+        }),
         interfaces_directory: "./edgehog/astarte-interfaces".to_string(),
         store_directory: "".to_string(),
         download_directory: "".to_string(),
         astarte_ignore_ssl: Some(false),
         telemetry_config: Some(vec![]),
+        astarte_message_hub: None,
     };
 
     let astarte_options = astarte_map_options(&device_options).await?;
-    let astarte = Astarte::new(astarte_options).await?;
-    let mut dm = DeviceManager::new(device_options, astarte).await?;
+    let astarte_device_sdk_lib = AstarteDeviceSdkLib::new(astarte_options).await?;
+    let mut dm = DeviceManager::new(device_options, astarte_device_sdk_lib).await?;
 
     dm.init().await?;
 
