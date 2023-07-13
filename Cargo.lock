@@ -104,7 +104,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
- "uuid 1.4.0",
+ "uuid",
  "webpki",
 ]
 
@@ -141,7 +141,7 @@ dependencies = [
  "toml",
  "tonic",
  "tonic-build",
- "uuid 1.4.0",
+ "uuid",
  "zbus",
  "zvariant",
 ]
@@ -523,7 +523,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "time 0.3.15",
- "uuid 1.4.0",
+ "uuid",
 ]
 
 [[package]]
@@ -921,7 +921,7 @@ dependencies = [
  "toml_edit",
  "tonic",
  "udev",
- "uuid 0.8.2",
+ "uuid",
  "wifiscanner",
  "zbus",
  "zvariant",
@@ -3649,17 +3649,6 @@ name = "utf8-cstr"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55bcbb425141152b10d5693095950b51c3745d019363fc2929ffd8f61449b628"
-
-[[package]]
-name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-dependencies = [
- "getrandom",
- "serde",
- "sha1",
-]
 
 [[package]]
 name = "uuid"
