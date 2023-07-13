@@ -34,7 +34,7 @@ struct Cli {
     file_path: Option<String>,
 
     // Shortcut per file-path = "/sys/class/dmi/id/board_serial"
-    #[clap(short, long, takes_value = false, conflicts_with_all=&["file-path","kernel-cmdline-key"])]
+    #[clap(short, long, required = false, conflicts_with_all=&["file-path","kernel-cmdline-key"])]
     use_dmi_serial: bool,
 
     // Retrieve hardware id from Kernel parameters in the form key=value
