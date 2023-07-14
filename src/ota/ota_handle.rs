@@ -471,33 +471,32 @@ where
 
     /// Handle the transition to success status.
     pub async fn success(&self) -> OtaStatus {
-        if self.state_repository.exists() {
-            info!("Found pending update");
+        if !self.state_repository.exists() {
+            return OtaStatus::NoPendingOta;
+        }
 
-            let ota_state = self.state_repository.read();
-            if ota_state.is_err() {
+        info!("Found pending update");
+
+        let ota_state = match self.state_repository.read() {
+            Ok(state) => state,
+            Err(err) => {
                 let message = "Unable to read pending ota state".to_string();
-                error!("{message} : {}", ota_state.unwrap_err());
+                error!("{message} : {}", err);
                 return OtaStatus::Failure(OtaError::IO(message), None);
             }
+        };
 
-            let ota_state = ota_state.unwrap();
-            let request_uuid = ota_state.uuid;
-            let ota_request = OtaRequest {
-                uuid: request_uuid,
-                url: "".to_string(),
-            };
+        let request_uuid = ota_state.uuid;
+        let ota_request = OtaRequest {
+            uuid: request_uuid,
+            url: "".to_string(),
+        };
 
-            let ota_result = if let Err(error) = self.do_pending_ota(&ota_state).await {
-                OtaStatus::Failure(error, Some(ota_request.clone()))
-            } else {
-                OtaStatus::Success(ota_request)
-            };
-
-            ota_result
-        } else {
-            OtaStatus::NoPendingOta
+        if let Err(error) = self.do_pending_ota(&ota_state).await {
+            return OtaStatus::Failure(error, Some(ota_request));
         }
+
+        OtaStatus::Success(ota_request)
     }
 
     pub async fn do_pending_ota(&self, state: &PersistentState) -> Result<(), OtaError> {

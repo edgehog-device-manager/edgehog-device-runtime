@@ -19,12 +19,15 @@ permissions:
   contents: read
 on:
   push:
-    branches: [main, 'release-*']
+    branches:
+      - 'main'
+      - 'release-*'
   pull_request:
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 env:
   PB_REL: https://github.com/protocolbuffers/protobuf/releases
-
 name: test
 jobs:
   required:
