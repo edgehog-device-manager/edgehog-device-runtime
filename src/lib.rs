@@ -163,7 +163,7 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
                         "io.edgehog.devicemanager.Commands",
                         ["request"],
                         Aggregation::Individual(AstarteType::String(command)),
-                    ) => commands::execute_command(command),
+                    ) => commands::execute_command(command).await,
                     (
                         "io.edgehog.devicemanager.config.Telemetry",
                         ["request", interface_name, endpoint],

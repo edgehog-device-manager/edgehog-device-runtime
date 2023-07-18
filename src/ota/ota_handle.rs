@@ -457,13 +457,14 @@ where
 
         info!("Rebooting in 5 seconds");
 
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        if cfg!(not(test)) {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-        #[cfg(not(test))]
-        if let Err(error) = crate::power_management::reboot() {
-            let message = "Unable to run reboot command";
-            error!("{message} : {error}");
-            return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
+            if let Err(error) = crate::power_management::reboot().await {
+                let message = "Unable to run reboot command";
+                error!("{message} : {error}");
+                return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
+            }
         }
 
         OtaStatus::Rebooted
