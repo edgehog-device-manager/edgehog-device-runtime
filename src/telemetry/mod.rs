@@ -18,18 +18,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use crate::error::DeviceManagerError;
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::repository::StateRepository;
 use astarte_device_sdk::types::AstarteType;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::sync::mpsc::Sender as MpscSender;
 use tokio::sync::RwLock;
 use tokio::task::spawn;
 use tokio::time::interval;
+use tokio::time::Duration;
 
 pub(crate) mod base_image;
 pub(crate) mod battery_status;
@@ -199,7 +200,11 @@ impl Telemetry {
         let mut interval = interval(Duration::from_secs(period));
         loop {
             interval.tick().await;
-            send_data(&communication_channel, interface_name.clone()).await;
+
+            // TODO: the error should be bubbled up
+            if let Err(err) = send_data(&communication_channel, &interface_name).await {
+                error!("coulnd't send telemetry data: {:#?}", err)
+            }
         }
     }
 
@@ -310,12 +315,15 @@ impl Telemetry {
     }
 }
 
-async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interface_name: String) {
+async fn send_data(
+    communication_channel: &MpscSender<TelemetryMessage>,
+    interface_name: &str,
+) -> Result<(), DeviceManagerError> {
     debug!("sending {interface_name}");
 
-    match interface_name.as_str() {
+    match interface_name {
         "io.edgehog.devicemanager.SystemStatus" => {
-            let sysstatus = system_status::get_system_status().unwrap();
+            let sysstatus = system_status::get_system_status()?;
             let _ = communication_channel
                 .send(TelemetryMessage {
                     path: "".to_string(),
@@ -324,7 +332,7 @@ async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interfa
                 .await;
         }
         "io.edgehog.devicemanager.StorageUsage" => {
-            let storage_usage = storage_usage::get_storage_usage().unwrap();
+            let storage_usage = storage_usage::get_storage_usage()?;
             for (path, payload) in storage_usage {
                 let _ = communication_channel
                     .send(TelemetryMessage {
@@ -335,7 +343,7 @@ async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interfa
             }
         }
         "io.edgehog.devicemanager.BatteryStatus" => {
-            let battery_status = battery_status::get_battery_status().await.unwrap();
+            let battery_status = battery_status::get_battery_status().await?;
             for (path, payload) in battery_status {
                 let _ = communication_channel
                     .send(TelemetryMessage {
@@ -345,8 +353,12 @@ async fn send_data(communication_channel: &MpscSender<TelemetryMessage>, interfa
                     .await;
             }
         }
-        _ => {}
+        interface => {
+            warn!("unimplemented telemetry interface {}", interface)
+        }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -519,11 +531,23 @@ mod tests {
     #[tokio::test]
     async fn send_data_test() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-        send_data(&tx, "io.edgehog.devicemanager.SystemStatus".to_string()).await;
-        assert!(rx.recv().await.is_some());
-        send_data(&tx, "io.edgehog.devicemanager.StorageUsage".to_string()).await;
-        assert!(rx.recv().await.is_some());
-        send_data(&tx, "io.edgehog.devicemanager.BatteryStatus".to_string()).await;
-        assert!(rx.recv().await.is_some());
+        let interfaces = [
+            "io.edgehog.devicemanager.SystemStatus",
+            "io.edgehog.devicemanager.StorageUsage",
+            "io.edgehog.devicemanager.BatteryStatus",
+        ];
+
+        for interface in interfaces {
+            let res = send_data(&tx, interface).await;
+
+            assert!(
+                res.is_ok(),
+                "failed to send '{}' data for interface: {}",
+                interface,
+                res.unwrap_err()
+            );
+
+            assert!(rx.recv().await.is_some());
+        }
     }
 }

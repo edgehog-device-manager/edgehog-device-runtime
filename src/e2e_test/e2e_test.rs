@@ -44,7 +44,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     }));
 
     //Waiting for Astarte Cluster to be ready...
-    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     let astarte_api_url = std::env::var("E2E_ASTARTE_API_URL").unwrap();
     let realm = std::env::var("E2E_REALM_NAME").unwrap();
@@ -81,7 +81,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     });
 
     //Waiting for Edgehog Device Runtime to be ready...
-    tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
     do_e2e_test(
         astarte_api_url.to_owned(),
         realm.to_owned(),

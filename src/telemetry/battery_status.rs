@@ -48,33 +48,26 @@ impl BatteryStatus {
 }
 
 pub async fn get_battery_status() -> Result<HashMap<String, BatteryStatus>, DeviceManagerError> {
-    let connection = match zbus::Connection::system().await {
-        Ok(con) => con,
-        Err(_) => return Ok(HashMap::new()),
-    };
-
-    let upower = match UPowerProxy::new(&connection).await {
-        Ok(proxy) => proxy,
-        Err(_) => return Ok(HashMap::new()),
-    };
-
-    let devices = match upower.enumerate_devices().await {
-        Ok(devices) => devices,
-        Err(_) => return Ok(HashMap::new()),
-    };
+    let connection = zbus::Connection::system().await?;
+    let upower = UPowerProxy::new(&connection).await?;
+    let devices = upower.enumerate_devices().await?;
 
     let mut result = HashMap::new();
     for device_path in devices {
+        dbg!(&result);
+
         let device = DeviceProxy::builder(&connection)
             .path(device_path)?
             .build()
             .await?;
 
-        if device.power_device_type().await? == PowerDeviceType::Battery {
+        if device.power_supply().await?
+            && device.power_device_type().await? == PowerDeviceType::Battery
+        {
             result.insert(
                 device.serial().await?,
                 BatteryStatus::new(
-                    device.percentage().await.unwrap(),
+                    device.percentage().await?,
                     device.state().await?,
                     device.is_present().await?,
                 )
