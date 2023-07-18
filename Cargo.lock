@@ -886,6 +886,7 @@ dependencies = [
  "bytes",
  "clap",
  "env_logger",
+ "futures",
  "hashlink",
  "httpmock",
  "is-terminal",

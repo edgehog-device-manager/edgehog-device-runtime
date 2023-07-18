@@ -18,9 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::time::{Duration, Instant};
-
-use tokio::time::sleep;
+use tokio::time::{sleep, Duration, Instant};
 use zbus::dbus_proxy;
 
 #[dbus_proxy(
@@ -134,12 +132,26 @@ async fn blink(_led_id: String, conf: BlinkConf) -> zbus::Result<bool> {
 #[cfg(test)]
 mod tests {
     use crate::led_behavior::set_behavior;
+    use tokio::time::Duration;
 
     #[tokio::test]
     async fn set_behavior_test() {
-        assert!(set_behavior("".to_string(), "Blink60Seconds".to_string()).await);
-        assert!(set_behavior("".to_string(), "DoubleBlink60Seconds".to_string()).await);
-        assert!(set_behavior("".to_string(), "SlowBlink60Seconds".to_string()).await);
+        let steps = [
+            "Blink60Seconds".to_string(),
+            "DoubleBlink60Seconds".to_string(),
+            "SlowBlink60Seconds".to_string(),
+        ];
+
+        tokio::time::pause();
+
+        for step in steps {
+            let handler = tokio::spawn(async move { set_behavior("".to_string(), step).await });
+
+            tokio::time::advance(Duration::from_secs(42)).await;
+
+            assert!(handler.await.expect("join error"));
+        }
+
         assert!(!set_behavior("".to_string(), "Blink30Seconds".to_string()).await);
     }
 }
