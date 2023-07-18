@@ -741,13 +741,27 @@ mod tests {
         T: SystemUpdate,
         U: StateRepository<PersistentState>,
     {
+        /// Create the mock with a non existent download path
         pub fn mock_new(system_update: T, state_repository: U) -> Self {
             Ota {
                 system_update,
                 state_repository,
-                download_file_path: "".to_owned(),
+                download_file_path: "/dev/null".to_string(),
                 ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
             }
+        }
+
+        /// Create the mock with a usable download path
+        pub fn mock_new_with_path(system_update: T, state_repository: U) -> (Self, TempDir) {
+            let (dir, path) = temp_dir();
+            let mock = Ota {
+                system_update,
+                state_repository,
+                download_file_path: path,
+                ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
+            };
+
+            (mock, dir)
         }
     }
 
@@ -981,8 +995,8 @@ mod tests {
                 .body(binary_content);
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1026,8 +1040,7 @@ mod tests {
             then.status(404);
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(4);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1076,8 +1089,7 @@ mod tests {
                 .body(binary_content);
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1180,8 +1192,7 @@ mod tests {
                 .body(binary_content);
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1240,8 +1251,7 @@ mod tests {
                 .body(binary_content);
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1539,8 +1549,7 @@ mod tests {
 
         let ota_request = OtaRequest::default();
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(3);
 
         let ota_status = ota.deployed(ota_request, &ota_status_publisher).await;
