@@ -132,7 +132,7 @@ async fn do_e2e_test(api_url: String, realm: String, device_id: String, e2e_toke
 }
 
 async fn os_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
-    let os_info_from_lib = get_os_info().unwrap();
+    let os_info_from_lib = get_os_info().await.unwrap();
     let json_os_info = reqwest::Client::new()
         .get(format!(
             "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.OSInfo",

@@ -113,8 +113,8 @@ impl Telemetry {
         let telemetry_repo: Box<dyn StateRepository<Vec<TelemetryInterfaceConfig>>> = Box::new(
             FileStateRepository::new(store_directory.clone(), TELEMETRY_PATH.to_string()),
         );
-        if telemetry_repo.exists() {
-            let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
+        if telemetry_repo.exists().await {
+            let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
             for c in saved_config {
                 if let Some(rwlock_default_task) = telemetry_task_configs.get_mut(&c.interface_name)
                 {
@@ -311,7 +311,7 @@ impl Telemetry {
 
         let telemetry_repo =
             FileStateRepository::new(self.store_directory.clone(), TELEMETRY_PATH.to_string());
-        telemetry_repo.write(&telemetry_config).unwrap();
+        telemetry_repo.write(&telemetry_config).await.unwrap();
     }
 }
 
@@ -440,7 +440,7 @@ mod tests {
         );
 
         let telemetry_repo = FileStateRepository::new(t_dir, TELEMETRY_PATH.to_string());
-        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
+        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
 
         assert_eq!(saved_config.len(), 1);
 
@@ -484,7 +484,7 @@ mod tests {
             .is_none());
 
         let telemetry_repo = FileStateRepository::new(t_dir, TELEMETRY_PATH.to_string());
-        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().unwrap();
+        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
 
         assert_eq!(saved_config.len(), 1);
 

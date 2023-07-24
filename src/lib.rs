@@ -241,7 +241,7 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
         let data = [
             (
                 "io.edgehog.devicemanager.OSInfo",
-                telemetry::os_info::get_os_info()?,
+                telemetry::os_info::get_os_info().await?,
             ),
             (
                 "io.edgehog.devicemanager.HardwareInfo",
@@ -261,7 +261,7 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
             ),
             (
                 "io.edgehog.devicemanager.BaseImage",
-                telemetry::base_image::get_base_image()?,
+                telemetry::base_image::get_base_image().await?,
             ),
         ];
 
@@ -347,8 +347,8 @@ pub mod e2e_test {
     use astarte_device_sdk::types::AstarteType;
     use std::collections::HashMap;
 
-    pub fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::os_info::get_os_info()
+    pub async fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
+        telemetry::os_info::get_os_info().await
     }
 
     pub fn get_hardware_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
@@ -493,7 +493,7 @@ mod tests {
             telemetry_config: Some(vec![]),
         };
 
-        let os_info = get_os_info().unwrap();
+        let os_info = get_os_info().await.expect("failed to get os info");
         let mut mock_astarte_handler = MockAstarteHandler::new();
 
         mock_astarte_handler
@@ -564,7 +564,7 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
-        let base_image = get_base_image().unwrap();
+        let base_image = get_base_image().await.expect("failed to get base image");
         mock_astarte_handler
             .expect_send()
             .withf(

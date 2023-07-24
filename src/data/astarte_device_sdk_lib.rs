@@ -138,8 +138,8 @@ async fn get_credentials_secret(
             return Ok(secret);
         }
     }
-    if cred_state_repo.exists() {
-        get_credentials_secret_from_persistence(cred_state_repo)
+    if cred_state_repo.exists().await {
+        get_credentials_secret_from_persistence(cred_state_repo).await
     } else if let Some(token) = opts.pairing_token.clone() {
         get_credentials_secret_from_registration(device_id, &token, opts, cred_state_repo).await
     } else {
@@ -149,10 +149,10 @@ async fn get_credentials_secret(
     }
 }
 
-fn get_credentials_secret_from_persistence(
+async fn get_credentials_secret_from_persistence(
     cred_state_repo: impl StateRepository<String>,
 ) -> Result<String, DeviceManagerError> {
-    Ok(cred_state_repo.read().expect("Unable to read secret"))
+    Ok(cred_state_repo.read().await.expect("Unable to read secret"))
 }
 
 async fn get_credentials_secret_from_registration(
@@ -166,6 +166,7 @@ async fn get_credentials_secret_from_registration(
     if let Ok(credentials_secret) = registration {
         cred_state_repo
             .write(&credentials_secret)
+            .await
             .expect("Unable to write secret");
         Ok(credentials_secret)
     } else {

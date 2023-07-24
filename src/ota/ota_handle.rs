@@ -341,10 +341,11 @@ where
 
             let booted_slot = booted_slot.unwrap();
 
-            if let Err(error) = self.state_repository.write(&PersistentState {
+            let state = &PersistentState {
                 uuid: ota_request.clone().uuid,
                 slot: booted_slot,
-            }) {
+            };
+            if let Err(error) = self.state_repository.write(state).await {
                 let message = "Unable to persist ota state".to_string();
                 error!("{message} : {error}");
                 return OtaStatus::Failure(OtaError::IO(message), Some(ota_request.clone()));
@@ -491,13 +492,13 @@ where
 
     /// Handle the transition to success status.
     pub async fn success(&self) -> OtaStatus {
-        if !self.state_repository.exists() {
+        if !self.state_repository.exists().await {
             return OtaStatus::NoPendingOta;
         }
 
         info!("Found pending update");
 
-        let ota_state = match self.state_repository.read() {
+        let ota_state = match self.state_repository.read().await {
             Ok(state) => state,
             Err(err) => {
                 let message = "Unable to read pending ota state".to_string();
@@ -599,8 +600,8 @@ where
     }
 
     async fn clear(&self) {
-        if self.state_repository.exists() {
-            let _ = self.state_repository.clear().map_err(|error| {
+        if self.state_repository.exists().await {
+            let _ = self.state_repository.clear().await.map_err(|error| {
                 warn!("Error during clear of state repository-> {:?}", error);
             });
         }
@@ -642,8 +643,11 @@ pub async fn wget(
     use tokio_stream::StreamExt;
 
     if std::path::Path::new(file_path).exists() {
-        std::fs::remove_file(file_path)
-            .unwrap_or_else(|e| panic!("Unable to remove {}: {}", file_path, e));
+        tokio::fs::remove_file(file_path).await.map_err(|err| {
+            error!("failed to remove old file '{}': {}", file_path, err);
+
+            OtaError::Internal("failed to remove old file")
+        })?;
     }
     info!("Downloading {:?}", url);
 
@@ -1726,7 +1730,7 @@ mod tests {
 
         let ota = Ota::mock_new(system_update, state_mock);
 
-        let state = ota.state_repository.read().unwrap();
+        let state = ota.state_repository.read().await.unwrap();
         let result = ota.do_pending_ota(&state).await;
 
         assert!(result.is_err());
@@ -1753,7 +1757,7 @@ mod tests {
 
         let ota = Ota::mock_new(system_update, state_mock);
 
-        let state = ota.state_repository.read().unwrap();
+        let state = ota.state_repository.read().await.unwrap();
         let result = ota.do_pending_ota(&state).await;
 
         assert!(result.is_err());
@@ -1784,7 +1788,7 @@ mod tests {
         });
 
         let ota = Ota::mock_new(system_update, state_mock);
-        let state = ota.state_repository.read().unwrap();
+        let state = ota.state_repository.read().await.unwrap();
         let result = ota.do_pending_ota(&state).await;
 
         assert!(result.is_err());
@@ -1822,7 +1826,7 @@ mod tests {
 
         let ota = Ota::mock_new(system_update, state_mock);
 
-        let state = ota.state_repository.read().unwrap();
+        let state = ota.state_repository.read().await.unwrap();
         let result = ota.do_pending_ota(&state).await;
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), OtaError::Internal(_),));
@@ -1860,7 +1864,7 @@ mod tests {
 
         let ota = Ota::mock_new(system_update, state_mock);
 
-        let state = ota.state_repository.read().unwrap();
+        let state = ota.state_repository.read().await.unwrap();
         let result = ota.do_pending_ota(&state).await;
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), OtaError::Internal(_),));
@@ -1898,7 +1902,7 @@ mod tests {
 
         let ota = Ota::mock_new(system_update, state_mock);
 
-        let state = ota.state_repository.read().unwrap();
+        let state = ota.state_repository.read().await.unwrap();
         let result = ota.do_pending_ota(&state).await;
         assert!(result.is_ok());
     }

@@ -18,20 +18,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::DeviceManagerError;
-use astarte_device_sdk::types::AstarteType;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
-pub fn get_base_image() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-    let file = BufReader::new(File::open("/etc/os-release")?);
-    Ok(file.lines().flatten().fold(HashMap::new(), get_from_iter))
+use astarte_device_sdk::types::AstarteType;
+
+use crate::DeviceManagerError;
+
+pub async fn get_base_image() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
+    let file = tokio::fs::read_to_string("/etc/os-release").await?;
+
+    Ok(file.lines().fold(HashMap::new(), get_from_iter))
 }
 
 fn get_from_iter(
     mut ret: HashMap<String, AstarteType>,
-    line: String,
+    line: &str,
 ) -> HashMap<String, AstarteType> {
     if let Some((key, value)) = line.trim().split_once('=') {
         match key {
@@ -66,10 +67,10 @@ mod tests {
     use astarte_device_sdk::types::AstarteType;
     use std::collections::HashMap;
 
-    #[test]
-    fn get_base_image_test() {
+    #[tokio::test]
+    async fn get_base_image_test() {
         let result = get_base_image();
-        assert!(result.is_ok());
+        assert!(result.await.is_ok());
     }
 
     #[test]
@@ -88,10 +89,7 @@ mod tests {
         VERSION_CODENAME=bionic
         UBUNTU_CODENAME=bionic"#;
 
-        let map = OS_RELEASE
-            .lines()
-            .map(|x| x.into())
-            .fold(HashMap::new(), get_from_iter);
+        let map = OS_RELEASE.lines().fold(HashMap::new(), get_from_iter);
         assert!(map.is_empty());
     }
 
@@ -113,10 +111,7 @@ mod tests {
         IMAGE_ID="testOs"
         IMAGE_VERSION="1.0.0+20220922""#;
 
-        let map = OS_RELEASE
-            .lines()
-            .map(|x| x.into())
-            .fold(HashMap::new(), get_from_iter);
+        let map = OS_RELEASE.lines().fold(HashMap::new(), get_from_iter);
         assert!(!map.is_empty());
         assert_eq!(
             map.get("/name").unwrap(),

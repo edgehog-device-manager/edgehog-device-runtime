@@ -281,7 +281,6 @@ mod tests {
     use astarte_device_sdk::AstarteAggregate;
     use astarte_message_hub::proto_message_hub::astarte_message::Payload;
     use astarte_message_hub::proto_message_hub::AstarteMessage;
-    use std::io::Write;
     use std::net::{Ipv6Addr, SocketAddr};
     use tempdir::TempDir;
     use tokio::sync::oneshot::Sender;
@@ -348,9 +347,8 @@ mod tests {
         assert!(read_result.unwrap().is_empty());
     }
 
-    #[test]
-    fn read_interfaces_from_directory_1_interface() {
-        use std::fs::File;
+    #[tokio::test]
+    async fn read_interfaces_from_directory_1_interface() {
         let dir = TempDir::new("edgehog").unwrap();
         let t_dir = dir.path().to_str().unwrap();
 
@@ -371,10 +369,12 @@ mod tests {
         }
         "#;
 
-        let file_name = "org.astarte-platform.test.test.json";
-        let mut file = File::create(format!("{}/{}", t_dir, file_name)).unwrap();
-        file.write_all(SERV_PROPS_IFACE.as_bytes())
-            .expect("Unable to write interface file");
+        tokio::fs::write(
+            format!("{}/org.astarte-platform.test.test.json", t_dir),
+            SERV_PROPS_IFACE,
+        )
+        .await
+        .expect("Unable to write interface file");
 
         let read_result = read_interfaces_from_directory(t_dir);
 
