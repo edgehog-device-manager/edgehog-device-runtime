@@ -40,7 +40,7 @@ jobs:
       - name: Install libudev, and Protoc
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev
+          sudo apt-get install -y libudev-dev libsystemd-dev upower
           curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
           unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
           echo "$HOME/.local/bin" >> $GITHUB_PATH

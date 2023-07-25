@@ -19,9 +19,9 @@
  */
 
 use async_trait::async_trait;
-use futures::stream::BoxStream;
 #[cfg(test)]
 use mockall::automock;
+use tokio::sync::mpsc::Sender;
 
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::BundleInfo;
@@ -32,22 +32,12 @@ pub(crate) mod ota_handler;
 mod ota_handler_test;
 pub(crate) mod rauc;
 
-/// Provides deploying progress information.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct DeployProgress {
+/// Provides deploying progress information
+#[derive(Clone, PartialEq, Debug)]
+pub struct DeployingProgress {
     percentage: i32,
     message: String,
 }
-
-/// Provides the status of the deployment.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeployStatus {
-    Progress(DeployProgress),
-    Completed { signal: i32 },
-}
-
-/// Stream of the [`DeployStatus`] events
-pub type ProgressStream = BoxStream<'static, Result<DeployStatus, DeviceManagerError>>;
 
 /// A **trait** required for all SystemUpdate handlers that want to update a system.
 #[cfg_attr(test, automock)]
@@ -59,7 +49,10 @@ pub trait SystemUpdate: Send + Sync {
     async fn operation(&self) -> Result<String, DeviceManagerError>;
     async fn compatible(&self) -> Result<String, DeviceManagerError>;
     async fn boot_slot(&self) -> Result<String, DeviceManagerError>;
-    async fn receive_completed(&self) -> Result<ProgressStream, DeviceManagerError>;
+    async fn receive_completed(
+        &self,
+        sender: Sender<DeployingProgress>,
+    ) -> Result<i32, DeviceManagerError>;
     async fn get_primary(&self) -> Result<String, DeviceManagerError>;
     async fn mark(
         &self,
@@ -71,7 +64,7 @@ pub trait SystemUpdate: Send + Sync {
 /// Edgehog OTA error.
 ///
 /// Possible errors returned by OTA.
-#[derive(thiserror::Error, Clone, Debug, PartialEq)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
 pub enum OtaError {
     /// Invalid OTA update request received
     #[error("InvalidRequestError: {0}")]
@@ -99,8 +92,11 @@ pub enum OtaError {
     Canceled,
 }
 
-impl Default for DeployStatus {
+impl Default for DeployingProgress {
     fn default() -> Self {
-        DeployStatus::Progress(DeployProgress::default())
+        DeployingProgress {
+            percentage: 0,
+            message: "".to_owned(),
+        }
     }
 }

@@ -19,16 +19,15 @@
  */
 
 use async_trait::async_trait;
-use futures::{future, StreamExt};
-use log::{error, info};
+use log::info;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::Sender;
 use zbus::dbus_proxy;
+use zbus::export::futures_util::StreamExt;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
+use crate::ota::{DeployingProgress, OtaError, SystemUpdate};
 use crate::DeviceManagerError;
-
-use super::ProgressStream;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
 #[zvariant(signature = "dict")]
@@ -170,37 +169,45 @@ impl SystemUpdate for OTARauc<'static> {
             .map_err(DeviceManagerError::ZbusError)
     }
 
-    async fn receive_completed(&self) -> Result<ProgressStream, DeviceManagerError> {
-        let progress_stream = self
-            .rauc
-            .receive_progress_changed()
-            .await
-            .then(|val| async move { val.get().await })
-            .filter_map(|res| match res {
-                Ok((percentage, message, _nesting_depth)) => {
-                    info!("deployment progress {}%: {}", percentage, message);
-                    future::ready(Some(Ok::<_, DeviceManagerError>(DeployStatus::Progress(
-                        DeployProgress {
+    async fn receive_completed(
+        &self,
+        sender: Sender<DeployingProgress>,
+    ) -> Result<i32, DeviceManagerError> {
+        let stream_progress_fn = async move {
+            let mut progress_stream = self.rauc.receive_progress_changed().await;
+
+            while let Some(value) = progress_stream.next().await {
+                if let Ok((percentage, message, _)) = value.get().await {
+                    if sender
+                        .send(DeployingProgress {
                             percentage,
                             message,
-                        },
-                    ))))
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
-                Err(err) => {
-                    error!("Rauc progress error: {}", err);
-                    future::ready(None)
-                }
-            });
+            }
+        };
 
-        let completed_stream = self.rauc.receive_completed().await?.map(|completed| {
-            let signal = *completed.args()?.result();
+        let mut receive_completed_update = self.rauc.receive_completed().await?;
+        let completed_update = tokio::select! {
+            _ = stream_progress_fn => {None}
+            completed_update = receive_completed_update.next() => {completed_update}
+        };
 
-            Ok::<_, DeviceManagerError>(DeployStatus::Completed { signal })
-        });
+        if let Some(completed) = completed_update {
+            let signal = completed.args().unwrap();
+            let signal = *signal.result();
 
-        let stream = futures::stream::select(progress_stream, completed_stream).boxed();
-
-        Ok(stream)
+            Ok(signal)
+        } else {
+            Err(DeviceManagerError::OtaError(OtaError::Internal(
+                "Unable to receive signal from rauc interface",
+            )))
+        }
     }
 
     async fn get_primary(&self) -> Result<String, DeviceManagerError> {
