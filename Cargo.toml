@@ -13,6 +13,7 @@ rust-version = { workspace = true }
 [workspace]
 resolver = "2"
 members = [
+  "edgehog-docker",
   "e2e-test",
   "hardware-id-service",
   "led-manager-service",
@@ -71,11 +72,17 @@ astarte-device-sdk = "0.5.1"
 astarte-message-hub = "0.5.2"
 async-trait = "0.1.72"
 base64 = "0.13.1"
+bollard = "0.14.0"
 bytes = "1.4.0"
 clap = "4.3.19"
+displaydoc = "0.2.4"
 env_logger = "0.10.0"
 futures = "0.3.28"
+httpmock = "0.6"
+hyper = "0.14.27"
 log = "0.4.19"
+mockall = "0.11.4"
+pbjson-types = "0.5"
 procfs = "0.15.1"
 reqwest = "0.11.18"
 rustc_version_runtime = "0.2.1"
@@ -83,20 +90,18 @@ serde = "1.0.181"
 serde_json = "1.0.104"
 sysinfo = "0.29.7"
 systemd = "0.10.0"
+tempdir = "0.3.7"
 thiserror = "1.0.44"
 tokio = "1.29.1"
 tokio-stream = "0.1.14"
 tokio-util = "0.7.8"
 toml = "0.7.6"
 tonic = "0.8.3"
+tracing = "0.1.37"
 udev = "0.7.0"
 uuid = "1.4.1"
 wifiscanner = "0.5.1"
 zbus = { version = "2.2.0", default-features = false }
-httpmock = "0.6"
-mockall = "0.11.4"
-pbjson-types = "0.5"
-tempdir = "0.3.7"
 
 # Pinned transitive dependencies
 time = "=0.3.23"
