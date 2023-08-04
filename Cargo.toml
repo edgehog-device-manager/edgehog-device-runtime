@@ -41,7 +41,7 @@ wifiscanner = "0.5.1"
 zbus = { version = "=2.2.0", default-features = false, features = ["tokio"] }
 
 # Pinned transitive dependencies for MSRV
-hashlink = "=0.8.1"
+hashlink = "=0.8.3"
 is-terminal = "=0.4.7"
 once_cell = "=1.17.2"
 openssl-src = "=111.24.0"
