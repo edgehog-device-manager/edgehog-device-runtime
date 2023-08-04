@@ -24,7 +24,7 @@ use astarte_message_hub::proto_message_hub;
 use async_trait::async_trait;
 use log::warn;
 use serde::Deserialize;
-use std::time::Duration;
+use tokio::time::Duration;
 use tonic::Response as TonicResponse;
 use tonic::Streaming as TonicStreaming;
 
@@ -281,9 +281,7 @@ mod tests {
     use astarte_device_sdk::AstarteAggregate;
     use astarte_message_hub::proto_message_hub::astarte_message::Payload;
     use astarte_message_hub::proto_message_hub::AstarteMessage;
-    use std::io::Write;
     use std::net::{Ipv6Addr, SocketAddr};
-    use std::time::Duration;
     use tempdir::TempDir;
     use tokio::sync::oneshot::Sender;
     use tokio::task::JoinHandle;
@@ -314,31 +312,29 @@ mod tests {
         }
     }
 
-    async fn run_local_server(msg_hub: MockMsgHub, port: u16) -> (JoinHandle<()>, Sender<()>) {
+    async fn run_local_server(msg_hub: MockMsgHub) -> (JoinHandle<()>, Sender<()>, u16) {
         use crate::data::astarte_message_hub_node::proto_message_hub::message_hub_server::MessageHubServer;
 
         let (drop_tx, drop_rx) = tokio::sync::oneshot::channel::<()>();
-        let addr: SocketAddr = (Ipv6Addr::LOCALHOST, port).into();
-        let mut listener = tokio::net::TcpListener::bind(addr).await;
-
-        while listener.is_err() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            listener = tokio::net::TcpListener::bind(addr).await
-        }
+        // Ask the OS to bind on an available port
+        let addr: SocketAddr = (Ipv6Addr::LOCALHOST, 0).into();
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .expect("failed to bind port");
+        let addr = listener.local_addr().expect("failed to get local address");
 
         let handle = tokio::spawn(async move {
             tonic::transport::Server::builder()
                 .add_service(MessageHubServer::new(msg_hub))
                 .serve_with_incoming_shutdown(
-                    tokio_stream::wrappers::TcpListenerStream::new(listener.expect("bind")),
+                    tokio_stream::wrappers::TcpListenerStream::new(listener),
                     async { drop_rx.await.unwrap() },
                 )
                 .await
                 .unwrap();
         });
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        (handle, drop_tx)
+        (handle, drop_tx, addr.port())
     }
 
     #[test]
@@ -351,9 +347,8 @@ mod tests {
         assert!(read_result.unwrap().is_empty());
     }
 
-    #[test]
-    fn read_interfaces_from_directory_1_interface() {
-        use std::fs::File;
+    #[tokio::test]
+    async fn read_interfaces_from_directory_1_interface() {
         let dir = TempDir::new("edgehog").unwrap();
         let t_dir = dir.path().to_str().unwrap();
 
@@ -374,10 +369,12 @@ mod tests {
         }
         "#;
 
-        let file_name = "org.astarte-platform.test.test.json";
-        let mut file = File::create(format!("{}/{}", t_dir, file_name)).unwrap();
-        file.write_all(SERV_PROPS_IFACE.as_bytes())
-            .expect("Unable to write interface file");
+        tokio::fs::write(
+            format!("{}/org.astarte-platform.test.test.json", t_dir),
+            SERV_PROPS_IFACE,
+        )
+        .await
+        .expect("Unable to write interface file");
 
         let read_result = read_interfaces_from_directory(t_dir);
 
@@ -390,11 +387,11 @@ mod tests {
     async fn attach_connect_fail() {
         let msg_hub = MockMsgHub::new();
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50052).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50053".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -413,11 +410,11 @@ mod tests {
             .expect_attach()
             .returning(|_| Err(tonic::Status::new(Code::Internal, "".to_string())));
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -439,11 +436,11 @@ mod tests {
             )))
         });
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -469,11 +466,11 @@ mod tests {
             .expect_send()
             .returning(|_| Err(tonic::Status::new(Code::Internal, "".to_string())));
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -510,11 +507,11 @@ mod tests {
             .expect_send()
             .returning(|_| Ok(Response::new(pbjson_types::Empty {})));
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -551,11 +548,11 @@ mod tests {
             .expect_send()
             .returning(|_| Err(tonic::Status::new(Code::Internal, "".to_string())));
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -599,11 +596,11 @@ mod tests {
             .expect_send()
             .returning(|_| Ok(Response::new(pbjson_types::Empty {})));
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )
@@ -638,8 +635,8 @@ mod tests {
 
         msg_hub.expect_attach().returning(|_| {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
+
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(100)).await;
                 tx.send(Ok(AstarteMessage {
                     interface_name: "test.server.Value".to_string(),
                     path: "/req".to_string(),
@@ -655,11 +652,11 @@ mod tests {
             )))
         });
 
-        let (server_handle, drop_sender) = run_local_server(msg_hub, 50051).await;
+        let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let node_result = AstarteMessageHubNode::new(
             AstarteMessageHubOptions {
-                endpoint: "http://[::1]:50051".to_string(),
+                endpoint: format!("http://[::1]:{port}"),
             },
             "/tmp".to_string(),
         )

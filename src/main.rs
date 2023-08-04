@@ -19,7 +19,6 @@
  */
 
 use clap::Parser;
-use std::fs;
 #[cfg(feature = "systemd")]
 use std::panic::{self, PanicInfo};
 use std::path::Path;
@@ -56,22 +55,26 @@ async fn main() -> Result<(), DeviceManagerError> {
         configuration_file: config_file_path,
     } = Parser::parse();
 
-    let options = read_options(config_file_path)?;
+    let options = read_options(config_file_path).await?;
 
     if !Path::new(&options.download_directory).exists() {
-        fs::create_dir_all(&options.download_directory).map_err(|err| {
-            DeviceManagerError::FatalError(
-                "Unable to create OTA download directory. ".to_owned() + &err.to_string(),
-            )
-        })?;
+        tokio::fs::create_dir_all(&options.download_directory)
+            .await
+            .map_err(|err| {
+                DeviceManagerError::FatalError(
+                    "Unable to create OTA download directory. ".to_owned() + &err.to_string(),
+                )
+            })?;
     }
 
     if !Path::new(&options.store_directory).exists() {
-        fs::create_dir_all(&options.store_directory).map_err(|err| {
-            DeviceManagerError::FatalError(
-                "Unable to create store directory. ".to_owned() + &err.to_string(),
-            )
-        })?;
+        tokio::fs::create_dir_all(&options.store_directory)
+            .await
+            .map_err(|err| {
+                DeviceManagerError::FatalError(
+                    "Unable to create store directory. ".to_owned() + &err.to_string(),
+                )
+            })?;
     }
 
     match &options.astarte_library {

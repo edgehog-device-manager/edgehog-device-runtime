@@ -21,7 +21,7 @@
 use edgehog_device_runtime::{error::DeviceManagerError, DeviceManagerOptions};
 use log::info;
 
-pub fn read_options(
+pub async fn read_options(
     override_config_file_path: Option<String>,
 ) -> Result<DeviceManagerOptions, DeviceManagerError> {
     let paths = ["edgehog-config.toml", "/etc/edgehog/config.toml"]
@@ -36,7 +36,7 @@ pub fn read_options(
     if let Some(path) = paths.into_iter().next() {
         info!("Found configuration file {path}");
 
-        let config = std::fs::read_to_string(path)?;
+        let config = tokio::fs::read_to_string(path).await?;
 
         let config = toml::from_str::<DeviceManagerOptions>(&config)?;
 

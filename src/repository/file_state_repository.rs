@@ -18,8 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::io;
+
 use crate::error::DeviceManagerError;
 use crate::repository::StateRepository;
+use async_trait::async_trait;
+use log::{debug, error};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub struct FileStateRepository {
@@ -37,29 +41,43 @@ impl FileStateRepository {
     }
 }
 
+#[async_trait]
 impl<T> StateRepository<T> for FileStateRepository
 where
     T: Serialize + DeserializeOwned + Send + Sync,
 {
-    fn write(&self, value: &T) -> Result<(), DeviceManagerError> {
-        let mut file = std::fs::File::create(&self.path)?;
+    async fn write(&self, value: &T) -> Result<(), DeviceManagerError> {
         let data_json = serde_json::to_string(value)?;
-        std::io::Write::write_all(&mut file, data_json.as_bytes())?;
+        tokio::fs::write(&self.path, &data_json).await?;
         Ok(())
     }
 
-    fn read(&self) -> Result<T, DeviceManagerError> {
-        let value_str = std::fs::read_to_string(&self.path)?;
+    async fn read(&self) -> Result<T, DeviceManagerError> {
+        let value_str = tokio::fs::read_to_string(&self.path).await?;
         let value = serde_json::from_str(&value_str)?;
         Ok(value)
     }
 
-    fn exists(&self) -> bool {
-        std::path::Path::new(&self.path).exists()
+    async fn exists(&self) -> bool {
+        let metadata = match tokio::fs::metadata(&self.path).await {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                debug!("file doesn't exists");
+
+                return false;
+            }
+            Err(err) => {
+                error!("couldn't read state repository '{}': {}", self.path, err);
+
+                return false;
+            }
+        };
+
+        metadata.is_file()
     }
 
-    fn clear(&self) -> Result<(), DeviceManagerError> {
-        std::fs::remove_file(&self.path)?;
+    async fn clear(&self) -> Result<(), DeviceManagerError> {
+        tokio::fs::remove_file(&self.path).await?;
         Ok(())
     }
 }
@@ -69,16 +87,20 @@ mod tests {
     use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
 
-    #[test]
-    fn file_state_test() {
-        let repository: Box<dyn StateRepository<i32>> = Box::new(FileStateRepository {
-            path: "test.json".to_string(),
-        });
+    #[tokio::test]
+    async fn file_state_test() {
+        let dir = tempdir::TempDir::new("edgehog").expect("failed to create temp dir");
+        let mut repo = dir.into_path();
+        repo.push("test.json");
+        let path = repo.to_string_lossy().to_string();
+
+        let repository: Box<dyn StateRepository<i32>> = Box::new(FileStateRepository { path });
+
         let value: i32 = 0;
-        repository.write(&value).unwrap();
-        assert!(repository.exists());
-        assert_eq!(repository.read().unwrap(), value);
-        repository.clear().unwrap();
+        repository.write(&value).await.unwrap();
+        assert!(repository.exists().await);
+        assert_eq!(repository.read().await.unwrap(), value);
+        repository.clear().await.unwrap();
     }
 
     #[test]

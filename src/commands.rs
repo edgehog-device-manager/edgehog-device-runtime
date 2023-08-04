@@ -21,10 +21,10 @@
 use log::error;
 
 /// handle io.edgehog.devicemanager.Commands
-pub(crate) fn execute_command(command: &str) {
+pub(crate) async fn execute_command(command: &str) {
     match command {
         "Reboot" => {
-            crate::power_management::reboot().unwrap();
+            crate::power_management::reboot().await.unwrap();
         }
         _ => {
             error!("command not recognized");

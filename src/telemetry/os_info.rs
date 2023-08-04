@@ -18,18 +18,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::DeviceManagerError;
-use astarte_device_sdk::types::AstarteType;
 use std::collections::HashMap;
 
+use crate::error::DeviceManagerError;
+use astarte_device_sdk::types::AstarteType;
+
 /// get structured data for `io.edgehog.devicemanager.OSInfo` interface
-pub fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
+pub async fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
     let paths = ["/etc/os-release", "/usr/lib/os-release"];
 
     let paths = paths.iter().filter(|f| std::path::Path::new(f).exists());
 
     if let Some(path) = paths.into_iter().next() {
-        let os = std::fs::read_to_string(path)?;
+        let os = tokio::fs::read_to_string(path).await?;
         return parse_os_info(&os);
     }
 

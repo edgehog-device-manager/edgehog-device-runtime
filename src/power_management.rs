@@ -22,7 +22,7 @@ use log::{error, info};
 
 use crate::error::DeviceManagerError;
 
-pub fn reboot() -> Result<(), DeviceManagerError> {
+pub async fn reboot() -> Result<(), DeviceManagerError> {
     if std::env::var("DM_NO_REBOOT").is_ok() {
         info!("Dry run, exiting");
 
@@ -30,11 +30,10 @@ pub fn reboot() -> Result<(), DeviceManagerError> {
     }
 
     // TODO: use systemd api
-    let mut cmd = std::process::Command::new("shutdown");
-    cmd.arg("-r");
-    cmd.arg("now");
-
-    let output = cmd.output()?;
+    let output = tokio::process::Command::new("shutdown")
+        .args(["-r", "now"])
+        .output()
+        .await?;
 
     if output.status.success() && output.stderr.is_empty() {
         panic!("Reboot command was successful, bye");
