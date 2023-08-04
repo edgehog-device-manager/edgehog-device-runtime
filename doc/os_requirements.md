@@ -13,7 +13,7 @@ management features.
 
 ### Dependencies
 
-- **Rust** >= 1.59
+- **Rust** >= 1.66.1
 - **libsystemd** (optional)
 - **libudev**: Gathering information about network interfaces.
 

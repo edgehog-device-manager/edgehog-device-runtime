@@ -206,7 +206,7 @@ impl OtaHandler {
     ) -> Result<(), DeviceManagerError> {
         match self.get_ota_status().await {
             Err(_) => Ok(()),
-            Ok(ota_status) if ota_status == OtaStatus::Idle => Ok(()),
+            Ok(OtaStatus::Idle) => Ok(()),
             Ok(ota_status) => {
                 match ota_status.ota_request() {
                     Some(current_ota_request) if current_ota_request.uuid == uuid => {
