@@ -41,8 +41,9 @@ mod led_behavior;
 mod ota;
 mod power_management;
 pub mod repository;
+#[cfg(feature = "systemd")]
+pub mod systemd_wrapper;
 mod telemetry;
-pub mod wrapper;
 
 const MAX_OTA_OPERATION: usize = 2;
 
@@ -79,7 +80,9 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
         opts: DeviceManagerOptions,
         publisher: T,
     ) -> Result<DeviceManager<T>, DeviceManagerError> {
-        wrapper::systemd::systemd_notify_status("Initializing");
+        #[cfg(feature = "systemd")]
+        systemd_wrapper::systemd_notify_status("Initializing");
+
         info!("Starting");
 
         let ota_handler = OtaHandler::new(&opts).await?;
@@ -203,7 +206,9 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
     }
 
     pub async fn run(&mut self) {
-        wrapper::systemd::systemd_notify_status("Running");
+        #[cfg(feature = "systemd")]
+        systemd_wrapper::systemd_notify_status("Running");
+
         let tel_clone = self.telemetry.clone();
         tokio::task::spawn(async move {
             tel_clone.write().await.run_telemetry().await;
@@ -229,7 +234,9 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
     }
 
     pub async fn init(&self) -> Result<(), DeviceManagerError> {
-        wrapper::systemd::systemd_notify_status("Sending initial telemetry");
+        #[cfg(feature = "systemd")]
+        systemd_wrapper::systemd_notify_status("Sending initial telemetry");
+
         self.send_initial_telemetry().await?;
 
         Ok(())

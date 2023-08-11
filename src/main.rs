@@ -121,7 +121,7 @@ async fn main() -> Result<(), DeviceManagerError> {
 
 #[cfg(feature = "systemd")]
 fn systemd_panic_hook(panic_info: &PanicInfo) {
-    use edgehog_device_runtime::wrapper;
+    use edgehog_device_runtime::systemd_wrapper;
 
     let message = if let Some(panic_msg) = panic_info.payload().downcast_ref::<&str>() {
         panic_msg
@@ -136,5 +136,5 @@ fn systemd_panic_hook(panic_info: &PanicInfo) {
     };
 
     let status = format!("{} {}", message, location);
-    wrapper::systemd::systemd_notify_errno_status(ENOTRECOVERABLE, &status);
+    systemd_wrapper::systemd_notify_errno_status(ENOTRECOVERABLE, &status);
 }
