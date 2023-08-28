@@ -41,7 +41,7 @@ wifiscanner = "0.5.1"
 zbus = { version = "2.2.0", default-features = false, features = ["tokio"] }
 
 # Pinned transitive dependencies
-time = "=0.3.23"
+time = "=0.3.28"
 
 
 [dev-dependencies]
