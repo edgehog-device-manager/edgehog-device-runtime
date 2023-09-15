@@ -6,7 +6,19 @@
 [package]
 name = "edgehog-device-runtime"
 version = "0.7.1"
-default-run = "edgehog-device-runtime"
+edition = { workspace = true }
+homepage = { workspace = true }
+rust-version = { workspace = true }
+
+[workspace]
+resolver = "2"
+members = [
+  "e2e-test",
+  "hardware-id-service",
+  "led-manager-service",
+]
+
+[workspace.package]
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.66.1"
@@ -14,47 +26,77 @@ rust-version = "1.66.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { version = "0.5.1", features = ["derive"] }
+astarte-device-sdk = { workspace = true, features = ["derive"] }
+astarte-message-hub = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+env_logger = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+procfs = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+rustc_version_runtime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sysinfo = { workspace = true }
+systemd = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+toml = { workspace = true }
+tonic = { workspace = true }
+udev = { workspace = true }
+uuid = { workspace = true, features = ["v5", "v4", "serde"] }
+wifiscanner = { workspace = true }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }
+
+# Pinned transitive dependencies
+time = { workspace = true }
+
+[dev-dependencies]
+httpmock = { workspace = true }
+mockall = { workspace = true }
+pbjson-types = { workspace = true }
+tempdir = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+systemd = ["dep:systemd"]
+e2e_test = []
+
+[workspace.dependencies]
+astarte-device-sdk = "0.5.1"
 astarte-message-hub = "0.5.2"
 async-trait = "0.1.72"
+base64 = "0.13.1"
 bytes = "1.4.0"
-clap = { version = "4.3.19", features = ["derive"] }
+clap = "4.3.19"
 env_logger = "0.10.0"
 futures = "0.3.28"
 log = "0.4.19"
 procfs = "0.15.1"
-reqwest = { version = "0.11.18", features = ["stream"] }
+reqwest = "0.11.18"
 rustc_version_runtime = "0.2.1"
 serde = "1.0.181"
 serde_json = "1.0.104"
 sysinfo = "0.29.7"
-systemd = { version = "0.10.0", optional = true }
+systemd = "0.10.0"
 thiserror = "1.0.44"
-tokio = { version = "1.29.1", features = ["full"] }
+tokio = "1.29.1"
 tokio-stream = "0.1.14"
 tokio-util = "0.7.8"
 toml = "0.7.6"
 tonic = "0.8.3"
 udev = "0.7.0"
-uuid = { version = "1.4.1", features = ["v5", "v4", "serde"] }
+uuid = "1.4.1"
 wifiscanner = "0.5.1"
-zbus = { version = "2.2.0", default-features = false, features = ["tokio"] }
-
-# Pinned transitive dependencies
-time = "=0.3.23"
-
-
-[dev-dependencies]
+zbus = { version = "2.2.0", default-features = false }
 httpmock = "0.6"
 mockall = "0.11.4"
 pbjson-types = "0.5"
 tempdir = "0.3.7"
-tokio = { version = "1.29.1", features = ["test-util"] }
 
-[features]
-e2e_test = []
-
-[[bin]]
-name = "e2e-test"
-required-features = ["e2e_test"]
-path = "src/e2e_test/e2e_test.rs"
+# Pinned transitive dependencies
+time = "=0.3.23"

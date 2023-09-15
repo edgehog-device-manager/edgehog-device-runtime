@@ -7,10 +7,11 @@
 [package]
 name = "led-manager-service"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
+rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-zbus = { version = "2", default-features = false, features = ["tokio"] }
+tokio = { workspace = true, features = ["full"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }

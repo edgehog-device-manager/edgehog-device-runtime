@@ -7,14 +7,15 @@
 [package]
 name = "hardware-id-service"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
+rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-zbus = { version = "2", default-features = false, features = ["tokio"] }
-uuid = {version="0.8.2", features = ["v5", "v4"] }
-base64 = "0.13.1"
-clap = { version = "3.2.25", features = ["derive"] }
-procfs = "0.12.0"
+base64 = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+procfs = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+uuid = { workspace = true, features = ["v5", "v4"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }

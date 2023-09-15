@@ -70,7 +70,7 @@ jobs:
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-targets --all-features -- -D warnings
+          args: --all-targets --all-features --workspace -- -D warnings
   doc:
     runs-on: ubuntu-latest
     name: nightly / doc
@@ -86,7 +86,7 @@ jobs:
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Run cargo doc
-        run: cargo doc --no-deps --all-features
+        run: cargo doc --no-deps --all-features --workspace
         env:
           RUSTDOCFLAGS: --cfg docsrs
   hack:
@@ -107,7 +107,7 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       # intentionally no target specifier; see https://github.com/jonhoo/rust-ci-conf/pull/4
       - name: Run cargo hack
-        run: cargo hack --feature-powerset check
+        run: cargo hack --feature-powerset --workspace check
   msrv:
     runs-on: ubuntu-latest
     strategy:
