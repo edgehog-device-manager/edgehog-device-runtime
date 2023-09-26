@@ -1046,7 +1046,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "edgehog-forwarder"
+name = "edgehog-device-runtime-forwarder"
 version = "0.1.0"
 
 [[package]]
