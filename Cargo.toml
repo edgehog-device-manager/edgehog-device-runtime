@@ -13,9 +13,10 @@ rust-version = { workspace = true }
 [workspace]
 resolver = "2"
 members = [
-  "e2e-test",
-  "hardware-id-service",
-  "led-manager-service",
+    "e2e-test",
+    "edgehog-forwarder",
+    "hardware-id-service",
+    "led-manager-service",
 ]
 
 [workspace.package]
