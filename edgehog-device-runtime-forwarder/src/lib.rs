@@ -15,3 +15,15 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
+
+#![warn(missing_docs, rustdoc::missing_crate_level_docs)]
+
+//! Edgehog Device Runtime Forwarder
+//!
+//! Implement forwarder functionality on a device.
+
+pub mod astarte;
+pub mod connection;
+pub mod connections;
+pub mod connections_manager;
+mod messages;
