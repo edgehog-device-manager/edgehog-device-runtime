@@ -128,9 +128,9 @@ mock! {
             options: Option<CreateContainerOptions<&'a str>>,
             config: Config<String>,
         ) -> Result<ContainerCreateResponse, Error>;
-        fn create_image(
+        fn create_image<'a>(
             &self,
-            options: Option<CreateImageOptions<'static, String>>,
+            options: Option<CreateImageOptions<'a, String>>,
             root_fs: Option<Bytes>,
             credentials: Option<DockerCredentials>,
         ) -> DockerStream<CreateImageInfo>;

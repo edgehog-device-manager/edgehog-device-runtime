@@ -28,6 +28,7 @@
 pub(crate) mod client;
 pub mod docker;
 pub mod error;
+pub mod image;
 pub mod request;
 
 #[cfg(feature = "mock")]
