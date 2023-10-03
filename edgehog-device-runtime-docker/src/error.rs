@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,24 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs, rustdoc::missing_crate_level_docs)]
+//! Error returned when interacting with the docker daemon
 
-//! # Edgehog Device Runtime Docker
-//!
-//! Library to manage container for the `edgehog-device-runtime`.
-//!
-//! It will handle communications with the Docker daemon and solve the requests received from
-//! Astarte.
-
-pub(crate) mod client;
-pub mod docker;
-pub mod error;
-
-#[cfg(feature = "mock")]
-mod mock;
-
-/// Re-export third parties dependencies
-pub use bollard;
-
-/// Re-export internal structs
-pub use self::docker::*;
+/// Error returned form the docker daemon
+#[non_exhaustive]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum DockerError {
+    /// couldn't connect to the docker daemon docker
+    Connection(#[source] bollard::errors::Error),
+    /// couldn't ping the docker daemon
+    Ping(#[source] bollard::errors::Error),
+}

@@ -16,24 +16,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs, rustdoc::missing_crate_level_docs)]
+//! Client to use to comunicate with the Docker daemon.
 
-//! # Edgehog Device Runtime Docker
-//!
-//! Library to manage container for the `edgehog-device-runtime`.
-//!
-//! It will handle communications with the Docker daemon and solve the requests received from
-//! Astarte.
-
-pub(crate) mod client;
-pub mod docker;
-pub mod error;
-
+// Mock the client, this is behind a feature flag so we can test with both the real docker daemon
+// and the mocked one.
 #[cfg(feature = "mock")]
-mod mock;
-
-/// Re-export third parties dependencies
-pub use bollard;
-
-/// Re-export internal structs
-pub use self::docker::*;
+pub(crate) use crate::mock::{DockerTrait, MockDocker as Client};
+#[cfg(not(feature = "mock"))]
+pub(crate) use bollard::Docker as Client;
