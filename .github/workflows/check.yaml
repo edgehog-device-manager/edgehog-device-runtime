@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     name: stable / fmt
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -60,7 +60,7 @@ jobs:
           curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
           unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -82,7 +82,7 @@ jobs:
           curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
           unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Run cargo doc
@@ -100,7 +100,7 @@ jobs:
           curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
           unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-hack
@@ -122,7 +122,7 @@ jobs:
           curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
           unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Install ${{ matrix.msrv }}
