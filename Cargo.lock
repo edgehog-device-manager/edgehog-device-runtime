@@ -159,16 +159,17 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk"
-version = "0.6.0"
-source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=temp-merged#7e19f570e3c4efe55c6c275d42cb5b216c455bd8"
+version = "0.6.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust.git?branch=temp-merged#e8e0b0383dd43f03141e146ff3b925ca5137aeaa"
 dependencies = [
- "astarte-device-sdk-derive 0.6.0",
+ "astarte-device-sdk-derive 0.6.1",
  "async-trait",
  "base64 0.21.2",
  "bson",
  "chrono",
  "ecdsa",
  "flate2",
+ "futures",
  "http",
  "itertools 0.11.0",
  "log",
@@ -202,8 +203,8 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-derive"
-version = "0.6.0"
-source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=temp-merged#7e19f570e3c4efe55c6c275d42cb5b216c455bd8"
+version = "0.6.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust.git?branch=temp-merged#e8e0b0383dd43f03141e146ff3b925ca5137aeaa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1215,13 +1216,13 @@ dependencies = [
 name = "edgehog-device-runtime-docker"
 version = "0.1.0"
 dependencies = [
- "astarte-device-sdk 0.6.0",
+ "astarte-device-sdk 0.6.1",
  "async-trait",
  "bollard",
  "displaydoc",
- "env_logger 0.10.0",
  "futures",
  "hyper",
+ "itertools 0.11.0",
  "mockall",
  "petgraph",
  "serde",
