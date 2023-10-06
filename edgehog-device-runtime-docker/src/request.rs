@@ -31,7 +31,9 @@ impl FromEvent for CreateRequests {
 
     fn from_event(value: DeviceEvent) -> Result<Self, Self::Err> {
         match value.interface.as_str() {
-            "io.edgehog.devicemanager.apps.CreateImageRequest" => todo!(),
+            "io.edgehog.devicemanager.apps.CreateImageRequest" => {
+                CreateImage::from_event(value).map(CreateRequests::Image)
+            }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
     }
@@ -44,10 +46,10 @@ impl FromEvent for CreateRequests {
     path = "/image"
 )]
 pub struct CreateImage {
-    id: String,
-    repo: String,
-    name: String,
-    tag: String,
+    pub(crate) id: String,
+    pub(crate) repo: String,
+    pub(crate) name: String,
+    pub(crate) tag: String,
 }
 
 #[cfg(test)]
