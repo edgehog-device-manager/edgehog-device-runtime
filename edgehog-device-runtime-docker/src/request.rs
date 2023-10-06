@@ -46,10 +46,10 @@ impl FromEvent for CreateRequests {
     path = "/image"
 )]
 pub struct CreateImage {
-    id: String,
-    repo: String,
-    name: String,
-    tag: String,
+    pub(crate) id: String,
+    pub(crate) repo: String,
+    pub(crate) name: String,
+    pub(crate) tag: String,
 }
 
 #[cfg(test)]

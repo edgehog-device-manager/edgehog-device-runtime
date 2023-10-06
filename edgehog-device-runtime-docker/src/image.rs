@@ -239,7 +239,7 @@ impl<S> Image<S> {
     {
         let id = self.to_string();
 
-        debug!("removind image: {id}");
+        debug!("removing image: {id}");
 
         let res = client.remove_image(&id, None, None).await;
 
