@@ -45,7 +45,7 @@ pub enum ImageError {
     /// couldn't remove image
     Remove(#[source] bollard::errors::Error),
     /// couldn't remove image in use by container
-    ImageInUse(#[source] bollard::errors::Error),
+    InUse(#[source] bollard::errors::Error),
     /// couldn't list the images
     List(#[source] bollard::errors::Error),
     /// couldn't convert container summary
@@ -262,7 +262,7 @@ impl<S> Image<S> {
                 error!("cannot remove image in use: {}", &message);
 
                 // We need to unpack an repack the struct to access the fields
-                Err(ImageError::ImageInUse(
+                Err(ImageError::InUse(
                     bollard::errors::Error::DockerResponseServerError {
                         status_code: 409,
                         message,
@@ -290,17 +290,16 @@ impl Image<String> {
 
         let options = Self::convert_option(options);
 
-        client
+        let images = client
             .list_images(options)
             .await
-            .map_err(ImageError::List)
-            .and_then(|images| {
-                images
-                    .into_iter()
-                    .map(|summary| Image::try_from(summary).map(Image::into))
-                    .collect::<Result<_, _>>()
-                    .map_err(ImageError::from)
-            })
+            .map_err(ImageError::List)?;
+
+        images
+            .into_iter()
+            .map(|summary| Image::try_from(summary).map(Image::into))
+            .collect::<Result<_, _>>()
+            .map_err(ImageError::from)
     }
 
     /// Identity
@@ -343,11 +342,9 @@ impl Image<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     use super::*;
 
-    use crate::docker_mock;
+    use crate::{docker_mock, tests::random_name};
 
     #[tokio::test]
     async fn poll_hello_world() {
@@ -422,11 +419,7 @@ mod tests {
     #[tokio::test]
     async fn inspect_not_found() {
         // Random image name
-        let time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let name = time.to_string();
+        let name = random_name();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
@@ -435,12 +428,7 @@ mod tests {
             mock.expect_inspect_image()
                 .withf(move |img| img == img_name)
                 .once()
-                .returning(|_| {
-                    Err(bollard::errors::Error::DockerResponseServerError {
-                        status_code: 404,
-                        message: "not found".to_string(),
-                    })
-                });
+                .returning(|_| Err(crate::tests::not_found_response()));
 
             mock
         });
@@ -506,11 +494,7 @@ mod tests {
     #[tokio::test]
     async fn remove_image_not_found() {
         // Random image name
-        let time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let name = time.to_string();
+        let name = random_name();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
@@ -519,12 +503,7 @@ mod tests {
             mock.expect_remove_image()
                 .withf(move |name, _, _| name == format!("{name_cl}:latest"))
                 .once()
-                .returning(|_, _, _| {
-                    Err(bollard::errors::Error::DockerResponseServerError {
-                        status_code: 404,
-                        message: "not found".to_string(),
-                    })
-                });
+                .returning(|_, _, _| Err(crate::tests::not_found_response()));
 
             mock
         });
