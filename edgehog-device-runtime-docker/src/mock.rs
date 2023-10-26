@@ -34,10 +34,11 @@ use bollard::{
     image::{CreateImageOptions, ListImagesOptions, RemoveImageOptions},
     models::{
         ContainerCreateResponse, ContainerWaitResponse, CreateImageInfo, EventMessage,
-        ImageInspect, ImageSummary,
+        ImageInspect, ImageSummary, Volume, VolumeListResponse,
     },
     service::{ContainerSummary, ImageDeleteResponseItem},
     system::EventsOptions,
+    volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions},
 };
 use futures::Stream;
 use hyper::body::Bytes;
@@ -102,6 +103,20 @@ pub trait DockerTrait: Sized {
         &self,
         options: Option<ListImagesOptions<String>>,
     ) -> Result<Vec<ImageSummary>, Error>;
+    async fn create_volume<'a>(
+        &'a self,
+        options: CreateVolumeOptions<&'a str>,
+    ) -> Result<Volume, Error>;
+    async fn inspect_volume(&self, volume_name: &str) -> Result<Volume, Error>;
+    async fn remove_volume(
+        &self,
+        image_name: &str,
+        options: Option<RemoveVolumeOptions>,
+    ) -> Result<(), Error>;
+    async fn list_volumes(
+        &self,
+        options: Option<ListVolumesOptions<String>>,
+    ) -> Result<VolumeListResponse, Error>;
 }
 
 mock! {
@@ -167,5 +182,16 @@ mock! {
             &self,
             options: Option<ListImagesOptions<String>>,
         ) -> Result<Vec<ImageSummary>, Error>;
+        async fn create_volume<'a>(&'a self, options: CreateVolumeOptions<&'a str>) -> Result<Volume, Error>;
+        async fn inspect_volume(&self, volume_name: &str) -> Result<Volume, Error>;
+        async fn remove_volume(
+            &self,
+            image_name: &str,
+            options: Option<RemoveVolumeOptions>,
+        ) -> Result<(), Error>;
+        async fn list_volumes(
+            &self,
+            options: Option<ListVolumesOptions<String>>,
+        ) -> Result<VolumeListResponse, Error>;
     }
 }

@@ -32,6 +32,7 @@ pub mod image;
 mod properties;
 pub mod request;
 pub mod service;
+pub mod volume;
 
 #[cfg(feature = "mock")]
 mod mock;
