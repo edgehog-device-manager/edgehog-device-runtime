@@ -18,11 +18,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use log::{error, info};
+use std::time::Duration;
+
+use log::{debug, error, info};
 
 use crate::error::DeviceManagerError;
 
 pub async fn reboot() -> Result<(), DeviceManagerError> {
+    debug!("waiting 5 secs before reboot");
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
     if std::env::var("DM_NO_REBOOT").is_ok() {
         info!("Dry run, exiting");
 

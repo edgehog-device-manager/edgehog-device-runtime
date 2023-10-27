@@ -18,16 +18,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::task::Poll;
+
 use async_trait::async_trait;
-use log::info;
+use futures::stream::FusedStream;
+use futures::{future, ready, Stream, StreamExt, TryStreamExt};
+use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::Sender;
 use zbus::dbus_proxy;
-use zbus::export::futures_util::StreamExt;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::ota::{DeployingProgress, OtaError, SystemUpdate};
+use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
 use crate::DeviceManagerError;
+
+use super::ProgressStream;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
 #[zvariant(signature = "dict")]
@@ -169,45 +173,25 @@ impl SystemUpdate for OTARauc<'static> {
             .map_err(DeviceManagerError::ZbusError)
     }
 
-    async fn receive_completed(
-        &self,
-        sender: Sender<DeployingProgress>,
-    ) -> Result<i32, DeviceManagerError> {
-        let stream_progress_fn = async move {
-            let mut progress_stream = self.rauc.receive_progress_changed().await;
+    async fn receive_completed(&self) -> Result<ProgressStream, DeviceManagerError> {
+        let progress_stream = self
+            .rauc
+            .receive_progress_changed()
+            .await
+            .then(|val| async move {
+                let (percentage, message, _depth) = val.get().await?;
 
-            while let Some(value) = progress_stream.next().await {
-                if let Ok((percentage, message, _)) = value.get().await {
-                    if sender
-                        .send(DeployingProgress {
-                            percentage,
-                            message,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            }
-        };
+                Ok((percentage, message))
+            })
+            // Make the future fused, so we can select between the two streams
+            .try_take_while(|(progres, _message)| future::ok(*progres < 100))
+            .boxed();
 
-        let mut receive_completed_update = self.rauc.receive_completed().await?;
-        let completed_update = tokio::select! {
-            _ = stream_progress_fn => {None}
-            completed_update = receive_completed_update.next() => {completed_update}
-        };
+        let completed_stream = self.rauc.receive_completed().await?;
 
-        if let Some(completed) = completed_update {
-            let signal = completed.args().unwrap();
-            let signal = *signal.result();
+        let stream = DeployStream::new(progress_stream, completed_stream);
 
-            Ok(signal)
-        } else {
-            Err(DeviceManagerError::OtaError(OtaError::Internal(
-                "Unable to receive signal from rauc interface",
-            )))
-        }
+        Ok(stream.boxed())
     }
 
     async fn get_primary(&self) -> Result<String, DeviceManagerError> {
@@ -239,5 +223,119 @@ impl<'a> OTARauc<'a> {
         info!("primary slot = {:?}", proxy.get_primary().await);
 
         Ok(OTARauc { rauc: proxy })
+    }
+}
+
+/// Progress of the Rauc deployment progress
+struct DeployStream<'a, S> {
+    progress_changed: S,
+    completed_stream: CompletedStream<'a>,
+    completed: bool,
+}
+
+impl<'a, S> DeployStream<'a, S>
+where
+    S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
+{
+    fn new(progress_changed: S, completed_stream: CompletedStream<'a>) -> Self {
+        Self {
+            progress_changed,
+            completed_stream,
+            completed: false,
+        }
+    }
+
+    fn map_completed(completed: Completed) -> Result<DeployStatus, DeviceManagerError> {
+        let signal = *completed.args()?.result();
+
+        Ok(DeployStatus::Completed { signal })
+    }
+
+    fn poll_completed(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Result<DeployStatus, DeviceManagerError>>> {
+        match ready!(self.completed_stream.poll_next_unpin(cx)) {
+            Some(completed) => {
+                debug!(
+                    "deployment completed with signal: {}",
+                    completed.to_string()
+                );
+
+                self.completed = true;
+
+                Poll::Ready(Some(Self::map_completed(completed)))
+            }
+            None => {
+                warn!("completed stream ended but poll_next was on the deploy progress");
+                self.completed = true;
+
+                Poll::Ready(None)
+            }
+        }
+    }
+
+    fn poll_progress(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Result<DeployStatus, DeviceManagerError>>> {
+        match ready!(self.progress_changed.poll_next_unpin(cx)) {
+            Some(Ok((percentage, message))) => {
+                debug!("progress {message} {percentage}");
+
+                Poll::Ready(Some(Ok(DeployStatus::Progress(DeployProgress {
+                    percentage,
+                    message,
+                }))))
+            }
+            Some(Err(err)) => Poll::Ready(Some(Err(err))),
+            None => {
+                warn!("completed stream ended but poll_next was on the deploy progress");
+
+                Poll::Ready(None)
+            }
+        }
+    }
+}
+
+impl<'a, S> Stream for DeployStream<'a, S>
+where
+    S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
+{
+    type Item = Result<DeployStatus, DeviceManagerError>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        if self.completed {
+            return Poll::Ready(None);
+        }
+
+        match self.as_mut().poll_progress(cx) {
+            Poll::Ready(Some(progress)) => {
+                return Poll::Ready(Some(progress));
+            }
+            Poll::Ready(None) | Poll::Pending => {
+                debug!("progress none or pending")
+            }
+        }
+
+        match self.as_mut().poll_completed(cx) {
+            Poll::Ready(completed) => Poll::Ready(completed),
+            Poll::Pending => {
+                debug!("completed is pending");
+                Poll::Pending
+            }
+        }
+    }
+}
+
+impl<'a, S> FusedStream for DeployStream<'a, S>
+where
+    S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
+{
+    fn is_terminated(&self) -> bool {
+        self.completed
     }
 }
