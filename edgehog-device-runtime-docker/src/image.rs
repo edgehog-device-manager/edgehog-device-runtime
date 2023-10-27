@@ -30,6 +30,7 @@ use bollard::{
     models::{ImageDeleteResponseItem, ImageInspect, ImageSummary},
 };
 use futures::{future, TryStreamExt};
+use itertools::Itertools;
 use serde::Serialize;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -297,7 +298,7 @@ impl Image<String> {
         images
             .into_iter()
             .map(|summary| Image::try_from(summary).map(Image::into))
-            .collect::<Result<_, _>>()
+            .try_collect()
             .map_err(ImageError::from)
     }
 

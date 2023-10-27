@@ -48,16 +48,6 @@ pub enum VolumeError {
     Remove(#[source] BollardError),
     /// couldn't list volumes
     List(#[source] BollardError),
-    /// couldn't convert volume
-    Convert(#[from] ConversionError),
-}
-
-/// Error for the converting a value to an [`DockerVolume`].
-#[non_exhaustive]
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum ConversionError {
-    /// couldn't extract the tag for the image
-    TODO,
 }
 
 /// Docker volume struct.
@@ -188,7 +178,7 @@ impl<S> Volume<S> {
                     },
                 ))
             }
-            Err(err) => return Err(VolumeError::Remove(err)),
+            Err(err) => Err(VolumeError::Remove(err)),
         }
     }
 }
@@ -212,20 +202,18 @@ impl Volume<String> {
             .await
             .map_err(VolumeError::List)?;
 
-        // TODO: this can be changed when if let expressions are out from nightly
         if let Some(warnings) = volumes.warnings {
             if !warnings.is_empty() {
-                warn!("warnings when listing images: {warnings:?}")
+                warn!("warnings when listing images: {warnings:?}");
             }
         }
 
-        volumes
+        Ok(volumes
             .volumes
             .unwrap_or_default()
             .into_iter()
-            .map(Volume::try_from)
-            .collect::<Result<_, _>>()
-            .map_err(VolumeError::from)
+            .map(Volume::from)
+            .collect())
     }
 
     /// Identity
@@ -276,15 +264,9 @@ where
     }
 }
 
-impl TryFrom<DockerVolume> for Volume<String> {
-    type Error = ConversionError;
-
-    fn try_from(value: DockerVolume) -> Result<Self, Self::Error> {
-        Ok(Volume::with_options(
-            value.name,
-            value.driver,
-            value.options,
-        ))
+impl From<DockerVolume> for Volume<String> {
+    fn from(value: DockerVolume) -> Self {
+        Volume::with_options(value.name, value.driver, value.options)
     }
 }
 
