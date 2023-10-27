@@ -18,12 +18,25 @@
 //! Handles Docker request from Astarte.
 
 use astarte_device_sdk::{event::FromEventError, from_event, DeviceEvent, FromEvent};
+use itertools::Itertools;
+
+use crate::volume::Volume;
+
+/// Error from handling the Astarte request.
+#[non_exhaustive]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum ReqError {
+    /// couldn't parse option, expected key=value but got {0}
+    Option(String),
+}
 
 /// Create request from Astarte.
 #[derive(Debug, Clone)]
 pub enum CreateRequests {
-    /// Request to pull a Image.
+    /// Request to pull a (`Image`)[crate::image::Image].
     Image(CreateImage),
+    /// Request to create a Volume
+    Volume(CreateVolume),
 }
 
 impl FromEvent for CreateRequests {
@@ -33,6 +46,9 @@ impl FromEvent for CreateRequests {
         match value.interface.as_str() {
             "io.edgehog.devicemanager.apps.CreateImageRequest" => {
                 CreateImage::from_event(value).map(CreateRequests::Image)
+            }
+            "io.edgehog.devicemanager.apps.CreateVolumeRequest" => {
+                CreateVolume::from_event(value).map(CreateRequests::Volume)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
@@ -52,9 +68,40 @@ pub struct CreateImage {
     pub(crate) tag: String,
 }
 
+/// Request to pull a Docker Image.
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.apps.CreateVolumeRequest",
+    path = "/volume"
+)]
+pub struct CreateVolume {
+    pub(crate) id: String,
+    pub(crate) driver: String,
+    pub(crate) options: Vec<String>,
+}
+
+impl TryFrom<CreateVolume> for Volume<String> {
+    type Error = ReqError;
+
+    fn try_from(value: CreateVolume) -> Result<Self, Self::Error> {
+        let options = value
+            .options
+            .into_iter()
+            .map(|option| {
+                option
+                    .split_once('=')
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .ok_or(ReqError::Option(option))
+            })
+            .try_collect()?;
+
+        Ok(Volume::with_options(value.id, value.driver, options))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use astarte_device_sdk::Value;
+    use astarte_device_sdk::{types::AstarteType, Value};
 
     use super::*;
 
@@ -82,6 +129,36 @@ mod tests {
             repo: "repo".to_string(),
             name: "name".to_string(),
             tag: "tag".to_string(),
+        };
+
+        assert_eq!(create_image.unwrap(), expect);
+    }
+
+    #[test]
+    fn create_volume() {
+        let fields = [
+            ("id", AstarteType::String("id".to_string())),
+            ("driver", AstarteType::String("local".to_string())),
+            (
+                "options",
+                AstarteType::StringArray(vec!["foo=bar".to_string()]),
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.apps.CreateVolumeRequest".to_string(),
+            path: "/volume".to_string(),
+            data: Value::Object(fields),
+        };
+
+        let create_image = CreateVolume::from_event(event);
+
+        let expect = CreateVolume {
+            id: "id".to_string(),
+            driver: "local".to_string(),
+            options: vec!["foo=bar".to_string()],
         };
 
         assert_eq!(create_image.unwrap(), expect);

@@ -18,7 +18,7 @@
 
 //! Error returned when interacting with the docker daemon
 
-use crate::image::ImageError;
+use crate::{image::ImageError, volume::VolumeError};
 
 /// Error returned form the docker daemon
 #[non_exhaustive]
@@ -30,4 +30,6 @@ pub enum DockerError {
     Ping(#[source] bollard::errors::Error),
     /// image operation failed
     Image(#[from] ImageError),
+    /// volume operation failed
+    Volume(#[from] VolumeError),
 }

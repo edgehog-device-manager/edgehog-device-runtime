@@ -18,21 +18,29 @@
 
 //! Service to receive the Astarte events.
 
-use std::{borrow::Borrow, collections::HashMap, fmt::Display, ops::Deref, rc::Rc};
+use std::{
+    borrow::Borrow,
+    collections::{hash_map::Entry, HashMap},
+    fmt::Display,
+    ops::Deref,
+    sync::Arc,
+};
 
 use astarte_device_sdk::{
-    error::Error as AstarteError, event::FromEventError, properties::PropAccess,
-    store::PropertyStore, DeviceClient, DeviceEvent, FromEvent,
+    event::FromEventError, store::PropertyStore, DeviceClient, DeviceEvent, Error as AstarteError,
+    FromEvent,
 };
-use itertools::Itertools;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use tracing::{debug, info, instrument, warn};
 
 use crate::{
     error::DockerError,
     image::Image,
-    properties::{AvailableImage, PropError},
-    request::{CreateImage, CreateRequests},
+    properties::{
+        image::AvailableImage, volume::AvailableVolume, AvailableProp, LoadProp, PropError,
+    },
+    request::{CreateImage, CreateRequests, CreateVolume, ReqError},
+    volume::Volume,
     Docker,
 };
 
@@ -54,10 +62,12 @@ pub enum ServiceError {
         #[source]
         backtrace: PropError,
     },
-    /// Node {0} is missing
+    /// node {0} is missing
     MissingNode(String),
-    /// Relation is missing given the index
+    /// relation is missing given the index
     MissingRelation,
+    /// couldn't process request
+    Request(#[from] ReqError),
 }
 
 impl<T> From<T> for ServiceError
@@ -96,49 +106,10 @@ impl<S> Service<S> {
     {
         let mut services = Self::new(client, device);
 
-        services.load_images().await?;
+        AvailableImage::load_resource(&services.device, &mut services.nodes).await?;
+        AvailableVolume::load_resource(&services.device, &mut services.nodes).await?;
 
         Ok(services)
-    }
-
-    #[instrument]
-    async fn load_images(&mut self) -> Result<(), ServiceError>
-    where
-        S: PropertyStore,
-    {
-        let av_imgs_sprop = self
-            .device
-            .interface_props(AvailableImage::INTERFACE)
-            .await?;
-
-        let av_imgs = av_imgs_sprop
-            .iter()
-            .map(AvailableImage::try_from)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| ServiceError::Prop {
-                interface: AvailableImage::INTERFACE,
-                backtrace: err,
-            })?;
-
-        av_imgs
-            .into_iter()
-            .chunk_by(|av_img| av_img.id)
-            .into_iter()
-            .map(|(_, group)| group.reduce(AvailableImage::merge))
-            .filter_map(|av_img| av_img.map(|av_img| (av_img.id, av_img)))
-            .try_for_each(|(id, av_img)| -> Result<(), ServiceError> {
-                let img = Image::try_from(av_img).map_err(|err| ServiceError::Prop {
-                    interface: AvailableImage::INTERFACE,
-                    backtrace: err,
-                })?;
-
-                let id = Id::new(id.to_string());
-
-                self.nodes
-                    .add_node(id, |id, idx| Node::new(id, idx, State::Stored, img));
-
-                Ok(())
-            })
     }
 
     /// Handles an event from the image.
@@ -151,6 +122,7 @@ impl<S> Service<S> {
 
         match event {
             CreateRequests::Image(req) => self.create_image(req).await,
+            CreateRequests::Volume(req) => self.create_volume(req).await,
         }
     }
 
@@ -173,9 +145,28 @@ impl<S> Service<S> {
         Ok(())
     }
 
+    /// Store the create image request
+    #[instrument(skip(self))]
+    async fn create_volume(&mut self, req: CreateVolume) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+    {
+        let id = Id::new(req.id.clone());
+
+        let node = self.nodes.try_add_node(id, |id, idx| {
+            let volume = Volume::try_from(req)?;
+
+            Ok(Node::new(id, idx, State::Missing, volume))
+        })?;
+
+        node.store(&self.device).await?;
+
+        Ok(())
+    }
+
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn star(&mut self, id: &str) -> Result<(), ServiceError>
+    pub async fn start(&mut self, id: &str) -> Result<(), ServiceError>
     where
         S: PropertyStore,
     {
@@ -216,7 +207,7 @@ impl<S> Service<S> {
 /// The Nodes struct is needed since on the [`Service`] we need to have mixed mutable and immutable
 /// reference to the various parts of the struct.
 #[derive(Debug, Clone)]
-struct Nodes {
+pub(crate) struct Nodes {
     nodes: HashMap<Id, Node>,
     relations: StableDiGraph<Id, ()>,
 }
@@ -229,7 +220,7 @@ impl Nodes {
         }
     }
 
-    fn add_node<F>(&mut self, id: Id, f: F) -> &mut Node
+    pub(crate) fn add_node<F>(&mut self, id: Id, f: F) -> &mut Node
     where
         F: FnOnce(Id, NodeIndex) -> Node,
     {
@@ -238,6 +229,33 @@ impl Nodes {
 
             f(id.clone(), idx)
         })
+    }
+
+    fn try_add_node<F>(&mut self, id: Id, f: F) -> Result<&mut Node, ServiceError>
+    where
+        F: FnOnce(Id, NodeIndex) -> Result<Node, ServiceError>,
+    {
+        match self.nodes.entry(id) {
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+
+            Entry::Vacant(entry) => {
+                let idx = self.relations.add_node(entry.key().clone());
+
+                // Reset the relations in case of errors
+                let node = match f(entry.key().clone(), idx) {
+                    Ok(node) => node,
+                    Err(err) => {
+                        debug!("error creating node, removing relation");
+
+                        self.relations.remove_node(idx);
+
+                        return Err(err);
+                    }
+                };
+
+                Ok(entry.insert(node))
+            }
+        }
     }
 }
 
@@ -248,7 +266,7 @@ impl Default for Nodes {
 }
 
 #[derive(Debug, Clone)]
-struct Node {
+pub(crate) struct Node {
     id: Id,
     idx: NodeIndex,
     state: State,
@@ -256,7 +274,7 @@ struct Node {
 }
 
 impl Node {
-    fn new<T>(id: Id, idx: NodeIndex, state: State, node: T) -> Self
+    pub(crate) fn new<T>(id: Id, idx: NodeIndex, state: State, node: T) -> Self
     where
         T: Into<NodeType>,
     {
@@ -280,6 +298,11 @@ impl Node {
                     .await?;
 
                 info!("stored image with id {}", self.id);
+            }
+            NodeType::Volume { volume } => {
+                AvailableVolume::with_volume(&self.id, volume)
+                    .store(device)
+                    .await?;
             }
         }
 
@@ -305,6 +328,13 @@ impl Node {
                     .store(device)
                     .await?;
             }
+            NodeType::Volume { volume } => {
+                volume.create(client).await?;
+
+                AvailableVolume::with_created(&self.id, volume, true)
+                    .store(device)
+                    .await?;
+            }
         }
 
         self.state.created();
@@ -314,8 +344,9 @@ impl Node {
 }
 
 #[derive(Debug, Clone)]
-enum NodeType {
+pub(crate) enum NodeType {
     Image { image: Image<String> },
+    Volume { volume: Volume<String> },
 }
 
 impl From<Image<String>> for NodeType {
@@ -324,9 +355,15 @@ impl From<Image<String>> for NodeType {
     }
 }
 
+impl From<Volume<String>> for NodeType {
+    fn from(value: Volume<String>) -> Self {
+        Self::Volume { volume: value }
+    }
+}
+
 /// State of the object for the request.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-enum State {
+pub(crate) enum State {
     #[default]
     Missing,
     Stored,
@@ -357,12 +394,12 @@ impl State {
 
 /// Id of the nodes in the Service graph
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct Id(Rc<String>);
+pub(crate) struct Id(Arc<str>);
 
 impl Id {
     /// Create a new ID
-    fn new(id: String) -> Self {
-        Self(Rc::new(id))
+    pub(crate) fn new(id: String) -> Self {
+        Self(id.into())
     }
 }
 
