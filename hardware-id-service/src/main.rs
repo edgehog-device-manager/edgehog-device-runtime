@@ -53,7 +53,7 @@ impl Device {
     fn get_hardware_id(&self, namespace: &str) -> String {
         let mut data: String = "".to_string();
         if self.file_path.is_some() {
-            data = fs::read_to_string(&self.file_path.clone().unwrap()).unwrap_or_default();
+            data = fs::read_to_string(self.file_path.clone().unwrap()).unwrap_or_default();
         }
         if self.kernel_cmdline_key.is_some() {
             let cmdline_params = cmdline().unwrap();
