@@ -1679,7 +1679,7 @@ dependencies = [
 name = "hardware-id-service"
 version = "0.1.0"
 dependencies = [
- "base64 0.13.1",
+ "base64 0.21.2",
  "clap 4.3.19",
  "procfs",
  "tokio",
