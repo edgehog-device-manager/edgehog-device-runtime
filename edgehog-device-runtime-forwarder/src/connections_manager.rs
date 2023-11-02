@@ -20,7 +20,7 @@ use url::Url;
 
 use crate::collection::Connections;
 use crate::connection::ConnectionError;
-use crate::messages::{Http, HttpMessage, Id, ProtoMessage, ProtocolError};
+use crate::messages::{Id, ProtoMessage, ProtocolError};
 use crate::tls::{device_tls_config, Error as TlsError};
 
 /// Size of the channels where to send proto messages.
@@ -296,20 +296,13 @@ impl ConnectionsManager {
 
         // handle only HTTP requests, not other kind of protobuf messages
         match proto_msg {
-            ProtoMessage::Http(Http {
-                request_id,
-                http_msg: HttpMessage::Request(http_req),
-            }) => self.connections.handle_http(request_id, http_req),
-            ProtoMessage::Http(Http {
-                request_id,
-                http_msg: HttpMessage::Response(_http_res),
-            }) => {
-                error!("Http response should not be sent by Edgehog");
-                Err(Error::WrongMessage(request_id))
+            ProtoMessage::Http(http) => {
+                trace!("received HTTP message: {http:?}");
+                self.connections.handle_http(http)
             }
-            ProtoMessage::WebSocket(_ws) => {
-                error!("WebSocket messages are not supported yet");
-                Err(Error::Unsupported)
+            ProtoMessage::WebSocket(ws) => {
+                trace!("received WebSocket frame: {ws:?}");
+                self.connections.handle_ws(ws).await
             }
         }
     }

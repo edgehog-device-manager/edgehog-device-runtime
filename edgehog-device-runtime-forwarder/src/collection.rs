@@ -8,11 +8,13 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::connection::{Connection, ConnectionHandle};
 use crate::connections_manager::Error;
-use crate::messages::{HttpRequest, Id, ProtoMessage};
+use crate::messages::{
+    Http as ProtoHttp, HttpRequest, Id, ProtoMessage, WebSocket as ProtoWebSocket,
+};
 
 /// Connections' collection between the device and Edgehog.
 pub(crate) struct Connections {
@@ -41,19 +43,66 @@ impl Connections {
         }
     }
 
-    /// Create a new [`Connection`] in case a new HTTP request is received.
-    #[instrument(skip(self, http_req))]
-    pub(crate) fn handle_http(
-        &mut self,
-        request_id: Id,
-        http_req: HttpRequest,
-    ) -> Result<(), Error> {
+    /// Handle the reception of an HTTP proto message from Edgehog.
+    #[instrument(skip_all)]
+    pub(crate) fn handle_http(&mut self, http: ProtoHttp) -> Result<(), Error> {
+        let ProtoHttp {
+            request_id,
+            http_msg,
+        } = http;
+
+        // the HTTP message can't be an http response
+        let http_req = http_msg.into_req().ok_or_else(|| {
+            error!("Http response should not be sent by the bridge");
+            Error::WrongMessage(request_id.clone())
+        })?;
+
+        // before executing the HTTP request, check if it is an Upgrade request.
+        if http_req.is_upgrade() {
+            info!("Connection upgrade");
+            return self.add_ws(request_id, http_req);
+        }
+
         let tx_ws = self.tx_ws.clone();
 
         self.try_add(request_id.clone(), || {
-            let request = http_req.request_builder()?;
-            Ok(Connection::new(request_id, tx_ws, request).spawn())
+            Connection::with_http(request_id, tx_ws, http_req).map_err(Error::from)
         })
+    }
+
+    /// Create a new WebSocket [`Connection`].
+    #[instrument(skip(self))]
+    fn add_ws(&mut self, request_id: Id, http_req: HttpRequest) -> Result<(), Error> {
+        debug_assert!(http_req.is_upgrade());
+
+        let tx_ws = self.tx_ws.clone();
+
+        self.try_add(request_id.clone(), || {
+            Connection::with_ws(request_id, tx_ws, http_req).map_err(Error::from)
+        })
+    }
+
+    /// Handle the reception of a websocket proto message from the bridge
+    #[instrument(skip(self, ws))]
+    pub(crate) async fn handle_ws(&mut self, ws: ProtoWebSocket) -> Result<(), Error> {
+        let ProtoWebSocket { socket_id, message } = ws;
+
+        // check if there exist a websocket connection with that id
+        // and send a WebSocket message toward the task handling it
+        match self.connections.entry(socket_id.clone()) {
+            Entry::Occupied(entry) => {
+                let handle = entry.get();
+                let proto_msg = ProtoMessage::WebSocket(ProtoWebSocket {
+                    socket_id: socket_id.clone(),
+                    message,
+                });
+                handle.send(proto_msg).await.map_err(Error::from)
+            }
+            Entry::Vacant(_entry) => {
+                error!("websocket connection {socket_id} not found");
+                Err(Error::ConnectionNotFound(socket_id))
+            }
+        }
     }
 
     /// Try add a new connection
@@ -107,6 +156,7 @@ impl Connections {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::connection::WriteHandle;
     use std::future::Future;
     use std::sync::Arc;
     use std::time::Duration;
@@ -118,6 +168,7 @@ mod tests {
     {
         Ok(ConnectionHandle {
             handle: tokio::spawn(f),
+            connection: WriteHandle::Http,
         })
     }
 
