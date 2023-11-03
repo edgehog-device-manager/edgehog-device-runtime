@@ -30,8 +30,9 @@ use bollard::{
     image::{CreateImageOptions, ListImagesOptions, RemoveImageOptions},
     models::{
         ContainerCreateResponse, ContainerWaitResponse, CreateImageInfo, EventMessage,
-        ImageInspect, ImageSummary, Volume, VolumeListResponse,
+        ImageInspect, ImageSummary, Network, NetworkCreateResponse, Volume, VolumeListResponse,
     },
+    network::{CreateNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     service::{ContainerSummary, ImageDeleteResponseItem},
     system::EventsOptions,
     volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions},
@@ -113,6 +114,20 @@ pub trait DockerTrait: Sized {
         &self,
         options: Option<ListVolumesOptions<String>>,
     ) -> Result<VolumeListResponse, Error>;
+    async fn create_network<'a>(
+        &self,
+        config: CreateNetworkOptions<&'a str>,
+    ) -> Result<NetworkCreateResponse, Error>;
+    async fn inspect_network(
+        &self,
+        network_name: &str,
+        options: Option<InspectNetworkOptions<String>>,
+    ) -> Result<Network, Error>;
+    async fn remove_network(&self, network_name: &str) -> Result<(), Error>;
+    async fn list_networks(
+        &self,
+        options: Option<ListNetworksOptions<String>>,
+    ) -> Result<Vec<Network>, Error>;
 }
 
 mock! {
@@ -189,5 +204,19 @@ mock! {
             &self,
             options: Option<ListVolumesOptions<String>>,
         ) -> Result<VolumeListResponse, Error>;
+        async fn create_network<'a>(
+            &self,
+            config: CreateNetworkOptions<&'a str>,
+        ) -> Result<NetworkCreateResponse, Error>;
+        async fn inspect_network(
+            &self,
+            network_name: &str,
+            options: Option<InspectNetworkOptions<String>>,
+        ) -> Result<Network, Error>;
+        async fn remove_network(&self, network_name: &str) -> Result<(), Error>;
+        async fn list_networks(
+            &self,
+            options: Option<ListNetworksOptions<String>>,
+        ) -> Result<Vec<Network>, Error>;
     }
 }

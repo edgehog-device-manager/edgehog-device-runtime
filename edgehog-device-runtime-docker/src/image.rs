@@ -420,7 +420,7 @@ mod tests {
     #[tokio::test]
     async fn inspect_not_found() {
         // Random image name
-        let name = random_name();
+        let name = random_name("not-found");
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
@@ -495,7 +495,7 @@ mod tests {
     #[tokio::test]
     async fn remove_image_not_found() {
         // Random image name
-        let name = random_name();
+        let name = random_name("remove-not-found");
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();

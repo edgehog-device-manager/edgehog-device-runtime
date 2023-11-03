@@ -125,12 +125,12 @@ pub(crate) mod tests {
     }
 
     /// Creates a random enough name
-    pub(crate) fn random_name() -> String {
+    pub(crate) fn random_name(name: &str) -> String {
         let time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        time.to_string()
+        format!("{name}-{time}")
     }
 
     #[cfg(feature = "mock")]

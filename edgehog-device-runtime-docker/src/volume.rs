@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Docker Volume struct to pull it from a registry.
+//! Docker struct to manage volumes.
 
 use std::{
     collections::HashMap,
@@ -278,58 +278,65 @@ mod tests {
 
     #[tokio::test]
     async fn should_create_volume() {
+        let name = random_name("create");
+
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
+            let name_cl = name.clone();
             mock.expect_create_volume()
-                .withf(|option| option.name == "volume-name" && option.driver == "local")
+                .withf(move |option| option.name == name_cl && option.driver == "local")
                 .once()
                 .returning(|_| Ok(Default::default()));
 
             mock
         });
 
-        let volume = Volume::new("volume-name", "local");
+        let volume = Volume::new(name.as_str(), "local");
         volume.create(&docker).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_inspect_volume() {
+        let name = random_name("inspect");
+
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
             let volume = bollard::models::Volume {
-                name: "volume-name".to_string(),
+                name: name.clone(),
                 driver: "local".to_string(),
                 ..Default::default()
             };
 
             let v_cl = volume.clone();
+            let name_cl = name.clone();
             mock.expect_create_volume()
-                .withf(|option| option.name == "volume-name" && option.driver == "local")
+                .withf(move |option| option.name == name_cl && option.driver == "local")
                 .once()
                 .returning(move |_| Ok(v_cl.clone()));
 
+            let name_cl = name.clone();
             mock.expect_inspect_volume()
-                .withf(|name| name == "volume-name")
+                .withf(move |name| name == name_cl)
                 .once()
                 .returning(move |_| Ok(volume.clone()));
 
             mock
         });
 
-        let volume = Volume::new("volume-name", "local");
+        let volume = Volume::new(name.as_str(), "local");
 
         volume.create(&docker).await.unwrap();
         let v = volume.inspect(&docker).await.unwrap().unwrap();
 
-        assert_eq!(v.name, "volume-name")
+        assert_eq!(v.name, name)
     }
 
     #[tokio::test]
     async fn should_inspect_volume_not_found() {
         // Random volume name
-        let name = random_name();
+        let name = random_name("not-found");
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
@@ -352,28 +359,33 @@ mod tests {
 
     #[tokio::test]
     async fn should_remove_volume() {
+        let name = random_name("remove");
+
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
+            let name_cl = name.clone();
             mock.expect_create_volume()
-                .withf(|option| option.name == "volume-name" && option.driver == "local")
+                .withf(move |option| option.name == name_cl && option.driver == "local")
                 .once()
                 .returning(|_| Ok(Default::default()));
 
+            let name_cl = name.clone();
             mock.expect_remove_volume()
-                .withf(|name, _| name == "volume-name")
+                .withf(move |name, _| name == name_cl)
                 .once()
                 .returning(|_, _| Ok(()));
 
+            let name_cl = name.clone();
             mock.expect_inspect_volume()
-                .withf(move |v_name| v_name == "volume-name")
+                .withf(move |v_name| v_name == name_cl)
                 .once()
                 .returning(move |_| Err(crate::tests::not_found_response()));
 
             mock
         });
 
-        let volume = Volume::new("volume-name", "local");
+        let volume = Volume::new(name.as_str(), "local");
         volume.create(&docker).await.unwrap();
         volume.remove(&docker).await.unwrap();
 
@@ -384,41 +396,43 @@ mod tests {
 
     #[tokio::test]
     async fn should_list_volumes() {
+        let name = random_name("list");
+
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use bollard::service::VolumeListResponse;
 
             let mut mock = Client::new();
+            let volumes = VolumeListResponse {
+                volumes: Some(vec![DockerVolume {
+                    name: name.clone(),
+                    driver: "local".to_string(),
+                    ..Default::default()
+                }]),
+                warnings: None,
+            };
 
+            let name_cl = name.clone();
             mock.expect_create_volume()
-                .withf(|option| option.name == "volume-name" && option.driver == "local")
+                .withf(move |option| option.name == name_cl && option.driver == "local")
                 .once()
                 .returning(|_| Ok(Default::default()));
 
             mock.expect_list_volumes()
                 .withf(|_| true)
                 .once()
-                .returning(|_| {
-                    Ok(VolumeListResponse {
-                        volumes: Some(vec![DockerVolume {
-                            name: "volume-name".to_string(),
-                            driver: "local".to_string(),
-                            ..Default::default()
-                        }]),
-                        warnings: None,
-                    })
-                });
+                .returning(move |_| Ok(volumes.clone()));
 
             mock
         });
 
-        let volume = Volume::new("volume-name", "local");
+        let volume = Volume::new(name.as_str(), "local");
         volume.create(&docker).await.unwrap();
 
-        let filters = HashMap::from_iter([("name", vec!["volume-name"])]);
+        let filters = HashMap::from_iter([("name", vec![name.as_str()])]);
         let options = ListVolumesOptions { filters };
         let volumes = Volume::list(&docker, Some(options)).await.unwrap();
 
-        let found = volumes.into_iter().any(|v| v == v);
+        let found = volumes.into_iter().any(|v| v.name == name);
 
         assert!(found)
     }
