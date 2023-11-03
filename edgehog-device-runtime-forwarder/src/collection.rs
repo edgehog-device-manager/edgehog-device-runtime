@@ -58,7 +58,7 @@ impl Connections {
         })?;
 
         // before executing the HTTP request, check if it is an Upgrade request.
-        if http_req.is_upgrade() {
+        if http_req.is_ws_upgrade() {
             info!("Connection upgrade");
             return self.add_ws(request_id, http_req);
         }
@@ -73,7 +73,7 @@ impl Connections {
     /// Create a new WebSocket [`Connection`].
     #[instrument(skip(self))]
     fn add_ws(&mut self, request_id: Id, http_req: HttpRequest) -> Result<(), Error> {
-        debug_assert!(http_req.is_upgrade());
+        debug_assert!(http_req.is_ws_upgrade());
 
         let tx_ws = self.tx_ws.clone();
 

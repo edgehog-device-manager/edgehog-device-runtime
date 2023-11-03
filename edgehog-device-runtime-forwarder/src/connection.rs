@@ -210,7 +210,7 @@ impl WebSocketBuilder {
     /// Upgrade the HTTP request and build the channel used to send WebSocket messages to device
     /// services (e.g., TTYD).
     fn with_handle(http_req: ProtoHttpRequest) -> Result<(Self, WriteHandle), ConnectionError> {
-        let request = http_req.upgrade()?;
+        let request = http_req.ws_upgrade()?;
         trace!("HTTP request upgraded");
 
         // this channel that will be used to send data from the manager to the websocket connection
@@ -544,12 +544,12 @@ mod tests {
 
         let id = Id::try_from(b"1234".to_vec()).unwrap();
 
-        let res = http.next(&id).await;
+        let res = http.next(&id).await.unwrap().unwrap();
 
         // check that there has been an HTTP call with the specified information
         mock_http_req.assert();
 
-        let proto_msg = res.unwrap().unwrap().into_http().unwrap();
+        let proto_msg = res.into_http().unwrap();
         assert_eq!(proto_msg.request_id, id);
 
         let res = proto_msg.http_msg.into_res().unwrap();

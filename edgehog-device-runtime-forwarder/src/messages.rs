@@ -278,6 +278,15 @@ impl HttpMessage {
     }
 }
 
+fn check_ws_upgrade_headers(headers: &http::HeaderMap) -> bool {
+    static WEBSOCKET_UPGRADE: http::HeaderValue = http::HeaderValue::from_static("websocket");
+
+    headers
+        .get_all(http::header::UPGRADE)
+        .iter()
+        .any(|v| v == WEBSOCKET_UPGRADE)
+}
+
 /// HTTP request fields.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct HttpRequest {
@@ -309,18 +318,13 @@ impl HttpRequest {
     }
 
     /// Check if the HTTP request contains an "Upgrade" header.
-    pub(crate) fn is_upgrade(&self) -> bool {
-        static WEBSOCKET_UPGRADE: http::HeaderValue = http::HeaderValue::from_static("websocket");
-
-        self.headers
-            .get_all(http::header::UPGRADE)
-            .iter()
-            .any(|v| v == WEBSOCKET_UPGRADE)
+    pub(crate) fn is_ws_upgrade(&self) -> bool {
+        check_ws_upgrade_headers(&self.headers)
     }
 
     /// Convert an [`HttpRequest`] into an [`http::Request`](http::Request)
     #[instrument(skip_all)]
-    pub(crate) fn upgrade(mut self) -> Result<http::Request<()>, ProtocolError> {
+    pub(crate) fn ws_upgrade(mut self) -> Result<http::Request<()>, ProtocolError> {
         let uri: http::Uri = format!(
             "ws://localhost:{}/{}?{}",
             self.port, self.path, self.query_string
