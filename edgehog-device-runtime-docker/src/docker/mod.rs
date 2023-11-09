@@ -26,6 +26,7 @@ use std::{
 use crate::client::*;
 use crate::error::DockerError;
 
+pub mod container;
 pub mod image;
 pub mod network;
 pub mod volume;

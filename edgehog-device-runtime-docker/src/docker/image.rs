@@ -31,7 +31,7 @@ use bollard::{
 use futures::{future, TryStreamExt};
 use itertools::Itertools;
 use serde::Serialize;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::client::*;
 
@@ -222,7 +222,7 @@ impl<S> Image<S> {
             Err(err) => return Err(ImageError::Inspect(err)),
         };
 
-        debug!("inspected image: {inspect:?}");
+        trace!("inspected image: {inspect:?}");
 
         Ok(Some(inspect))
     }

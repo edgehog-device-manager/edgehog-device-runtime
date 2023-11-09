@@ -184,7 +184,7 @@ impl<S> Network<S> {
         Ok(())
     }
 
-    /// Inspect a new docker network.
+    /// Inspect a docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
     #[instrument]
@@ -211,7 +211,7 @@ impl<S> Network<S> {
             Err(err) => return Err(NetworkError::Inspect(err)),
         };
 
-        debug!("network info: {network:?}");
+        trace!("network info: {network:?}");
 
         self.update_id(network.id.clone());
 
