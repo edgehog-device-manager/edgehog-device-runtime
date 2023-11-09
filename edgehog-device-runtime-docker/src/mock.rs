@@ -26,15 +26,16 @@ use async_trait::async_trait;
 use bollard::{
     auth::DockerCredentials,
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
-        RemoveContainerOptions, StartContainerOptions, Stats, StatsOptions, StopContainerOptions,
-        WaitContainerOptions,
+        Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogOutput,
+        LogsOptions, RemoveContainerOptions, StartContainerOptions, Stats, StatsOptions,
+        StopContainerOptions, WaitContainerOptions,
     },
     errors::Error,
     image::{CreateImageOptions, ListImagesOptions, RemoveImageOptions},
     models::{
-        ContainerCreateResponse, ContainerWaitResponse, CreateImageInfo, EventMessage,
-        ImageInspect, ImageSummary, Network, NetworkCreateResponse, Volume, VolumeListResponse,
+        ContainerCreateResponse, ContainerInspectResponse, ContainerWaitResponse, CreateImageInfo,
+        EventMessage, ImageInspect, ImageSummary, Network, NetworkCreateResponse, Volume,
+        VolumeListResponse,
     },
     network::{CreateNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
     service::{ContainerSummary, ImageDeleteResponseItem},
@@ -63,7 +64,7 @@ pub trait DockerTrait: Sized {
     async fn create_container<'a>(
         &self,
         options: Option<CreateContainerOptions<&'a str>>,
-        caonfig: Config<String>,
+        config: Config<&'a str>,
     ) -> Result<ContainerCreateResponse, Error>;
     fn create_image(
         &self,
@@ -132,6 +133,11 @@ pub trait DockerTrait: Sized {
         &self,
         options: Option<ListNetworksOptions<String>>,
     ) -> Result<Vec<Network>, Error>;
+    async fn inspect_container(
+        &self,
+        container_name: &str,
+        options: Option<InspectContainerOptions>,
+    ) -> Result<ContainerInspectResponse, Error>;
 }
 
 mock! {
@@ -156,7 +162,7 @@ mock! {
         async fn create_container<'a>(
             &self,
             options: Option<CreateContainerOptions<&'a str>>,
-            config: Config<String>,
+            config: Config<&'a str>,
         ) -> Result<ContainerCreateResponse, Error>;
         fn create_image<'a>(
             &self,
@@ -222,5 +228,10 @@ mock! {
             &self,
             options: Option<ListNetworksOptions<String>>,
         ) -> Result<Vec<Network>, Error>;
+        async fn inspect_container(
+            &self,
+            container_name: &str,
+            options: Option<InspectContainerOptions>,
+        ) -> Result<ContainerInspectResponse, Error>;
     }
 }

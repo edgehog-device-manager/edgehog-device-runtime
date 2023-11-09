@@ -30,7 +30,7 @@ use bollard::{
     volume::{CreateVolumeOptions, ListVolumesOptions},
 };
 use serde::Serialize;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use crate::client::*;
 
@@ -138,7 +138,7 @@ impl<S> Volume<S> {
             Err(err) => return Err(VolumeError::Inspect(err)),
         };
 
-        debug!("volume info: {volume:?}");
+        trace!("volume info: {volume:?}");
 
         Ok(Some(volume))
     }
@@ -204,7 +204,7 @@ impl Volume<String> {
 
         if let Some(warnings) = volumes.warnings {
             if !warnings.is_empty() {
-                warn!("warnings when listing images: {warnings:?}");
+                warn!("warnings when listing volumes: {warnings:?}")
             }
         }
 
