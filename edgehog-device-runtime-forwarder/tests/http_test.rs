@@ -169,28 +169,3 @@ async fn test_connect() {
     endpoint.assert();
     test_connections.assert().await;
 }
-
-#[tokio::test]
-async fn test_ping() {
-    let test_connections = TestConnections::init().await;
-
-    test_connections
-        .mock_ws_server(|mut ws| async move {
-            tokio::time::pause();
-            tokio::time::advance(tokio::time::Duration::from_secs(7)).await;
-
-            // if no data is received after 5s, the connections manager will send a Ping frame
-            let http_res = ws
-                .next()
-                .await
-                .expect("ws already closed")
-                .expect("failed to receive from ws");
-
-            assert!(http_res.is_ping());
-
-            ws.close(None).await.expect("failed to close ws");
-        })
-        .await;
-
-    test_connections.assert().await;
-}

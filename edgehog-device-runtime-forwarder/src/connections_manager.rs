@@ -4,21 +4,18 @@
 //! Handle the interaction between the device connections and the bridge.
 
 use std::ops::ControlFlow;
-use std::time::Duration;
 
-use backoff::ExponentialBackoff;
+use backoff::{Error as BackoffError, ExponentialBackoff};
 use displaydoc::Display;
 use futures::{future, SinkExt, StreamExt, TryFutureExt};
 use thiserror::Error as ThisError;
 use tokio::net::TcpStream;
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
-use tokio::time::timeout;
 use tokio_tungstenite::{
     connect_async, tungstenite::Error as TungError, tungstenite::Message as TungMessage,
     MaybeTlsStream, WebSocketStream,
 };
-
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
@@ -49,13 +46,16 @@ pub enum Error {
     IdAlreadyUsed(Id),
     /// Unsupported message type
     Unsupported,
+    /// Session token not present on URL
+    TokenNotFound,
+    /// Session token already in use
+    TokenAlreadyUsed(String),
+    /// Error while performing exponential backoff to create a WebSocket connection
+    BackOff(#[from] BackoffError<Box<Error>>),
 }
 
 /// WebSocket stream alias.
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
-/// The time interval in seconds that the device will wait before sending a Ping frame if no data is received from the WebSocket.
-pub const PING_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Handler responsible for establishing a websocket connection between a device and the bridge
 /// and for receiving and sending data from/to it.
@@ -99,14 +99,29 @@ impl ConnectionsManager {
     pub(crate) async fn ws_connect(
         url: &Url,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
-        // try openning a websocket connection with the bridge using exponential backoff
+        // try opening a websocket connection with the bridge using exponential backoff
         let (ws_stream, http_res) =
             backoff::future::retry(ExponentialBackoff::default(), || async {
                 debug!("creating websocket connection with {}", url);
-                Ok(connect_async(url).await?)
+
+                match connect_async(url).await {
+                    Ok(ws_res) => Ok(ws_res),
+                    Err(TungError::Http(http_res)) if http_res.status().is_client_error() => {
+                        error!("received HTTP client error from bridge, stopping backoff");
+                        Err(BackoffError::Permanent(Error::TokenAlreadyUsed(get_token(
+                            url,
+                        )?)))
+                    }
+                    Err(err) => {
+                        debug!("try reconnecting with backoff after tungstenite error: {err}");
+                        Err(BackoffError::Transient {
+                            err: Error::WebSocket(err),
+                            retry_after: None,
+                        })
+                    }
+                }
             })
-            .await
-            .map_err(Error::WebSocket)?;
+            .await?;
 
         trace!("bridge websocket response {http_res:?}");
 
@@ -163,16 +178,6 @@ impl ConnectionsManager {
                     .await
                     .map(|_| ControlFlow::Continue(()))
             }
-            // in case no data is received in PING_TIMEOUT seconds over the websocket, send a ping.
-            // TODO: no check is done to verify that a Pong frame has been received
-            WebSocketEvents::Ping => {
-                let msg = TungMessage::Ping(Vec::new());
-                debug!("sending ping message");
-
-                self.send_to_ws(msg)
-                    .await
-                    .map(|_| ControlFlow::Continue(()))
-            }
         }
     }
 
@@ -180,11 +185,10 @@ impl ConnectionsManager {
     #[instrument(skip_all)]
     pub(crate) async fn select_ws_event(&mut self) -> WebSocketEvents {
         select! {
-            res = timeout(PING_TIMEOUT, self.ws_stream.next()) => {
+            res = self.ws_stream.next() => {
                 match res {
-                    Ok(Some(msg)) => WebSocketEvents::Receive(msg),
-                     Ok(None) => WebSocketEvents::Receive(Err(tungstenite::Error::AlreadyClosed)),
-                    Err(_) => WebSocketEvents::Ping,
+                    Some(msg) => WebSocketEvents::Receive(msg),
+                    None => WebSocketEvents::Receive(Err(tungstenite::Error::AlreadyClosed)),
                 }
             }
             next = self.rx_ws.recv() => match next {
@@ -284,9 +288,14 @@ impl ConnectionsManager {
     }
 }
 
+fn get_token(url: &Url) -> Result<String, Error> {
+    url.query()
+        .map(|s| s.trim_start_matches("session_token=").to_string())
+        .ok_or(Error::TokenNotFound)
+}
+
 /// Possible events happening on a WebSocket connection.
 pub(crate) enum WebSocketEvents {
     Receive(Result<TungMessage, TungError>),
     Send(ProtoMessage),
-    Ping,
 }

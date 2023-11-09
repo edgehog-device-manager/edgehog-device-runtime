@@ -35,7 +35,6 @@ use thiserror::Error as ThisError;
 use url::ParseError;
 
 use edgehog_device_forwarder_proto as proto;
-use edgehog_device_forwarder_proto::http::Message;
 use edgehog_device_forwarder_proto::{
     http::Message as ProtoHttpMessage, http::Request as ProtoHttpRequest,
     http::Response as ProtoHttpResponse, message::Protocol as ProtoProtocol,
@@ -236,10 +235,10 @@ impl TryFrom<ProtoHttp> for Http {
         }
 
         let http_msg = match message.unwrap() {
-            Message::Request(req) => {
+            ProtoHttpMessage::Request(req) => {
                 Ok::<HttpMessage, ProtocolError>(HttpMessage::Request(req.try_into()?))
             }
-            Message::Response(res) => Ok(HttpMessage::Response(res.try_into()?)),
+            ProtoHttpMessage::Response(res) => Ok(HttpMessage::Response(res.try_into()?)),
         }?;
 
         Ok(Http {
