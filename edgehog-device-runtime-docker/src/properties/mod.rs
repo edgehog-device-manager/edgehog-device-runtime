@@ -31,6 +31,7 @@ use itertools::Itertools;
 use crate::service::{Id, Node, NodeType, Nodes, ServiceError, State};
 
 pub(crate) mod image;
+pub(crate) mod network;
 pub(crate) mod volume;
 
 macro_rules! astarte_type {
@@ -67,6 +68,8 @@ pub enum PropError {
         field: &'static str,
         into: &'static str,
     },
+    /// couldn't convert property into {into}, unrecognized field {field}
+    InvalidField { field: String, into: &'static str },
     /// couldn't parse option, expected key=value but got {0}
     Option(String),
 }

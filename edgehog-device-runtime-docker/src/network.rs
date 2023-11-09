@@ -139,6 +139,27 @@ impl<S> Network<S> {
         }
     }
 
+    /// Check if the network exists if the id is set, otherwise it will try creating it.
+    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<(), NetworkError>
+    where
+        S: AsRef<str> + Display + Debug,
+    {
+        if self.id.is_some() {
+            match self.inspect(client).await? {
+                Some(net) => {
+                    trace!("found network {net:?}");
+
+                    return Ok(());
+                }
+                None => {
+                    debug!("network not found, creating it");
+                }
+            }
+        }
+
+        self.create(client).await
+    }
+
     /// Create a new docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkCreate)

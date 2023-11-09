@@ -36,10 +36,12 @@ use tracing::{debug, info, instrument, warn};
 use crate::{
     error::DockerError,
     image::Image,
+    network::Network,
     properties::{
-        image::AvailableImage, volume::AvailableVolume, AvailableProp, LoadProp, PropError,
+        image::AvailableImage, network::AvailableNetwork, volume::AvailableVolume, AvailableProp,
+        LoadProp, PropError,
     },
-    request::{CreateImage, CreateRequests, CreateVolume, ReqError},
+    request::{CreateImage, CreateNetwork, CreateRequests, CreateVolume, ReqError},
     volume::Volume,
     Docker,
 };
@@ -123,6 +125,7 @@ impl<S> Service<S> {
         match event {
             CreateRequests::Image(req) => self.create_image(req).await,
             CreateRequests::Volume(req) => self.create_volume(req).await,
+            CreateRequests::Network(req) => self.create_network(req).await,
         }
     }
 
@@ -158,6 +161,25 @@ impl<S> Service<S> {
 
             Ok(Node::new(id, idx, State::Missing, volume))
         })?;
+
+        node.store(&self.device).await?;
+
+        Ok(())
+    }
+
+    /// Store the create network request
+    #[instrument(skip(self))]
+    async fn create_network(&mut self, req: CreateNetwork) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+    {
+        let id = Id::new(req.id.clone());
+
+        let node = self.nodes.add_node(id, |id, idx| {
+            let network = Network::from(req);
+
+            Node::new(id, idx, State::Missing, network)
+        });
 
         node.store(&self.device).await?;
 
@@ -304,6 +326,11 @@ impl Node {
                     .store(device)
                     .await?;
             }
+            NodeType::Network { network } => {
+                AvailableNetwork::with_network(&self.id, network)
+                    .store(device)
+                    .await?;
+            }
         }
 
         self.state.store();
@@ -320,18 +347,25 @@ impl Node {
     where
         S: PropertyStore,
     {
-        match &self.inner {
-            NodeType::Image { image, .. } => {
+        match self.inner {
+            NodeType::Image { ref image, .. } => {
                 image.pull(client).await?;
 
                 AvailableImage::with_pulled(&self.id, image, true)
                     .store(device)
                     .await?;
             }
-            NodeType::Volume { volume } => {
+            NodeType::Volume { ref volume } => {
                 volume.create(client).await?;
 
                 AvailableVolume::with_created(&self.id, volume, true)
+                    .store(device)
+                    .await?;
+            }
+            NodeType::Network { ref mut network } => {
+                network.inspect_or_create(client).await?;
+
+                AvailableNetwork::with_network(&self.id, network)
                     .store(device)
                     .await?;
             }
@@ -347,6 +381,7 @@ impl Node {
 pub(crate) enum NodeType {
     Image { image: Image<String> },
     Volume { volume: Volume<String> },
+    Network { network: Network<String> },
 }
 
 impl From<Image<String>> for NodeType {
@@ -358,6 +393,12 @@ impl From<Image<String>> for NodeType {
 impl From<Volume<String>> for NodeType {
     fn from(value: Volume<String>) -> Self {
         Self::Volume { volume: value }
+    }
+}
+
+impl From<Network<String>> for NodeType {
+    fn from(value: Network<String>) -> Self {
+        Self::Network { network: value }
     }
 }
 
