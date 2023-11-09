@@ -20,7 +20,7 @@
 use astarte_device_sdk::{event::FromEventError, from_event, DeviceEvent, FromEvent};
 use itertools::Itertools;
 
-use crate::volume::Volume;
+use crate::{network::Network, volume::Volume};
 
 /// Error from handling the Astarte request.
 #[non_exhaustive]
@@ -33,10 +33,12 @@ pub enum ReqError {
 /// Create request from Astarte.
 #[derive(Debug, Clone)]
 pub enum CreateRequests {
-    /// Request to pull a (`Image`)[crate::image::Image].
+    /// Request to pull a [`Image`](crate::image::Image).
     Image(CreateImage),
-    /// Request to create a Volume
+    /// Request to create a [`Volume`].
     Volume(CreateVolume),
+    /// Request to create a [`Network`]
+    Network(CreateNetwork),
 }
 
 impl FromEvent for CreateRequests {
@@ -49,6 +51,9 @@ impl FromEvent for CreateRequests {
             }
             "io.edgehog.devicemanager.apps.CreateVolumeRequest" => {
                 CreateVolume::from_event(value).map(CreateRequests::Volume)
+            }
+            "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
+                CreateNetwork::from_event(value).map(CreateRequests::Network)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
@@ -96,6 +101,34 @@ impl TryFrom<CreateVolume> for Volume<String> {
             .try_collect()?;
 
         Ok(Volume::with_options(value.id, value.driver, options))
+    }
+}
+
+/// Request to create a Docker Network.
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.apps.CreateNetworkRequest",
+    path = "/network",
+    rename_all = "camelCase"
+)]
+pub struct CreateNetwork {
+    pub(crate) id: String,
+    pub(crate) driver: String,
+    pub(crate) check_duplicate: bool,
+    pub(crate) internal: bool,
+    pub(crate) enable_ipv6: bool,
+}
+
+impl From<CreateNetwork> for Network<String> {
+    fn from(value: CreateNetwork) -> Self {
+        Network {
+            id: None,
+            name: value.id,
+            driver: value.driver,
+            check_duplicate: value.check_duplicate,
+            internal: value.internal,
+            enable_ipv6: value.enable_ipv6,
+        }
     }
 }
 
@@ -162,5 +195,36 @@ mod tests {
         };
 
         assert_eq!(create_image.unwrap(), expect);
+    }
+
+    #[test]
+    fn create_network() {
+        let fields = [
+            ("id", AstarteType::String("id".to_string())),
+            ("driver", AstarteType::String("bridged".to_string())),
+            ("internal", AstarteType::Boolean(false)),
+            ("checkDuplicate", AstarteType::Boolean(false)),
+            ("enableIpv6", AstarteType::Boolean(true)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let event = AstarteDeviceDataEvent {
+            interface: "io.edgehog.devicemanager.apps.CreateNetworkRequest".to_string(),
+            path: "/network".to_string(),
+            data: astarte_device_sdk::Aggregation::Object(fields),
+        };
+
+        let create_image = CreateNetwork::from_event(event).unwrap();
+
+        let expect = CreateNetwork {
+            id: "id".to_string(),
+            driver: "bridged".to_string(),
+            internal: false,
+            check_duplicate: false,
+            enable_ipv6: true,
+        };
+
+        assert_eq!(create_image, expect);
     }
 }

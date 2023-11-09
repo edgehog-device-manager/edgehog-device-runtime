@@ -18,7 +18,7 @@
 
 //! Error returned when interacting with the docker daemon
 
-use crate::{image::ImageError, volume::VolumeError};
+use crate::{image::ImageError, network::NetworkError, volume::VolumeError};
 
 /// Error returned form the docker daemon
 #[non_exhaustive]
@@ -32,4 +32,6 @@ pub enum DockerError {
     Image(#[from] ImageError),
     /// volume operation failed
     Volume(#[from] VolumeError),
+    /// network operation failed
+    Network(#[from] NetworkError),
 }
