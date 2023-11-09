@@ -26,7 +26,7 @@ use astarte_device_sdk::{
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::image::Image;
+use crate::docker::image::Image;
 
 use super::{astarte_type, AvailableProp, LoadProp, PropError};
 

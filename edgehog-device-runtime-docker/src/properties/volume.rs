@@ -29,7 +29,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use tracing::warn;
 
-use crate::volume::Volume;
+use crate::docker::volume::Volume;
 
 use super::{astarte_type, AvailableProp, LoadProp, PropError};
 
