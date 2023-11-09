@@ -26,6 +26,10 @@ use std::{
 use crate::client::*;
 use crate::error::DockerError;
 
+pub mod image;
+pub mod network;
+pub mod volume;
+
 /// Docker container manager
 #[derive(Debug, Clone)]
 pub struct Docker {
