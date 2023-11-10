@@ -27,7 +27,7 @@ use std::{
 use bollard::{
     container::{
         Config, CreateContainerOptions, InspectContainerOptions, NetworkingConfig,
-        RemoveContainerOptions,
+        RemoveContainerOptions, StartContainerOptions,
     },
     errors::Error as BollardError,
     models::{
@@ -49,8 +49,10 @@ pub enum ContainerError {
     Inspect(#[source] BollardError),
     /// couldn't remove the container
     Remove(#[source] BollardError),
-    /// couldn't list containers
-    List(#[source] BollardError),
+    /// couldn't start container.
+    Start(#[source] BollardError),
+    /// couldn't stop container
+    Stop(#[source] BollardError),
 }
 
 /// Docker container struct.
@@ -235,6 +237,60 @@ where
                 Ok(None)
             }
             Err(err) => return Err(ContainerError::Remove(err)),
+        }
+    }
+
+    /// Start a docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
+    #[instrument]
+    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError>
+    where
+        S: AsRef<str> + Display + Debug,
+    {
+        debug!("starting {self}");
+
+        let res = client
+            .start_container(self.name.as_ref(), None::<StartContainerOptions<&str>>)
+            .await;
+
+        match res {
+            Ok(()) => Ok(Some(())),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Start(err)),
+        }
+    }
+
+    /// Stop a docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
+    #[instrument]
+    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError>
+    where
+        S: AsRef<str> + Display + Debug,
+    {
+        debug!("stopping {self}");
+
+        let res = client.stop_container(self.name.as_ref(), None).await;
+
+        match res {
+            Ok(()) => Ok(Some(())),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Start(err)),
         }
     }
 }
