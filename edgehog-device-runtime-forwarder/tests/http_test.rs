@@ -8,8 +8,6 @@ use edgehog_device_forwarder_proto::{
 };
 use futures::{SinkExt, StreamExt};
 
-use uuid::Uuid;
-
 #[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_connect() {
@@ -24,7 +22,7 @@ async fn test_connect() {
 
     let mut ws = test_connections.mock_ws_server().await;
 
-    let request_id = Uuid::new_v4().as_bytes().to_vec();
+    let request_id = "3647edbb-6747-4827-a3ef-dbb6239e3326".as_bytes().to_vec();
     let http_req = create_http_req(request_id, &test_url);
 
     ws.send(http_req.clone())
@@ -63,4 +61,25 @@ async fn test_connect() {
 
     endpoint.assert();
     test_connections.assert().await;
+}
+
+#[cfg(feature = "_test-utils")]
+#[tokio::test]
+async fn test_max_sizes() {
+    use edgehog_device_runtime_forwarder::test_utils::{create_big_http_req, TestConnections};
+
+    let test_connections = TestConnections::<httpmock::MockServer>::init().await;
+
+    let test_url = test_connections
+        .mock_server
+        .url("/remote-terminal?session_token=abcd");
+
+    let mut ws = test_connections.mock_ws_server().await;
+
+    let request_id = "3647edbb-6747-4827-a3ef-dbb6239e3326".as_bytes().to_vec();
+    let http_req = create_big_http_req(request_id.clone(), &test_url);
+
+    // sending a frame bigger than the maximum frame size will cause a connection reset error.
+    let res = ws.send(http_req.clone()).await;
+    assert!(res.is_err(), "expected error {res:?}");
 }
