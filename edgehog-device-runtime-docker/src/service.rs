@@ -22,7 +22,7 @@ use std::{
     borrow::Borrow,
     collections::{hash_map::Entry, HashMap},
     fmt::Display,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -31,15 +31,16 @@ use astarte_device_sdk::{
     FromEvent,
 };
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{
+    container::Container,
     error::DockerError,
     image::Image,
     network::Network,
     properties::{
-        image::AvailableImage, network::AvailableNetwork, volume::AvailableVolume, AvailableProp,
-        LoadProp, PropError,
+        container::AvailableContainer, image::AvailableImage, network::AvailableNetwork,
+        volume::AvailableVolume, AvailableProp, LoadProp, PropError,
     },
     request::{CreateImage, CreateNetwork, CreateRequests, CreateVolume, ReqError},
     volume::Volume,
@@ -110,6 +111,8 @@ impl<S> Service<S> {
 
         AvailableImage::load_resource(&services.device, &mut services.nodes).await?;
         AvailableVolume::load_resource(&services.device, &mut services.nodes).await?;
+        AvailableNetwork::load_resource(&services.device, &mut services.nodes).await?;
+        AvailableContainer::load_resource(&services.device, &mut services.nodes).await?;
 
         Ok(services)
     }
@@ -156,11 +159,15 @@ impl<S> Service<S> {
     {
         let id = Id::new(req.id.clone());
 
-        let node = self.nodes.try_add_node(id, |id, idx| {
-            let volume = Volume::try_from(req)?;
+        let node = self.nodes.try_add_node(
+            id,
+            |id, idx| {
+                let volume = Volume::try_from(req)?;
 
-            Ok(Node::new(id, idx, State::Missing, volume))
-        })?;
+                Ok(Node::new(id, idx, State::Missing, volume))
+            },
+            &[],
+        )?;
 
         node.store(&self.device).await?;
 
@@ -202,9 +209,10 @@ impl<S> Service<S> {
             .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?
             .idx;
 
-        let mut space = petgraph::visit::DfsPostOrder::new(&self.nodes.relations, start_idx);
+        let mut space =
+            petgraph::visit::DfsPostOrder::new(&self.nodes.relations.relations, start_idx);
 
-        while let Some(idx) = space.next(&self.nodes.relations) {
+        while let Some(idx) = space.next(&self.nodes.relations.relations) {
             let id = self
                 .nodes
                 .relations
@@ -231,15 +239,19 @@ impl<S> Service<S> {
 #[derive(Debug, Clone)]
 pub(crate) struct Nodes {
     nodes: HashMap<Id, Node>,
-    relations: StableDiGraph<Id, ()>,
+    relations: Graph,
 }
 
 impl Nodes {
     fn new() -> Self {
         Self {
             nodes: HashMap::new(),
-            relations: StableDiGraph::new(),
+            relations: Graph::new(),
         }
+    }
+
+    pub(crate) fn get_idx(&self, id: &str) -> Option<NodeIndex> {
+        self.nodes.get(id).map(|node| node.idx)
     }
 
     pub(crate) fn add_node<F>(&mut self, id: Id, f: F) -> &mut Node
@@ -253,31 +265,101 @@ impl Nodes {
         })
     }
 
-    fn try_add_node<F>(&mut self, id: Id, f: F) -> Result<&mut Node, ServiceError>
+    pub(crate) fn try_add_node<F>(
+        &mut self,
+        id: Id,
+        f: F,
+        deps: &[NodeIndex],
+    ) -> Result<&mut Node, ServiceError>
     where
         F: FnOnce(Id, NodeIndex) -> Result<Node, ServiceError>,
     {
         match self.nodes.entry(id) {
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
+            Entry::Occupied(entry) => {
+                self.relations.relate(entry.get().idx, deps)?;
 
+                Ok(entry.into_mut())
+            }
             Entry::Vacant(entry) => {
                 let idx = self.relations.add_node(entry.key().clone());
 
-                // Reset the relations in case of errors
-                let node = match f(entry.key().clone(), idx) {
-                    Ok(node) => node,
-                    Err(err) => {
+                let node = f(entry.key().clone(), idx)
+                    .and_then(|node| {
+                        self.relations.relate(idx, deps)?;
+
+                        Ok(node)
+                    })
+                    .map_err(|err| {
                         debug!("error creating node, removing relation");
 
                         self.relations.remove_node(idx);
 
-                        return Err(err);
-                    }
-                };
+                        err
+                    })?;
 
                 Ok(entry.insert(node))
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Graph {
+    relations: StableDiGraph<Id, ()>,
+}
+
+impl Graph {
+    fn new() -> Self {
+        Self {
+            relations: StableDiGraph::new(),
+        }
+    }
+
+    #[instrument]
+    pub(crate) fn relate(
+        &mut self,
+        node: NodeIndex,
+        deps: &[NodeIndex],
+    ) -> Result<(), ServiceError> {
+        // We need to check each node or it will panic if not existing
+        if !self.relations.contains_node(node) {
+            error!("node is missing");
+
+            return Err(ServiceError::MissingRelation);
+        }
+
+        for dep in deps {
+            let dep = *dep;
+            if !self.relations.contains_node(dep) {
+                error!("dependency {} is missing", dep.index());
+
+                return Err(ServiceError::MissingRelation);
+            }
+
+            self.relations.add_edge(node, dep, ());
+        }
+
+        Ok(())
+    }
+}
+
+impl Deref for Graph {
+    type Target = StableDiGraph<Id, ()>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.relations
+    }
+}
+
+impl DerefMut for Graph {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.relations
+    }
+}
+
+impl Borrow<StableDiGraph<Id, ()>> for Graph {
+    fn borrow(&self) -> &StableDiGraph<Id, ()> {
+        &self.relations
     }
 }
 
@@ -314,22 +396,37 @@ impl Node {
         S: PropertyStore,
     {
         match &self.inner {
-            NodeType::Image { image, .. } => {
+            NodeType::Image(image) => {
                 AvailableImage::with_image(&self.id, image)
                     .store(device)
                     .await?;
 
                 info!("stored image with id {}", self.id);
             }
-            NodeType::Volume { volume } => {
+            NodeType::Volume(volume) => {
                 AvailableVolume::with_volume(&self.id, volume)
                     .store(device)
                     .await?;
+
+                info!("stored volume with id {}", self.id);
             }
-            NodeType::Network { network } => {
+            NodeType::Network(network) => {
                 AvailableNetwork::with_network(&self.id, network)
                     .store(device)
                     .await?;
+
+                info!("stored network with id {}", self.id);
+            }
+            NodeType::Container(container) => {
+                AvailableContainer::with_container(
+                    &self.id,
+                    &container.container,
+                    &container.volumes,
+                )
+                .store(device)
+                .await?;
+
+                info!("stored container with id {}", self.id);
             }
         }
 
@@ -348,26 +445,37 @@ impl Node {
         S: PropertyStore,
     {
         match self.inner {
-            NodeType::Image { ref image, .. } => {
+            NodeType::Image(ref image) => {
                 image.pull(client).await?;
 
                 AvailableImage::with_pulled(&self.id, image, true)
                     .store(device)
                     .await?;
             }
-            NodeType::Volume { ref volume } => {
+            NodeType::Volume(ref volume) => {
                 volume.create(client).await?;
 
                 AvailableVolume::with_created(&self.id, volume, true)
                     .store(device)
                     .await?;
             }
-            NodeType::Network { ref mut network } => {
+            NodeType::Network(ref mut network) => {
                 network.inspect_or_create(client).await?;
 
                 AvailableNetwork::with_network(&self.id, network)
                     .store(device)
                     .await?;
+            }
+            NodeType::Container(ref mut container) => {
+                container.container.inspect_or_create(client).await?;
+
+                AvailableContainer::with_container(
+                    &self.id,
+                    &container.container,
+                    &container.volumes,
+                )
+                .store(device)
+                .await?;
             }
         }
 
@@ -379,26 +487,45 @@ impl Node {
 
 #[derive(Debug, Clone)]
 pub(crate) enum NodeType {
-    Image { image: Image<String> },
-    Volume { volume: Volume<String> },
-    Network { network: Network<String> },
+    Image(Image<String>),
+    Volume(Volume<String>),
+    Network(Network<String>),
+    Container(ContainerNode),
 }
 
 impl From<Image<String>> for NodeType {
     fn from(value: Image<String>) -> Self {
-        Self::Image { image: value }
+        Self::Image(value)
     }
 }
 
 impl From<Volume<String>> for NodeType {
     fn from(value: Volume<String>) -> Self {
-        Self::Volume { volume: value }
+        Self::Volume(value)
     }
 }
 
 impl From<Network<String>> for NodeType {
     fn from(value: Network<String>) -> Self {
-        Self::Network { network: value }
+        Self::Network(value)
+    }
+}
+
+impl From<ContainerNode> for NodeType {
+    fn from(value: ContainerNode) -> Self {
+        Self::Container(value)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ContainerNode {
+    container: Container<String>,
+    volumes: Vec<Id>,
+}
+
+impl ContainerNode {
+    pub(crate) fn new(container: Container<String>, volumes: Vec<Id>) -> Self {
+        Self { container, volumes }
     }
 }
 
@@ -441,6 +568,10 @@ impl Id {
     /// Create a new ID
     pub(crate) fn new(id: String) -> Self {
         Self(id.into())
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

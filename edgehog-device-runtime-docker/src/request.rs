@@ -17,10 +17,14 @@
 
 //! Handles Docker request from Astarte.
 
-use astarte_device_sdk::{event::FromEventError, from_event, DeviceEvent, FromEvent};
-use itertools::Itertools;
+use std::num::ParseIntError;
 
-use crate::{network::Network, volume::Volume};
+use astarte_device_sdk::{event::FromEventError, from_event, DeviceEvent, FromEvent};
+
+use itertools::Itertools;
+use tracing::{instrument, trace};
+
+use crate::{container::Binding, network::Network, volume::Volume};
 
 /// Error from handling the Astarte request.
 #[non_exhaustive]
@@ -132,6 +136,152 @@ impl From<CreateNetwork> for Network<String> {
     }
 }
 
+/// Request to create a Docker Network.
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.apps.CreateContainerRequest",
+    path = "/container",
+    rename_all = "camelCase"
+)]
+pub struct CreateContainer {
+    pub(crate) id: String,
+    pub(crate) hostname: String,
+    pub(crate) image_id: String,
+    pub(crate) network_ids: Vec<String>,
+    pub(crate) volume_ids: Vec<String>,
+    pub(crate) restart_policy: String,
+    pub(crate) env: Vec<String>,
+    pub(crate) binds: Vec<String>,
+    pub(crate) networks: Vec<String>,
+    pub(crate) port_bindings: Vec<String>,
+    pub(crate) privileged: bool,
+}
+
+/// Error from parsing a binding
+#[non_exhaustive]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum BindingError {
+    /// couldn't parse {binding} port {value}
+    Port {
+        /// Binding received
+        binding: &'static str,
+        /// Port of the binding
+        value: String,
+        /// Error converting the port
+        #[source]
+        source: ParseIntError,
+    },
+}
+
+impl BindingError {
+    fn port(binding: &'static str, value: String, source: ParseIntError) -> Self {
+        Self::Port {
+            binding,
+            value,
+            source,
+        }
+    }
+}
+
+/// Parses a binding in the form
+///
+/// ```plaintext
+/// [ip:[hostPort:]]containerPort[/protocol]
+/// ```
+#[instrument]
+pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind, BindingError> {
+    let (host_ip, host_port, rest) = parse_host_ip_port(input)?;
+
+    let (container_port, protocol) = match rest.split_once('/') {
+        Some((port, proto)) => {
+            trace!("container port {port} and protocol {proto}");
+
+            (port, Some(proto))
+        }
+        None => {
+            trace!("container port {rest}");
+
+            (rest, None)
+        }
+    };
+
+    let container_port = container_port
+        .parse()
+        .map_err(|err| BindingError::port("container", container_port.to_string(), err))?;
+
+    Ok(ParsedBind::new(
+        container_port,
+        protocol,
+        host_ip,
+        host_port,
+    ))
+}
+
+#[instrument]
+fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), BindingError> {
+    let Some((ip_or_port, rest)) = input.split_once(':') else {
+        trace!("missing host ip or port: {input}");
+
+        return Ok((None, None, input));
+    };
+
+    match rest.split_once(':') {
+        Some((port, rest)) => {
+            let port: u16 = port.parse().map_err(|err| BindingError::Port {
+                binding: "host",
+                value: port.to_string(),
+                source: err,
+            })?;
+
+            trace!("found ip {ip_or_port} and port {port}");
+
+            Ok((Some(ip_or_port), Some(port), rest))
+        }
+        None => {
+            // Try to parse the ip as port
+            match ip_or_port.parse::<u16>() {
+                Ok(port) => {
+                    trace!("found port {port}");
+
+                    Ok((None, Some(port), rest))
+                }
+                Err(_) => {
+                    trace!("found ip {ip_or_port}");
+                    Ok((Some(ip_or_port), None, rest))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ParsedBind<'a> {
+    port: u16,
+    proto: Option<&'a str>,
+    pub(crate) host: Binding<&'a str>,
+}
+
+impl<'a> ParsedBind<'a> {
+    fn new(
+        port: u16,
+        proto: Option<&'a str>,
+        host_ip: Option<&'a str>,
+        host_port: Option<u16>,
+    ) -> Self {
+        Self {
+            port,
+            proto,
+            host: Binding { host_ip, host_port },
+        }
+    }
+
+    pub(crate) fn id(&self) -> String {
+        let proto = self.proto.unwrap_or("tcp");
+
+        format!("{}/{}", self.port, proto)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::{types::AstarteType, Value};
@@ -209,10 +359,10 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
-        let event = AstarteDeviceDataEvent {
+        let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateNetworkRequest".to_string(),
             path: "/network".to_string(),
-            data: astarte_device_sdk::Aggregation::Object(fields),
+            data: Value::Object(fields),
         };
 
         let create_image = CreateNetwork::from_event(event).unwrap();
@@ -226,5 +376,95 @@ mod tests {
         };
 
         assert_eq!(create_image, expect);
+    }
+
+    #[test]
+    fn create_container() {
+        let fields = [
+            ("id", AstarteType::String("id".to_string())),
+            ("hostname", AstarteType::String("hostname".to_string())),
+            ("imageId", AstarteType::String("imageId".to_string())),
+            (
+                "networkIds",
+                AstarteType::StringArray(vec!["networkIds".to_string()]),
+            ),
+            (
+                "volumeIds",
+                AstarteType::StringArray(vec!["volumeIds".to_string()]),
+            ),
+            (
+                "restartPolicy",
+                AstarteType::String("restartPolicy".to_string()),
+            ),
+            ("env", AstarteType::StringArray(vec!["env".to_string()])),
+            ("binds", AstarteType::StringArray(vec!["binds".to_string()])),
+            (
+                "networks",
+                AstarteType::StringArray(vec!["networks".to_string()]),
+            ),
+            (
+                "portBindings",
+                AstarteType::StringArray(vec!["portBindings".to_string()]),
+            ),
+            ("privileged", AstarteType::Boolean(true)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.apps.CreateContainerRequest".to_string(),
+            path: "/container".to_string(),
+            data: Value::Object(fields),
+        };
+
+        let create_image = CreateContainer::from_event(event).unwrap();
+
+        let expect = CreateContainer {
+            id: "id".to_string(),
+            hostname: "hostname".to_string(),
+            image_id: "imageId".to_string(),
+            network_ids: vec!["networkIds".to_string()],
+            volume_ids: vec!["volumeIds".to_string()],
+            restart_policy: "restartPolicy".to_string(),
+            env: vec!["env".to_string()],
+            binds: vec!["binds".to_string()],
+            networks: vec!["networks".to_string()],
+            port_bindings: vec!["portBindings".to_string()],
+            privileged: true,
+        };
+
+        assert_eq!(create_image, expect);
+    }
+
+    #[test]
+    fn should_parse_port_binding() {
+        let cases = [
+            // ip:[hostPort:]containerPort[/protocol]
+            (
+                "1.1.1.1:80:90/udp",
+                ParsedBind::new(90, Some("udp"), Some("1.1.1.1"), Some(80)),
+            ),
+            (
+                "1.1.1.1:90/udp",
+                ParsedBind::new(90, Some("udp"), Some("1.1.1.1"), None),
+            ),
+            (
+                "1.1.1.1:90",
+                ParsedBind::new(90, None, Some("1.1.1.1"), None),
+            ),
+            // [hostPort:]containerPort[/protocol]
+            (
+                "80:90/udp",
+                ParsedBind::new(90, Some("udp"), None, Some(80)),
+            ),
+            ("90/udp", ParsedBind::new(90, Some("udp"), None, None)),
+            ("90", ParsedBind::new(90, None, None, None)),
+        ];
+
+        for (case, expected) in cases {
+            let parsed = parse_port_binding(case).unwrap();
+
+            assert_eq!(parsed, expected, "failed to parse {case}");
+        }
     }
 }

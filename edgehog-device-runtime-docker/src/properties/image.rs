@@ -26,9 +26,9 @@ use astarte_device_sdk::{
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::docker::image::Image;
+use crate::{docker::image::Image, service::ServiceError};
 
-use super::{astarte_type, AvailableProp, LoadProp, PropError};
+use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct AvailableImage<S> {
@@ -98,19 +98,26 @@ where
         Ok(())
     }
 
-    fn merge(self, other: Self) -> Self {
-        Self {
-            id: other.id,
-            repo: other.repo.or(self.repo),
-            name: other.name.or(self.name),
-            tag: other.tag.or(self.tag),
-            pulled: other.pulled.or(self.pulled),
-        }
+    fn merge(&mut self, other: Self) -> &mut Self {
+        self.id = other.id;
+        replace_if_some(&mut self.repo, other.repo);
+        replace_if_some(&mut self.name, other.name);
+        replace_if_some(&mut self.tag, other.tag);
+        replace_if_some(&mut self.pulled, other.pulled);
+
+        self
     }
 }
 
 impl LoadProp for AvailableImage<String> {
     type Resource = Image<String>;
+
+    fn dependencies(
+        &self,
+        _nodes: &mut crate::service::Nodes,
+    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
+        Ok(Vec::new())
+    }
 }
 
 impl TryFrom<StoredProp> for AvailableImage<String> {

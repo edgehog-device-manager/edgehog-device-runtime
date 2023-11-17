@@ -18,6 +18,8 @@
 
 //! Property to send to Astarte.
 
+use std::collections::{hash_map::Entry, HashMap};
+
 use astarte_device_sdk::{
     error::Error as AstarteError,
     properties::PropAccess,
@@ -26,10 +28,14 @@ use astarte_device_sdk::{
     Client, DeviceClient,
 };
 use async_trait::async_trait;
-use itertools::Itertools;
+use petgraph::stable_graph::NodeIndex;
 
-use crate::service::{Id, Node, NodeType, Nodes, ServiceError, State};
+use crate::{
+    request::BindingError,
+    service::{Id, Node, NodeType, Nodes, ServiceError, State},
+};
 
+pub(crate) mod container;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
@@ -72,10 +78,12 @@ pub enum PropError {
     InvalidField { field: String, into: &'static str },
     /// couldn't parse option, expected key=value but got {0}
     Option(String),
+    /// couldn't parse port binding
+    Binding(#[from] BindingError),
 }
 
 impl PropError {
-    fn field(field: &'static str, into: &'static str) -> Self {
+    const fn field(field: &'static str, into: &'static str) -> Self {
         PropError::MissingField { field, into }
     }
 }
@@ -93,45 +101,66 @@ pub(crate) trait LoadProp:
     where
         S: PropertyStore,
     {
-        let av_imgs_prop = device.interface_props(Self::interface()).await?;
+        let av_ifa_props = device.interface_props(Self::interface()).await?;
 
-        let av_imgs = Self::from_props(av_imgs_prop)?;
+        let av_props = Self::from_props(av_ifa_props)?;
 
-        av_imgs
+        av_props
             .into_iter()
-            .chunk_by(|av_img| av_img.id().to_string())
-            .into_iter()
-            .filter_map(|(id, group)| {
-                group
-                    .reduce(AvailableProp::merge)
-                    .map(|av_img| (id, av_img))
-            })
-            .try_for_each(|(id, av_img)| -> Result<(), ServiceError> {
-                let img: Self::Resource = av_img.try_into().map_err(|err| ServiceError::Prop {
+            .try_for_each(|(id, av_prop)| -> Result<(), ServiceError> {
+                let deps = av_prop.dependencies(nodes)?;
+
+                let res: Self::Resource = av_prop.try_into().map_err(|err| ServiceError::Prop {
                     interface: Self::interface(),
                     backtrace: err,
                 })?;
 
                 let id = Id::new(id);
 
-                nodes.add_node(id, |id, idx| Node::new(id, idx, State::Stored, img));
+                nodes.try_add_node(
+                    id,
+                    |id, idx| Ok(Node::new(id, idx, State::Stored, res)),
+                    &deps,
+                )?;
 
                 Ok(())
             })
     }
 
-    fn from_props<I>(stored_props: I) -> Result<Vec<Self>, ServiceError>
+    fn dependencies(&self, nodes: &mut Nodes) -> Result<Vec<NodeIndex>, ServiceError>;
+
+    fn from_props<I>(stored_props: I) -> Result<HashMap<String, Self>, ServiceError>
     where
         I: IntoIterator<Item = StoredProp>,
     {
         stored_props
             .into_iter()
             .map(Self::try_from)
-            .try_collect()
+            .try_fold(HashMap::<String, Self>::new(), |mut acc, item| {
+                let item = item?;
+                let id = item.id().to_string();
+
+                match acc.entry(id) {
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().merge(item);
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(item);
+                    }
+                }
+
+                Ok(acc)
+            })
             .map_err(|err| ServiceError::Prop {
                 interface: Self::interface(),
                 backtrace: err,
             })
+    }
+}
+
+pub(crate) fn replace_if_some<T>(value: &mut Option<T>, other: Option<T>) {
+    if let Some(other) = other {
+        value.replace(other);
     }
 }
 
@@ -145,7 +174,7 @@ pub(crate) trait AvailableProp {
     where
         S: PropertyStore;
 
-    fn merge(self, other: Self) -> Self;
+    fn merge(&mut self, other: Self) -> &mut Self;
 
     fn parse_endpoint(endpoint: &str) -> Result<(&str, &str), PropError> {
         endpoint
