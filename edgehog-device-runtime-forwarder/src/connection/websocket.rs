@@ -3,6 +3,7 @@
 
 //! Define the necessary structs and traits to represent a WebSocket connection.
 
+use std::borrow::Cow;
 use std::ops::ControlFlow;
 
 use async_trait::async_trait;
@@ -10,8 +11,12 @@ use futures::{SinkExt, StreamExt};
 use http::Request;
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio_tungstenite::tungstenite::{Error as TungError, Message as TungMessage};
-use tracing::{debug, instrument, trace};
+use tracing::{debug, error, instrument, trace};
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::{
+    error::ProtocolError as TungProtocolError, Error as TungError, Message as TungMessage,
+};
 
 use super::{ConnectionError, Transport, TransportBuilder, WriteHandle, WS_CHANNEL_SIZE};
 use crate::connections_manager::WsStream;
@@ -88,11 +93,16 @@ impl Transport for WebSocket {
     /// If a message needs to be forwarded to the device's WebSocket connection, a recursive
     /// function call will be invoked.
     async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError> {
+        debug!("-------------NEXT---------------");
         match self.select().await {
             // message from internal websocket connection (e.g., with TTYD) to the connections manager
-            WsEither::Read(tung_res) => self.handle_ws_read(id.clone(), tung_res).await,
+            WsEither::Read(tung_res) => {
+                debug!("READ: {tung_res:?}");
+                self.handle_ws_read(id.clone(), tung_res).await
+            }
             // message from the connections manager to the internal websocket connection
             WsEither::Write(chan_data) => {
+                debug!("WRITE: {chan_data:?}");
                 if let ControlFlow::Break(()) = self.handle_ws_write(chan_data).await? {
                     return Ok(None);
                 }
@@ -130,6 +140,16 @@ impl WebSocket {
                 Ok(None)
             }
             Some(Ok(tung_msg)) => Ok(Some(ProtoMessage::try_from_tung(id, tung_msg)?)),
+            Some(Err(TungError::Protocol(TungProtocolError::ResetWithoutClosingHandshake))) => {
+                error!("closing connection due to reset without closing handshake");
+                Ok(Some(ProtoMessage::try_from_tung(
+                    id,
+                    TungMessage::Close(Some(CloseFrame {
+                        code: CloseCode::Protocol,
+                        reason: Cow::Owned("reset without closing handshake".to_string()),
+                    })),
+                )?))
+            }
             Some(Err(err)) => Err(err.into()),
         }
     }
