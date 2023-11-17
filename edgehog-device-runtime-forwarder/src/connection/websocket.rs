@@ -93,16 +93,11 @@ impl Transport for WebSocket {
     /// If a message needs to be forwarded to the device's WebSocket connection, a recursive
     /// function call will be invoked.
     async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError> {
-        debug!("-------------NEXT---------------");
         match self.select().await {
             // message from internal websocket connection (e.g., with TTYD) to the connections manager
-            WsEither::Read(tung_res) => {
-                debug!("READ: {tung_res:?}");
-                self.handle_ws_read(id.clone(), tung_res).await
-            }
+            WsEither::Read(tung_res) => self.handle_ws_read(id.clone(), tung_res).await,
             // message from the connections manager to the internal websocket connection
             WsEither::Write(chan_data) => {
-                debug!("WRITE: {chan_data:?}");
                 if let ControlFlow::Break(()) = self.handle_ws_write(chan_data).await? {
                     return Ok(None);
                 }

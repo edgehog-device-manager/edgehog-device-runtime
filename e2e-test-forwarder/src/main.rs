@@ -11,7 +11,7 @@ async fn main() {
     let mut js = JoinSet::new();
 
     js.spawn(con_manager(
-        "ws://localhost:4000/device/websocket?session=abcd".to_string(),
+        "ws://kaiki.local:4000/device/websocket?session=abcd".to_string(),
         false,
     ));
 
