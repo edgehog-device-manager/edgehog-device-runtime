@@ -29,9 +29,9 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use tracing::warn;
 
-use crate::docker::volume::Volume;
+use crate::{docker::volume::Volume, service::ServiceError};
 
-use super::{astarte_type, AvailableProp, LoadProp, PropError};
+use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AvailableVolume<S>
@@ -109,18 +109,25 @@ where
         Ok(())
     }
 
-    fn merge(self, other: Self) -> Self {
-        Self {
-            id: other.id,
-            created: other.created.or(self.created),
-            driver: other.driver.or(self.driver),
-            options: other.options.or(self.options),
-        }
+    fn merge(&mut self, other: Self) -> &mut Self {
+        self.id = other.id;
+        replace_if_some(&mut self.created, other.created);
+        replace_if_some(&mut self.driver, other.driver);
+        replace_if_some(&mut self.options, other.options);
+
+        self
     }
 }
 
 impl LoadProp for AvailableVolume<String> {
     type Resource = Volume<String>;
+
+    fn dependencies(
+        &self,
+        _nodes: &mut crate::service::Nodes,
+    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
+        Ok(Vec::new())
+    }
 }
 
 impl TryFrom<StoredProp> for AvailableVolume<String> {

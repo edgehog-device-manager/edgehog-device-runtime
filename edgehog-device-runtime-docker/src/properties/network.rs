@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Property forthe `AvailableNetwork` interface.
+//! Property for the `AvailableNetworks` interface.
 
 use astarte_device_sdk::{
     error::Error as AstarteError,
@@ -26,9 +26,9 @@ use astarte_device_sdk::{
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::docker::network::Network;
+use crate::{docker::network::Network, service::ServiceError};
 
-use super::{astarte_type, AvailableProp, LoadProp, PropError};
+use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AvailableNetwork<S> {
@@ -97,20 +97,27 @@ where
         Ok(())
     }
 
-    fn merge(self, other: Self) -> Self {
-        Self {
-            id: other.id,
-            network_id: other.network_id.or(self.network_id),
-            driver: other.driver.or(self.driver),
-            check_duplicate: other.check_duplicate.or(self.check_duplicate),
-            internal: other.internal.or(self.internal),
-            enable_ipv6: other.enable_ipv6.or(self.enable_ipv6),
-        }
+    fn merge(&mut self, other: Self) -> &mut Self {
+        self.id = other.id;
+        replace_if_some(&mut self.network_id, other.network_id);
+        replace_if_some(&mut self.driver, other.driver);
+        replace_if_some(&mut self.check_duplicate, other.check_duplicate);
+        replace_if_some(&mut self.internal, other.internal);
+        replace_if_some(&mut self.enable_ipv6, other.enable_ipv6);
+
+        self
     }
 }
 
 impl LoadProp for AvailableNetwork<String> {
     type Resource = Network<String>;
+
+    fn dependencies(
+        &self,
+        _nodes: &mut crate::service::Nodes,
+    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
+        Ok(Vec::new())
+    }
 }
 
 impl TryFrom<StoredProp> for AvailableNetwork<String> {
