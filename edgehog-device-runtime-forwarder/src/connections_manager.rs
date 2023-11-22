@@ -107,7 +107,10 @@ impl ConnectionsManager {
                 match connect_async(url).await {
                     Ok(ws_res) => Ok(ws_res),
                     Err(TungError::Http(http_res)) if http_res.status().is_client_error() => {
-                        error!("received HTTP client error from bridge, stopping backoff");
+                        error!(
+                            "received HTTP client error ({}) from bridge, stopping backoff",
+                            http_res.status()
+                        );
                         Err(BackoffError::Permanent(Error::TokenAlreadyUsed(get_token(
                             url,
                         )?)))

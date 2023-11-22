@@ -79,7 +79,7 @@ pub struct DeviceManager<T: Publisher + Clone, U: Subscriber> {
     data_event_channel: Sender<AstarteDeviceDataEvent>,
     telemetry: Arc<RwLock<telemetry::Telemetry>>,
     #[cfg(feature = "forwarder")]
-    forwarder_handler: crate::forwarder::Forwarder,
+    forwarder: forwarder::Forwarder,
 }
 
 impl<P, S> DeviceManager<P, S>
@@ -113,6 +113,9 @@ where
         )
         .await;
 
+        #[cfg(feature = "forwarder")]
+        let forwarder = forwarder::Forwarder::init(publisher.clone());
+
         let device_runtime = Self {
             publisher,
             subscriber,
@@ -120,7 +123,7 @@ where
             data_event_channel: data_tx,
             telemetry: Arc::new(RwLock::new(tel)),
             #[cfg(feature = "forwarder")]
-            forwarder_handler: crate::forwarder::Forwarder::default(),
+            forwarder,
         };
 
         device_runtime.init_ota_event(ota_handler, ota_rx);
@@ -242,7 +245,7 @@ where
                         }
                         #[cfg(feature = "forwarder")]
                         "io.edgehog.devicemanager.RemoteTerminalRequest" => {
-                            self.forwarder_handler.start(data_event).await
+                            self.forwarder.handle_sessions(data_event)
                         }
                         _ => {
                             self.data_event_channel.send(data_event).await.unwrap();

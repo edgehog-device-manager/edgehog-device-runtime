@@ -29,7 +29,7 @@ rust-version = { workspace = true }
 astarte-device-sdk = { workspace = true }
 backoff = { workspace = true, features = ["tokio"] }
 displaydoc = { workspace = true }
-edgehog-device-forwarder-proto = { git = "https://github.com/rgallor/edgehog-device-forwarder-proto.git", branch = "rust-codegen" }
+edgehog-device-forwarder-proto = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }

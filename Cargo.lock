@@ -1094,8 +1094,9 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-forwarder-proto"
-version = "0.1.0"
-source = "git+https://github.com/rgallor/edgehog-device-forwarder-proto.git?branch=rust-codegen#319025c545494d9c8ecc6d993ca22849ce9e761a"
+version = "0.1.0-alpha.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fb612f4ff8879517e6ebf3c6197c2d96e7635345308655bdea9c452652104d3"
 dependencies = [
  "prost",
 ]
@@ -1110,6 +1111,7 @@ dependencies = [
  "bytes",
  "clap",
  "displaydoc",
+ "edgehog-device-forwarder-proto",
  "edgehog-device-runtime-forwarder",
  "env_logger",
  "futures",

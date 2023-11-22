@@ -14,3 +14,4 @@ target/
 .idea/
 /telemetry.json
 /.pre-commit-config.yaml
+tarpaulin-report.html
