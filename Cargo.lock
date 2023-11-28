@@ -1108,6 +1108,7 @@ dependencies = [
 name = "e2e-test-forwarder"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "edgehog-device-runtime-forwarder",
  "tokio",
  "tracing",
