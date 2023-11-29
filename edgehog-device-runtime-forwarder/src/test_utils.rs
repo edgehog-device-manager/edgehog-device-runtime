@@ -247,7 +247,7 @@ impl TestConnections<MockServer> {
         let mock_server = MockServer::start();
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session_token=1234");
+        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
 
         Self {
             mock_server,
@@ -262,7 +262,7 @@ impl TestConnections<MockServer> {
         self.mock_server.mock(|when, then| {
             when.method(GET)
                 .path("/remote-terminal")
-                .query_param("session_token", "abcd");
+                .query_param("session", "abcd");
             then.status(200)
                 .header("content-type", "text/html")
                 .body("just do it");
@@ -276,7 +276,7 @@ impl TestConnections<MockWebSocket> {
         let mock_server = MockWebSocket::start().await;
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session_token=1234");
+        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
 
         Self {
             mock_server,

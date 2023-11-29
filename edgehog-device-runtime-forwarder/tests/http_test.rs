@@ -18,7 +18,7 @@ async fn test_connect() {
 
     let test_url = test_connections
         .mock_server
-        .url("/remote-terminal?session_token=abcd");
+        .url("/remote-terminal?session=abcd");
 
     let mut ws = test_connections.mock_ws_server().await;
 
@@ -69,14 +69,12 @@ async fn test_max_sizes() {
     use edgehog_device_runtime_forwarder::test_utils::{create_big_http_req, TestConnections};
 
     let test_connections = TestConnections::<httpmock::MockServer>::init().await;
-
-    let test_url = test_connections
-        .mock_server
-        .url("/remote-terminal?session_token=abcd");
-
     let mut ws = test_connections.mock_ws_server().await;
 
     let request_id = "3647edbb-6747-4827-a3ef-dbb6239e3326".as_bytes().to_vec();
+    let test_url = test_connections
+        .mock_server
+        .url("/remote-terminal?session=abcd");
     let http_req = create_big_http_req(request_id.clone(), &test_url);
 
     // sending a frame bigger than the maximum frame size will cause a connection reset error.

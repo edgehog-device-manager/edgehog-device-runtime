@@ -26,7 +26,7 @@ async fn test_internal_ws() {
 
     let request_id = "3647edbb-6747-4827-a3ef-dbb6239e3326".as_bytes().to_vec();
     let url = format!(
-        "ws://localhost:{}/remote-terminal?session_token=abcd",
+        "ws://localhost:{}/remote-terminal?session=abcd",
         test_connections.mock_server.port().unwrap()
     );
     let http_req = create_http_upgrade_req(request_id.clone(), &url);

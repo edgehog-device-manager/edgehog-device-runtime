@@ -293,7 +293,7 @@ mod tests {
             connection: WriteHandle::Ws(tx),
         };
 
-        let proto_msg = create_http_req_msg_proto("https://host:8080/path?session_token=abcd");
+        let proto_msg = create_http_req_msg_proto("https://host:8080/path?session=abcd");
         let res = con_handle.send(proto_msg).await;
 
         assert!(matches!(res, Err(ConnectionError::WrongProtocol)));
@@ -306,13 +306,13 @@ mod tests {
         let mock_http_req = mock_server.mock(|when, then| {
             when.method(httpmock::Method::GET)
                 .path("/path")
-                .query_param("session_token", "abcd");
+                .query_param("session", "abcd");
             then.status(200)
                 .header("content-type", "text/html")
                 .body("body");
         });
 
-        let url = mock_server.url("/path?session_token=abcd");
+        let url = mock_server.url("/path?session=abcd");
 
         let url = Url::parse(&url).expect("failed to parse Url");
         let http_rep = create_http_req_proto(url);
