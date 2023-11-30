@@ -19,8 +19,8 @@ use tokio_tungstenite::{
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
+use crate::collection::Connections;
 use crate::connection::ConnectionError;
-use crate::connections::Connections;
 use crate::messages::{
     Http, HttpMessage, Id, ProtoMessage, Protocol as ProtoProtocol, ProtocolError,
 };
@@ -76,11 +76,10 @@ impl ConnectionsManager {
     #[instrument]
     pub async fn connect(url: Url) -> Result<Self, Error> {
         // TODO: check if, when a wrong URL is passed, it will endlessly try to connect
-
         let ws_stream = Self::ws_connect(&url).await?;
 
-        // this channel is used by tasks associated to each connection to communicate new
-        // information available on a given websocket between the device and TTYD.
+        // this channel is used by tasks associated to the current session to exchange
+        // available information on a given websocket between the device and TTYD.
         // it is also used to forward the incoming data from TTYD to the device.
         let (tx_ws, rx_ws) = channel(CHANNEL_SIZE);
 
@@ -94,7 +93,7 @@ impl ConnectionsManager {
         })
     }
 
-    /// Perform exponential backoff while trying to (re)connect with the bridge.
+    /// Perform exponential backoff while trying to connect with the bridge.
     #[instrument(skip_all)]
     pub(crate) async fn ws_connect(
         url: &Url,

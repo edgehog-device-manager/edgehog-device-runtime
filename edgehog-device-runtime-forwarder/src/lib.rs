@@ -23,7 +23,7 @@
 //! Implement forwarder functionality on a device.
 
 pub mod astarte;
+pub mod collection;
 pub mod connection;
-pub mod connections;
 pub mod connections_manager;
 mod messages;

@@ -31,28 +31,28 @@ use std::{
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
-use edgehog_forwarder::astarte::{retrieve_connection_info, ConnectionInfo};
+use edgehog_forwarder::astarte::{retrieve_connection_info, SessionInfo};
 use edgehog_forwarder::connections_manager::ConnectionsManager;
 use log::error;
 use reqwest::Url;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
 
-const CHANNEL_STATE_SIZE: usize = 50;
+const CHANNEL_STATE_SIZE: usize = 5;
 
 #[derive(Debug)]
-struct Key(ConnectionInfo);
+struct Key(SessionInfo);
 
 impl Deref for Key {
-    type Target = ConnectionInfo;
+    type Target = SessionInfo;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Borrow<ConnectionInfo> for Key {
-    fn borrow(&self) -> &ConnectionInfo {
+impl Borrow<SessionInfo> for Key {
+    fn borrow(&self) -> &SessionInfo {
         &self.0
     }
 }
@@ -225,7 +225,7 @@ impl Forwarder {
     }
 
     /// Remove terminated sessions and return the searched one.
-    fn get_running(&mut self, cinfo: ConnectionInfo) -> Entry<Key, JoinHandle<()>> {
+    fn get_running(&mut self, cinfo: SessionInfo) -> Entry<Key, JoinHandle<()>> {
         // remove all finished tasks
         self.tasks.retain(|_, jh| !jh.is_finished());
 

@@ -33,8 +33,8 @@ async fn bind_port() -> (TcpListener, u16) {
     (listener, port)
 }
 
-async fn con_manager(url: String) -> Result<(), Error> {
-    let mut con_manager = ConnectionsManager::connect(url.as_str().try_into().unwrap()).await?;
+async fn con_manager(url: Url) -> Result<(), Error> {
+    let mut con_manager = ConnectionsManager::connect(url).await?;
     con_manager.handle_connections().await
 }
 
@@ -72,7 +72,9 @@ impl TestConnections {
         let mock_server = MockServer::start();
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session_token=1234");
+        let url = format!("ws://localhost:{port}/remote-terminal?session_token=1234")
+            .parse()
+            .expect("failed to parse url");
 
         Self {
             mock_server,

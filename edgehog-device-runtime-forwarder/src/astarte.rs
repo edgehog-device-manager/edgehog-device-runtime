@@ -25,7 +25,7 @@ use std::{collections::HashMap, num::TryFromIntError};
 use astarte_device_sdk::{types::AstarteType, AstarteAggregate, Error as SdkError};
 use displaydoc::Display;
 use thiserror::Error;
-use tracing::{instrument, warn};
+use tracing::instrument;
 use url::{Host, ParseError, Url};
 
 /// Astarte errors.
@@ -47,7 +47,7 @@ pub enum AstarteError {
 
 /// Struct representing the fields of an aggregated object the Astarte server can send to the device.
 #[derive(Debug, Clone)]
-pub struct ConnectionInfo {
+pub struct SessionInfo {
     /// Hostname or IP address.
     pub host: Host,
     /// Port number.
@@ -56,7 +56,7 @@ pub struct ConnectionInfo {
     pub session_token: String,
 }
 
-impl AstarteAggregate for ConnectionInfo {
+impl AstarteAggregate for SessionInfo {
     fn astarte_aggregate(self) -> Result<HashMap<String, AstarteType>, SdkError> {
         let mut hm = HashMap::new();
         hm.insert("host".to_string(), self.host.to_string().into());
@@ -66,12 +66,12 @@ impl AstarteAggregate for ConnectionInfo {
     }
 }
 
-impl TryFrom<&ConnectionInfo> for Url {
+impl TryFrom<&SessionInfo> for Url {
     type Error = AstarteError;
 
-    fn try_from(value: &ConnectionInfo) -> Result<Self, Self::Error> {
+    fn try_from(value: &SessionInfo) -> Result<Self, Self::Error> {
         if value.session_token.is_empty() {
-            return Err(AstarteError::MissingUrlInfo("session token"));
+            return Err(AstarteError::MissingUrlInfo("missing session token"));
         }
 
         Url::parse_with_params(
@@ -86,7 +86,7 @@ impl TryFrom<&ConnectionInfo> for Url {
 #[instrument(skip_all)]
 pub fn retrieve_connection_info(
     mut map: HashMap<String, AstarteType>,
-) -> Result<ConnectionInfo, AstarteError> {
+) -> Result<SessionInfo, AstarteError> {
     let host = map
         .remove("host")
         .ok_or_else(|| AstarteError::MissingUrlInfo("Missing host (IP or domain name)"))
@@ -105,7 +105,7 @@ pub fn retrieve_connection_info(
         .try_into()
         .map_err(SdkError::Types)?;
 
-    Ok(ConnectionInfo {
+    Ok(SessionInfo {
         host,
         port,
         session_token,
@@ -117,8 +117,8 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
-    fn create_cinfo(token: &str) -> ConnectionInfo {
-        ConnectionInfo {
+    fn create_cinfo(token: &str) -> SessionInfo {
+        SessionInfo {
             host: Host::Ipv4(Ipv4Addr::LOCALHOST),
             port: 8080,
             session_token: token.to_string(),

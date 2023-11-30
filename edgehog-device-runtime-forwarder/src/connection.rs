@@ -68,7 +68,7 @@ impl DerefMut for ConnectionHandle {
     }
 }
 
-/// Struct containing a connection information useful to communicate with the [`ConnectionsManager`](crate::connections::ConnectionsManager).
+/// Struct containing a connection information useful to communicate with the [`ConnectionsManager`](crate::collection::ConnectionsManager).
 #[derive(Debug)]
 pub(crate) struct Connection {
     id: Id,
@@ -104,7 +104,7 @@ impl Connection {
     }
 
     /// Send an HTTP request, wait for a response, build a protobuf message and send it to the
-    /// [`ConnectionsManager`](crate::connections::ConnectionsManager).
+    /// [`ConnectionsManager`](crate::collection::ConnectionsManager).
     #[instrument(skip_all, fields(id = %self.id))]
     async fn task(self) -> Result<(), ConnectionError> {
         let http_res = self.request.send().await?;
