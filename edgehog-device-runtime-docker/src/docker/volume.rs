@@ -204,7 +204,7 @@ impl Volume<String> {
 
         if let Some(warnings) = volumes.warnings {
             if !warnings.is_empty() {
-                warn!("warnings when listing volumes: {warnings:?}")
+                warn!("warnings when listing volumes: {warnings:?}");
             }
         }
 

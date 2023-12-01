@@ -296,7 +296,7 @@ impl TryFrom<AvailableContainer<String>> for ContainerNode {
     }
 }
 
-fn map_port_bindings(value: &[String]) -> Result<PortBindingMap<String>, BindingError> {
+pub(crate) fn map_port_bindings(value: &[String]) -> Result<PortBindingMap<String>, BindingError> {
     value
         .iter()
         .try_fold(HashMap::new(), |mut acc, s| -> Result<_, BindingError> {

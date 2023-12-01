@@ -24,7 +24,13 @@ use astarte_device_sdk::{event::FromEventError, from_event, DeviceEvent, FromEve
 use itertools::Itertools;
 use tracing::{instrument, trace};
 
-use crate::{container::Binding, network::Network, volume::Volume};
+use crate::{
+    container::{Binding, Container},
+    network::Network,
+    properties::container::map_port_bindings,
+    service::{ContainerNode, Id},
+    volume::Volume,
+};
 
 /// Error from handling the Astarte request.
 #[non_exhaustive]
@@ -32,6 +38,10 @@ use crate::{container::Binding, network::Network, volume::Volume};
 pub enum ReqError {
     /// couldn't parse option, expected key=value but got {0}
     Option(String),
+    /// couldn't parse container restart policy: {0}
+    RestartPolicy(String),
+    /// couldn't parse port binding
+    PortBinding(#[from] BindingError),
 }
 
 /// Create request from Astarte.
@@ -43,6 +53,8 @@ pub enum CreateRequests {
     Volume(CreateVolume),
     /// Request to create a [`Network`]
     Network(CreateNetwork),
+    /// Request to create a [`Container`]
+    Container(CreateContainer),
 }
 
 impl FromEvent for CreateRequests {
@@ -157,6 +169,35 @@ pub struct CreateContainer {
     pub(crate) privileged: bool,
 }
 
+impl TryFrom<CreateContainer> for ContainerNode {
+    type Error = ReqError;
+
+    fn try_from(value: CreateContainer) -> Result<Self, Self::Error> {
+        let restart_policy = value
+            .restart_policy
+            .parse()
+            .map_err(ReqError::RestartPolicy)?;
+        let port_bindings = map_port_bindings(&value.port_bindings)?;
+
+        let container = Container {
+            id: None,
+            name: value.id,
+            image: value.image_id,
+            network_ids: value.network_ids,
+            hostname: Some(value.hostname),
+            restart_policy: Some(restart_policy),
+            env: value.env,
+            binds: value.binds,
+            port_bindings,
+            privileged: value.privileged,
+        };
+
+        let volume_ids = value.volume_ids.into_iter().map(Id::new).collect();
+
+        Ok(ContainerNode::new(container, volume_ids))
+    }
+}
+
 /// Error from parsing a binding
 #[non_exhaustive]
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
@@ -192,17 +233,14 @@ impl BindingError {
 pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind, BindingError> {
     let (host_ip, host_port, rest) = parse_host_ip_port(input)?;
 
-    let (container_port, protocol) = match rest.split_once('/') {
-        Some((port, proto)) => {
-            trace!("container port {port} and protocol {proto}");
+    let (container_port, protocol) = if let Some((port, proto)) = rest.split_once('/') {
+        trace!("container port {port} and protocol {proto}");
 
-            (port, Some(proto))
-        }
-        None => {
-            trace!("container port {rest}");
+        (port, Some(proto))
+    } else {
+        trace!("container port {rest}");
 
-            (rest, None)
-        }
+        (rest, None)
     };
 
     let container_port = container_port
@@ -239,16 +277,13 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
         }
         None => {
             // Try to parse the ip as port
-            match ip_or_port.parse::<u16>() {
-                Ok(port) => {
-                    trace!("found port {port}");
+            if let Ok(port) = ip_or_port.parse::<u16>() {
+                trace!("found port {port}");
 
-                    Ok((None, Some(port), rest))
-                }
-                Err(_) => {
-                    trace!("found ip {ip_or_port}");
-                    Ok((Some(ip_or_port), None, rest))
-                }
+                Ok((None, Some(port), rest))
+            } else {
+                trace!("found ip {ip_or_port}");
+                Ok((Some(ip_or_port), None, rest))
             }
         }
     }

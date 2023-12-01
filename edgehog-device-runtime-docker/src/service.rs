@@ -21,8 +21,9 @@
 use std::{
     borrow::Borrow,
     collections::{hash_map::Entry, HashMap},
-    fmt::Display,
+    fmt::{Debug, Display},
     ops::{Deref, DerefMut},
+    pin::pin,
     sync::Arc,
 };
 
@@ -30,6 +31,7 @@ use astarte_device_sdk::{
     event::FromEventError, store::PropertyStore, DeviceClient, DeviceEvent, Error as AstarteError,
     FromEvent,
 };
+use futures::Future;
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -42,10 +44,14 @@ use crate::{
         container::AvailableContainer, image::AvailableImage, network::AvailableNetwork,
         volume::AvailableVolume, AvailableProp, LoadProp, PropError,
     },
-    request::{CreateImage, CreateNetwork, CreateRequests, CreateVolume, ReqError},
+    request::{
+        CreateContainer, CreateImage, CreateNetwork, CreateRequests, CreateVolume, ReqError,
+    },
     volume::Volume,
     Docker,
 };
+
+type SResult<T> = Result<T, ServiceError>;
 
 /// Error from the [`Service`].
 #[non_exhaustive]
@@ -71,6 +77,8 @@ pub enum ServiceError {
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
+    /// couldn't create for missing node {0}
+    Create(String),
 }
 
 impl<T> From<T> for ServiceError
@@ -129,6 +137,7 @@ impl<S> Service<S> {
             CreateRequests::Image(req) => self.create_image(req).await,
             CreateRequests::Volume(req) => self.create_volume(req).await,
             CreateRequests::Network(req) => self.create_network(req).await,
+            CreateRequests::Container(req) => self.create_container(req).await,
         }
     }
 
@@ -140,13 +149,23 @@ impl<S> Service<S> {
     {
         let id = Id::new(req.id);
 
-        let node = self.nodes.add_node(id, |id, idx| {
-            let image = Image::with_repo(req.name, req.tag, req.repo);
+        let device = pin!(&self.device);
 
-            Node::new(id, idx, State::Missing, image)
-        });
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Image::with_repo(req.name, req.tag, req.repo);
 
-        node.store(&self.device).await?;
+                    let mut node = Node::new(id, idx);
+
+                    node.store(&device, image).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
 
         Ok(())
     }
@@ -159,17 +178,23 @@ impl<S> Service<S> {
     {
         let id = Id::new(req.id.clone());
 
-        let node = self.nodes.try_add_node(
-            id,
-            |id, idx| {
-                let volume = Volume::try_from(req)?;
+        let device = pin!(&self.device);
 
-                Ok(Node::new(id, idx, State::Missing, volume))
-            },
-            &[],
-        )?;
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let volume = Volume::try_from(req)?;
 
-        node.store(&self.device).await?;
+                    let mut node = Node::new(id, idx);
+
+                    node.store(&device, volume).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
 
         Ok(())
     }
@@ -182,13 +207,52 @@ impl<S> Service<S> {
     {
         let id = Id::new(req.id.clone());
 
-        let node = self.nodes.add_node(id, |id, idx| {
-            let network = Network::from(req);
+        let device = pin!(&self.device);
 
-            Node::new(id, idx, State::Missing, network)
-        });
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let network = Network::from(req);
 
-        node.store(&self.device).await?;
+                    let mut node = Node::new(id, idx);
+
+                    node.store(&device, network).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Store the create container request
+    #[instrument(skip(self))]
+    async fn create_container(&mut self, req: CreateContainer) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+    {
+        let id = Id::new(req.id.clone());
+
+        let device = pin!(&self.device);
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let container = ContainerNode::try_from(req)?;
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(&device, container).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
 
         Ok(())
     }
@@ -205,7 +269,7 @@ impl<S> Service<S> {
             .nodes
             .nodes
             .get(&id)
-            .filter(|node| node.state == State::Missing)
+            .filter(|node| !node.inner.is_missing())
             .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?
             .idx;
 
@@ -254,18 +318,7 @@ impl Nodes {
         self.nodes.get(id).map(|node| node.idx)
     }
 
-    pub(crate) fn add_node<F>(&mut self, id: Id, f: F) -> &mut Node
-    where
-        F: FnOnce(Id, NodeIndex) -> Node,
-    {
-        self.nodes.entry(id).or_insert_with_key(|id| {
-            let idx = self.relations.add_node(id.clone());
-
-            f(id.clone(), idx)
-        })
-    }
-
-    pub(crate) fn try_add_node<F>(
+    pub(crate) fn add_node_sync<F>(
         &mut self,
         id: Id,
         f: F,
@@ -275,29 +328,49 @@ impl Nodes {
         F: FnOnce(Id, NodeIndex) -> Result<Node, ServiceError>,
     {
         match self.nodes.entry(id) {
-            Entry::Occupied(entry) => {
-                self.relations.relate(entry.get().idx, deps)?;
+            Entry::Occupied(node) => {
+                self.relations.relate(node.get().idx, deps)?;
 
-                Ok(entry.into_mut())
+                Ok(node.into_mut())
             }
             Entry::Vacant(entry) => {
-                let idx = self.relations.add_node(entry.key().clone());
+                let id = entry.key().clone();
 
-                let node = f(entry.key().clone(), idx)
-                    .and_then(|node| {
-                        self.relations.relate(idx, deps)?;
+                self.relations.add_sync(id.clone(), deps, |idx| {
+                    let node = (f)(id, idx)?;
 
-                        Ok(node)
+                    Ok(entry.insert(node))
+                })
+            }
+        }
+    }
+
+    pub(crate) async fn add_node<F, O>(
+        &mut self,
+        id: Id,
+        f: F,
+        deps: &[NodeIndex],
+    ) -> Result<&mut Node, ServiceError>
+    where
+        F: FnOnce(Id, NodeIndex) -> O,
+        O: Future<Output = Result<Node, ServiceError>>,
+    {
+        match self.nodes.entry(id) {
+            Entry::Occupied(node) => {
+                self.relations.relate(node.get().idx, deps)?;
+
+                Ok(node.into_mut())
+            }
+            Entry::Vacant(entry) => {
+                let id = entry.key().clone();
+
+                self.relations
+                    .add(id.clone(), deps, |idx| async move {
+                        let node = (f)(id, idx).await?;
+
+                        Ok(entry.insert(node))
                     })
-                    .map_err(|err| {
-                        debug!("error creating node, removing relation");
-
-                        self.relations.remove_node(idx);
-
-                        err
-                    })?;
-
-                Ok(entry.insert(node))
+                    .await
             }
         }
     }
@@ -313,6 +386,50 @@ impl Graph {
         Self {
             relations: StableDiGraph::new(),
         }
+    }
+
+    async fn add<F, O, R>(&mut self, id: Id, deps: &[NodeIndex], f: F) -> SResult<R>
+    where
+        F: FnOnce(NodeIndex) -> O,
+        O: Future<Output = SResult<R>>,
+    {
+        let idx = self.add_node(id);
+
+        let res = (f)(idx).await;
+
+        self.relate_ok_or_rm(res, idx, deps)
+    }
+
+    fn add_sync<F, O>(&mut self, id: Id, deps: &[NodeIndex], f: F) -> SResult<O>
+    where
+        F: FnOnce(NodeIndex) -> SResult<O>,
+    {
+        let idx = self.add_node(id);
+
+        let res = (f)(idx);
+
+        self.relate_ok_or_rm(res, idx, deps)
+    }
+
+    fn relate_ok_or_rm<R>(
+        &mut self,
+        res: SResult<R>,
+        idx: NodeIndex,
+        deps: &[NodeIndex],
+    ) -> Result<R, ServiceError> {
+        let res = res.and_then(|r| {
+            self.relate(idx, deps)?;
+
+            Ok(r)
+        });
+
+        if res.is_err() {
+            debug!("error adding node, removing relation");
+
+            self.remove_node(idx);
+        }
+
+        res
     }
 
     #[instrument]
@@ -373,66 +490,34 @@ impl Default for Nodes {
 pub(crate) struct Node {
     id: Id,
     idx: NodeIndex,
-    state: State,
-    inner: NodeType,
+    inner: State,
 }
 
 impl Node {
-    pub(crate) fn new<T>(id: Id, idx: NodeIndex, state: State, node: T) -> Self
-    where
-        T: Into<NodeType>,
-    {
+    pub(crate) fn new(id: Id, idx: NodeIndex) -> Self {
         Self {
             id,
             idx,
-            state,
-            inner: node.into(),
+            inner: State::Missing,
         }
     }
 
+    pub(crate) fn with_state(id: Id, idx: NodeIndex, state: State) -> Self {
+        Self {
+            id,
+            idx,
+            inner: state,
+        }
+    }
+
+    // TODO Store outside in the try node, add missing and then pass the type into store
     #[instrument]
-    async fn store<S>(&mut self, device: &DeviceClient<S>) -> Result<(), ServiceError>
+    async fn store<S, T>(&mut self, device: &DeviceClient<S>, inner: T) -> Result<(), ServiceError>
     where
         S: PropertyStore,
+        T: Into<NodeType> + Debug,
     {
-        match &self.inner {
-            NodeType::Image(image) => {
-                AvailableImage::with_image(&self.id, image)
-                    .store(device)
-                    .await?;
-
-                info!("stored image with id {}", self.id);
-            }
-            NodeType::Volume(volume) => {
-                AvailableVolume::with_volume(&self.id, volume)
-                    .store(device)
-                    .await?;
-
-                info!("stored volume with id {}", self.id);
-            }
-            NodeType::Network(network) => {
-                AvailableNetwork::with_network(&self.id, network)
-                    .store(device)
-                    .await?;
-
-                info!("stored network with id {}", self.id);
-            }
-            NodeType::Container(container) => {
-                AvailableContainer::with_container(
-                    &self.id,
-                    &container.container,
-                    &container.volumes,
-                )
-                .store(device)
-                .await?;
-
-                info!("stored container with id {}", self.id);
-            }
-        }
-
-        self.state.store();
-
-        Ok(())
+        self.inner.store(&self.id, device, inner).await
     }
 
     #[instrument]
@@ -444,44 +529,104 @@ impl Node {
     where
         S: PropertyStore,
     {
-        match self.inner {
-            NodeType::Image(ref image) => {
-                image.pull(client).await?;
+        self.inner.create(&self.id, device, client).await
+    }
+}
 
-                AvailableImage::with_pulled(&self.id, image, true)
-                    .store(device)
-                    .await?;
+/// State of the object for the request.
+#[derive(Debug, Clone, Default)]
+pub(crate) enum State {
+    #[default]
+    Missing,
+    Stored(NodeType),
+    Created(NodeType),
+    Started(NodeType),
+}
+
+impl State {
+    #[instrument]
+    async fn store<S, T>(
+        &mut self,
+        id: &Id,
+        device: &DeviceClient<S>,
+        node: T,
+    ) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+        T: Into<NodeType> + Debug,
+    {
+        match self {
+            State::Missing => {
+                let mut node = node.into();
+
+                node.store(id, device).await?;
+
+                self.store_node(node);
             }
-            NodeType::Volume(ref volume) => {
-                volume.create(client).await?;
-
-                AvailableVolume::with_created(&self.id, volume, true)
-                    .store(device)
-                    .await?;
-            }
-            NodeType::Network(ref mut network) => {
-                network.inspect_or_create(client).await?;
-
-                AvailableNetwork::with_network(&self.id, network)
-                    .store(device)
-                    .await?;
-            }
-            NodeType::Container(ref mut container) => {
-                container.container.inspect_or_create(client).await?;
-
-                AvailableContainer::with_container(
-                    &self.id,
-                    &container.container,
-                    &container.volumes,
-                )
-                .store(device)
-                .await?;
+            State::Stored(_) | State::Created(_) | State::Started(_) => {
+                debug!("node already created");
             }
         }
-
-        self.state.created();
-
         Ok(())
+    }
+
+    #[instrument]
+    async fn create<S>(
+        &mut self,
+        id: &Id,
+        device: &DeviceClient<S>,
+        client: &Docker,
+    ) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+    {
+        match self {
+            State::Missing => return Err(ServiceError::Create(id.to_string())),
+            State::Stored(node) => {
+                node.create(id, device, client).await?;
+
+                self.next();
+            }
+            State::Created(_) | State::Started(_) => {
+                debug!("node already created");
+            }
+        }
+        Ok(())
+    }
+
+    #[instrument]
+    fn store_node(&mut self, node: NodeType) {
+        debug_assert!(self.is_missing(), "BUG: state is not missing");
+
+        match std::mem::replace(self, State::Stored(node)) {
+            State::Missing => {
+                debug!("state stored");
+            }
+            State::Stored(_) | State::Created(_) | State::Started(_) => {
+                error!("BUG: state replaced");
+            }
+        }
+    }
+
+    fn next(&mut self) {
+        debug_assert!(!self.is_missing(), "BUG: state still missing");
+
+        *self = match std::mem::take(self) {
+            State::Missing => {
+                warn!("BUG: state still missing");
+                State::Missing
+            }
+            State::Stored(node) => State::Created(node),
+            State::Created(node) | State::Started(node) => State::Started(node),
+        };
+    }
+
+    /// Returns `true` if the state is [`Missing`].
+    ///
+    /// [`Missing`]: State::Missing
+    #[must_use]
+    pub(crate) fn is_missing(&self) -> bool {
+        matches!(self, Self::Missing)
     }
 }
 
@@ -491,6 +636,89 @@ pub(crate) enum NodeType {
     Volume(Volume<String>),
     Network(Network<String>),
     Container(ContainerNode),
+}
+
+impl NodeType {
+    #[instrument]
+    async fn store<S>(&mut self, id: &Id, device: &DeviceClient<S>) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+    {
+        match &self {
+            NodeType::Image(image) => {
+                AvailableImage::with_image(id, image).store(device).await?;
+
+                info!("stored image with id {}", id);
+            }
+            NodeType::Volume(volume) => {
+                AvailableVolume::with_volume(id, volume)
+                    .store(device)
+                    .await?;
+
+                info!("stored volume with id {}", id);
+            }
+            NodeType::Network(network) => {
+                AvailableNetwork::with_network(id, network)
+                    .store(device)
+                    .await?;
+
+                info!("stored network with id {}", id);
+            }
+            NodeType::Container(container) => {
+                AvailableContainer::with_container(id, &container.container, &container.volumes)
+                    .store(device)
+                    .await?;
+
+                info!("stored container with id {}", id);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[instrument]
+    async fn create<S>(
+        &mut self,
+        id: &Id,
+        device: &DeviceClient<S>,
+        client: &Docker,
+    ) -> Result<(), ServiceError>
+    where
+        S: PropertyStore,
+    {
+        match self {
+            NodeType::Image(ref image) => {
+                image.pull(client).await?;
+
+                AvailableImage::with_pulled(id, image, true)
+                    .store(device)
+                    .await?;
+            }
+            NodeType::Volume(ref volume) => {
+                volume.create(client).await?;
+
+                AvailableVolume::with_created(id, volume, true)
+                    .store(device)
+                    .await?;
+            }
+            NodeType::Network(ref mut network) => {
+                network.inspect_or_create(client).await?;
+
+                AvailableNetwork::with_network(id, network)
+                    .store(device)
+                    .await?;
+            }
+            NodeType::Container(ref mut container) => {
+                container.container.inspect_or_create(client).await?;
+
+                AvailableContainer::with_container(id, &container.container, &container.volumes)
+                    .store(device)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl From<Image<String>> for NodeType {
@@ -526,37 +754,6 @@ pub(crate) struct ContainerNode {
 impl ContainerNode {
     pub(crate) fn new(container: Container<String>, volumes: Vec<Id>) -> Self {
         Self { container, volumes }
-    }
-}
-
-/// State of the object for the request.
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum State {
-    #[default]
-    Missing,
-    Stored,
-    Created,
-}
-
-impl State {
-    #[instrument]
-    fn store(&mut self) {
-        match self {
-            State::Missing => *self = State::Stored,
-            State::Stored | State::Created => {
-                debug!("state already stored");
-            }
-        }
-    }
-
-    #[instrument]
-    fn created(&mut self) {
-        match self {
-            State::Missing | State::Stored => *self = State::Created,
-            State::Created => {
-                debug!("state already created");
-            }
-        }
     }
 }
 

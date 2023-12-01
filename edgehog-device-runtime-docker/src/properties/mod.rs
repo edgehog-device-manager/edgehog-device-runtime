@@ -117,9 +117,9 @@ pub(crate) trait LoadProp:
 
                 let id = Id::new(id);
 
-                nodes.try_add_node(
+                nodes.add_node_sync(
                     id,
-                    |id, idx| Ok(Node::new(id, idx, State::Stored, res)),
+                    |id, idx| Ok(Node::with_state(id, idx, State::Stored(res.into()))),
                     &deps,
                 )?;
 

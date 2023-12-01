@@ -189,8 +189,8 @@ impl From<AvailableVolume<&str>> for AvailableVolume<String> {
             created: value.created,
             driver: value.driver.map(ToString::to_string),
             options: value.options.map(|opts| {
-                opts.iter()
-                    .map(|(&k, &v)| (k.to_string(), v.to_string()))
+                opts.into_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect()
             }),
         }
