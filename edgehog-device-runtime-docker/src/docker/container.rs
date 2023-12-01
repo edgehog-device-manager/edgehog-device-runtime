@@ -160,7 +160,7 @@ where
         self.port_bindings
             .iter()
             .map(|(port_proto, binds)| {
-                let bindings = binds.as_ref().map(|b| b.iter().map(|b| b.into()).collect());
+                let bindings = binds.as_ref().map(|b| b.iter().map(Into::into).collect());
 
                 (port_proto.as_ref().to_string(), bindings)
             })
