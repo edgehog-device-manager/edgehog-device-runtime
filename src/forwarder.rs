@@ -40,7 +40,7 @@ use tokio::task::JoinHandle;
 
 const CHANNEL_STATE_SIZE: usize = 5;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Key(SessionInfo);
 
 impl Deref for Key {
@@ -73,7 +73,7 @@ impl Hash for Key {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum SessionStatus {
     Connecting,
     Connected,

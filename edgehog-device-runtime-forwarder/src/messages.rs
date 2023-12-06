@@ -233,21 +233,17 @@ impl TryFrom<ProtoHttp> for Http {
             message,
         } = value;
 
-        if request_id.is_empty() || message.is_none() {
-            return Err(ProtocolError::Empty);
-        }
-
-        let http_msg = match message.unwrap() {
-            ProtoHttpMessage::Request(req) => {
-                Ok::<HttpMessage, ProtocolError>(HttpMessage::Request(req.try_into()?))
-            }
-            ProtoHttpMessage::Response(res) => Ok(HttpMessage::Response(res.try_into()?)),
-        }?;
-
-        Ok(Http {
-            request_id: request_id.into(),
-            http_msg,
-        })
+        message
+            .filter(|_| !request_id.is_empty())
+            .ok_or(ProtocolError::Empty)
+            .and_then(|msg| match msg {
+                ProtoHttpMessage::Request(req) => req.try_into().map(HttpMessage::Request),
+                ProtoHttpMessage::Response(res) => res.try_into().map(HttpMessage::Response),
+            })
+            .map(|http_msg: HttpMessage| Http {
+                request_id: request_id.into(),
+                http_msg,
+            })
     }
 }
 
