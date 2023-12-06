@@ -29,16 +29,19 @@ use std::ops::{Deref, DerefMut, Not};
 use std::str::FromStr;
 
 use displaydoc::Display;
-use prost::Message as ProstMessage;
 use reqwest::{Client as ReqwClient, RequestBuilder};
 use thiserror::Error as ThisError;
 use url::ParseError;
 
 use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::{
-    http::Message as ProtoHttpMessage, http::Request as ProtoHttpRequest,
-    http::Response as ProtoHttpResponse, message::Protocol as ProtoProtocol,
-    web_socket::Message as ProtoWsMessage, Http as ProtoHttp, WebSocket as ProtoWebSocket,
+    http::Message as ProtoHttpMessage,
+    http::Request as ProtoHttpRequest,
+    http::Response as ProtoHttpResponse,
+    message::Protocol as ProtoProtocol,
+    prost::{self, Message as ProstMessage},
+    web_socket::Message as ProtoWsMessage,
+    Http as ProtoHttp, WebSocket as ProtoWebSocket,
 };
 
 /// Errors occurring while handling [`protobuf`](https://protobuf.dev/overview/) messages

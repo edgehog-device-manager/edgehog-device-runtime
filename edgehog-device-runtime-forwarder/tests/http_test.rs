@@ -9,7 +9,6 @@ use edgehog_device_forwarder_proto::{
 use futures::{SinkExt, StreamExt};
 use httpmock::prelude::*;
 use httpmock::Mock;
-use prost::Message;
 use std::future::Future;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
@@ -17,6 +16,7 @@ use tokio_tungstenite::WebSocketStream;
 use tungstenite::Message as TungMessage;
 use url::Url;
 
+use edgehog_device_forwarder_proto::prost::Message;
 use edgehog_device_runtime_forwarder::connections_manager::{ConnectionsManager, Error};
 use uuid::Uuid;
 

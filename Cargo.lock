@@ -1169,7 +1169,6 @@ dependencies = [
  "hex",
  "http",
  "httpmock",
- "prost",
  "reqwest",
  "thiserror",
  "tokio",

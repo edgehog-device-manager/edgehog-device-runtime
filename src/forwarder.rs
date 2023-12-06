@@ -141,7 +141,7 @@ impl Forwarder {
     /// necessary to update the device session state.
     pub fn init<P>(publisher: P) -> Self
     where
-        P: Publisher + 'static,
+        P: Publisher + 'static + Send + Sync,
     {
         let (tx_state, rx_state) = channel::<SessionState>(CHANNEL_STATE_SIZE);
 
@@ -295,7 +295,7 @@ impl Forwarder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::MockPublisher;
+    use crate::data::tests::MockPublisher;
     use mockall::predicate;
 
     fn remote_terminal_req(session_token: &str, port: i32, host: &str) -> AstarteDeviceDataEvent {

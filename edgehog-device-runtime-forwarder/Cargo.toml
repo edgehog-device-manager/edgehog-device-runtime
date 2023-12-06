@@ -33,7 +33,6 @@ edgehog-device-forwarder-proto = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
-prost = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
