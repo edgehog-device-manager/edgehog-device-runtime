@@ -21,9 +21,7 @@ use url::Url;
 
 use crate::collection::Connections;
 use crate::connection::ConnectionError;
-use crate::messages::{
-    Http, HttpMessage, Id, ProtoMessage, Protocol as ProtoProtocol, ProtocolError,
-};
+use crate::messages::{Http, HttpMessage, Id, ProtoMessage, ProtocolError};
 
 /// Size of the channels where to send proto messages.
 pub(crate) const CHANNEL_SIZE: usize = 50;
@@ -251,19 +249,19 @@ impl ConnectionsManager {
     /// Handle a [`protobuf message`](ProtoMessage).
     pub(crate) fn handle_proto_msg(&mut self, proto_msg: ProtoMessage) -> Result<(), Error> {
         // handle only HTTP requests, not other kind of protobuf messages
-        match proto_msg.protocol {
-            ProtoProtocol::Http(Http {
+        match proto_msg {
+            ProtoMessage::Http(Http {
                 request_id,
                 http_msg: HttpMessage::Request(http_req),
             }) => self.connections.handle_http(request_id, http_req),
-            ProtoProtocol::Http(Http {
+            ProtoMessage::Http(Http {
                 request_id,
                 http_msg: HttpMessage::Response(_http_res),
             }) => {
                 error!("Http response should not be sent by the bridge");
                 Err(Error::WrongMessage(request_id))
             }
-            ProtoProtocol::WebSocket(_ws) => {
+            ProtoMessage::WebSocket(_ws) => {
                 error!("WebSocket messages are not supported yet");
                 Err(Error::Unsupported)
             }

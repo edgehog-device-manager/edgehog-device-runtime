@@ -31,7 +31,7 @@ use tracing::{debug, error, instrument, span, Level};
 
 use crate::messages::{
     Http as ProtoHttp, HttpMessage as ProtoHttpMessage, HttpResponse, Id, ProtoMessage,
-    Protocol as ProtoProtocol, ProtocolError,
+    ProtocolError,
 };
 
 /// Connection errors.
@@ -51,7 +51,8 @@ pub enum ConnectionError {
 /// Handle to the task spawned to handle a [`Connection`].
 #[derive(Debug)]
 pub(crate) struct ConnectionHandle {
-    handle: JoinHandle<()>,
+    /// Handle of the task managing the connection.
+    pub(crate) handle: JoinHandle<()>,
 }
 
 impl Deref for ConnectionHandle {
@@ -117,10 +118,10 @@ impl Connection {
 
         debug!("response code {}", proto_res.status());
 
-        let proto_msg = ProtoMessage::new(ProtoProtocol::Http(ProtoHttp::new(
+        let proto_msg = ProtoMessage::Http(ProtoHttp::new(
             self.id,
             ProtoHttpMessage::Response(proto_res),
-        )));
+        ));
 
         self.tx_ws
             .send(proto_msg)
