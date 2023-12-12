@@ -20,11 +20,7 @@
 
 use std::{collections::HashMap, hash::Hash};
 
-use astarte_device_sdk::{
-    error::Error as AstarteError,
-    store::{PropertyStore, StoredProp},
-    DeviceClient,
-};
+use astarte_device_sdk::{store::StoredProp, Client, Error as AstarteError};
 use async_trait::async_trait;
 use itertools::Itertools;
 use tracing::warn;
@@ -32,7 +28,7 @@ use tracing::warn;
 use crate::{
     container::{Container, PortBindingMap},
     request::{parse_port_binding, BindingError},
-    service::{ContainerNode, Id, Nodes, ServiceError},
+    service::{nodes::Nodes, ContainerNode, Id, ServiceError},
 };
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
@@ -121,9 +117,9 @@ where
         self.id.as_ref()
     }
 
-    async fn store<T>(&self, device: &DeviceClient<T>) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
     where
-        T: PropertyStore,
+        D: Client + Sync,
     {
         let container_id = self.container_id.as_ref().map(|s| s.as_ref());
         let hostname = self.hostname.as_ref().map(|s| s.as_ref());

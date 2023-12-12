@@ -23,16 +23,16 @@ use std::collections::{hash_map::Entry, HashMap};
 use astarte_device_sdk::{
     error::Error as AstarteError,
     properties::PropAccess,
-    store::{PropertyStore, StoredProp},
+    store::StoredProp,
     types::{AstarteType, TypeError},
-    Client, DeviceClient,
+    Client,
 };
 use async_trait::async_trait;
 use petgraph::stable_graph::NodeIndex;
 
 use crate::{
     request::BindingError,
-    service::{Id, Node, NodeType, Nodes, ServiceError, State},
+    service::{nodes::Nodes, Id, Node, NodeType, ServiceError, State},
 };
 
 pub(crate) mod container;
@@ -94,12 +94,9 @@ pub(crate) trait LoadProp:
 {
     type Resource: Into<NodeType>;
 
-    async fn load_resource<S>(
-        device: &DeviceClient<S>,
-        nodes: &mut Nodes,
-    ) -> Result<(), ServiceError>
+    async fn load_resource<D>(device: &D, nodes: &mut Nodes) -> Result<(), ServiceError>
     where
-        S: PropertyStore,
+        D: PropAccess + Sync,
     {
         let av_ifa_props = device.interface_props(Self::interface()).await?;
 
@@ -170,9 +167,9 @@ pub(crate) trait AvailableProp {
 
     fn id(&self) -> &str;
 
-    async fn store<S>(&self, device: &DeviceClient<S>) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
     where
-        S: PropertyStore;
+        D: Client + Sync;
 
     fn merge(&mut self, other: Self) -> &mut Self;
 
@@ -187,15 +184,10 @@ pub(crate) trait AvailableProp {
         key_value.split_once('=')
     }
 
-    async fn send<S, D>(
-        &self,
-        device: &DeviceClient<S>,
-        field: &str,
-        data: Option<D>,
-    ) -> Result<(), AstarteError>
+    async fn send<D, T>(&self, device: &D, field: &str, data: Option<T>) -> Result<(), AstarteError>
     where
-        S: PropertyStore,
-        D: Into<AstarteType> + Send,
+        D: Client + Sync,
+        T: Into<AstarteType> + Send,
     {
         let Some(data) = data else {
             return Ok(());

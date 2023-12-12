@@ -20,16 +20,15 @@
 
 use std::{collections::HashMap, fmt::Display, hash::Hash};
 
-use astarte_device_sdk::{
-    error::Error as AstarteError,
-    store::{PropertyStore, StoredProp},
-    DeviceClient,
-};
+use astarte_device_sdk::{error::Error as AstarteError, store::StoredProp, Client};
 use async_trait::async_trait;
 use itertools::Itertools;
 use tracing::warn;
 
-use crate::{docker::volume::Volume, service::ServiceError};
+use crate::{
+    docker::volume::Volume,
+    service::{nodes::Nodes, ServiceError},
+};
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
@@ -95,9 +94,9 @@ where
         self.id.as_ref()
     }
 
-    async fn store<T>(&self, device: &DeviceClient<T>) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
     where
-        T: PropertyStore,
+        D: Client + Sync,
     {
         let driver = self.driver.as_ref().map(S::as_ref);
         let options = self.driver.as_ref().map(S::as_ref);
@@ -124,7 +123,7 @@ impl LoadProp for AvailableVolume<String> {
 
     fn dependencies(
         &self,
-        _nodes: &mut crate::service::Nodes,
+        _nodes: &mut Nodes,
     ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
         Ok(Vec::new())
     }

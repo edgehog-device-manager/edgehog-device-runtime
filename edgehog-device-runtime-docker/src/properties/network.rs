@@ -18,15 +18,14 @@
 
 //! Property for the `AvailableNetworks` interface.
 
-use astarte_device_sdk::{
-    error::Error as AstarteError,
-    store::{PropertyStore, StoredProp},
-    DeviceClient,
-};
+use astarte_device_sdk::{error::Error as AstarteError, store::StoredProp, Client};
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::{docker::network::Network, service::ServiceError};
+use crate::{
+    docker::network::Network,
+    service::{nodes::Nodes, ServiceError},
+};
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
@@ -80,9 +79,9 @@ where
         self.id.as_ref()
     }
 
-    async fn store<T>(&self, device: &DeviceClient<T>) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
     where
-        T: PropertyStore,
+        D: Client + Sync,
     {
         let id = self.network_id.as_ref().map(S::as_ref);
         let driver = self.driver.as_ref().map(S::as_ref);
@@ -114,7 +113,7 @@ impl LoadProp for AvailableNetwork<String> {
 
     fn dependencies(
         &self,
-        _nodes: &mut crate::service::Nodes,
+        _nodes: &mut Nodes,
     ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
         Ok(Vec::new())
     }
