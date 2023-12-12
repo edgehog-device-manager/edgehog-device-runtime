@@ -14,10 +14,13 @@ rust-version = { workspace = true }
 resolver = "2"
 members = [
   "e2e-test",
-  "edgehog-device-runtime-docker",
   "edgehog-device-runtime-forwarder",
   "hardware-id-service",
   "led-manager-service",
+]
+# TODO: remove when astarte-device-sdk is updated
+exclude = [
+  "edgehog-device-runtime-docker",
 ]
 
 [workspace.package]

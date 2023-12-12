@@ -19,26 +19,29 @@
 [package]
 name = "edgehog-device-runtime-docker"
 version = "0.1.0"
-edition = { workspace = true }
-homepage = { workspace = true }
-rust-version = { workspace = true }
+# TODO: re-add when astarte-device-sdk is updated in the edgehog-device-runtime
+# edition = { workspace = true }
+edition = "2021"
+# homepage = { workspace = true }
+# rust-version = { workspace = true }
+rust-version = "1.66.1"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { git = "https://github.com/joshuachp/astarte-device-sdk-rust.git", branch = "temp-merged", features = ["derive"] }
-async-trait = { workspace = true }
-bollard = { workspace = true }
-displaydoc = { workspace = true }
-futures = { workspace = true }
-hyper = { workspace = true, optional = true }
-itertools = { workspace = true }
-mockall = { workspace = true, optional = true }
-petgraph = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
-tracing = { workspace = true, features = ["log"] }
+astarte-device-sdk = { git = "https://github.com/joshuachp/astarte-device-sdk-rust.git", branch = "fix/once_cell", features = ["derive"] }
+async-trait = "0.1.72"
+bollard = "0.15.0"
+displaydoc = "0.2.4"
+futures = "0.3.28"
+hyper = { version = "0.14.27", optional = true }
+itertools = "0.11.0"
+mockall = { version = "0.11.4", optional = true }
+petgraph = "0.6.3"
+serde = { version = "1.0.190", features = ["derive"] }
+thiserror = "1.0.50"
+tokio = { version = "1.32.0", features = ["macros"] }
+tracing = { version = "0.1.37", features = ["log"] }
 
 [features]
 mock = ["dep:mockall", "dep:hyper"]
