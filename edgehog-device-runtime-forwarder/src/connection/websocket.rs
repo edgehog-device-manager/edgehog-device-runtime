@@ -18,7 +18,10 @@ use tokio_tungstenite::tungstenite::{
     error::ProtocolError as TungProtocolError, Error as TungError, Message as TungMessage,
 };
 
-use super::{ConnectionError, Transport, TransportBuilder, WriteHandle, WS_CHANNEL_SIZE};
+use super::{
+    Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WriteHandle,
+    WS_CHANNEL_SIZE,
+};
 use crate::connections_manager::WsStream;
 use crate::messages::{
     Http as ProtoHttp, HttpMessage as ProtoHttpMessage, HttpRequest as ProtoHttpRequest,
@@ -175,4 +178,18 @@ impl WebSocket {
 enum WsEither {
     Read(Option<Result<TungMessage, TungError>>),
     Write(Option<ProtoWebSocketMessage>),
+}
+
+impl Connection<WebSocketBuilder> {
+    /// Initialize a new WebSocket connection.
+    #[instrument(skip(tx_ws, http_req))]
+    pub(crate) fn with_ws(
+        id: Id,
+        tx_ws: Sender<ProtoMessage>,
+        http_req: ProtoHttpRequest,
+    ) -> Result<ConnectionHandle, ConnectionError> {
+        let (ws_builder, write_handle) = WebSocketBuilder::with_handle(http_req)?;
+        let con = Self::new(id, tx_ws, ws_builder);
+        Ok(con.spawn(write_handle))
+    }
 }

@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, instrument, trace};
 
-use super::{ConnectionError, Transport, TransportBuilder};
+use super::{
+    Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WriteHandle,
+};
 use crate::messages::{
     Http as ProtoHttp, HttpMessage as ProtoHttpMessage, HttpRequest as ProtoHttpRequest,
     HttpResponse as ProtoHttpResponse, Id, ProtoMessage,
@@ -15,7 +17,6 @@ use crate::messages::{
 
 /// Builder for an [`Http`] connection.
 #[derive(Debug)]
-
 pub(crate) struct HttpBuilder {
     /// To send the request the builder must be consumed, so the option can be replaced with None
     request: reqwest::RequestBuilder,
@@ -96,5 +97,19 @@ impl Transport for Http {
                 Ok(Some(proto_msg))
             }
         }
+    }
+}
+
+impl Connection<HttpBuilder> {
+    /// Initialize a new Http connection.
+    #[instrument(skip(tx_ws, http_req))]
+    pub(crate) fn with_http(
+        id: Id,
+        tx_ws: Sender<ProtoMessage>,
+        http_req: ProtoHttpRequest,
+    ) -> Result<ConnectionHandle, ConnectionError> {
+        let http_builder = HttpBuilder::try_from(http_req)?;
+        let con = Self::new(id, tx_ws, http_builder);
+        Ok(con.spawn(WriteHandle::Http))
     }
 }

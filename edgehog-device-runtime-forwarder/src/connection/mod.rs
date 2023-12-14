@@ -18,12 +18,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_tungstenite::tungstenite::Error as TungError;
 use tracing::{error, instrument, trace};
 
-use self::http::HttpBuilder;
-use self::websocket::WebSocketBuilder;
-use crate::messages::{
-    HttpRequest as ProtoHttpRequest, Id, ProtoMessage, ProtocolError,
-    WebSocketMessage as ProtoWebSocketMessage,
-};
+use crate::messages::{Id, ProtoMessage, ProtocolError, WebSocketMessage as ProtoWebSocketMessage};
 
 pub(crate) const WS_CHANNEL_SIZE: usize = 50;
 
@@ -180,42 +175,17 @@ impl<T> Connection<T> {
     }
 }
 
-impl Connection<HttpBuilder> {
-    /// Initialize a new Http connection.
-    #[instrument(skip(tx_ws, http_req))]
-    pub(crate) fn with_http(
-        id: Id,
-        tx_ws: Sender<ProtoMessage>,
-        http_req: ProtoHttpRequest,
-    ) -> Result<ConnectionHandle, ConnectionError> {
-        let http_builder = HttpBuilder::try_from(http_req)?;
-        let con = Self::new(id, tx_ws, http_builder);
-        Ok(con.spawn(WriteHandle::Http))
-    }
-}
-
-impl Connection<WebSocketBuilder> {
-    /// Initialize a new WebSocket connection.
-    #[instrument(skip(tx_ws, http_req))]
-    pub(crate) fn with_ws(
-        id: Id,
-        tx_ws: Sender<ProtoMessage>,
-        http_req: ProtoHttpRequest,
-    ) -> Result<ConnectionHandle, ConnectionError> {
-        let (ws_builder, write_handle) = WebSocketBuilder::with_handle(http_req)?;
-        let con = Self::new(id, tx_ws, ws_builder);
-        Ok(con.spawn(write_handle))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        http::Http, ConnectionError, ConnectionHandle, Id, ProtoHttpRequest, ProtoMessage,
-        ProtoWebSocketMessage, Transport, WriteHandle, WS_CHANNEL_SIZE,
+        http::Http, ConnectionError, ConnectionHandle, Id, ProtoMessage, ProtoWebSocketMessage,
+        Transport, WriteHandle, WS_CHANNEL_SIZE,
     };
-    use crate::messages::Http as ProtoHttp;
-    use crate::messages::{HttpMessage as ProtoHttpMessage, WebSocket as ProtoWebSocket};
+
+    use crate::messages::{
+        Http as ProtoHttp, HttpMessage as ProtoHttpMessage, HttpRequest as ProtoHttpRequest,
+        WebSocket as ProtoWebSocket,
+    };
 
     use http::header::CONTENT_TYPE;
     use http::HeaderValue;
