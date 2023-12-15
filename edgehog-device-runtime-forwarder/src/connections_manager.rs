@@ -73,7 +73,6 @@ impl ConnectionsManager {
     /// Establish a new WebSocket connection between the device and the bridge.
     #[instrument]
     pub async fn connect(url: Url) -> Result<Self, Error> {
-        // TODO: check if, when a wrong URL is passed, it will endlessly try to connect
         let ws_stream = Self::ws_connect(&url).await?;
 
         // this channel is used by tasks associated to the current session to exchange
@@ -139,9 +138,21 @@ impl ConnectionsManager {
         loop {
             match self.event_loop().await {
                 Ok(ControlFlow::Continue(())) => {}
-                Ok(ControlFlow::Break(())) => break,
+                // if the device received a message bigger than the maximum size, drop the message
+                // but keep looping for next events
+                // TODO: it could be useful to have an Internal protobuf message type to communicate the bridge this error.
+                Err(TungError::Capacity(err)) => {
+                    error!("capacity exceeded: {err}");
+                }
+                // if a close frame has been received or the closing handshake is correctly
+                // terminated, the manager terminates the handling of the connections
+                Ok(ControlFlow::Break(())) | Err(TungError::ConnectionClosed) => break,
                 // if the connection has been suddenly interrupted, try re-establishing it.
                 // only Tungstenite errors should be handled for device reconnection
+                Err(TungError::AlreadyClosed) => {
+                    error!("BUG: trying to read/write on an already closed websocket");
+                    break;
+                }
                 Err(err) => {
                     error!("WebSocket error {err:?}");
                     self.reconnect().await?;
@@ -187,12 +198,21 @@ impl ConnectionsManager {
         select! {
             res = self.ws_stream.next() => {
                 match res {
-                    Some(msg) => WebSocketEvents::Receive(msg),
-                    None => WebSocketEvents::Receive(Err(tungstenite::Error::AlreadyClosed)),
+                    Some(msg) => {
+                        trace!("forwarding received tungstenite message: {msg:?}");
+                        WebSocketEvents::Receive(msg)
+                    }
+                    None => {
+                        trace!("ws stream next() returned None, connection already closed");
+                        WebSocketEvents::Receive(Err(tungstenite::Error::AlreadyClosed))
+                    }
                 }
             }
             next = self.rx_ws.recv() => match next {
-                Some(tung_msg) => WebSocketEvents::Send(tung_msg),
+                Some(msg) => {
+                    trace!("forwarding proto message received from a device connection: {msg:?}");
+                    WebSocketEvents::Send(msg)
+                }
                 None => unreachable!("BUG: tx_ws channel should never be closed"),
             }
         }
@@ -218,7 +238,7 @@ impl ConnectionsManager {
             }
             TungMessage::Pong(_) => debug!("received Pong frame"),
             TungMessage::Close(close_frame) => {
-                debug!("websocket close frame {close_frame:?}");
+                debug!("websocket close frame {close_frame:?}, closing active connections");
                 self.disconnect();
                 info!("closed every connection");
                 return Ok(ControlFlow::Break(()));
@@ -230,7 +250,7 @@ impl ConnectionsManager {
                     // handle the actual protocol message
                     Ok(proto_msg) => {
                         trace!("message received from bridge: {proto_msg:?}");
-                        if let Err(err) = self.handle_proto_msg(proto_msg) {
+                        if let Err(err) = self.handle_proto_msg(proto_msg).await {
                             error!("failed to handle protobuf message due to {err:?}");
                         }
                     }
@@ -247,7 +267,10 @@ impl ConnectionsManager {
     }
 
     /// Handle a [`protobuf message`](ProtoMessage).
-    pub(crate) fn handle_proto_msg(&mut self, proto_msg: ProtoMessage) -> Result<(), Error> {
+    pub(crate) async fn handle_proto_msg(&mut self, proto_msg: ProtoMessage) -> Result<(), Error> {
+        // remove from the collection all the terminated connections
+        self.connections.remove_terminated();
+
         // handle only HTTP requests, not other kind of protobuf messages
         match proto_msg {
             ProtoMessage::Http(Http {
@@ -283,14 +306,13 @@ impl ConnectionsManager {
     /// Close all the connections the device has established (e.g., with TTYD).
     #[instrument(skip_all)]
     pub(crate) fn disconnect(&mut self) {
-        info!("closing all the connections");
         self.connections.disconnect();
     }
 }
 
 fn get_token(url: &Url) -> Result<String, Error> {
     url.query()
-        .map(|s| s.trim_start_matches("session_token=").to_string())
+        .map(|s| s.trim_start_matches("session=").to_string())
         .ok_or(Error::TokenNotFound)
 }
 

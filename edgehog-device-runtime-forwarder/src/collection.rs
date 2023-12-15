@@ -1,35 +1,20 @@
-// This file is part of Edgehog.
-//
 // Copyright 2023 SECO Mind Srl
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
 // SPDX-License-Identifier: Apache-2.0
 
 //! Collection of connections and respective methods.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, trace};
 
 use crate::connection::{Connection, ConnectionHandle};
 use crate::connections_manager::Error;
 use crate::messages::{HttpRequest, Id, ProtoMessage};
 
 /// Collection of connections between the device and the bridge.
-#[derive(Debug)]
 pub(crate) struct Connections {
     /// Collection mapping every Connection ID with the corresponding [`tokio task`](tokio::task) spawned to
     /// handle it.
@@ -37,6 +22,14 @@ pub(crate) struct Connections {
     /// Write side of the channel used by each connection to send data to the [`ConnectionsManager`].
     /// This field is only cloned and passed to every connection when created.
     tx_ws: Sender<ProtoMessage>,
+}
+
+impl Debug for Connections {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Connections")
+            .field("connections", &self.connections.keys())
+            .finish()
+    }
 }
 
 impl Connections {
@@ -69,9 +62,6 @@ impl Connections {
     where
         F: FnOnce() -> Result<ConnectionHandle, Error>,
     {
-        // remove from the collection all the terminated connections
-        self.remove_terminated();
-
         // check if there exist a connection with that id
         match self.connections.entry(id.clone()) {
             Entry::Occupied(mut entry) => {
@@ -87,10 +77,11 @@ impl Connections {
 
                 debug!("connection terminated, replacing with a new connection");
                 *handle = f()?;
+                trace!("connection {id} replaced");
             }
             Entry::Vacant(entry) => {
-                debug!("vacant entry for");
                 entry.insert(f()?);
+                trace!("connection {id} inserted");
             }
         }
 
@@ -100,8 +91,10 @@ impl Connections {
     /// Remove all terminated connection from the connections' collection.
     #[instrument(skip_all)]
     pub(crate) fn remove_terminated(&mut self) {
+        trace!("removing terminated connections");
         self.connections
             .retain(|_k, con_handle| !con_handle.is_finished());
+        trace!("terminated connections removed");
     }
 
     /// Terminate all connections, both active and non.
