@@ -20,15 +20,12 @@
 
 use std::{collections::HashMap, fmt::Display, hash::Hash};
 
-use astarte_device_sdk::{error::Error as AstarteError, store::StoredProp, Client};
+use astarte_device_sdk::{store::StoredProp, Client};
 use async_trait::async_trait;
 use itertools::Itertools;
 use tracing::warn;
 
-use crate::{
-    docker::volume::Volume,
-    service::{nodes::Nodes, ServiceError},
-};
+use crate::docker::volume::Volume;
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
@@ -94,7 +91,7 @@ where
         self.id.as_ref()
     }
 
-    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), PropError>
     where
         D: Client + Sync,
     {
@@ -107,6 +104,10 @@ where
 
         Ok(())
     }
+}
+
+impl LoadProp for AvailableVolume<String> {
+    type Res = Volume<String>;
 
     fn merge(&mut self, other: Self) -> &mut Self {
         self.id = other.id;
@@ -115,17 +116,6 @@ where
         replace_if_some(&mut self.options, other.options);
 
         self
-    }
-}
-
-impl LoadProp for AvailableVolume<String> {
-    type Resource = Volume<String>;
-
-    fn dependencies(
-        &self,
-        _nodes: &mut Nodes,
-    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
-        Ok(Vec::new())
     }
 }
 

@@ -29,7 +29,7 @@ rust-version = "1.66.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { git = "https://github.com/joshuachp/astarte-device-sdk-rust.git", branch = "fix/once_cell", features = ["derive"] }
+astarte-device-sdk = { git = "https://github.com/astarte-platform/astarte-device-sdk-rust.git", branch = "master", features = ["derive"] }
 async-trait = "0.1.72"
 bollard = "0.15.0"
 displaydoc = "0.2.4"

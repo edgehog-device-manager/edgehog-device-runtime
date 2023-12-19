@@ -16,7 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs, rustdoc::missing_crate_level_docs)]
+#![warn(
+    missing_docs,
+    rustdoc::missing_crate_level_docs,
+    clippy::dbg_macro,
+    clippy::todo
+)]
 
 //! # Edgehog Device Runtime Docker
 //!

@@ -63,7 +63,7 @@ dependencies = [
 [[package]]
 name = "astarte-device-sdk"
 version = "0.6.2"
-source = "git+https://github.com/joshuachp/astarte-device-sdk-rust.git?branch=fix/once_cell#e626d2962c7de60d7d9bce1b7d43161fc25f07d0"
+source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust.git?branch=master#466bcb8314b811880d24ff50d21a64d43f8b1710"
 dependencies = [
  "astarte-device-sdk-derive",
  "async-trait",
@@ -99,7 +99,7 @@ dependencies = [
 [[package]]
 name = "astarte-device-sdk-derive"
 version = "0.6.2"
-source = "git+https://github.com/joshuachp/astarte-device-sdk-rust.git?branch=fix/once_cell#e626d2962c7de60d7d9bce1b7d43161fc25f07d0"
+source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust.git?branch=master#466bcb8314b811880d24ff50d21a64d43f8b1710"
 dependencies = [
  "proc-macro2",
  "quote",

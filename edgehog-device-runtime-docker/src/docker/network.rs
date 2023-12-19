@@ -178,7 +178,9 @@ impl<S> Network<S> {
         self.update_id(res.id);
 
         if let Some(warning) = res.warning {
-            warn!("network created with working: {warning}");
+            if !warning.is_empty() {
+                warn!("network created with warning: {warning}");
+            }
         }
 
         Ok(())
