@@ -71,7 +71,7 @@ where
     /// The name (or reference) of the image to use.
     pub image: S,
     /// Network to link the container with.
-    pub network_ids: Vec<S>,
+    pub networks: Vec<S>,
     /// The hostname to use for the container.
     ///
     /// Defaults to the container name.
@@ -113,7 +113,7 @@ where
             restart_policy: None,
             env: Vec::new(),
             binds: Vec::new(),
-            network_ids: Vec::new(),
+            networks: Vec::new(),
             port_bindings: PortBindingMap::new(),
             privileged: false,
         }
@@ -173,7 +173,7 @@ where
     where
         S: AsRef<str>,
     {
-        self.network_ids
+        self.networks
             .iter()
             .map(|net_id| {
                 (
@@ -389,8 +389,8 @@ where
     S: AsRef<str> + Hash + Eq,
 {
     fn from(value: &'a Container<S>) -> Self {
-        let hostname = value.hostname.as_ref().map(|s| s.as_ref());
-        let env = value.env.iter().map(|s| s.as_ref()).collect();
+        let hostname = value.hostname.as_ref().map(S::as_ref);
+        let env = value.env.iter().map(S::as_ref).collect();
         let binds = value.binds.iter().map(|s| s.as_ref().to_string()).collect();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
@@ -495,8 +495,8 @@ impl<'a> From<&'a PortBindingMap<String>> for PortBindingMap<&'a str> {
             .iter()
             .map(|(k, v)| {
                 (
-                    k.as_ref(),
-                    v.as_ref().map(|v| v.iter().map(|b| b.into()).collect()),
+                    k.as_str(),
+                    v.as_ref().map(|v| v.iter().map(Into::into).collect()),
                 )
             })
             .collect();

@@ -28,11 +28,10 @@ use astarte_device_sdk::{
     Client,
 };
 use async_trait::async_trait;
-use petgraph::stable_graph::NodeIndex;
 
 use crate::{
     request::BindingError,
-    service::{nodes::Nodes, Id, Node, NodeType, ServiceError, State},
+    service::{nodes::Nodes, Id, Node, Resource, ServiceError, State},
 };
 
 pub(crate) mod container;
@@ -69,7 +68,7 @@ pub enum PropError {
         #[source]
         backtrace: TypeError,
     },
-    /// couldn't convert property into {into}, since it's missing the field {field}
+    /// couldn't property into {into}, since it's missing the field {field}
     MissingField {
         field: &'static str,
         into: &'static str,
@@ -80,6 +79,12 @@ pub enum PropError {
     Option(String),
     /// couldn't parse port binding
     Binding(#[from] BindingError),
+    /// couldn't send {path} to Astarte
+    Send {
+        path: String,
+        #[source]
+        backtrace: AstarteError,
+    },
 }
 
 impl PropError {
@@ -90,9 +95,11 @@ impl PropError {
 
 #[async_trait]
 pub(crate) trait LoadProp:
-    AvailableProp + TryFrom<StoredProp, Error = PropError> + TryInto<Self::Resource, Error = PropError>
+    AvailableProp + TryFrom<StoredProp, Error = PropError> + TryInto<Self::Res, Error = PropError>
 {
-    type Resource: Into<NodeType>;
+    type Res: Resource;
+
+    fn merge(&mut self, other: Self) -> &mut Self;
 
     async fn load_resource<D>(device: &D, nodes: &mut Nodes) -> Result<(), ServiceError>
     where
@@ -105,35 +112,28 @@ pub(crate) trait LoadProp:
         av_props
             .into_iter()
             .try_for_each(|(id, av_prop)| -> Result<(), ServiceError> {
-                let deps = av_prop.dependencies(nodes)?;
-
-                let res: Self::Resource = av_prop.try_into().map_err(|err| ServiceError::Prop {
-                    interface: Self::interface(),
-                    backtrace: err,
-                })?;
+                let res: Self::Res = av_prop.try_into()?;
+                let deps = res.dependencies()?;
 
                 let id = Id::new(id);
 
                 nodes.add_node_sync(
                     id,
                     |id, idx| Ok(Node::with_state(id, idx, State::Stored(res.into()))),
-                    &deps,
+                    deps,
                 )?;
 
                 Ok(())
             })
     }
 
-    fn dependencies(&self, nodes: &mut Nodes) -> Result<Vec<NodeIndex>, ServiceError>;
-
     fn from_props<I>(stored_props: I) -> Result<HashMap<String, Self>, ServiceError>
     where
         I: IntoIterator<Item = StoredProp>,
     {
-        stored_props
-            .into_iter()
-            .map(Self::try_from)
-            .try_fold(HashMap::<String, Self>::new(), |mut acc, item| {
+        stored_props.into_iter().map(Self::try_from).try_fold(
+            HashMap::<String, Self>::new(),
+            |mut acc, item| {
                 let item = item?;
                 let id = item.id().to_string();
 
@@ -147,11 +147,8 @@ pub(crate) trait LoadProp:
                 }
 
                 Ok(acc)
-            })
-            .map_err(|err| ServiceError::Prop {
-                interface: Self::interface(),
-                backtrace: err,
-            })
+            },
+        )
     }
 }
 
@@ -167,11 +164,9 @@ pub(crate) trait AvailableProp {
 
     fn id(&self) -> &str;
 
-    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), PropError>
     where
         D: Client + Sync;
-
-    fn merge(&mut self, other: Self) -> &mut Self;
 
     fn parse_endpoint(endpoint: &str) -> Result<(&str, &str), PropError> {
         endpoint
@@ -184,7 +179,7 @@ pub(crate) trait AvailableProp {
         key_value.split_once('=')
     }
 
-    async fn send<D, T>(&self, device: &D, field: &str, data: Option<T>) -> Result<(), AstarteError>
+    async fn send<D, T>(&self, device: &D, field: &str, data: Option<T>) -> Result<(), PropError>
     where
         D: Client + Sync,
         T: Into<AstarteType> + Send,
@@ -193,9 +188,16 @@ pub(crate) trait AvailableProp {
             return Ok(());
         };
 
+        let interface = Self::interface();
         let endpoint = format!("/{}/{}", self.id(), field);
 
-        device.send(Self::interface(), &endpoint, data).await
+        device
+            .send(interface, &endpoint, data)
+            .await
+            .map_err(|err| PropError::Send {
+                path: format!("{interface}{endpoint}"),
+                backtrace: err,
+            })
     }
 }
 

@@ -18,14 +18,11 @@
 
 //! Property for the `AvailableNetworks` interface.
 
-use astarte_device_sdk::{error::Error as AstarteError, store::StoredProp, Client};
+use astarte_device_sdk::{store::StoredProp, Client};
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::{
-    docker::network::Network,
-    service::{nodes::Nodes, ServiceError},
-};
+use crate::docker::network::Network;
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
@@ -79,7 +76,7 @@ where
         self.id.as_ref()
     }
 
-    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), PropError>
     where
         D: Client + Sync,
     {
@@ -95,6 +92,10 @@ where
 
         Ok(())
     }
+}
+
+impl LoadProp for AvailableNetwork<String> {
+    type Res = Network<String>;
 
     fn merge(&mut self, other: Self) -> &mut Self {
         self.id = other.id;
@@ -105,17 +106,6 @@ where
         replace_if_some(&mut self.enable_ipv6, other.enable_ipv6);
 
         self
-    }
-}
-
-impl LoadProp for AvailableNetwork<String> {
-    type Resource = Network<String>;
-
-    fn dependencies(
-        &self,
-        _nodes: &mut Nodes,
-    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
-        Ok(Vec::new())
     }
 }
 

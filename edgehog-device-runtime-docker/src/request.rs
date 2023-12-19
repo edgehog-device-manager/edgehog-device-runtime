@@ -71,6 +71,9 @@ impl FromEvent for CreateRequests {
             "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
                 CreateNetwork::from_event(value).map(CreateRequests::Network)
             }
+            "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
+                CreateContainer::from_event(value).map(CreateRequests::Container)
+            }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
     }
@@ -157,16 +160,27 @@ impl From<CreateNetwork> for Network<String> {
 )]
 pub struct CreateContainer {
     pub(crate) id: String,
-    pub(crate) hostname: String,
     pub(crate) image_id: String,
     pub(crate) network_ids: Vec<String>,
     pub(crate) volume_ids: Vec<String>,
+    pub(crate) hostname: String,
+    pub(crate) image: String,
     pub(crate) restart_policy: String,
     pub(crate) env: Vec<String>,
     pub(crate) binds: Vec<String>,
     pub(crate) networks: Vec<String>,
     pub(crate) port_bindings: Vec<String>,
     pub(crate) privileged: bool,
+}
+
+impl CreateContainer {
+    pub(crate) fn dependencies(&self) -> Vec<String> {
+        std::iter::once(&self.image_id)
+            .chain(self.volume_ids.iter())
+            .chain(self.network_ids.iter())
+            .cloned()
+            .collect()
+    }
 }
 
 impl TryFrom<CreateContainer> for ContainerNode {
@@ -182,8 +196,8 @@ impl TryFrom<CreateContainer> for ContainerNode {
         let container = Container {
             id: None,
             name: value.id,
-            image: value.image_id,
-            network_ids: value.network_ids,
+            image: value.image,
+            networks: value.networks,
             hostname: Some(value.hostname),
             restart_policy: Some(restart_policy),
             env: value.env,
@@ -192,9 +206,16 @@ impl TryFrom<CreateContainer> for ContainerNode {
             privileged: value.privileged,
         };
 
+        let image_id = Id::new(value.image_id);
         let volume_ids = value.volume_ids.into_iter().map(Id::new).collect();
+        let network_ids = value.network_ids.into_iter().map(Id::new).collect();
 
-        Ok(ContainerNode::new(container, volume_ids))
+        Ok(ContainerNode::new(
+            container,
+            image_id,
+            volume_ids,
+            network_ids,
+        ))
     }
 }
 
@@ -427,6 +448,7 @@ mod tests {
                 "volumeIds",
                 AstarteType::StringArray(vec!["volumeIds".to_string()]),
             ),
+            ("image", AstarteType::String("image".to_string())),
             (
                 "restartPolicy",
                 AstarteType::String("restartPolicy".to_string()),
@@ -456,10 +478,11 @@ mod tests {
 
         let expect = CreateContainer {
             id: "id".to_string(),
-            hostname: "hostname".to_string(),
             image_id: "imageId".to_string(),
             network_ids: vec!["networkIds".to_string()],
             volume_ids: vec!["volumeIds".to_string()],
+            hostname: "hostname".to_string(),
+            image: "image".to_string(),
             restart_policy: "restartPolicy".to_string(),
             env: vec!["env".to_string()],
             binds: vec!["binds".to_string()],

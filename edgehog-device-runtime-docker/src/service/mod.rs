@@ -21,13 +21,14 @@
 use std::{
     borrow::Borrow,
     fmt::{Debug, Display},
+    iter,
     ops::Deref,
     sync::Arc,
 };
 
 use astarte_device_sdk::{
-    event::FromEventError, properties::PropAccess, store::PropertyStore, Client, DeviceEvent,
-    Error as AstarteError, FromEvent,
+    event::FromEventError, properties::PropAccess, Client, DeviceEvent, Error as AstarteError,
+    FromEvent,
 };
 use petgraph::stable_graph::NodeIndex;
 use tracing::{debug, info, instrument};
@@ -60,18 +61,10 @@ type SResult<T> = Result<T, ServiceError>;
 pub enum ServiceError {
     /// error converting event
     FromEvent(#[from] FromEventError),
-    /// error from the Astarte sdk
-    Astarte(#[from] AstarteError),
     /// docker operation failed
     Docker(#[source] DockerError),
-    /// couldn't get the property for {interface}
-    Prop {
-        /// Interface of the property
-        interface: &'static str,
-        /// Backtrace
-        #[source]
-        backtrace: PropError,
-    },
+    /// couldn't save the property
+    Prop(#[from] PropError),
     /// node {0} is missing
     MissingNode(String),
     /// relation is missing given the index
@@ -86,6 +79,8 @@ pub enum ServiceError {
     Start(String),
     /// couldn't operate on missing node {0}
     Missing(String),
+    /// error from the Astarte SDK
+    Astarte(#[from] AstarteError),
     /// BUG couldn't convert missing node
     BugMissing,
 }
@@ -125,7 +120,7 @@ where
     }
 
     /// Initialize the service, it will load all the already stored properties
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn init(client: Docker, device: D) -> SResult<Self> {
         let mut services = Self::new(client, device);
 
@@ -138,7 +133,7 @@ where
     }
 
     /// Handles an event from the image.
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     pub async fn on_event(&mut self, event: DeviceEvent) -> SResult<()>
     where
         D: Client,
@@ -154,7 +149,7 @@ where
     }
 
     /// Store the create image request
-    #[instrument(skip(self))]
+    #[instrument(skip_all)]
     async fn create_image(&mut self, req: CreateImage) -> SResult<()> {
         let id = Id::new(req.id);
 
@@ -172,7 +167,7 @@ where
 
                     Ok(node)
                 },
-                &[],
+                Vec::new(),
             )
             .await?;
 
@@ -198,7 +193,7 @@ where
 
                     Ok(node)
                 },
-                &[],
+                Vec::new(),
             )
             .await?;
 
@@ -224,7 +219,7 @@ where
 
                     Ok(node)
                 },
-                &[],
+                Vec::new(),
             )
             .await?;
 
@@ -238,6 +233,8 @@ where
 
         let device = &self.device;
 
+        let deps = req.dependencies();
+
         self.nodes
             .add_node(
                 id,
@@ -250,7 +247,7 @@ where
 
                     Ok(node)
                 },
-                &[],
+                deps,
             )
             .await?;
 
@@ -259,10 +256,7 @@ where
 
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn start(&mut self, id: &str) -> SResult<()>
-    where
-        D: PropertyStore,
-    {
+    pub async fn start(&mut self, id: &str) -> SResult<()> {
         let id = Id::new(id.to_string());
 
         let start_idx = self
@@ -273,6 +267,7 @@ where
 
         let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
 
+        let mut relations = Vec::new();
         while let Some(idx) = space.next(self.nodes.relations()) {
             let id = self
                 .nodes
@@ -280,6 +275,10 @@ where
                 .ok_or(ServiceError::MissingRelation)?
                 .clone();
 
+            relations.push(id);
+        }
+
+        for id in relations {
             let node = self
                 .nodes
                 .node_mut(&id)
@@ -316,7 +315,7 @@ impl Node {
         }
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn store<D, T>(&mut self, device: &D, inner: T) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -325,7 +324,7 @@ impl Node {
         self.inner.store(&self.id, device, inner).await
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn create<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -333,7 +332,7 @@ impl Node {
         self.inner.create(&self.id, device, client).await
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn start<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client,
@@ -341,7 +340,7 @@ impl Node {
         self.inner.start(&self.id, device, client).await
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn up<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -361,7 +360,7 @@ pub(crate) enum State {
 }
 
 impl State {
-    #[instrument]
+    #[instrument(skip_all)]
     async fn store<D, T>(&mut self, id: &Id, device: &D, node: T) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -373,7 +372,9 @@ impl State {
 
                 node.store(id, device).await?;
 
-                self.map_into(State::Stored)?;
+                *self = State::Stored(node);
+
+                debug!("node {id} stored");
 
                 Ok(())
             }
@@ -383,7 +384,7 @@ impl State {
         }
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -394,6 +395,8 @@ impl State {
                 node.create(id, device, client).await?;
 
                 self.map_into(State::Created)?;
+
+                debug!("node {id} created");
             }
             State::Created(_) | State::Up(_) => {
                 debug!("node already created");
@@ -402,18 +405,19 @@ impl State {
         Ok(())
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client,
     {
         match self {
-            State::Missing => Err(ServiceError::Start(id.to_string())),
-            State::Stored(_) => Err(ServiceError::Start(id.to_string())),
+            State::Missing | State::Stored(_) => Err(ServiceError::Start(id.to_string())),
             State::Created(node) => {
                 node.start(id, device, client).await?;
 
                 self.map_into(State::Up)?;
+
+                debug!("node {id} started");
 
                 Ok(())
             }
@@ -425,7 +429,7 @@ impl State {
         }
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -480,7 +484,7 @@ pub(crate) enum NodeType {
 }
 
 impl NodeType {
-    #[instrument]
+    #[instrument(skip_all)]
     async fn store<D>(&mut self, id: &Id, device: &D) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -506,9 +510,15 @@ impl NodeType {
                 info!("stored network with id {}", id);
             }
             NodeType::Container(container) => {
-                AvailableContainer::with_container(id, &container.container, &container.volumes)
-                    .store(device)
-                    .await?;
+                AvailableContainer::with_container(
+                    id,
+                    &container.container,
+                    &container.image,
+                    &container.volumes,
+                    &container.networks,
+                )
+                .store(device)
+                .await?;
 
                 info!("stored container with id {}", id);
             }
@@ -517,7 +527,7 @@ impl NodeType {
         Ok(())
     }
 
-    #[instrument]
+    #[instrument(skip_all)]
     async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client + Sync,
@@ -547,17 +557,23 @@ impl NodeType {
             NodeType::Container(ref mut container) => {
                 container.container.inspect_or_create(client).await?;
 
-                AvailableContainer::with_container(id, &container.container, &container.volumes)
-                    .store(device)
-                    .await?;
+                AvailableContainer::with_container(
+                    id,
+                    &container.container,
+                    &container.image,
+                    &container.volumes,
+                    &container.networks,
+                )
+                .store(device)
+                .await?;
             }
         }
 
         Ok(())
     }
 
-    #[instrument]
-    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
+    #[instrument(skip_all)]
+    async fn start<D>(&mut self, _id: &Id, _device: &D, client: &Docker) -> SResult<()>
     where
         D: Debug + Client,
     {
@@ -605,12 +621,24 @@ impl From<ContainerNode> for NodeType {
 #[derive(Debug, Clone)]
 pub(crate) struct ContainerNode {
     container: Container<String>,
+    image: Id,
     volumes: Vec<Id>,
+    networks: Vec<Id>,
 }
 
 impl ContainerNode {
-    pub(crate) fn new(container: Container<String>, volumes: Vec<Id>) -> Self {
-        Self { container, volumes }
+    pub(crate) fn new(
+        container: Container<String>,
+        image: Id,
+        volumes: Vec<Id>,
+        networks: Vec<Id>,
+    ) -> Self {
+        Self {
+            container,
+            image,
+            volumes,
+            networks,
+        }
     }
 }
 
@@ -646,5 +674,44 @@ impl Borrow<str> for Id {
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// A resource in the nodes struct.
+pub(crate) trait Resource: Into<NodeType> {
+    fn dependencies(&self) -> Result<Vec<String>, ServiceError>;
+}
+
+impl Resource for Image<String> {
+    fn dependencies(&self) -> Result<Vec<String>, ServiceError> {
+        Ok(Vec::new())
+    }
+}
+
+impl Resource for Network<String> {
+    fn dependencies(&self) -> Result<Vec<String>, ServiceError> {
+        Ok(Vec::new())
+    }
+}
+
+impl Resource for Volume<String> {
+    fn dependencies(&self) -> Result<Vec<String>, ServiceError> {
+        Ok(Vec::new())
+    }
+}
+
+impl Resource for ContainerNode {
+    fn dependencies(&self) -> Result<Vec<String>, ServiceError> {
+        let img_id = self.image.as_str();
+
+        let deps = self
+            .volumes
+            .iter()
+            .map(Id::as_str)
+            .chain(iter::once(img_id))
+            .map(str::to_owned)
+            .collect();
+
+        Ok(deps)
     }
 }

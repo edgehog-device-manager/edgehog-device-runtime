@@ -18,14 +18,11 @@
 
 //! Property for the `AvailableImage` interface.
 
-use astarte_device_sdk::{store::StoredProp, Client, Error as AstarteError};
+use astarte_device_sdk::{store::StoredProp, Client};
 use async_trait::async_trait;
 use tracing::warn;
 
-use crate::{
-    docker::image::Image,
-    service::{nodes::Nodes, ServiceError},
-};
+use crate::docker::image::Image;
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 
@@ -81,7 +78,7 @@ where
         self.id.as_ref()
     }
 
-    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), PropError>
     where
         D: Client + Sync,
     {
@@ -96,6 +93,10 @@ where
 
         Ok(())
     }
+}
+
+impl LoadProp for AvailableImage<String> {
+    type Res = Image<String>;
 
     fn merge(&mut self, other: Self) -> &mut Self {
         self.id = other.id;
@@ -105,17 +106,6 @@ where
         replace_if_some(&mut self.pulled, other.pulled);
 
         self
-    }
-}
-
-impl LoadProp for AvailableImage<String> {
-    type Resource = Image<String>;
-
-    fn dependencies(
-        &self,
-        _nodes: &mut Nodes,
-    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
-        Ok(Vec::new())
     }
 }
 

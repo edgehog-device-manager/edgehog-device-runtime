@@ -20,7 +20,7 @@
 
 use std::{collections::HashMap, hash::Hash};
 
-use astarte_device_sdk::{store::StoredProp, Client, Error as AstarteError};
+use astarte_device_sdk::{store::StoredProp, Client};
 use async_trait::async_trait;
 use itertools::Itertools;
 use tracing::warn;
@@ -28,7 +28,7 @@ use tracing::warn;
 use crate::{
     container::{Container, PortBindingMap},
     request::{parse_port_binding, BindingError},
-    service::{nodes::Nodes, ContainerNode, Id, ServiceError},
+    service::{ContainerNode, Id},
 };
 
 use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
@@ -37,13 +37,15 @@ use super::{astarte_type, replace_if_some, AvailableProp, LoadProp, PropError};
 pub(crate) struct AvailableContainer<S> {
     pub(crate) id: S,
     pub(crate) container_id: Option<S>,
-    pub(crate) hostname: Option<S>,
     pub(crate) image_id: Option<S>,
     pub(crate) network_ids: Option<Vec<S>>,
     pub(crate) volume_ids: Option<Vec<S>>,
+    pub(crate) hostname: Option<S>,
+    pub(crate) image: Option<S>,
     pub(crate) restart_policy: Option<S>,
     pub(crate) env: Option<Vec<S>>,
     pub(crate) binds: Option<Vec<S>>,
+    pub(crate) networks: Option<Vec<S>>,
     pub(crate) port_bindings: Option<PortBindingMap<S>>,
     pub(crate) privileged: Option<bool>,
 }
@@ -59,6 +61,8 @@ where
             && self.container_id.eq(&other.container_id)
             && self.hostname.eq(&other.hostname)
             && self.image_id.eq(&other.image_id)
+            && self.image.eq(&other.image)
+            && self.networks.eq(&other.networks)
             && self.network_ids.eq(&other.network_ids)
             && self.volume_ids.eq(&other.volume_ids)
             && self.restart_policy.eq(&other.restart_policy)
@@ -86,18 +90,22 @@ impl<'a> AvailableContainer<&'a str> {
     pub(crate) fn with_container(
         id: &'a str,
         container: &'a Container<String>,
+        image_id: &'a Id,
         volume_ids: &'a [Id],
+        network_ids: &'a [Id],
     ) -> Self {
         Self {
             id,
             container_id: container.id.as_deref(),
+            image_id: Some(image_id.as_str()),
+            network_ids: Some(network_ids.iter().map(Id::as_str).collect()),
+            networks: Some(container.networks.iter().map(String::as_str).collect()),
             hostname: container.hostname.as_deref(),
-            image_id: container.hostname.as_deref(),
-            network_ids: Some(container.network_ids.iter().map(|s| s.as_ref()).collect()),
-            volume_ids: Some(volume_ids.iter().map(|s| s.as_str()).collect()),
-            restart_policy: container.restart_policy.as_ref().map(|v| v.as_ref()),
-            env: Some(container.env.iter().map(|s| s.as_ref()).collect()),
-            binds: Some(container.binds.iter().map(|s| s.as_ref()).collect()),
+            image: Some(container.image.as_ref()),
+            volume_ids: Some(volume_ids.iter().map(Id::as_str).collect()),
+            restart_policy: container.restart_policy.as_ref().map(AsRef::as_ref),
+            env: Some(container.env.iter().map(String::as_str).collect()),
+            binds: Some(container.binds.iter().map(String::as_str).collect()),
             port_bindings: Some(PortBindingMap::from(&container.port_bindings)),
             privileged: Some(container.privileged),
         }
@@ -117,13 +125,13 @@ where
         self.id.as_ref()
     }
 
-    async fn store<D>(&self, device: &D) -> Result<(), AstarteError>
+    async fn store<D>(&self, device: &D) -> Result<(), PropError>
     where
         D: Client + Sync,
     {
-        let container_id = self.container_id.as_ref().map(|s| s.as_ref());
-        let hostname = self.hostname.as_ref().map(|s| s.as_ref());
-        let image_id = self.image_id.as_ref().map(|s| s.as_ref());
+        let container_id = self.container_id.as_ref().map(S::as_ref);
+        let hostname = self.hostname.as_ref().map(S::as_ref);
+        let image_id = self.image_id.as_ref().map(S::as_ref);
         let network_ids = self
             .network_ids
             .as_ref()
@@ -132,7 +140,8 @@ where
             .volume_ids
             .as_ref()
             .map(|v| v.iter().map(|s| s.as_ref().to_string()).collect_vec());
-        let restart_policy = self.restart_policy.as_ref().map(|s| s.as_ref());
+        let restart_policy = self.restart_policy.as_ref().map(S::as_ref);
+        let image = self.image.as_ref().map(S::as_ref);
         let env = self
             .env
             .as_ref()
@@ -141,29 +150,36 @@ where
             .binds
             .as_ref()
             .map(|v| v.iter().map(|s| s.as_ref().to_string()).collect_vec());
-        let port_bindings: Option<Vec<String>> = self.port_bindings.as_ref().map(|v| v.into());
+        let port_bindings: Option<Vec<String>> = self.port_bindings.as_ref().map(Vec::from);
 
         self.send(device, "id", container_id).await?;
-        self.send(device, "hostname", hostname).await?;
         self.send(device, "imageId", image_id).await?;
         self.send(device, "networkIds", network_ids).await?;
         self.send(device, "volumeIds", volume_ids).await?;
-        self.send(device, "restart_policy", restart_policy).await?;
+        self.send(device, "hostname", hostname).await?;
+        self.send(device, "image", image).await?;
+        self.send(device, "restartPolicy", restart_policy).await?;
         self.send(device, "env", env).await?;
         self.send(device, "binds", binds).await?;
-        self.send(device, "port_bindings", port_bindings).await?;
+        self.send(device, "portBindings", port_bindings).await?;
         self.send(device, "privileged", self.privileged).await?;
 
         Ok(())
     }
+}
+
+impl LoadProp for AvailableContainer<String> {
+    type Res = ContainerNode;
 
     fn merge(&mut self, other: Self) -> &mut Self {
         self.id = other.id;
         replace_if_some(&mut self.container_id, other.container_id);
-        replace_if_some(&mut self.hostname, other.hostname);
         replace_if_some(&mut self.image_id, other.image_id);
-        replace_if_some(&mut self.network_ids, other.network_ids);
         replace_if_some(&mut self.volume_ids, other.volume_ids);
+        replace_if_some(&mut self.hostname, other.hostname);
+        replace_if_some(&mut self.image, other.image);
+        replace_if_some(&mut self.network_ids, other.network_ids);
+        replace_if_some(&mut self.networks, other.networks);
         replace_if_some(&mut self.restart_policy, other.restart_policy);
         replace_if_some(&mut self.env, other.env);
         replace_if_some(&mut self.binds, other.binds);
@@ -171,29 +187,6 @@ where
         replace_if_some(&mut self.privileged, other.privileged);
 
         self
-    }
-}
-
-impl LoadProp for AvailableContainer<String> {
-    type Resource = ContainerNode;
-
-    fn dependencies(
-        &self,
-        nodes: &mut Nodes,
-    ) -> Result<Vec<petgraph::prelude::NodeIndex>, ServiceError> {
-        self.volume_ids
-            .as_ref()
-            .map(|ids| {
-                ids.iter()
-                    .map(|id| {
-                        nodes
-                            .get_idx(id)
-                            .ok_or_else(|| ServiceError::MissingNode(id.to_string()))
-                    })
-                    .collect()
-            })
-            .transpose()
-            .map(Option::unwrap_or_default)
     }
 }
 
@@ -227,6 +220,7 @@ impl TryFrom<StoredProp> for AvailableContainer<String> {
 
                 av_container.port_bindings.replace(bindings);
             }
+            "networks" => astarte_type!(prop, av_container, networks => Vec<String>),
             "privileged" => astarte_type!(prop, av_container, privileged => bool),
             _ => {
                 warn!(
@@ -244,12 +238,10 @@ impl TryFrom<AvailableContainer<String>> for ContainerNode {
     type Error = PropError;
 
     fn try_from(value: AvailableContainer<String>) -> Result<Self, Self::Error> {
-        let image = value
-            .image_id
-            .ok_or(PropError::field("image", "Container"))?;
-        let network_ids = value
-            .network_ids
-            .ok_or(PropError::field("network_ids", "Container"))?;
+        let image = value.image.ok_or(PropError::field("image", "Container"))?;
+        let networks = value
+            .networks
+            .ok_or(PropError::field("networks", "Container"))?;
         let restart_policy = value
             .restart_policy
             .map(|restart| {
@@ -272,7 +264,7 @@ impl TryFrom<AvailableContainer<String>> for ContainerNode {
             id: value.container_id,
             name: value.id,
             image,
-            network_ids,
+            networks,
             hostname: value.hostname,
             restart_policy,
             env,
@@ -281,14 +273,29 @@ impl TryFrom<AvailableContainer<String>> for ContainerNode {
             privileged,
         };
 
-        let volumes = value
+        let image_id = value
+            .image_id
+            .map(Id::new)
+            .ok_or(PropError::field("image_id", "Container"))?;
+        let volume_ids = value
             .volume_ids
             .ok_or(PropError::field("volume_ids", "Container"))?
             .into_iter()
             .map(Id::new)
             .collect();
+        let network_ids = value
+            .network_ids
+            .ok_or(PropError::field("network_ids", "Container"))?
+            .into_iter()
+            .map(Id::new)
+            .collect();
 
-        Ok(ContainerNode::new(container, volumes))
+        Ok(ContainerNode::new(
+            container,
+            image_id,
+            volume_ids,
+            network_ids,
+        ))
     }
 }
 
