@@ -135,7 +135,7 @@ impl ProtoMessage {
         }))
     }
 
-    /// Return the internal websocket message if it matches the type.
+    /// Return the internal WebSocket message if it matches the type.
     pub(crate) fn into_ws(self) -> Option<WebSocket> {
         match self {
             ProtoMessage::Http(_) => None,
@@ -345,7 +345,7 @@ impl HttpRequest {
         )
         .parse()?;
 
-        // remove unsupported websocket headers
+        // remove unsupported WebSocket headers
         self.remove_unsupported_ws_ext();
 
         // add method
@@ -367,13 +367,13 @@ impl HttpRequest {
         req.body(()).map_err(ProtocolError::from)
     }
 
-    /// Remove unsupported websocket headers.
+    /// Remove unsupported WebSocket headers.
     #[instrument(skip_all)]
     fn remove_unsupported_ws_ext(&mut self) {
         // TODO: at the moment TTYD permessage-deflate extension is not supported by tungstenite. We should filter the supported ones implemented in tungstenite
         if let Some(extensions) = self.headers.remove("sec-websocket-extensions") {
             debug!(
-                "websocket extensions removed: {}",
+                "WebSocket extensions removed: {}",
                 String::from_utf8_lossy(extensions.as_bytes())
             );
         }
@@ -483,7 +483,7 @@ impl TryFrom<http::Response<Option<Vec<u8>>>> for HttpResponse {
     }
 }
 
-/// WebSocket request fields.
+/// WebSocket message fields.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct WebSocket {
     pub(crate) socket_id: Id,

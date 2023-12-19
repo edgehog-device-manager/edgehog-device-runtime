@@ -18,7 +18,6 @@ use crate::messages::{
 /// Builder for an [`Http`] connection.
 #[derive(Debug)]
 pub(crate) struct HttpBuilder {
-    /// To send the request the builder must be consumed, so the option can be replaced with None
     request: reqwest::RequestBuilder,
 }
 
@@ -56,7 +55,7 @@ impl TryFrom<ProtoHttpRequest> for HttpBuilder {
 /// HTTP connection protocol
 #[derive(Debug)]
 pub(crate) struct Http {
-    /// To send the request the builder must be consumed, so the option can be replaced with None.
+    // to send the request the builder must be consumed, so the option can be replaced with None.
     request: Option<reqwest::RequestBuilder>,
 }
 
@@ -81,7 +80,7 @@ impl Transport for Http {
         trace!("sending HTTP request");
         match request.send().await {
             Ok(http_res) => {
-                // create the protobuf response to send to the bridge
+                // create the protobuf response to be sent to Edgehog
                 let proto_res = ProtoHttpResponse::from_reqw_response(http_res).await?;
 
                 let proto_msg = ProtoMessage::Http(ProtoHttp::new(

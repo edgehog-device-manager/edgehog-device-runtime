@@ -6,12 +6,13 @@ use edgehog_device_forwarder_proto::{
     http::Response as HttpResponse, message::Protocol, prost::Message, Http,
     Message as ProtoMessage,
 };
+use edgehog_device_runtime_forwarder::test_utils::create_http_req;
 use futures::{SinkExt, StreamExt};
 
 #[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_connect() {
-    use edgehog_device_runtime_forwarder::test_utils::{create_http_req, TestConnections};
+    use edgehog_device_runtime_forwarder::test_utils::TestConnections;
 
     let test_connections = TestConnections::<httpmock::MockServer>::init().await;
     let endpoint = test_connections.endpoint();
@@ -23,7 +24,7 @@ async fn test_connect() {
     let mut ws = test_connections.mock_ws_server().await;
 
     let request_id = "3647edbb-6747-4827-a3ef-dbb6239e3326".as_bytes().to_vec();
-    let http_req = create_http_req(request_id, &test_url);
+    let http_req = create_http_req(request_id, &test_url, Vec::new());
 
     ws.send(http_req.clone())
         .await
@@ -66,7 +67,7 @@ async fn test_connect() {
 #[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_max_sizes() {
-    use edgehog_device_runtime_forwarder::test_utils::{create_big_http_req, TestConnections};
+    use edgehog_device_runtime_forwarder::test_utils::TestConnections;
 
     let test_connections = TestConnections::<httpmock::MockServer>::init().await;
     let mut ws = test_connections.mock_ws_server().await;
@@ -75,7 +76,8 @@ async fn test_max_sizes() {
     let test_url = test_connections
         .mock_server
         .url("/remote-terminal?session=abcd");
-    let http_req = create_big_http_req(request_id.clone(), &test_url);
+    // create an HTTP request with a big body
+    let http_req = create_http_req(request_id.clone(), &test_url, vec![0u8; 16777216]);
 
     // sending a frame bigger than the maximum frame size will cause a connection reset error.
     let res = ws.send(http_req.clone()).await;

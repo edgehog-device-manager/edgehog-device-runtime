@@ -76,7 +76,7 @@ mod tests {
             host: Ipv4Addr::LOCALHOST.to_string(),
             port: 8080,
             session_token: session_token.to_string(),
-            secure: false
+            secure: false,
         }
     }
 

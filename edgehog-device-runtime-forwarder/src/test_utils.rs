@@ -9,8 +9,7 @@ use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::{
     http::Message as ProtobufHttpMessage, http::Request as ProtobufHttpRequest,
     message::Protocol as ProtobufProtocol, prost::Message,
-    web_socket::Close as ProtobufWebSocketClose, web_socket::Message as ProtobufWsMessage,
-    Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
+    web_socket::Message as ProtobufWsMessage, Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
 };
 use futures::{SinkExt, StreamExt};
 use httpmock::prelude::*;
@@ -18,8 +17,9 @@ use httpmock::Mock;
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::tungstenite::{Error as TungError, Message as TungMessage};
+use tokio_tungstenite::tungstenite::Message as TungMessage;
 use tokio_tungstenite::WebSocketStream;
+use tracing::log::warn;
 use tracing::{debug, instrument};
 use url::Url;
 
@@ -62,25 +62,10 @@ fn proto_http_req(request_id: Vec<u8>, url: &Url, body: Vec<u8>) -> proto::Messa
 }
 
 /// Create an HTTP request and wrap it into a [`tungstenite`] message.
-pub fn create_http_req(request_id: Vec<u8>, url: &str) -> TungMessage {
+pub fn create_http_req(request_id: Vec<u8>, url: &str, body: Vec<u8>) -> TungMessage {
     let url = Url::parse(url).expect("failed to pars Url");
 
-    let proto_msg = proto_http_req(request_id, &url, Vec::new());
-
-    let mut buf = Vec::with_capacity(proto_msg.encoded_len());
-    proto_msg.encode(&mut buf).unwrap();
-
-    TungMessage::Binary(buf)
-}
-
-/// Create an HTTP request with a body greater than 64MiB, which is the default max websocket
-/// message size, and wrap it into a [`tungstenite`] message.
-pub fn create_big_http_req(request_id: Vec<u8>, url: &str) -> TungMessage {
-    let url = Url::parse(url).expect("failed to pars Url");
-
-    // create an HTTP request with a body of 16MiB. This will exceed the maximum payload size of
-    // a websocket tungstenite default frame
-    let proto_msg = proto_http_req(request_id, &url, vec![0u8; 16777216]);
+    let proto_msg = proto_http_req(request_id, &url, body);
 
     let mut buf = Vec::with_capacity(proto_msg.encoded_len());
     proto_msg.encode(&mut buf).unwrap();
@@ -100,7 +85,7 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> TungMessage {
     headers.insert("Sec-WebSocket-Version".to_string(), "13".to_string());
     headers.insert("Sec-WebSocket-Protocol".to_string(), "tty".to_string());
     headers.insert(
-        "Sec-WebSocket-Extensions".to_string(),
+        "Seco-WebSocket-Extensions".to_string(),
         "permessage-deflate".to_string(),
     );
     headers.insert(
@@ -160,24 +145,6 @@ pub fn create_ws_msg(socket_id: Vec<u8>, frame: TungMessage) -> TungMessage {
     TungMessage::Binary(buf)
 }
 
-/// Create a binary [`tungstenite`] message carrying a WebSocket close frame.
-pub fn create_ws_close(socket_id: Vec<u8>, code: u32, reason: Option<String>) -> TungMessage {
-    let proto_msg = proto::Message {
-        protocol: Some(ProtobufProtocol::Ws(ProtobufWebSocket {
-            socket_id,
-            message: Some(ProtobufWsMessage::Close(ProtobufWebSocketClose {
-                code,
-                reason: reason.unwrap_or_default(),
-            })),
-        })),
-    };
-
-    let mut buf = Vec::with_capacity(proto_msg.encoded_len());
-    proto_msg.encode(&mut buf).unwrap();
-
-    TungMessage::Binary(buf)
-}
-
 /// Send a message on a WebSocket stream, wait for a message on the stream and return it.
 pub async fn send_ws_and_wait_next(
     ws_stream: &mut WebSocketStream<TcpStream>,
@@ -195,20 +162,6 @@ pub async fn send_ws_and_wait_next(
         .into_data();
 
     Message::decode(http_res.as_slice()).expect("failed to create protobuf message")
-}
-
-/// Close a WebSocket stream and return the response.
-pub async fn send_ws_close(
-    ws_stream: &mut WebSocketStream<TcpStream>,
-    data: TungMessage,
-) -> Result<(), TungError> {
-    ws_stream.send(data).await?;
-
-    ws_stream
-        .next()
-        .await
-        .expect("ws already closed")
-        .map(|msg| debug!("msg: {msg:?}"))
 }
 
 /// Utility struct to test a connection (HTTP or WebSocket) with the device
@@ -247,7 +200,7 @@ impl TestConnections<MockServer> {
         let mock_server = MockServer::start();
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
+        let url = format!("ws://localhost:{port}/remote-terminal?session_token=abcd");
 
         Self {
             mock_server,
@@ -276,7 +229,7 @@ impl TestConnections<MockWebSocket> {
         let mock_server = MockWebSocket::start().await;
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
+        let url = format!("ws://localhost:{port}/remote-terminal?session_token=abcd");
 
         Self {
             mock_server,
@@ -367,14 +320,24 @@ impl MockWebSocket {
             let msg = msg.expect("failed to receive from ws");
             // check what kind of frame is received
             let msg_response = match msg {
-                TungMessage::Text(_) => continue,
-                // if binary, forward it
+                // if binary or close, forward it
                 TungMessage::Binary(data) => TungMessage::Binary(data),
+                TungMessage::Close(c) => TungMessage::Close(c),
+                // if ping is received, send pong
                 TungMessage::Ping(data) => TungMessage::Pong(data),
-                TungMessage::Pong(_) => continue,
-                // if close, forward it (as specified in WebSocket RFC)
-                TungMessage::Close(_) => break,
-                TungMessage::Frame(_) => unreachable!("should never be sent"),
+                // skip the following messages
+                TungMessage::Pong(_) => {
+                    debug!("received Pong frame");
+                    continue;
+                }
+                TungMessage::Text(txt) => {
+                    warn!("received Text frame with {txt}");
+                    continue;
+                }
+                TungMessage::Frame(_) => {
+                    warn!("should never be sent");
+                    continue;
+                }
             };
 
             ws_stream

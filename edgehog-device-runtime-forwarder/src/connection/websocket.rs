@@ -11,24 +11,25 @@ use futures::{SinkExt, StreamExt};
 use http::Request;
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tracing::{debug, error, instrument, trace};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::{
     error::ProtocolError as TungProtocolError, Error as TungError, Message as TungMessage,
 };
+use tracing::{debug, error, instrument, trace};
 
 use super::{
     Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WriteHandle,
     WS_CHANNEL_SIZE,
 };
+
 use crate::connections_manager::WsStream;
 use crate::messages::{
     Http as ProtoHttp, HttpMessage as ProtoHttpMessage, HttpRequest as ProtoHttpRequest,
     HttpResponse as ProtoHttpResponse, Id, ProtoMessage, WebSocketMessage as ProtoWebSocketMessage,
 };
 
-/// Builder for an [`WebSocket`] connection.
+/// Builder for a [`WebSocket`] connection.
 #[derive(Debug)]
 pub(crate) struct WebSocketBuilder {
     request: Request<()>,
@@ -36,15 +37,14 @@ pub(crate) struct WebSocketBuilder {
 }
 
 impl WebSocketBuilder {
-    /// Upgrade the HTTP request and build the channel used to send WebSocket messages to device
-    /// services (e.g., TTYD).
+    /// Check the HTTP upgrade request and build the channel used to send WebSocket messages to device services (e.g., TTYD).
     pub(crate) fn with_handle(
         http_req: ProtoHttpRequest,
     ) -> Result<(Self, WriteHandle), ConnectionError> {
         let request = http_req.ws_upgrade()?;
         trace!("HTTP request upgraded");
 
-        // this channel that will be used to send data from the manager to the websocket connection
+        // this channel will be used to send data from the manager to the WebSocket connection
         let (tx_con, rx_con) = channel::<ProtoWebSocketMessage>(WS_CHANNEL_SIZE);
 
         Ok((Self { request, rx_con }, WriteHandle::Ws(tx_con)))
@@ -65,7 +65,7 @@ impl TransportBuilder for WebSocketBuilder {
         let (ws_stream, http_res) = tokio_tungstenite::connect_async(self.request).await?;
         trace!("WebSocket stream for ID {id} created");
 
-        // send a ProtoMessage with the HTTP generated response to the connections manager
+        // send a protocol message with the HTTP response to the connections manager
         let proto_msg = ProtoMessage::Http(ProtoHttp::new(
             id.clone(),
             ProtoHttpMessage::Response(ProtoHttpResponse::try_from(http_res)?),
@@ -90,16 +90,16 @@ pub(crate) struct WebSocket {
 
 #[async_trait]
 impl Transport for WebSocket {
-    /// Write/Read to/from a WebSocket.
+    /// Write to or Read from a WebSocket.
     ///
     /// Returns a result only when the device receives a message from a WebSocket connection.
     /// If a message needs to be forwarded to the device's WebSocket connection, a recursive
     /// function call will be invoked.
     async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError> {
         match self.select().await {
-            // message from internal websocket connection (e.g., with TTYD) to the connections manager
+            // message from internal WebSocket connection (e.g., with TTYD) to the connections manager
             WsEither::Read(tung_res) => self.handle_ws_read(id.clone(), tung_res).await,
-            // message from the connections manager to the internal websocket connection
+            // message from the connections manager to the internal WebSocket connection
             WsEither::Write(chan_data) => {
                 if let ControlFlow::Break(()) = self.handle_ws_write(chan_data).await? {
                     return Ok(None);
@@ -159,7 +159,6 @@ impl WebSocket {
         &mut self,
         chan_data: Option<ProtoWebSocketMessage>,
     ) -> Result<ControlFlow<()>, ConnectionError> {
-        // convert the websocket proto message into a Tung message
         match chan_data {
             None => {
                 debug!("channel dropped, closing connection");

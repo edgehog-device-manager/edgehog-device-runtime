@@ -9,10 +9,11 @@ use edgehog_device_forwarder_proto::{
 };
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 
+use edgehog_device_runtime_forwarder::test_utils::create_ws_msg;
 #[cfg(feature = "_test-utils")]
 use edgehog_device_runtime_forwarder::test_utils::{
-    create_http_upgrade_req, create_ws_msg, is_ws_upgrade_response, send_ws_and_wait_next,
-    MockWebSocket, TestConnections,
+    create_http_upgrade_req, is_ws_upgrade_response, send_ws_and_wait_next, MockWebSocket,
+    TestConnections,
 };
 
 #[cfg(feature = "_test-utils")]
@@ -42,7 +43,7 @@ async fn test_internal_ws() {
     assert_eq!(request_id, socket_id);
     assert!(is_ws_upgrade_response(protobuf_http));
 
-    // retrieve the ID of the connection and try sending a websocket message
+    // retrieve the ID of the connection and try sending a WebSocket message
     test_connections.mock(connection_handle).await;
 
     let content = b"data".to_vec();

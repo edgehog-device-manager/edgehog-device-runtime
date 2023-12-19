@@ -1,7 +1,7 @@
 // Copyright 2024 SECO Mind Srl
 // SPDX-License-Identifier: Apache-2.0
 
-//! Collection of connections and respective methods.
+//! Connections' collection and respective methods.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -53,11 +53,12 @@ impl Connections {
 
         // the HTTP message can't be an http response
         let http_req = http_msg.into_req().ok_or_else(|| {
-            error!("Http response should not be sent by the bridge");
+            error!("Http response should not be sent by Edgehog");
             Error::WrongMessage(request_id.clone())
         })?;
 
         // before executing the HTTP request, check if it is an Upgrade request.
+        // if so, handle it properly.
         if http_req.is_ws_upgrade() {
             info!("Connection upgrade");
             return self.add_ws(request_id, http_req);
@@ -82,13 +83,13 @@ impl Connections {
         })
     }
 
-    /// Handle the reception of a websocket proto message from the bridge
+    /// Handle the reception of a WebSocket protocol message from Edgehog.
     #[instrument(skip(self, ws))]
     pub(crate) async fn handle_ws(&mut self, ws: ProtoWebSocket) -> Result<(), Error> {
         let ProtoWebSocket { socket_id, message } = ws;
 
-        // check if there exist a websocket connection with that id
-        // and send a WebSocket message toward the task handling it
+        // check if there exist a WebSocket connection with the specified id
+        // and send a WebSocket message toward the task responsoble for handling it
         match self.connections.entry(socket_id.clone()) {
             Entry::Occupied(entry) => {
                 let handle = entry.get();
@@ -99,13 +100,13 @@ impl Connections {
                 handle.send(proto_msg).await.map_err(Error::from)
             }
             Entry::Vacant(_entry) => {
-                error!("websocket connection {socket_id} not found");
+                error!("WebSocket connection {socket_id} not found");
                 Err(Error::ConnectionNotFound(socket_id))
             }
         }
     }
 
-    /// Try add a new connection
+    /// Try add a new connection.
     #[instrument(skip(self, f))]
     pub(crate) fn try_add<F>(&mut self, id: Id, f: F) -> Result<(), Error>
     where
@@ -124,7 +125,7 @@ impl Connections {
                     return Err(Error::IdAlreadyUsed(id));
                 }
 
-                debug!("connection terminated, replacing with a new connection");
+                debug!("connection terminated, replacing it with a new connection");
                 *handle = f()?;
                 trace!("connection {id} replaced");
             }

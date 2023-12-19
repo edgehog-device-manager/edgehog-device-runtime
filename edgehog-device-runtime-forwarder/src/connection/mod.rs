@@ -20,6 +20,8 @@ use tracing::{error, instrument, trace};
 
 use crate::messages::{Id, ProtoMessage, ProtocolError, WebSocketMessage as ProtoWebSocketMessage};
 
+/// Size of the channel used to send messages from the [Connections Manager](crate::connections_manager::ConnectionsManager)
+/// to a device WebSocket connection
 pub(crate) const WS_CHANNEL_SIZE: usize = 50;
 
 /// Connection errors.
@@ -36,7 +38,7 @@ pub enum ConnectionError {
     JoinError(#[from] JoinError),
     /// Message sent to the wrong protocol
     WrongProtocol,
-    /// Error when receiving message on websocket connection, `{0}`.
+    /// Error when receiving message on WebSocket connection, `{0}`.
     WebSocket(#[from] TungError),
     /// Trying to poll while still connecting.
     Connecting,
@@ -44,7 +46,7 @@ pub enum ConnectionError {
 
 /// Enum storing the write side of the channel used by the
 /// [Connections Manager](crate::connections_manager::ConnectionsManager) to send WebSocket
-/// messages to the respective Connection that will handle it.
+/// messages to the respective connection that will handle it.
 #[derive(Debug)]
 pub(crate) enum WriteHandle {
     Http,
@@ -56,8 +58,16 @@ pub(crate) enum WriteHandle {
 pub(crate) struct ConnectionHandle {
     /// Handle of the task managing the connection.
     pub(crate) handle: JoinHandle<()>,
-    /// Handle used to send messages to the tokio task of a certain connection.
+    /// Handle necessary to send messages to the tokio task managing the connection.
     pub(crate) connection: WriteHandle,
+}
+
+impl Deref for ConnectionHandle {
+    type Target = JoinHandle<()>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
 }
 
 impl ConnectionHandle {
@@ -81,12 +91,12 @@ impl ConnectionHandle {
     }
 }
 
-impl Deref for ConnectionHandle {
-    type Target = JoinHandle<()>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.handle
-    }
+/// For each Connection implementing a given transport protocol (e.g., [`Http`], [`WebSocket`]), it
+/// provides a method returning a [`protocol message`](ProtoMessage) to send to the
+/// [`ConnectionsManager`](crate::collection::ConnectionsManager).
+#[async_trait]
+pub(crate) trait Transport {
+    async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError>;
 }
 
 /// Trait used by each transport builder (e.g., [`HttpBuilder`], [`WebSocketBuilder`]) to build the
@@ -102,15 +112,7 @@ pub(crate) trait TransportBuilder {
     ) -> Result<Self::Connection, ConnectionError>;
 }
 
-/// For each Connection implementing a given transport protocol (e.g., [`Http`], [`WebSocket`]), it
-/// provides a method returning a [`protocol message`](ProtoMessage) to send to the connections
-/// manager.
-#[async_trait]
-pub(crate) trait Transport {
-    async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError>;
-}
-
-/// Struct containing a connection information useful to communicate with the
+/// Struct containing the connection information necessary to communicate with the
 /// [`ConnectionsManager`](crate::collection::ConnectionsManager).
 #[derive(Debug)]
 pub(crate) struct Connection<T> {
@@ -152,7 +154,7 @@ impl<T> Connection<T> {
         }
     }
 
-    /// Send an HTTP request, wait for a response, build a protobuf message and send it to the
+    /// Build the [`Transport`] and send protocol messages to the
     /// [ConnectionsManager](crate::connections_manager::ConnectionsManager).
     #[instrument(skip_all)]
     pub(crate) async fn task(self) -> Result<(), ConnectionError>
@@ -256,7 +258,7 @@ mod tests {
 
         assert!(matches!(res, Err(ConnectionError::Channel(_))));
 
-        // an error is returned in case the proto message is not of websocket type
+        // an error is returned in case the proto message is not of WebSocket type
         let (tx, _rx) = channel::<ProtoWebSocketMessage>(WS_CHANNEL_SIZE);
         let con_handle = ConnectionHandle {
             handle: tokio::spawn(empty_task()),
