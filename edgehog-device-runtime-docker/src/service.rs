@@ -79,6 +79,7 @@ pub struct Service<S> {
 
 impl<S> Service<S> {
     /// Create a new service
+    #[must_use]
     pub fn new(client: Docker, device: DeviceClient<S>) -> Self {
         Self {
             client,
@@ -123,7 +124,7 @@ impl<S> Service<S> {
             .into_iter()
             .chunk_by(|av_img| av_img.id)
             .into_iter()
-            .map(|(_, group)| group.reduce(|a, b| a.merge(b)))
+            .map(|(_, group)| group.reduce(AvailableImage::merge))
             .filter_map(|av_img| av_img.map(|av_img| (av_img.id, av_img)))
             .try_for_each(|(id, av_img)| -> Result<(), ServiceError> {
                 let img = Image::try_from(av_img).map_err(|err| ServiceError::Prop {
@@ -134,7 +135,7 @@ impl<S> Service<S> {
                 let id = Id::new(id.to_string());
 
                 self.nodes
-                    .add_node(id, |id, idx| Node::new(id, idx, img, State::Stored));
+                    .add_node(id, |id, idx| Node::new(id, idx, State::Stored, img));
 
                 Ok(())
             })
@@ -164,7 +165,7 @@ impl<S> Service<S> {
         let node = self.nodes.add_node(id, |id, idx| {
             let image = Image::with_repo(req.name, req.tag, req.repo);
 
-            Node::new(id, idx, image, State::Missing)
+            Node::new(id, idx, State::Missing, image)
         });
 
         node.store(&self.device).await?;
@@ -250,20 +251,20 @@ impl Default for Nodes {
 struct Node {
     id: Id,
     idx: NodeIndex,
-    node_type: NodeType,
     state: State,
+    inner: NodeType,
 }
 
 impl Node {
-    fn new<T>(id: Id, idx: NodeIndex, node: T, state: State) -> Self
+    fn new<T>(id: Id, idx: NodeIndex, state: State, node: T) -> Self
     where
         T: Into<NodeType>,
     {
         Self {
             id,
             idx,
-            node_type: node.into(),
             state,
+            inner: node.into(),
         }
     }
 
@@ -272,7 +273,7 @@ impl Node {
     where
         S: PropertyStore,
     {
-        match &self.node_type {
+        match &self.inner {
             NodeType::Image { image, .. } => {
                 AvailableImage::with_image(&self.id, image)
                     .store(device)
@@ -296,7 +297,7 @@ impl Node {
     where
         S: PropertyStore,
     {
-        match &self.node_type {
+        match &self.inner {
             NodeType::Image { image, .. } => {
                 image.pull(client).await?;
 
@@ -338,7 +339,7 @@ impl State {
         match self {
             State::Missing => *self = State::Stored,
             State::Stored | State::Created => {
-                debug!("state already stored")
+                debug!("state already stored");
             }
         }
     }
@@ -348,7 +349,7 @@ impl State {
         match self {
             State::Missing | State::Stored => *self = State::Created,
             State::Created => {
-                debug!("state already created")
+                debug!("state already created");
             }
         }
     }
