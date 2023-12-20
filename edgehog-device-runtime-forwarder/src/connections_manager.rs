@@ -1,7 +1,7 @@
 // Copyright 2023 SECO Mind Srl
 // SPDX-License-Identifier: Apache-2.0
 
-//! Handle the interaction between the device connections and the bridge.
+//! Handle the interaction between the device connections and Edgehog.
 
 use std::ops::ControlFlow;
 
@@ -30,7 +30,7 @@ pub(crate) const CHANNEL_SIZE: usize = 50;
 #[derive(Display, ThisError, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Error performing exponential backoff when trying to (re)connect with the bridge.
+    /// Error performing exponential backoff when trying to (re)connect with Edgehog.
     WebSocket(#[from] TungError),
     /// Protobuf error.
     Protobuf(#[from] ProtocolError),
@@ -55,28 +55,28 @@ pub enum Error {
 /// WebSocket stream alias.
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// Handler responsible for establishing a websocket connection between a device and the bridge
+/// Handler responsible for establishing a WebSocket connection between a device and Edgehog
 /// and for receiving and sending data from/to it.
 #[derive(Debug)]
 pub struct ConnectionsManager {
     /// Collection of connections, each identified by an ID.
     connections: Connections,
-    /// Websocket stream between the device and the bridge.
+    /// Websocket stream between the device and Edgehog.
     ws_stream: WsStream,
-    /// Channel used to send through the websocket messages coming from each connection.
+    /// Channel used to send through the WebSocket messages coming from each connection.
     rx_ws: Receiver<ProtoMessage>,
-    /// bridge URL.
+    /// Edgehog URL.
     url: Url,
 }
 
 impl ConnectionsManager {
-    /// Establish a new WebSocket connection between the device and the bridge.
+    /// Establish a new WebSocket connection between the device and Edgehog.
     #[instrument]
     pub async fn connect(url: Url) -> Result<Self, Error> {
         let ws_stream = Self::ws_connect(&url).await?;
 
         // this channel is used by tasks associated to the current session to exchange
-        // available information on a given websocket between the device and TTYD.
+        // available information on a given WebSocket between the device and TTYD.
         // it is also used to forward the incoming data from TTYD to the device.
         let (tx_ws, rx_ws) = channel(CHANNEL_SIZE);
 
@@ -90,21 +90,21 @@ impl ConnectionsManager {
         })
     }
 
-    /// Perform exponential backoff while trying to connect with the bridge.
+    /// Perform exponential backoff while trying to connect with Edgehog.
     #[instrument(skip_all)]
     pub(crate) async fn ws_connect(
         url: &Url,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
-        // try opening a websocket connection with the bridge using exponential backoff
+        // try opening a WebSocket connection with Edgehog using exponential backoff
         let (ws_stream, http_res) =
             backoff::future::retry(ExponentialBackoff::default(), || async {
-                debug!("creating websocket connection with {}", url);
+                debug!("creating WebSocket connection with {}", url);
 
                 match connect_async(url).await {
                     Ok(ws_res) => Ok(ws_res),
                     Err(TungError::Http(http_res)) if http_res.status().is_client_error() => {
                         error!(
-                            "received HTTP client error ({}) from bridge, stopping backoff",
+                            "received HTTP client error ({}), stopping backoff",
                             http_res.status()
                         );
                         Err(BackoffError::Permanent(Error::TokenAlreadyUsed(get_token(
@@ -122,12 +122,12 @@ impl ConnectionsManager {
             })
             .await?;
 
-        trace!("bridge websocket response {http_res:?}");
+        trace!("WebSocket response {http_res:?}");
 
         Ok(ws_stream)
     }
 
-    /// Manage the reception and transmission of data between the websocket and each connection.
+    /// Manage the reception and transmission of data between the WebSocket and each connection.
     ///
     /// It performs specific operations depending on the occurrence of one of the following events:
     /// * Receiving data from the WebSocket,
@@ -140,7 +140,7 @@ impl ConnectionsManager {
                 Ok(ControlFlow::Continue(())) => {}
                 // if the device received a message bigger than the maximum size, drop the message
                 // but keep looping for next events
-                // TODO: it could be useful to have an Internal protobuf message type to communicate the bridge this error.
+                // TODO: it could be useful to have an Internal protobuf message type to communicate to Edgehog this error.
                 Err(TungError::Capacity(err)) => {
                     error!("capacity exceeded: {err}");
                 }
@@ -150,7 +150,7 @@ impl ConnectionsManager {
                 // if the connection has been suddenly interrupted, try re-establishing it.
                 // only Tungstenite errors should be handled for device reconnection
                 Err(TungError::AlreadyClosed) => {
-                    error!("BUG: trying to read/write on an already closed websocket");
+                    error!("BUG: trying to read/write on an already closed WebSocket");
                     break;
                 }
                 Err(err) => {
@@ -169,7 +169,7 @@ impl ConnectionsManager {
         let event = self.select_ws_event().await;
 
         match event {
-            // receive data from the bridge
+            // receive data from Edgehog
             WebSocketEvents::Receive(msg) => {
                 future::ready(msg)
                     .and_then(|msg| self.handle_tung_msg(msg))
@@ -218,7 +218,7 @@ impl ConnectionsManager {
         }
     }
 
-    /// Send a [`Tungstenite message`](tungstenite::Message) through the WebSocket toward the bridge.
+    /// Send a [`Tungstenite message`](tungstenite::Message) through the WebSocket toward Edgehog.
     #[instrument(skip_all)]
     pub(crate) async fn send_to_ws(&mut self, tung_msg: TungMessage) -> Result<(), TungError> {
         self.ws_stream.send(tung_msg).await
@@ -238,18 +238,18 @@ impl ConnectionsManager {
             }
             TungMessage::Pong(_) => debug!("received Pong frame"),
             TungMessage::Close(close_frame) => {
-                debug!("websocket close frame {close_frame:?}, closing active connections");
+                debug!("WebSocket close frame {close_frame:?}, closing active connections");
                 self.disconnect();
                 info!("closed every connection");
                 return Ok(ControlFlow::Break(()));
             }
             // text frames should never be sent
-            TungMessage::Text(data) => warn!("received Text websocket frame, {data}"),
+            TungMessage::Text(data) => warn!("received Text WebSocket frame, {data}"),
             TungMessage::Binary(bytes) => {
                 match ProtoMessage::decode(&bytes) {
                     // handle the actual protocol message
                     Ok(proto_msg) => {
-                        trace!("message received from bridge: {proto_msg:?}");
+                        trace!("message received from Edgehog: {proto_msg:?}");
                         if let Err(err) = self.handle_proto_msg(proto_msg).await {
                             error!("failed to handle protobuf message due to {err:?}");
                         }
@@ -281,7 +281,7 @@ impl ConnectionsManager {
                 request_id,
                 http_msg: HttpMessage::Response(_http_res),
             }) => {
-                error!("Http response should not be sent by the bridge");
+                error!("Http response should not be sent by Edgehog");
                 Err(Error::WrongMessage(request_id))
             }
             ProtoMessage::WebSocket(_ws) => {
@@ -291,7 +291,7 @@ impl ConnectionsManager {
         }
     }
 
-    /// Try to establish again a WebSocket connection with the bridge in case the connection is lost.
+    /// Try to establish again a WebSocket connection with Edgehog in case the connection is lost.
     #[instrument(skip_all)]
     pub(crate) async fn reconnect(&mut self) -> Result<(), Error> {
         debug!("trying to reconnect");

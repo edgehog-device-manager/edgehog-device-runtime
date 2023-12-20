@@ -14,7 +14,7 @@ use crate::connection::{Connection, ConnectionHandle};
 use crate::connections_manager::Error;
 use crate::messages::{HttpRequest, Id, ProtoMessage};
 
-/// Collection of connections between the device and the bridge.
+/// Connections' collection between the device and Edgehog.
 pub(crate) struct Connections {
     /// Collection mapping every Connection ID with the corresponding [`tokio task`](tokio::task) spawned to
     /// handle it.
@@ -56,13 +56,13 @@ impl Connections {
         })
     }
 
-    /// Return a connection entry only if is not finished.
+    /// Try add a new connection
     #[instrument(skip(self, f))]
     pub(crate) fn try_add<F>(&mut self, id: Id, f: F) -> Result<(), Error>
     where
         F: FnOnce() -> Result<ConnectionHandle, Error>,
     {
-        // check if there exist a connection with that id
+        // check if there exist a connection with the specified id
         match self.connections.entry(id.clone()) {
             Entry::Occupied(mut entry) => {
                 error!("entry already occupied");
@@ -97,7 +97,7 @@ impl Connections {
         trace!("terminated connections removed");
     }
 
-    /// Terminate all connections, both active and non.
+    /// Terminate all connections.
     pub(crate) fn disconnect(&mut self) {
         self.connections.values_mut().for_each(|con| con.abort());
         self.connections.clear();

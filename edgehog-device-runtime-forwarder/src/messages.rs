@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn test_from_protobuf_protocol() {
-        // test websocket match case
+        // test WebSocket match case
         let id = b"test_id".to_vec();
         let proto = ProtoProtocol::Ws(empty_protobuf_ws(&id));
         let res = ProtoMessage::try_from(proto).unwrap();

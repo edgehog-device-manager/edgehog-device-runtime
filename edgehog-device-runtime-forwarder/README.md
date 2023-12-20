@@ -11,6 +11,40 @@ The Edgehog Device Runtime Forwarder Library facilitates the communication and i
 between devices and Edgehog through WebSocket connections. This README provides a guide to
 understanding the structure of the library and how its components work together.
 
+## Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Edgehog
+    participant Astarte
+    participant Device Runtime
+    participant Forwarder
+    participant Service
+    User ->> Edgehog: Open remote terminal
+    Edgehog ->> Astarte: Remote terminal request
+    Astarte ->> Device Runtime:  Remote terminal request
+    Device Runtime ->> Forwarder: Session info (host, port, session_token)
+    Forwarder ->> Edgehog: Start WebSocket session
+    loop
+      Edgehog ->> Forwarder: Send HTTP requests to Service
+      Forwarder ->> Service: Forward HTTP request
+      Service ->> Forwarder: Send HTTP response
+      Forwarder ->> Edgehog: Forward HTTP response
+    end
+```
+
+The end user triggers a remote terminal request on the Edgehog Device Manager interface. Edgehog is responsible for
+sending the request to Astarte, which then forwards it to the Device Runtime, handling device operations.
+The Device Runtime retrieves session information from the remote terminal request and communicates it to the Forwarder,
+a module capable of managing connections with the device.
+Using the received information, the Forwarder establishes a WebSocket connection with Edgehog. On top of this
+connection, other types of connections (HTTP, WebSocket, etc.) can be established. At this point of the implementation, 
+the library only supports HTTP connections. For instance, the Service receiving HTTP requests could be an HTTP server 
+providing access to some device resources. In this scenario, Edgehog makes one or more HTTP requests to the Forwarder, 
+which forwards them to the Service. Then the Service replies with one or more HTTP responses, that will be forwarded 
+to Edgehog.
+
 ## Components
 
 ### Connections Manager

@@ -69,7 +69,8 @@ impl DerefMut for ConnectionHandle {
     }
 }
 
-/// Struct containing a connection information useful to communicate with the [`ConnectionsManager`](crate::collection::ConnectionsManager).
+/// Struct containing a connection information useful to communicate with the
+/// [`ConnectionsManager`](crate::collection::ConnectionsManager).
 #[derive(Debug)]
 pub(crate) struct Connection {
     id: Id,
