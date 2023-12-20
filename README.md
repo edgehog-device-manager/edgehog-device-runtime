@@ -46,7 +46,7 @@ features are implemented.
 
 Edgehog Device Runtime can be configured using a [TOML](https://en.wikipedia.org/wiki/TOML) file
 located either in $PWD/edgehog-config.toml or /etc/edgehog/config.toml, or in a custom path, run
-`cargo run -- --help` for more informations.
+`cargo run -- --help` for more information.
 
 
 ### Supported Astarte transport libraries
@@ -56,7 +56,7 @@ instance:
 1. `astarte-device-sdk`
 2. `astarte-message-hub`
 
-#### 1. [Astarte Device SDK Rust](https://github.com/astarte-platform/astarte-device-sdk-rust) 
+#### 1. [Astarte Device SDK Rust](https://github.com/astarte-platform/astarte-device-sdk-rust)
 The Astarte Device SDK for Rust is a ready to use library that provides communication and pairing
 primitives to an Astarte Cluster.
 
@@ -69,7 +69,7 @@ store_directory = "/var/lib/edgehog/"
 download_directory = "/var/tmp/edgehog-updates/"
 [astarte_device_sdk]
 credentials_secret = "YOUR_CREDENTIAL_SECRET"
-device_id = "YOUR_UNIQUE_DEVIDE_ID"
+device_id = "YOUR_UNIQUE_DEVICE_ID"
 pairing_url = "https://api.astarte.EXAMPLE.COM/pairing"
 realm = "examplerealm"
 [[telemetry_config]]

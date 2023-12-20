@@ -124,7 +124,7 @@ VERSION_ID="11""#;
 
     #[test]
     fn os_release_malformed() {
-        let file = r#"NAM["Arch Linux"@@"#;
+        let file = r#"NAME["Arch Linux"@@"#;
 
         let data = parse_os_info(file).unwrap();
         assert!(data.is_empty());
