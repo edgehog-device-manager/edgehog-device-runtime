@@ -184,7 +184,7 @@ impl SystemUpdate for OTARauc<'static> {
                 Ok((percentage, message))
             })
             // Make the future fused, so we can select between the two streams
-            .try_take_while(|(progres, _message)| future::ok(*progres < 100))
+            .try_take_while(|(progress, _message)| future::ok(*progress < 100))
             .boxed();
 
         let completed_stream = self.rauc.receive_completed().await?;

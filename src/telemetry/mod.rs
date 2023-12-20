@@ -444,7 +444,7 @@ mod tests {
 
         assert_eq!(saved_config.len(), 1);
 
-        let system_status_config = saved_config.get(0).unwrap();
+        let system_status_config = saved_config.first().unwrap();
         assert_eq!(system_status_config.enabled, Some(false));
         assert_eq!(system_status_config.period, Some(30));
     }
@@ -488,7 +488,7 @@ mod tests {
 
         assert_eq!(saved_config.len(), 1);
 
-        let system_status_config = saved_config.get(0).unwrap();
+        let system_status_config = saved_config.first().unwrap();
         assert!(system_status_config.enabled.is_none());
         assert!(system_status_config.period.is_none());
     }

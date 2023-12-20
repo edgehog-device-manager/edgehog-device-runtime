@@ -1010,7 +1010,7 @@ mod tests {
 
         let server = MockServer::start();
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1057,7 +1057,7 @@ mod tests {
 
         let server = MockServer::start();
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(404);
         });
@@ -1112,7 +1112,7 @@ mod tests {
 
         let server = MockServer::start();
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1161,7 +1161,7 @@ mod tests {
         let mut ota_request = OtaRequest::default();
         let server = MockServer::start();
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1215,7 +1215,7 @@ mod tests {
 
         let server = MockServer::start();
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1274,7 +1274,7 @@ mod tests {
         let server = MockServer::start();
         let ota_url = server.url("/ota.bin");
         ota_request.url = ota_url;
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1337,7 +1337,7 @@ mod tests {
         let ota_url = server.url("/ota.bin");
         ota_request.url = ota_url;
 
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1389,7 +1389,7 @@ mod tests {
         let server = MockServer::start();
         let ota_url = server.url("/ota.bin");
         ota_request.url = ota_url;
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())
@@ -1937,7 +1937,7 @@ mod tests {
 
         let server = MockServer::start();
         let ota_url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", 0.to_string())
@@ -1997,7 +1997,7 @@ mod tests {
 
         let server = MockServer::start();
         let ota_url = server.url("/ota.bin");
-        let mock_ota_file_request = &server.mock(|when, then| {
+        let mock_ota_file_request = server.mock(|when, then| {
             when.method(GET).path("/ota.bin");
             then.status(200)
                 .header("content-Length", binary_size.to_string())

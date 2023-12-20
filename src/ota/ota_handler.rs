@@ -263,7 +263,7 @@ impl OtaHandler {
     ) -> Result<(), DeviceManagerError> {
         let Some(AstarteType::String(request_uuid_str)) = &data.get("uuid") else {
             return Err(DeviceManagerError::OtaError(OtaError::Request(
-                "Missing uuid in cancell request data",
+                "Missing uuid in cancel request data",
             )));
         };
 

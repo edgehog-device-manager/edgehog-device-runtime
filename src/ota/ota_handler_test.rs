@@ -103,7 +103,7 @@ async fn handle_ota_event_bundle_not_compatible() {
 
     let server = MockServer::start();
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = &server.mock(|when, then| {
+    let mock_ota_file_request = server.mock(|when, then| {
         when.method(GET).path("/ota.bin");
         then.status(200)
             .header("content-Length", binary_size.to_string())
@@ -230,7 +230,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
 
     let server = MockServer::start();
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = &server.mock(|when, then| {
+    let mock_ota_file_request = server.mock(|when, then| {
         when.method(GET).path("/ota.bin");
         then.status(200)
             .header("content-Length", binary_size.to_string())
@@ -369,7 +369,7 @@ async fn ota_event_fail_deployed() {
 
     let server = MockServer::start();
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = &server.mock(|when, then| {
+    let mock_ota_file_request = server.mock(|when, then| {
         when.method(GET).path("/ota.bin");
         then.status(200)
             .header("content-Length", binary_size.to_string())
@@ -522,7 +522,7 @@ async fn ota_event_update_success() {
 
     let server = MockServer::start();
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = &server.mock(|when, then| {
+    let mock_ota_file_request = server.mock(|when, then| {
         when.method(GET).path("/ota.bin");
         then.status(200)
             .header("content-Length", binary_size.to_string())
@@ -878,7 +878,7 @@ async fn ota_event_success_after_canceled_event() {
 
     let server = MockServer::start();
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = &server.mock(|when, then| {
+    let mock_ota_file_request = server.mock(|when, then| {
         when.method(GET).path("/ota.bin");
         then.status(200)
             .header("content-Length", binary_size.to_string())
@@ -914,9 +914,9 @@ async fn ota_event_success_after_canceled_event() {
     );
 
     // We send the cancel event in another thread and wait for the response
-    let mut ota_cancell = HashMap::new();
-    ota_cancell.insert("uuid".to_owned(), AstarteType::String(uuid.to_string()));
-    ota_cancell.insert(
+    let mut ota_cancel = HashMap::new();
+    ota_cancel.insert("uuid".to_owned(), AstarteType::String(uuid.to_string()));
+    ota_cancel.insert(
         "operation".to_string(),
         AstarteType::String("Cancel".to_string()),
     );
@@ -936,7 +936,7 @@ async fn ota_event_success_after_canceled_event() {
 
     let ota_handler_cl = ota_handler.clone();
     let cancel_handle =
-        tokio::spawn(async move { ota_handler_cl.ota_event(&publisher, ota_cancell).await });
+        tokio::spawn(async move { ota_handler_cl.ota_event(&publisher, ota_cancel).await });
 
     // Receive the next OTA event
     let status = rx_update.recv().await.expect("ota should be downloading");
