@@ -54,8 +54,6 @@ pub async fn get_battery_status() -> Result<HashMap<String, BatteryStatus>, Devi
 
     let mut result = HashMap::new();
     for device_path in devices {
-        dbg!(&result);
-
         let device = DeviceProxy::builder(&connection)
             .path(device_path)?
             .build()
