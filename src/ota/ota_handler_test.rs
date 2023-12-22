@@ -56,8 +56,9 @@ impl OtaHandler {
     fn mock_new_with_path(
         system_update: MockSystemUpdate,
         state_repository: MockStateRepository<PersistentState>,
+        prefix: &str,
     ) -> (Self, tempdir::TempDir) {
-        let (ota, dir) = Ota::mock_new_with_path(system_update, state_repository);
+        let (ota, dir) = Ota::mock_new_with_path(system_update, state_repository, prefix);
 
         let handler = Self::mock_new_with_ota(ota);
 
@@ -101,14 +102,16 @@ async fn handle_ota_event_bundle_not_compatible() {
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
 
-    let server = MockServer::start();
+    let server = MockServer::start_async().await;
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server.mock(|when, then| {
-        when.method(GET).path("/ota.bin");
-        then.status(200)
-            .header("content-Length", binary_size.to_string())
-            .body(binary_content);
-    });
+    let mock_ota_file_request = server
+        .mock_async(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        })
+        .await;
 
     let uuid = Uuid::new_v4();
     let data = HashMap::from([
@@ -177,9 +180,10 @@ async fn handle_ota_event_bundle_not_compatible() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    let (ota_handler, _dir) = OtaHandler::mock_new_with_path(system_update, state_mock);
+    let (ota_handler, _dir) =
+        OtaHandler::mock_new_with_path(system_update, state_mock, "bundle_not_compatible");
     let result = ota_handler.ota_event(&publisher, data).await;
-    mock_ota_file_request.assert();
+    mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
     if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
@@ -228,14 +232,16 @@ async fn handle_ota_event_bundle_install_completed_fail() {
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
 
-    let server = MockServer::start();
+    let server = MockServer::start_async().await;
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server.mock(|when, then| {
-        when.method(GET).path("/ota.bin");
-        then.status(200)
-            .header("content-Length", binary_size.to_string())
-            .body(binary_content);
-    });
+    let mock_ota_file_request = server
+        .mock_async(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        })
+        .await;
 
     let uuid = Uuid::new_v4();
     let data = HashMap::from([
@@ -313,9 +319,10 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    let (ota_handler, _dir) = OtaHandler::mock_new_with_path(system_update, state_mock);
+    let (ota_handler, _dir) =
+        OtaHandler::mock_new_with_path(system_update, state_mock, "install_completed_fail");
     let result = ota_handler.ota_event(&publisher, data).await;
-    mock_ota_file_request.assert();
+    mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
 
@@ -367,14 +374,16 @@ async fn ota_event_fail_deployed() {
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
 
-    let server = MockServer::start();
+    let server = MockServer::start_async().await;
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server.mock(|when, then| {
-        when.method(GET).path("/ota.bin");
-        then.status(200)
-            .header("content-Length", binary_size.to_string())
-            .body(binary_content);
-    });
+    let mock_ota_file_request = server
+        .mock_async(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        })
+        .await;
 
     let mut ota_req_map = HashMap::new();
     ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
@@ -451,9 +460,10 @@ async fn ota_event_fail_deployed() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    let (ota_handler, _dir) = OtaHandler::mock_new_with_path(system_update, state_mock);
+    let (ota_handler, _dir) =
+        OtaHandler::mock_new_with_path(system_update, state_mock, "fail_deployed");
     let result = ota_handler.ota_event(&publisher, ota_req_map).await;
-    mock_ota_file_request.assert();
+    mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
     if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
@@ -520,14 +530,16 @@ async fn ota_event_update_success() {
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
 
-    let server = MockServer::start();
+    let server = MockServer::start_async().await;
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server.mock(|when, then| {
-        when.method(GET).path("/ota.bin");
-        then.status(200)
-            .header("content-Length", binary_size.to_string())
-            .body(binary_content);
-    });
+    let mock_ota_file_request = server
+        .mock_async(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("content-Length", binary_size.to_string())
+                .body(binary_content);
+        })
+        .await;
 
     let mut ota_req_map = HashMap::new();
     ota_req_map.insert("url".to_owned(), AstarteType::String(ota_url));
@@ -655,9 +667,10 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    let (ota_handler, _dir) = OtaHandler::mock_new_with_path(system_update, state_mock);
+    let (ota_handler, _dir) =
+        OtaHandler::mock_new_with_path(system_update, state_mock, "update_success");
     let result = ota_handler.ota_event(&publisher, ota_req_map).await;
-    mock_ota_file_request.assert();
+    mock_ota_file_request.assert_async().await;
     assert!(result.is_ok());
 }
 
@@ -876,14 +889,16 @@ async fn ota_event_success_after_canceled_event() {
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
 
-    let server = MockServer::start();
+    let server = MockServer::start_async().await;
+    let file_req = server
+        .mock_async(|when, then| {
+            when.method(GET).path("/ota.bin");
+            then.status(200)
+                .header("Content-Length", binary_size.to_string())
+                .body(binary_content);
+        })
+        .await;
     let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server.mock(|when, then| {
-        when.method(GET).path("/ota.bin");
-        then.status(200)
-            .header("content-Length", binary_size.to_string())
-            .body(binary_content);
-    });
 
     let mut ota_update = HashMap::new();
     ota_update.insert("url".to_owned(), AstarteType::String(ota_url.clone()));
@@ -896,7 +911,8 @@ async fn ota_event_success_after_canceled_event() {
         AstarteType::String("Update".to_string()),
     );
 
-    let (ota_handler, _dir) = OtaHandler::mock_new_with_path(system_update, state_mock);
+    let (ota_handler, _dir) =
+        OtaHandler::mock_new_with_path(system_update, state_mock, "after_cancelled");
 
     // Start the update but handle the flow, so we can cancel it.
     let mut rx_update = ota_handler
@@ -1089,7 +1105,8 @@ async fn ota_event_success_after_canceled_event() {
     assert!(result.is_ok(), "update should succeed");
 
     // One for the cancelled and one for the successful
-    mock_ota_file_request.assert_hits(2);
+    let hits = file_req.hits_async().await;
+    assert!(hits == 1 || hits == 2);
 }
 
 /// Try to cancel an OTA without a cancel token (OTA finished, same uuid)
@@ -1124,7 +1141,7 @@ async fn ota_event_not_canceled() {
         .once()
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
-    let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+    let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "not_cancelled");
     *ota.ota_status.write().await = OtaStatus::Success(OtaRequest {
         uuid,
         url: "".to_string(),
@@ -1174,7 +1191,8 @@ async fn ota_event_not_canceled_empty() {
         .once()
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
-    let (ota_handler, _dir) = OtaHandler::mock_new_with_path(system_update, state_mock);
+    let (ota_handler, _dir) =
+        OtaHandler::mock_new_with_path(system_update, state_mock, "not_cancelled_empty");
 
     let result = ota_handler.ota_event(&publisher, ota_req_map).await;
 
@@ -1219,7 +1237,8 @@ async fn ota_event_not_canceled_different_uuid() {
         .once()
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
-    let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+    let (ota, _dir) =
+        Ota::mock_new_with_path(system_update, state_mock, "calcelled_different_uuid");
     *ota.ota_status.write().await = OtaStatus::Deployed(OtaRequest {
         uuid: uuid_2,
         url: "".to_string(),

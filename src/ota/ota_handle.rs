@@ -150,7 +150,7 @@ where
                         debug!("OTA update channel closed by handle");
                         self.clear().await;
                     }
-                 ota_status = self.handle_ota_event(OtaStatus::Idle, &respond_to, data) => {
+                    ota_status = self.handle_ota_event(OtaStatus::Idle, &respond_to, data) => {
                         let _ = respond_to.send(ota_status).await;
                     }
                 }
@@ -646,6 +646,7 @@ pub async fn wget(
             OtaError::Internal("failed to remove old file")
         })?;
     }
+
     info!("Downloading {:?}", url);
 
     let result_response = reqwest::get(url).await;
@@ -751,8 +752,8 @@ mod tests {
     use crate::repository::{MockStateRepository, StateRepository};
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
-    fn temp_dir() -> (TempDir, String) {
-        let dir = TempDir::new("edgehog").unwrap();
+    fn temp_dir(prefix: &str) -> (TempDir, String) {
+        let dir = TempDir::new(&format!("edgehog-{prefix}")).unwrap();
         let str = dir.path().to_str().unwrap().to_string();
 
         (dir, str)
@@ -774,8 +775,12 @@ mod tests {
         }
 
         /// Create the mock with a usable download path
-        pub fn mock_new_with_path(system_update: T, state_repository: U) -> (Self, TempDir) {
-            let (dir, path) = temp_dir();
+        pub fn mock_new_with_path(
+            system_update: T,
+            state_repository: U,
+            prefix: &str,
+        ) -> (Self, TempDir) {
+            let (dir, path) = temp_dir(prefix);
             let mock = Ota {
                 system_update,
                 state_repository,
@@ -1008,21 +1013,23 @@ mod tests {
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_ota_request");
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1055,14 +1062,16 @@ mod tests {
 
         let mut ota_request = OtaRequest::default();
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(404);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(404);
+            })
+            .await;
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_5_wget");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(4);
 
         tokio::time::pause();
@@ -1092,7 +1101,7 @@ mod tests {
             OtaStatus::Failure(OtaError::Network(_), _)
         ));
 
-        mock_ota_file_request.assert_hits(5);
+        mock_ota_file_request.assert_hits_async(5).await;
     }
 
     #[tokio::test]
@@ -1110,20 +1119,22 @@ mod tests {
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_ota_info");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1159,21 +1170,23 @@ mod tests {
         let binary_size = binary_content.len();
 
         let mut ota_request = OtaRequest::default();
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
         let mut ota = Ota::mock_new(system_update, state_mock);
         ota.download_file_path = "/tmp".to_string();
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1213,20 +1226,22 @@ mod tests {
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         ota_request.url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_compatible");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1271,21 +1286,23 @@ mod tests {
         let binary_size = binary_content.len();
 
         let mut ota_request = OtaRequest::default();
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         let ota_url = server.url("/ota.bin");
         ota_request.url = ota_url;
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_call_boot_slot");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1333,20 +1350,22 @@ mod tests {
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
         let mut ota_request = OtaRequest::default();
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         let ota_url = server.url("/ota.bin");
         ota_request.url = ota_url;
 
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
         tokio::time::pause();
 
-        let (ota, _) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _) = Ota::mock_new_with_path(system_update, state_mock, "fail_write_state");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(10);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1357,7 +1376,7 @@ mod tests {
         assert!(receive_result.is_ok());
         assert!(matches!(ota_status, OtaStatus::Failure(OtaError::IO(_), _)));
 
-        mock_ota_file_request.assert_hits(5);
+        mock_ota_file_request.assert_hits_async(5).await;
     }
 
     #[tokio::test]
@@ -1386,21 +1405,23 @@ mod tests {
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         let ota_url = server.url("/ota.bin");
         ota_request.url = ota_url;
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "deploying_success");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(2);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
@@ -1430,7 +1451,7 @@ mod tests {
             .expect_install_bundle()
             .returning(|_| Err(DeviceManagerError::FatalError("install fail".to_string())));
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_install_bundle");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota
@@ -1565,7 +1586,7 @@ mod tests {
 
         let ota_request = OtaRequest::default();
 
-        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock);
+        let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "deployed_success");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(3);
 
         let ota_status = ota.deployed(ota_request, &ota_status_publisher).await;
@@ -1905,13 +1926,15 @@ mod tests {
 
     #[tokio::test]
     async fn wget_failed() {
-        let (_dir, t_dir) = temp_dir();
+        let (_dir, t_dir) = temp_dir("wget_failed");
 
-        let server = MockServer::start();
-        let hello_mock = server.mock(|when, then| {
-            when.method(GET);
-            then.status(500);
-        });
+        let server = MockServer::start_async().await;
+        let hello_mock = server
+            .mock_async(|when, then| {
+                when.method(GET);
+                then.status(500);
+            })
+            .await;
 
         let ota_file = format!("{}/ota,bin", t_dir);
         let (ota_status_publisher, _) = mpsc::channel(1);
@@ -1924,25 +1947,27 @@ mod tests {
         )
         .await;
 
-        hello_mock.assert();
+        hello_mock.assert_async().await;
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), OtaError::Network(_),));
     }
 
     #[tokio::test]
     async fn wget_failed_wrong_content_length() {
-        let (_dir, t_dir) = temp_dir();
+        let (_dir, t_dir) = temp_dir("wget_failed_wrong_content_length");
 
         let binary_content = b"\x80\x02\x03";
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         let ota_url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", 0.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", 0.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
         let ota_file = format!("{}/ota.bin", t_dir);
         let uuid_request = Uuid::new_v4();
@@ -1957,20 +1982,22 @@ mod tests {
         )
         .await;
 
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), OtaError::Network(_),));
     }
 
     #[tokio::test]
     async fn wget_with_empty_payload() {
-        let (_dir, t_dir) = temp_dir();
+        let (_dir, t_dir) = temp_dir("wget_with_empty_payload");
 
-        let server = MockServer::start();
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200).body(b"");
-        });
+        let server = MockServer::start_async().await;
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200).body(b"");
+            })
+            .await;
 
         let ota_file = format!("{}/ota.bin", t_dir);
         let (ota_status_publisher, _) = mpsc::channel(1);
@@ -1983,26 +2010,28 @@ mod tests {
         )
         .await;
 
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), OtaError::Network(_),));
     }
 
     #[tokio::test]
     async fn wget_success() {
-        let (_dir, t_dir) = temp_dir();
+        let (_dir, t_dir) = temp_dir("wget_success");
 
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
 
-        let server = MockServer::start();
+        let server = MockServer::start_async().await;
         let ota_url = server.url("/ota.bin");
-        let mock_ota_file_request = server.mock(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        });
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-Length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
 
         let ota_file = format!("{}/ota.bin", t_dir);
         let uuid_request = Uuid::new_v4();
@@ -2016,7 +2045,7 @@ mod tests {
             &ota_status_publisher,
         )
         .await;
-        mock_ota_file_request.assert();
+        mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_ok());
