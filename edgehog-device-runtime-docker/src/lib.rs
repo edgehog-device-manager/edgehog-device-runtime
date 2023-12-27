@@ -16,7 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs, rustdoc::missing_crate_level_docs)]
+#![warn(
+    missing_docs,
+    rustdoc::missing_crate_level_docs,
+    clippy::dbg_macro,
+    clippy::todo
+)]
 
 //! # Edgehog Device Runtime Docker
 //!
@@ -28,6 +33,9 @@
 pub(crate) mod client;
 pub mod docker;
 pub mod error;
+mod properties;
+pub mod request;
+pub mod service;
 
 #[cfg(feature = "mock")]
 mod mock;

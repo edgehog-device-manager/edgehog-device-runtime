@@ -17,31 +17,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "edgehog-device-runtime-docker"
+name = "e2e-test-docker"
 version = "0.1.0"
-# TODO: re-add when astarte-device-sdk is updated in the edgehog-device-runtime
-# edition = { workspace = true }
 edition = "2021"
-# homepage = { workspace = true }
-# rust-version = { workspace = true }
-rust-version = "1.66.1"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# TODO: make this package part of the workspace when edgehog dependencies are updated
 [dependencies]
 astarte-device-sdk = { git = "https://github.com/astarte-platform/astarte-device-sdk-rust.git", branch = "master", features = ["derive"] }
-async-trait = "0.1.72"
-bollard = "0.15.0"
-displaydoc = "0.2.4"
-futures = "0.3.28"
-hyper = { version = "0.14.27", optional = true }
-itertools = "0.11.0"
-mockall = { version = "0.11.4", optional = true }
-petgraph = "0.6.3"
-serde = { version = "1.0.190", features = ["derive"] }
-thiserror = "1.0.50"
-tokio = { version = "1.32.0", features = ["macros"] }
-tracing = { version = "0.1.37", features = ["log"] }
-
-[features]
-mock = ["dep:mockall", "dep:hyper"]
+color-eyre = "0.6.2"
+edgehog-docker = { package = "edgehog-device-runtime-docker", path = "../edgehog-device-runtime-docker" }
+tokio = "1.32.0"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+uuid = { version = "1.6.1", features = ["v4", "fast-rng"] }
