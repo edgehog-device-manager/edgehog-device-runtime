@@ -48,8 +48,8 @@ Edgehog Device Runtime can be configured using a [TOML](https://en.wikipedia.org
 located either in $PWD/edgehog-config.toml or /etc/edgehog/config.toml, or in a custom path, run
 `cargo run -- --help` for more information.
 
-
 ### Supported Astarte transport libraries
+
 Edgehog Device Runtime supports the following libraries to communicate with the remote Edgehog
 instance:
 
@@ -57,6 +57,7 @@ instance:
 2. `astarte-message-hub`
 
 #### 1. [Astarte Device SDK Rust](https://github.com/astarte-platform/astarte-device-sdk-rust)
+
 The Astarte Device SDK for Rust is a ready to use library that provides communication and pairing
 primitives to an Astarte Cluster.
 
@@ -79,11 +80,12 @@ period = 60
 ```
 
 #### [Astarte Message Hub](https://github.com/astarte-platform/astarte-message-hub)
+
 A central service that runs on (Linux) devices for collecting and delivering messages from N apps
 using 1 MQTT connection to Astarte.
 
-**N.B.** When using this option the Astarte Message Hub should already be installed and running
-on your system.
+**N.B.** When using this option, the Astarte Message Hub should already be installed and running on
+your system.
 
 Example configuration:
 
@@ -99,6 +101,32 @@ interface_name = "io.edgehog.devicemanager.SystemStatus"
 enabled = true
 period = 60
 ```
+
+## Telemetry
+
+Edgehog Device Runtime sends telemetry data from interfaces defined in the
+[edgehog-astarte-interfaces](https://github.com/edgehog-device-manager/edgehog-astarte-interfaces)
+repository. Here's how to configure some key values.
+
+### Image ID and Version
+
+The device runtime extracts the image name and version from the `/etc/os-release` file. Example:
+
+```sh
+# /etc/os-release
+IMAGE_ID="..."
+IMAGE_VERSION="..."
+```
+
+### Serial and Part Number
+
+Set the model and part number as environment variables:
+
+- `EDGEHOG_SYSTEM_SERIAL_NUMBER`
+- `EDGEHOG_SYSTEM_PART_NUMBER`
+
+For example, in a systemd service file, refer to
+[this buildroot package](https://github.com/edgehog-device-manager/edgehog-buildroot-packages/blob/d3fdb188b7c683d3951c255d32ee2781be416e83/package/edgehog-device-runtime/edgehog-device-runtime.service#L17-L18).
 
 ## Contributing
 
