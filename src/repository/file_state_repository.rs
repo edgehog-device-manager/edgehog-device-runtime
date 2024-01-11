@@ -18,7 +18,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::io;
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use crate::error::DeviceManagerError;
 use crate::repository::StateRepository;
@@ -27,17 +30,14 @@ use log::{debug, error};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub struct FileStateRepository {
-    pub path: String,
+    pub path: PathBuf,
 }
 
 impl FileStateRepository {
-    pub fn new(path: String, name: String) -> Self {
-        let path = if path.ends_with('/') {
-            path + &name
-        } else {
-            path + "/" + &name
-        };
-        FileStateRepository { path }
+    pub fn new(path: &Path, name: impl AsRef<Path>) -> Self {
+        FileStateRepository {
+            path: path.join(name),
+        }
     }
 }
 
@@ -67,7 +67,11 @@ where
                 return false;
             }
             Err(err) => {
-                error!("couldn't read state repository '{}': {}", self.path, err);
+                error!(
+                    "couldn't read state repository '{}': {}",
+                    self.path.display(),
+                    err
+                );
 
                 return false;
             }
@@ -84,15 +88,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
 
     #[tokio::test]
     async fn file_state_test() {
         let dir = tempdir::TempDir::new("edgehog").expect("failed to create temp dir");
-        let mut repo = dir.into_path();
-        repo.push("test.json");
-        let path = repo.to_string_lossy().to_string();
+        let path = dir.path().join("test.json");
 
         let repository: Box<dyn StateRepository<i32>> = Box::new(FileStateRepository { path });
 
@@ -105,15 +109,15 @@ mod tests {
 
     #[test]
     fn file_repository_new_end_without_slash() {
-        let file = FileStateRepository::new("/tmp/path".to_owned(), "state.json".to_owned());
+        let file = FileStateRepository::new(Path::new("/tmp/path"), "state.json");
 
-        assert_eq!(file.path, "/tmp/path/state.json".to_owned())
+        assert_eq!(file.path, Path::new("/tmp/path/state.json"))
     }
 
     #[test]
     fn file_repository_new_end_with_slash() {
-        let file = FileStateRepository::new("/tmp/path/".to_owned(), "state.json".to_owned());
+        let file = FileStateRepository::new(Path::new("/tmp/path/"), "state.json");
 
-        assert_eq!(file.path, "/tmp/path/state.json".to_owned())
+        assert_eq!(file.path, Path::new("/tmp/path/state.json"))
     }
 }

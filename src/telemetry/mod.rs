@@ -24,6 +24,7 @@ use crate::repository::StateRepository;
 use astarte_device_sdk::types::AstarteType;
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::sync::mpsc::Sender as MpscSender;
@@ -66,7 +67,7 @@ pub struct Telemetry {
     telemetry_task_configs: Arc<RwLock<HashMap<String, TelemetryTaskConfig>>>,
     kill_switches: HashMap<String, Sender<()>>,
     communication_channel: MpscSender<TelemetryMessage>,
-    store_directory: String,
+    store_directory: PathBuf,
 }
 
 pub enum TelemetryPayload {
@@ -84,7 +85,7 @@ impl Telemetry {
     pub async fn from_default_config(
         cfg: Option<Vec<TelemetryInterfaceConfig>>,
         communication_channel: MpscSender<TelemetryMessage>,
-        store_directory: String,
+        store_directory: PathBuf,
     ) -> Self {
         let cfg = match cfg {
             None => {
@@ -110,9 +111,8 @@ impl Telemetry {
             );
         }
 
-        let telemetry_repo: Box<dyn StateRepository<Vec<TelemetryInterfaceConfig>>> = Box::new(
-            FileStateRepository::new(store_directory.clone(), TELEMETRY_PATH.to_string()),
-        );
+        let telemetry_repo: Box<dyn StateRepository<Vec<TelemetryInterfaceConfig>>> =
+            Box::new(FileStateRepository::new(&store_directory, TELEMETRY_PATH));
         if telemetry_repo.exists().await {
             let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
             for c in saved_config {
@@ -309,9 +309,10 @@ impl Telemetry {
             telemetry_config.push(interface_config);
         }
 
-        let telemetry_repo =
-            FileStateRepository::new(self.store_directory.clone(), TELEMETRY_PATH.to_string());
-        telemetry_repo.write(&telemetry_config).await.unwrap();
+        let telemetry_repo = FileStateRepository::new(&self.store_directory, TELEMETRY_PATH);
+        if let Err(err) = telemetry_repo.write(&telemetry_config).await {
+            error!("failed to write telemetry: {err}");
+        }
     }
 }
 
@@ -363,6 +364,8 @@ async fn send_data(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
     use crate::telemetry::{send_data, Telemetry, TelemetryInterfaceConfig};
@@ -373,11 +376,11 @@ mod tests {
     const TELEMETRY_PATH: &str = "telemetry.json";
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
-    fn temp_dir() -> (TempDir, String) {
+    fn temp_dir() -> (TempDir, PathBuf) {
         let dir = TempDir::new("edgehog").unwrap();
-        let str = dir.path().to_str().unwrap().to_string();
+        let path = dir.path().to_owned();
 
-        (dir, str)
+        (dir, path)
     }
 
     #[tokio::test]
@@ -439,7 +442,7 @@ mod tests {
             30
         );
 
-        let telemetry_repo = FileStateRepository::new(t_dir, TELEMETRY_PATH.to_string());
+        let telemetry_repo = FileStateRepository::new(&t_dir, TELEMETRY_PATH);
         let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
 
         assert_eq!(saved_config.len(), 1);
@@ -483,7 +486,7 @@ mod tests {
             .override_period
             .is_none());
 
-        let telemetry_repo = FileStateRepository::new(t_dir, TELEMETRY_PATH.to_string());
+        let telemetry_repo = FileStateRepository::new(&t_dir, TELEMETRY_PATH);
         let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
 
         assert_eq!(saved_config.len(), 1);

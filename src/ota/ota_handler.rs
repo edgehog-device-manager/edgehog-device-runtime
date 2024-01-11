@@ -81,8 +81,7 @@ impl OtaHandler {
         let (sender, receiver) = mpsc::channel(8);
         let system_update = OTARauc::new().await?;
 
-        let state_repository =
-            FileStateRepository::new(opts.store_directory.clone(), "state.json".to_owned());
+        let state_repository = FileStateRepository::new(&opts.store_directory, "state.json");
 
         let ota =
             Ota::<OTARauc, FileStateRepository>::new(opts, system_update, state_repository).await?;
