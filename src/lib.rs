@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use astarte_device_sdk::types::AstarteType;
@@ -60,9 +61,9 @@ pub struct DeviceManagerOptions {
     pub astarte_library: AstarteLibrary,
     pub astarte_device_sdk: Option<data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions>,
     pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
-    pub interfaces_directory: String,
-    pub store_directory: String,
-    pub download_directory: String,
+    pub interfaces_directory: PathBuf,
+    pub store_directory: PathBuf,
+    pub download_directory: PathBuf,
     pub astarte_ignore_ssl: Option<bool>,
     pub telemetry_config: Option<Vec<telemetry::TelemetryInterfaceConfig>>,
 }
@@ -369,6 +370,8 @@ pub mod e2e_test {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use astarte_device_sdk::types::AstarteType;
     use astarte_device_sdk::{AstarteAggregate, AstarteDeviceDataEvent};
     use async_trait::async_trait;
@@ -436,9 +439,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "./".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
@@ -462,9 +465,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
@@ -493,9 +496,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "./".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };

@@ -97,18 +97,18 @@ async fn main() -> Result<(), DeviceManagerError> {
         AstarteLibrary::AstarteMessageHub => {
             use edgehog_device_runtime::data::astarte_message_hub_node::AstarteMessageHubNode;
 
-            let interfaces_directory = options.interfaces_directory.clone();
             let astarte_message_hub_options = options
                 .astarte_message_hub
                 .clone()
                 .expect("Unable to find MessageHub options");
 
-            let mut dm = edgehog_device_runtime::DeviceManager::new(
-                options,
-                AstarteMessageHubNode::new(astarte_message_hub_options, interfaces_directory)
-                    .await?,
+            let publisher = AstarteMessageHubNode::new(
+                astarte_message_hub_options,
+                &options.interfaces_directory,
             )
             .await?;
+
+            let mut dm = edgehog_device_runtime::DeviceManager::new(options, publisher).await?;
 
             dm.init().await?;
 

@@ -22,6 +22,7 @@ use astarte_device_sdk::types::AstarteType;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::panic;
+use std::path::PathBuf;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::{
     astarte_map_options, AstarteDeviceSdkConfigOptions, AstarteDeviceSdkLib,
@@ -62,9 +63,9 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
             pairing_url: pairing_url.to_string(),
             pairing_token: None,
         }),
-        interfaces_directory: "./edgehog/astarte-interfaces".to_string(),
-        store_directory: "".to_string(),
-        download_directory: "".to_string(),
+        interfaces_directory: "./edgehog/astarte-interfaces".into(),
+        store_directory: PathBuf::new(),
+        download_directory: PathBuf::new(),
         astarte_ignore_ssl: Some(false),
         telemetry_config: Some(vec![]),
         astarte_message_hub: None,

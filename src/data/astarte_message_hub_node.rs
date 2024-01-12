@@ -20,6 +20,9 @@
 
 //! Contains the implementation for the Astarte message hub node.
 
+use std::path::Path;
+use std::path::PathBuf;
+
 use astarte_message_hub::proto_message_hub;
 use async_trait::async_trait;
 use log::warn;
@@ -57,8 +60,9 @@ pub struct AstarteMessageHubNode {
 impl AstarteMessageHubNode {
     pub async fn new(
         options: AstarteMessageHubOptions,
-        interfaces_directory: String,
+        interfaces_directory: impl AsRef<Path>,
     ) -> Result<Self, DeviceManagerError> {
+        let interfaces_directory = interfaces_directory.as_ref();
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
 
         use proto_message_hub::message_hub_client::MessageHubClient;
@@ -69,7 +73,7 @@ impl AstarteMessageHubNode {
             .await?;
 
         let mut message_hub_client = MessageHubClient::new(channel.clone());
-        let interface_json = read_interfaces_from_directory(&interfaces_directory)?;
+        let interface_json = read_interfaces_from_directory(interfaces_directory)?;
 
         let node = proto_message_hub::Node {
             uuid: DEVICE_RUNTIME_NODE_UUID.to_string(),
@@ -83,7 +87,7 @@ impl AstarteMessageHubNode {
 
         let channel_clone = channel.clone();
         tokio::spawn(run_node(
-            interfaces_directory,
+            interfaces_directory.to_owned(),
             channel_clone,
             stream_channel,
             receiver,
@@ -183,7 +187,7 @@ impl Subscriber for AstarteMessageHubNode {
 /// If this function receives an Error with Status [`tonic::Code::Unavailable`] or [`tonic::Code::Unknown`]
 /// it will retry to attach the node to Astarte Message Hub.
 pub async fn run_node(
-    path: String,
+    path: PathBuf,
     transport_channel: tonic::transport::Channel,
     mut stream_node_event: tonic::Streaming<proto_message_hub::AstarteMessage>,
     mut receiver: tokio::sync::mpsc::Receiver<AstarteDataEventSender>,
@@ -227,7 +231,7 @@ pub async fn run_node(
 
 /// Retries to attach the node to the Astarte Message Hub.
 async fn retry_to_attach_node(
-    interface_path: &str,
+    interface_path: &Path,
     transport_channel: tonic::transport::Channel,
 ) -> TonicResponse<TonicStreaming<proto_message_hub::AstarteMessage>> {
     use proto_message_hub::message_hub_client::MessageHubClient;
@@ -256,19 +260,15 @@ async fn retry_to_attach_node(
 }
 
 fn read_interfaces_from_directory(
-    interfaces_directory: &str,
+    interfaces_directory: &Path,
 ) -> Result<Vec<Vec<u8>>, DeviceManagerError> {
-    use std::ffi::OsStr;
-    use std::path::Path;
-
-    let interface_files = std::fs::read_dir(Path::new(interfaces_directory))?;
-    let json_extension = OsStr::new("json");
+    let interface_files = std::fs::read_dir(interfaces_directory)?;
     Ok(interface_files
         .filter_map(Result::ok)
         .filter(|f| {
             f.path()
                 .extension()
-                .map_or_else(|| false, |ext| ext == json_extension)
+                .map_or_else(|| false, |ext| ext == "json")
         })
         .map(|it| std::fs::read(it.path()))
         .filter_map(Result::ok)
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn read_interfaces_from_directory_empty() {
         let dir = TempDir::new("edgehog").unwrap();
-        let t_dir = dir.path().to_str().unwrap();
+        let t_dir = dir.path();
         let read_result = read_interfaces_from_directory(t_dir);
 
         assert!(read_result.is_ok());
@@ -350,7 +350,7 @@ mod tests {
     #[tokio::test]
     async fn read_interfaces_from_directory_1_interface() {
         let dir = TempDir::new("edgehog").unwrap();
-        let t_dir = dir.path().to_str().unwrap();
+        let t_dir = dir.path();
 
         const SERV_PROPS_IFACE: &str = r#"
         {
@@ -370,7 +370,7 @@ mod tests {
         "#;
 
         tokio::fs::write(
-            format!("{}/org.astarte-platform.test.test.json", t_dir),
+            t_dir.join("org.astarte-platform.test.test.json"),
             SERV_PROPS_IFACE,
         )
         .await
@@ -393,7 +393,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -416,7 +416,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -442,7 +442,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -472,7 +472,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -513,7 +513,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -554,7 +554,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -602,7 +602,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 
@@ -658,7 +658,7 @@ mod tests {
             AstarteMessageHubOptions {
                 endpoint: format!("http://[::1]:{port}"),
             },
-            "/tmp".to_string(),
+            "/tmp",
         )
         .await;
 

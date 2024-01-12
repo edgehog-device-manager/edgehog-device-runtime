@@ -100,7 +100,7 @@ pub async fn astarte_map_options(
     let credentials_secret: String = get_credentials_secret(
         &device_id,
         astarte_device_sdk_options,
-        FileStateRepository::new(store_directory, format!("credentials_{}.json", device_id)),
+        FileStateRepository::new(&store_directory, format!("credentials_{}.json", device_id)),
     )
     .await?;
 
@@ -115,7 +115,14 @@ pub async fn astarte_map_options(
         sdk_options = sdk_options.ignore_ssl_errors();
     }
 
-    Ok(sdk_options.interface_directory(&opts.interfaces_directory)?)
+    let interfaces_dir = opts
+        .interfaces_directory
+        .to_str()
+        .ok_or_else(|| AstarteOptionsError::ConfigError("Non utf-8 interface path".to_string()))?;
+
+    sdk_options
+        .interface_directory(interfaces_dir)
+        .map_err(Into::into)
 }
 
 async fn get_device_id(opt_device_id: Option<String>) -> Result<String, DeviceManagerError> {
@@ -179,6 +186,8 @@ async fn get_credentials_secret_from_registration(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::data::astarte_device_sdk_lib::{
         get_credentials_secret, get_credentials_secret_from_registration, get_device_id,
         AstarteDeviceSdkConfigOptions,
@@ -207,9 +216,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
@@ -239,9 +248,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
@@ -273,9 +282,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
@@ -307,9 +316,9 @@ mod tests {
                 pairing_token: None,
             }),
             astarte_message_hub: None,
-            interfaces_directory: "".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
@@ -334,9 +343,9 @@ mod tests {
                 pairing_url: "".to_string(),
                 pairing_token: None,
             }),
-            interfaces_directory: "./".to_string(),
-            store_directory: "".to_string(),
-            download_directory: "".to_string(),
+            interfaces_directory: PathBuf::new(),
+            store_directory: PathBuf::new(),
+            download_directory: PathBuf::new(),
             astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
             astarte_message_hub: None,

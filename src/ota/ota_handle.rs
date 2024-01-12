@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use astarte_device_sdk::types::AstarteType;
@@ -116,7 +116,7 @@ where
 {
     pub system_update: T,
     pub state_repository: U,
-    pub download_file_path: String,
+    pub download_file_path: PathBuf,
     pub ota_status: Arc<RwLock<OtaStatus>>,
 }
 
@@ -172,7 +172,7 @@ where
     }
 
     fn get_update_file_path(&self) -> PathBuf {
-        std::path::Path::new(&self.download_file_path).join("update.bin")
+        self.download_file_path.join("update.bin")
     }
 
     /// Handle the transition to the acknowledged status.
@@ -243,19 +243,16 @@ where
     ) -> OtaStatus {
         let download_file_path = self.get_update_file_path();
 
-        let download_file_path = match download_file_path.to_str() {
-            Some(path) => path,
-            None => {
-                return OtaStatus::Failure(
-                    OtaError::IO("Wrong download file path".to_string()),
-                    Some(ota_request),
-                )
-            }
+        let Some(download_file_str) = download_file_path.to_str() else {
+            return OtaStatus::Failure(
+                OtaError::IO("Wrong download file path".to_string()),
+                Some(ota_request),
+            );
         };
 
         let mut ota_download_result = wget(
             &ota_request.url,
-            download_file_path,
+            &download_file_path,
             &ota_request.uuid,
             ota_status_publisher,
         )
@@ -278,7 +275,7 @@ where
                 tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
                 ota_download_result = wget(
                     &ota_request.url,
-                    download_file_path,
+                    &download_file_path,
                     &ota_request.uuid,
                     ota_status_publisher,
                 )
@@ -291,7 +288,7 @@ where
         if let Err(error) = ota_download_result {
             OtaStatus::Failure(error, Some(ota_request.clone()))
         } else {
-            let bundle_info = self.system_update.info(download_file_path).await;
+            let bundle_info = self.system_update.info(download_file_str).await;
             if bundle_info.is_err() {
                 let message = format!(
                     "Unable to get info from ota_file in {:?}",
@@ -633,15 +630,19 @@ where
 
 pub async fn wget(
     url: &str,
-    file_path: &str,
+    file_path: &Path,
     request_uuid: &Uuid,
     ota_status_publisher: &mpsc::Sender<OtaStatus>,
 ) -> Result<(), OtaError> {
     use tokio_stream::StreamExt;
 
-    if std::path::Path::new(file_path).exists() {
+    if file_path.exists() {
         tokio::fs::remove_file(file_path).await.map_err(|err| {
-            error!("failed to remove old file '{}': {}", file_path, err);
+            error!(
+                "failed to remove old file '{}': {}",
+                file_path.display(),
+                err
+            );
 
             OtaError::Internal("failed to remove old file")
         })?;
@@ -658,7 +659,7 @@ pub async fn wget(
             Err(OtaError::Network(message))
         }
         Ok(response) => {
-            debug!("Writing {file_path}");
+            debug!("Writing {}", file_path.display());
 
             let total_size = response
                 .content_length()
@@ -734,6 +735,7 @@ pub async fn wget(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -752,11 +754,11 @@ mod tests {
     use crate::repository::{MockStateRepository, StateRepository};
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
-    fn temp_dir(prefix: &str) -> (TempDir, String) {
+    fn temp_dir(prefix: &str) -> (TempDir, PathBuf) {
         let dir = TempDir::new(&format!("edgehog-{prefix}")).unwrap();
-        let str = dir.path().to_str().unwrap().to_string();
+        let path = dir.path().to_owned();
 
-        (dir, str)
+        (dir, path)
     }
 
     impl<T, U> Ota<T, U>
@@ -769,7 +771,7 @@ mod tests {
             Ota {
                 system_update,
                 state_repository,
-                download_file_path: "/dev/null".to_string(),
+                download_file_path: PathBuf::from("/dev/null"),
                 ota_status: Arc::new(RwLock::new(OtaStatus::Idle)),
             }
         }
@@ -1181,8 +1183,8 @@ mod tests {
             })
             .await;
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) =
+            Ota::mock_new_with_path(system_update, state_mock, "fail_ota_call_compatible");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota.deploying(ota_request, &ota_status_publisher).await;
@@ -1479,8 +1481,8 @@ mod tests {
             ))
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) =
+            Ota::mock_new_with_path(system_update, state_mock, "deployed_fail_operation");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota
@@ -1511,8 +1513,8 @@ mod tests {
             ))
         });
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) =
+            Ota::mock_new_with_path(system_update, state_mock, "deployed_fail_receive_completed");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let ota_status = ota
@@ -1544,8 +1546,8 @@ mod tests {
             .expect_last_error()
             .returning(|| Ok("Unable to deploy image".to_string()));
 
-        let mut ota = Ota::mock_new(system_update, state_mock);
-        ota.download_file_path = "/tmp".to_string();
+        let (ota, _dir) =
+            Ota::mock_new_with_path(system_update, state_mock, "deployed_fail_signal");
         let (ota_status_publisher, _) = mpsc::channel(1);
 
         let ota_status = ota
@@ -1936,12 +1938,12 @@ mod tests {
             })
             .await;
 
-        let ota_file = format!("{}/ota,bin", t_dir);
+        let ota_file = t_dir.join("ota,bin");
         let (ota_status_publisher, _) = mpsc::channel(1);
 
         let result = wget(
             server.url("/ota.bin").as_str(),
-            ota_file.as_str(),
+            &ota_file,
             &Uuid::new_v4(),
             &ota_status_publisher,
         )
@@ -1969,14 +1971,14 @@ mod tests {
             })
             .await;
 
-        let ota_file = format!("{}/ota.bin", t_dir);
+        let ota_file = t_dir.join("ota.bin");
         let uuid_request = Uuid::new_v4();
 
         let (ota_status_publisher, _) = mpsc::channel(1);
 
         let result = wget(
             ota_url.as_str(),
-            ota_file.as_str(),
+            &ota_file,
             &uuid_request,
             &ota_status_publisher,
         )
@@ -1999,12 +2001,12 @@ mod tests {
             })
             .await;
 
-        let ota_file = format!("{}/ota.bin", t_dir);
+        let ota_file = t_dir.join("ota.bin");
         let (ota_status_publisher, _) = mpsc::channel(1);
 
         let result = wget(
             server.url("/ota.bin").as_str(),
-            ota_file.as_str(),
+            &ota_file,
             &Uuid::new_v4(),
             &ota_status_publisher,
         )
@@ -2033,14 +2035,14 @@ mod tests {
             })
             .await;
 
-        let ota_file = format!("{}/ota.bin", t_dir);
+        let ota_file = t_dir.join("ota.bin");
         let uuid_request = Uuid::new_v4();
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
         let result = wget(
             ota_url.as_str(),
-            ota_file.as_str(),
+            &ota_file,
             &uuid_request,
             &ota_status_publisher,
         )
