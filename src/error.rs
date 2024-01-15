@@ -22,14 +22,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum DeviceManagerError {
-    #[error(transparent)]
-    AstarteBuilderError(#[from] astarte_device_sdk::options::AstarteOptionsError),
-
     #[error("Astarte Message Hub Options error ({0})")]
     AstarteMessageHubOptions(String),
 
     #[error(transparent)]
-    AstarteError(#[from] astarte_device_sdk::AstarteError),
+    AstarteError(#[from] astarte_device_sdk::error::Error),
 
     #[error(transparent)]
     ProcError(#[from] procfs::ProcError),

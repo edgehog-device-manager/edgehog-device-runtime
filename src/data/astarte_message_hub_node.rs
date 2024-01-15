@@ -23,7 +23,6 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use astarte_message_hub::proto_message_hub;
 use async_trait::async_trait;
 use log::warn;
 use serde::Deserialize;
@@ -46,7 +45,7 @@ pub struct AstarteMessageHubOptions {
 
 /// Shorthand for the transmit Astarte data event in [`run_node`] function.
 type AstarteDataEventSender = tokio::sync::oneshot::Sender<
-    Result<astarte_device_sdk::AstarteDeviceDataEvent, astarte_device_sdk::AstarteError>,
+    Result<astarte_device_sdk::AstarteDeviceDataEvent, astarte_device_sdk::Error>,
 >;
 
 /// Main struct for the Astarte message hub node.

@@ -19,7 +19,7 @@
  */
 
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{AstarteAggregate, AstarteDeviceDataEvent, AstarteError};
+use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, AstarteDeviceDataEvent};
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;

@@ -26,7 +26,7 @@ rust-version = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { git = "https://github.com/astarte-platform/astarte-device-sdk-rust", branch = "release-0.6" }
+astarte-device-sdk = { workspace = true }
 async-trait = { workspace = true }
 bollard = { workspace = true }
 displaydoc = { workspace = true }

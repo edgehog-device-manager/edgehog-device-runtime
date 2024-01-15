@@ -29,7 +29,6 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::RwLock;
 
 use crate::data::{Publisher, Subscriber};
-use crate::device::DeviceProxy;
 use crate::error::DeviceManagerError;
 use crate::ota::ota_handler::OtaHandler;
 use crate::telemetry::{TelemetryMessage, TelemetryPayload};
@@ -64,7 +63,6 @@ pub struct DeviceManagerOptions {
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
-    pub astarte_ignore_ssl: Option<bool>,
     pub telemetry_config: Option<Vec<telemetry::TelemetryInterfaceConfig>>,
 }
 
@@ -336,18 +334,6 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
     }
 }
 
-pub async fn get_hardware_id_from_dbus() -> Result<String, DeviceManagerError> {
-    let connection = zbus::Connection::system().await?;
-    let proxy = DeviceProxy::new(&connection).await?;
-    let hardware_id: String = proxy.get_hardware_id("").await?;
-    if hardware_id.is_empty() {
-        return Err(DeviceManagerError::FatalError(
-            "No hardware id provided".to_string(),
-        ));
-    }
-    Ok(hardware_id)
-}
-
 #[cfg(not(tarpaulin))]
 #[cfg(feature = "e2e_test")]
 pub mod e2e_test {
@@ -377,9 +363,7 @@ mod tests {
     use async_trait::async_trait;
     use mockall::mock;
 
-    use crate::data::astarte_device_sdk_lib::{
-        astarte_map_options, AstarteDeviceSdkConfigOptions, AstarteDeviceSdkLib,
-    };
+    use crate::data::astarte_device_sdk_lib::{AstarteDeviceSdkConfigOptions, AstarteDeviceSdkLib};
     use crate::data::{Publisher, Subscriber};
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
@@ -408,7 +392,7 @@ mod tests {
                 interface_name: &str,
                 interface_path: &str,
                 data: T,
-            ) -> Result<(), astarte_device_sdk::AstarteError>
+            ) -> Result<(), astarte_device_sdk::Error>
             where
                 T: AstarteAggregate + Send;
 
@@ -417,12 +401,12 @@ mod tests {
                 interface_name: &str,
                 interface_path: &str,
                 data: AstarteType,
-            ) -> Result<(), astarte_device_sdk::AstarteError>;
+            ) -> Result<(), astarte_device_sdk::Error>;
         }
 
         #[async_trait]
         impl Subscriber for AstarteHandler {
-            async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, astarte_device_sdk::AstarteError>;
+            async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, astarte_device_sdk::Error>;
         }
     }
 
@@ -437,18 +421,17 @@ mod tests {
                 credentials_secret: Some("credentials_secret".to_string()),
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: false,
             }),
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
             store_directory: PathBuf::new(),
             download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
 
-        let astarte_options = astarte_map_options(&options).await.unwrap();
-        let astarte_device_sdk_lib = AstarteDeviceSdkLib::new(astarte_options).await.unwrap();
-        let dm = DeviceManager::new(options, astarte_device_sdk_lib).await;
+        let lib = AstarteDeviceSdkLib::connect(&options).await.unwrap();
+        let dm = DeviceManager::new(options, lib).await;
 
         assert!(dm.is_ok());
     }
@@ -463,12 +446,12 @@ mod tests {
                 credentials_secret: Some("credentials_secret".to_string()),
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: false,
             }),
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
             store_directory: PathBuf::new(),
             download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
 
@@ -479,7 +462,7 @@ mod tests {
 
         let dm = DeviceManager::new(options, mock_astarte_handler).await;
         if let Err(ref e) = dm {
-            println!("{:?}", e);
+            eprintln!("{:?}", e);
         }
         assert!(dm.is_ok());
     }
@@ -494,12 +477,12 @@ mod tests {
                 credentials_secret: Some("credentials_secret".to_string()),
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: false,
             }),
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
             store_directory: PathBuf::new(),
             download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
             telemetry_config: Some(vec![]),
         };
 

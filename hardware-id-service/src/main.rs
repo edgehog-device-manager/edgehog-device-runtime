@@ -18,11 +18,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::error::Error as StdError;
+
+use base64::prelude::*;
 use clap::Parser;
 use procfs::cmdline;
 use std::fs;
 use uuid::Uuid;
 use zbus::{dbus_interface, ConnectionBuilder};
+
+type DynError = Box<dyn StdError + Send + Sync + 'static>;
 
 const DMI_SERIAL_FILE_PATH: &str = "/sys/class/dmi/id/board_serial";
 const DEFAULT_NAMESPACE: &str = "f79ad91f-c638-4889-ae74-9d001a3b4cf8";
@@ -72,13 +77,13 @@ impl Device {
 
         let namespace = Uuid::parse_str(ns).unwrap();
         let uuid = Uuid::new_v5(&namespace, data.trim().as_bytes());
-        base64::encode_config(uuid.as_bytes(), base64::URL_SAFE_NO_PAD)
+        BASE64_URL_SAFE_NO_PAD.encode(uuid.as_bytes())
     }
 }
 
 // Simple DBUS service that retrieves a machine specific id and publish it on a system channel
 #[tokio::main]
-async fn main() -> zbus::Result<()> {
+async fn main() -> Result<(), DynError> {
     let Cli {
         file_path,
         use_dmi_serial,
@@ -87,10 +92,7 @@ async fn main() -> zbus::Result<()> {
 
     if file_path.is_none() && kernel_cmdline_key.is_none() && !use_dmi_serial {
         let error_msg = "One parameter must be provided".to_string();
-        return Err(zbus::Error::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            error_msg,
-        )));
+        return Err(error_msg.into());
     }
 
     let device = if use_dmi_serial {
@@ -105,7 +107,7 @@ async fn main() -> zbus::Result<()> {
         }
     };
 
-    ConnectionBuilder::system()?
+    let _conn = ConnectionBuilder::system()?
         .name("io.edgehog.Device")?
         .serve_at("/io/edgehog/Device", device)?
         .build()
