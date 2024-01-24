@@ -111,8 +111,8 @@ impl Telemetry {
             );
         }
 
-        let telemetry_repo: Box<dyn StateRepository<Vec<TelemetryInterfaceConfig>>> =
-            Box::new(FileStateRepository::new(&store_directory, TELEMETRY_PATH));
+        let telemetry_repo: FileStateRepository<Vec<TelemetryInterfaceConfig>> =
+            FileStateRepository::new(&store_directory, TELEMETRY_PATH);
         if telemetry_repo.exists().await {
             let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
             for c in saved_config {

@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use serde::Deserialize;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::RwLock;
@@ -51,6 +51,7 @@ const MAX_OTA_OPERATION: usize = 2;
 pub enum AstarteLibrary {
     #[serde(rename = "astarte-device-sdk")]
     AstarteDeviceSDK,
+    #[cfg(feature = "message-hub")]
     #[serde(rename = "astarte-message-hub")]
     AstarteMessageHub,
 }
@@ -59,6 +60,7 @@ pub enum AstarteLibrary {
 pub struct DeviceManagerOptions {
     pub astarte_library: AstarteLibrary,
     pub astarte_device_sdk: Option<data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions>,
+    #[cfg(feature = "message-hub")]
     pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
@@ -66,19 +68,26 @@ pub struct DeviceManagerOptions {
     pub telemetry_config: Option<Vec<telemetry::TelemetryInterfaceConfig>>,
 }
 
-pub struct DeviceManager<T: Publisher + Subscriber + Clone> {
+#[derive(Debug)]
+pub struct DeviceManager<T: Publisher + Clone, U: Subscriber> {
     publisher: T,
-    //we pass all Astarte event through a channel, to avoid blocking the main loop
+    subscriber: U,
+    // We pass all Astarte event through a channel, to avoid blocking the main loop
     ota_event_channel: Sender<AstarteDeviceDataEvent>,
     data_event_channel: Sender<AstarteDeviceDataEvent>,
     telemetry: Arc<RwLock<telemetry::Telemetry>>,
 }
 
-impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
+impl<P, S> DeviceManager<P, S>
+where
+    P: Publisher + Send + Sync + 'static,
+    S: Subscriber + 'static,
+{
     pub async fn new(
         opts: DeviceManagerOptions,
-        publisher: T,
-    ) -> Result<DeviceManager<T>, DeviceManagerError> {
+        publisher: P,
+        subscriber: S,
+    ) -> Result<Self, DeviceManagerError> {
         #[cfg(feature = "systemd")]
         systemd_wrapper::systemd_notify_status("Initializing");
 
@@ -102,6 +111,7 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
 
         let device_runtime = Self {
             publisher,
+            subscriber,
             ota_event_channel: ota_tx,
             data_event_channel: data_tx,
             telemetry: Arc::new(RwLock::new(tel)),
@@ -136,7 +146,9 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
                         let data = data.clone();
                         let ota_handler = ota_handler.clone();
                         tokio::spawn(async move {
-                            let _ = ota_handler.ota_event(&publisher, data).await;
+                            if let Err(err) = ota_handler.ota_event(&publisher, data).await {
+                                error!("ota error {err}");
+                            }
                         });
                     }
                     _ => {
@@ -204,7 +216,7 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
         });
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(mut self) -> Result<(), DeviceManagerError> {
         #[cfg(feature = "systemd")]
         systemd_wrapper::systemd_notify_status("Running");
 
@@ -213,8 +225,8 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
             tel_clone.write().await.run_telemetry().await;
         });
 
-        loop {
-            match self.publisher.on_event().await {
+        while let Some(data_event) = self.subscriber.on_event().await {
+            match data_event {
                 Ok(data_event) => {
                     debug!("incoming: {:?}", data_event);
 
@@ -227,9 +239,15 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
                         }
                     }
                 }
-                Err(err) => log::error!("{:?}", err),
+                Err(err) => error!("{:?}", err),
             }
         }
+
+        error!("publisher closed, device disconnected");
+
+        self.subscriber.exit().await?;
+
+        Err(DeviceManagerError::Disconnected)
     }
 
     pub async fn init(&self) -> Result<(), DeviceManagerError> {
@@ -301,7 +319,7 @@ impl<T: Publisher + Subscriber + Clone + 'static> DeviceManager<T> {
         Ok(())
     }
 
-    async fn send_telemetry(publisher: &impl Publisher, msg: TelemetryMessage) {
+    async fn send_telemetry(publisher: &P, msg: TelemetryMessage) {
         match msg.payload {
             TelemetryPayload::SystemStatus(data) => {
                 let _ = publisher
@@ -359,12 +377,10 @@ mod tests {
     use std::path::PathBuf;
 
     use astarte_device_sdk::types::AstarteType;
-    use astarte_device_sdk::{AstarteAggregate, AstarteDeviceDataEvent};
-    use async_trait::async_trait;
-    use mockall::mock;
 
-    use crate::data::astarte_device_sdk_lib::{AstarteDeviceSdkConfigOptions, AstarteDeviceSdkLib};
-    use crate::data::{Publisher, Subscriber};
+    use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
+    use crate::data::tests::MockPublisher;
+    use crate::data::tests::MockSubscriber;
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
     use crate::telemetry::hardware_info::get_hardware_info;
@@ -377,38 +393,6 @@ mod tests {
     use crate::{
         AstarteLibrary, DeviceManager, DeviceManagerOptions, TelemetryMessage, TelemetryPayload,
     };
-
-    mock! {
-        AstarteHandler { }
-
-        impl Clone for AstarteHandler {
-            fn clone(&self) -> Self;
-        }
-
-         #[async_trait]
-        impl Publisher for AstarteHandler {
-            async fn send_object<T: 'static>(
-                &self,
-                interface_name: &str,
-                interface_path: &str,
-                data: T,
-            ) -> Result<(), astarte_device_sdk::Error>
-            where
-                T: AstarteAggregate + Send;
-
-            async fn send(
-                &self,
-                interface_name: &str,
-                interface_path: &str,
-                data: AstarteType,
-            ) -> Result<(), astarte_device_sdk::Error>;
-        }
-
-        #[async_trait]
-        impl Subscriber for AstarteHandler {
-            async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, astarte_device_sdk::Error>;
-        }
-    }
 
     #[tokio::test]
     #[should_panic]
@@ -430,8 +414,14 @@ mod tests {
             telemetry_config: Some(vec![]),
         };
 
-        let lib = AstarteDeviceSdkLib::connect(&options).await.unwrap();
-        let dm = DeviceManager::new(options, lib).await;
+        let (publisher, subscriber) = options
+            .astarte_device_sdk
+            .as_ref()
+            .unwrap()
+            .connect(&options.store_directory, &options.interfaces_directory)
+            .await
+            .unwrap();
+        let dm = DeviceManager::new(options, publisher, subscriber).await;
 
         assert!(dm.is_ok());
     }
@@ -455,16 +445,13 @@ mod tests {
             telemetry_config: Some(vec![]),
         };
 
-        let mut mock_astarte_handler = MockAstarteHandler::new();
-        mock_astarte_handler
-            .expect_clone()
-            .returning(MockAstarteHandler::new);
+        let mut publisher = MockPublisher::new();
+        publisher.expect_clone().returning(MockPublisher::new);
 
-        let dm = DeviceManager::new(options, mock_astarte_handler).await;
-        if let Err(ref e) = dm {
-            eprintln!("{:?}", e);
-        }
-        assert!(dm.is_ok());
+        let subscribeer = MockSubscriber::new();
+
+        let dm = DeviceManager::new(options, publisher, subscribeer).await;
+        assert!(dm.is_ok(), "error {}", dm.err().unwrap());
     }
 
     #[tokio::test]
@@ -487,12 +474,10 @@ mod tests {
         };
 
         let os_info = get_os_info().await.expect("failed to get os info");
-        let mut mock_astarte_handler = MockAstarteHandler::new();
+        let mut publisher = MockPublisher::new();
 
-        mock_astarte_handler
-            .expect_clone()
-            .returning(MockAstarteHandler::new);
-        mock_astarte_handler
+        publisher.expect_clone().returning(MockPublisher::new);
+        publisher
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -503,7 +488,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let hardware_info = get_hardware_info().unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -514,7 +499,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let runtime_info = get_runtime_info().unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -525,7 +510,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let storage_usage = get_storage_usage().unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &DiskUsage| {
@@ -536,7 +521,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: DiskUsage| Ok(()));
 
         let network_iface_props = get_network_interface_properties().await.unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -547,7 +532,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let system_info = get_system_info().unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -558,7 +543,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let base_image = get_base_image().await.expect("failed to get base image");
-        mock_astarte_handler
+        publisher
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -568,7 +553,7 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
-        let dm = DeviceManager::new(options, mock_astarte_handler).await;
+        let dm = DeviceManager::new(options, publisher, MockSubscriber::new()).await;
         assert!(dm.is_ok());
 
         let telemetry_result = dm.unwrap().send_initial_telemetry().await;
@@ -578,8 +563,8 @@ mod tests {
     #[tokio::test]
     async fn send_telemetry_success() {
         let system_status = get_system_status().unwrap();
-        let mut mock_astarte_handler: MockAstarteHandler = MockAstarteHandler::new();
-        mock_astarte_handler
+        let mut publisher = MockPublisher::new();
+        publisher
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &SystemStatus| {
@@ -590,7 +575,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: SystemStatus| Ok(()));
 
         let storage_usage = get_storage_usage().unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &DiskUsage| {
@@ -601,7 +586,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: DiskUsage| Ok(()));
 
         let battery_status = get_battery_status().await.unwrap();
-        mock_astarte_handler
+        publisher
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &BatteryStatus| {
@@ -611,8 +596,8 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: BatteryStatus| Ok(()));
 
-        DeviceManager::<MockAstarteHandler>::send_telemetry(
-            &mock_astarte_handler,
+        DeviceManager::<_, MockSubscriber>::send_telemetry(
+            &publisher,
             TelemetryMessage {
                 path: "".to_string(),
                 payload: TelemetryPayload::SystemStatus(system_status),
@@ -620,8 +605,8 @@ mod tests {
         )
         .await;
         for (path, payload) in get_storage_usage().unwrap() {
-            DeviceManager::<MockAstarteHandler>::send_telemetry(
-                &mock_astarte_handler,
+            DeviceManager::<_, MockSubscriber>::send_telemetry(
+                &publisher,
                 TelemetryMessage {
                     path,
                     payload: TelemetryPayload::StorageUsage(payload),
@@ -630,8 +615,8 @@ mod tests {
             .await;
         }
         for (path, payload) in get_battery_status().await.unwrap() {
-            DeviceManager::<MockAstarteHandler>::send_telemetry(
-                &mock_astarte_handler,
+            DeviceManager::<_, MockSubscriber>::send_telemetry(
+                &publisher,
                 TelemetryMessage {
                     path,
                     payload: TelemetryPayload::BatteryStatus(payload),

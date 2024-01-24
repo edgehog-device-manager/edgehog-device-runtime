@@ -40,7 +40,7 @@ use bollard::{
     system::EventsOptions,
 };
 use futures::Stream;
-use hyper::Body;
+use hyper::body::Body;
 use mockall::mock;
 
 type DockerStream<T> = Pin<Box<dyn Stream<Item = Result<T, Error>> + Send>>;

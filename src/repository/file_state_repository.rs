@@ -20,41 +20,86 @@
 
 use std::{
     io,
+    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
-use crate::error::DeviceManagerError;
 use crate::repository::StateRepository;
 use async_trait::async_trait;
 use log::{debug, error};
 use serde::{de::DeserializeOwned, Serialize};
 
-pub struct FileStateRepository {
-    pub path: PathBuf,
+#[derive(thiserror::Error, displaydoc::Display, Debug)]
+pub enum FileStateError {
+    /// couldn't serialize value
+    Serialize(#[source] serde_json::Error),
+    /// couldn't deserialize value
+    Deserialize(#[source] serde_json::Error),
+    /// couldn't write to file {path}
+    Write {
+        #[source]
+        backtrace: std::io::Error,
+        path: String,
+    },
+    /// couldn't read from file {path}
+    Read {
+        #[source]
+        backtrace: std::io::Error,
+        path: String,
+    },
+    /// couldn't remove file {path}
+    Remove {
+        #[source]
+        backtrace: std::io::Error,
+        path: String,
+    },
 }
 
-impl FileStateRepository {
+pub struct FileStateRepository<T> {
+    pub path: PathBuf,
+    _marker: PhantomData<T>,
+}
+
+impl<T> FileStateRepository<T> {
     pub fn new(path: &Path, name: impl AsRef<Path>) -> Self {
         FileStateRepository {
             path: path.join(name),
+            _marker: PhantomData,
         }
     }
 }
 
 #[async_trait]
-impl<T> StateRepository<T> for FileStateRepository
+impl<T> StateRepository<T> for FileStateRepository<T>
 where
     T: Serialize + DeserializeOwned + Send + Sync,
 {
-    async fn write(&self, value: &T) -> Result<(), DeviceManagerError> {
-        let data_json = serde_json::to_string(value)?;
-        tokio::fs::write(&self.path, &data_json).await?;
+    type Err = FileStateError;
+
+    async fn write(&self, value: &T) -> Result<(), Self::Err> {
+        let data_json = serde_json::to_string(value).map_err(FileStateError::Serialize)?;
+
+        tokio::fs::write(&self.path, &data_json)
+            .await
+            .map_err(|err| FileStateError::Write {
+                backtrace: err,
+                path: self.path.display().to_string(),
+            })?;
+
         Ok(())
     }
 
-    async fn read(&self) -> Result<T, DeviceManagerError> {
-        let value_str = tokio::fs::read_to_string(&self.path).await?;
-        let value = serde_json::from_str(&value_str)?;
+    async fn read(&self) -> Result<T, Self::Err> {
+        let value_str =
+            tokio::fs::read_to_string(&self.path)
+                .await
+                .map_err(|err| FileStateError::Read {
+                    backtrace: err,
+                    path: self.path.display().to_string(),
+                })?;
+
+        let value = serde_json::from_str(&value_str).map_err(FileStateError::Deserialize)?;
+
         Ok(value)
     }
 
@@ -80,14 +125,20 @@ where
         metadata.is_file()
     }
 
-    async fn clear(&self) -> Result<(), DeviceManagerError> {
-        tokio::fs::remove_file(&self.path).await?;
+    async fn clear(&self) -> Result<(), Self::Err> {
+        tokio::fs::remove_file(&self.path)
+            .await
+            .map_err(|err| FileStateError::Remove {
+                backtrace: err,
+                path: self.path.display().to_string(),
+            })?;
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::marker::PhantomData;
     use std::path::Path;
 
     use crate::repository::file_state_repository::FileStateRepository;
@@ -98,7 +149,10 @@ mod tests {
         let dir = tempdir::TempDir::new("edgehog").expect("failed to create temp dir");
         let path = dir.path().join("test.json");
 
-        let repository: Box<dyn StateRepository<i32>> = Box::new(FileStateRepository { path });
+        let repository = FileStateRepository {
+            path,
+            _marker: PhantomData,
+        };
 
         let value: i32 = 0;
         repository.write(&value).await.unwrap();
@@ -109,14 +163,14 @@ mod tests {
 
     #[test]
     fn file_repository_new_end_without_slash() {
-        let file = FileStateRepository::new(Path::new("/tmp/path"), "state.json");
+        let file = FileStateRepository::<()>::new(Path::new("/tmp/path"), "state.json");
 
         assert_eq!(file.path, Path::new("/tmp/path/state.json"))
     }
 
     #[test]
     fn file_repository_new_end_with_slash() {
-        let file = FileStateRepository::new(Path::new("/tmp/path/"), "state.json");
+        let file = FileStateRepository::<()>::new(Path::new("/tmp/path/"), "state.json");
 
         assert_eq!(file.path, Path::new("/tmp/path/state.json"))
     }

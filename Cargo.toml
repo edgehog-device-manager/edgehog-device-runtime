@@ -55,31 +55,39 @@ wifiscanner = { workspace = true }
 zbus = { workspace = true, default-features = false, features = ["tokio"] }
 
 # Pinned transitive dependencies
+anstream = { workspace = true }
+clap_lex = { workspace = true }
+serde_spanned = { workspace = true }
 time = { workspace = true }
+toml_datetime = { workspace = true }
 
 [dev-dependencies]
+astarte-message-hub-proto = { workspace = true }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 pbjson-types = { workspace = true }
 tempdir = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+tokio-stream = { workspace = true, features = ["net"] }
 
 [features]
+message-hub = ["astarte-device-sdk/message-hub"]
 systemd = ["dep:systemd"]
 e2e_test = []
 
 [workspace.dependencies]
 astarte-device-sdk = "0.7.0"
+astarte-message-hub-proto = "0.6.1"
 async-trait = "0.1.77"
 base64 = "0.21.6"
 bollard = "0.15.0"
 bytes = "1.5.0"
-clap = "4.3.24"
+clap = "=4.3.24"
 displaydoc = "0.2.4"
 env_logger = "0.10.1"
 futures = "0.3.30"
 httpmock = "0.7"
-hyper = "1.1.0"
+hyper = "0.14.28"
 log = "0.4.20"
 mockall = "0.12.1"
 pbjson-types = "0.6"
@@ -105,4 +113,9 @@ wifiscanner = "0.5.1"
 zbus = { version = "3.14.1", default-features = false }
 
 # Pinned transitive dependencies
+anstream = "=0.4.0"
+clap_derive = "=4.3.12"
+clap_lex = "=0.5.0"
+serde_spanned = "=0.6.3"
 time = "=0.3.23"
+toml_datetime = "=0.6.3"

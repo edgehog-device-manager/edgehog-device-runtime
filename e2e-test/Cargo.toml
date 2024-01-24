@@ -30,4 +30,9 @@ edgehog-device-runtime = { path = "..", features = ["e2e_test"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempdir = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+
+[features]
+# NOTE: needed to build with --all-features
+message-hub = ["edgehog-device-runtime/message-hub"]

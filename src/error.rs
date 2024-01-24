@@ -20,14 +20,12 @@
 
 use thiserror::Error;
 
+use crate::data::astarte_device_sdk_lib::DeviceSdkError;
+
 #[derive(Error, Debug)]
 pub enum DeviceManagerError {
-    #[error("Astarte Message Hub Options error ({0})")]
-    AstarteMessageHubOptions(String),
-
     #[error(transparent)]
     AstarteError(#[from] astarte_device_sdk::error::Error),
-
     #[error(transparent)]
     ProcError(#[from] procfs::ProcError),
 
@@ -55,9 +53,13 @@ pub enum DeviceManagerError {
     #[error("integer parse error")]
     ParseIntError(#[from] std::num::ParseIntError),
 
-    #[error(transparent)]
-    TonicTransport(#[from] tonic::transport::Error),
+    #[error("device SDK error")]
+    DeviceSdk(#[from] DeviceSdkError),
 
-    #[error(transparent)]
-    TonicStatus(#[from] tonic::Status),
+    #[cfg(feature = "message-hub")]
+    #[error("Message hub error")]
+    MessageHub(#[from] crate::data::astarte_message_hub_node::MessageHubError),
+
+    #[error("the connection was closed")]
+    Disconnected,
 }

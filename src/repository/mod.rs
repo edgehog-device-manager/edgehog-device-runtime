@@ -18,19 +18,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::error::Error;
+
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::error::DeviceManagerError;
-
 pub(crate) mod file_state_repository;
 
-#[cfg_attr(test, automock)]
+#[cfg_attr(test, automock(type Err = self::file_state_repository::FileStateError;))]
 #[async_trait]
 pub trait StateRepository<T: Send + Sync>: Send + Sync {
-    async fn write(&self, value: &T) -> Result<(), DeviceManagerError>;
-    async fn read(&self) -> Result<T, DeviceManagerError>;
+    type Err: Error;
+
+    async fn write(&self, value: &T) -> Result<(), Self::Err>;
+    async fn read(&self) -> Result<T, Self::Err>;
     async fn exists(&self) -> bool;
-    async fn clear(&self) -> Result<(), DeviceManagerError>;
+    async fn clear(&self) -> Result<(), Self::Err>;
 }

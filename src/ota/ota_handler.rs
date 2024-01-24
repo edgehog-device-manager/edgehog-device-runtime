@@ -37,6 +37,8 @@ use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
 use crate::repository::file_state_repository::FileStateRepository;
 
+use super::ota_handle::PersistentState;
+
 enum OtaOperation {
     Cancel,
     Update,
@@ -83,8 +85,12 @@ impl OtaHandler {
 
         let state_repository = FileStateRepository::new(&opts.store_directory, "state.json");
 
-        let ota =
-            Ota::<OTARauc, FileStateRepository>::new(opts, system_update, state_repository).await?;
+        let ota = Ota::<OTARauc, FileStateRepository<PersistentState>>::new(
+            opts,
+            system_update,
+            state_repository,
+        )
+        .await?;
         tokio::spawn(crate::ota::ota_handle::run_ota(ota, receiver));
 
         Ok(Self {
@@ -93,10 +99,10 @@ impl OtaHandler {
         })
     }
 
-    pub async fn ensure_pending_ota_is_done(
-        &self,
-        sdk: &impl Publisher,
-    ) -> Result<(), DeviceManagerError> {
+    pub async fn ensure_pending_ota_is_done<P>(&self, sdk: &P) -> Result<(), DeviceManagerError>
+    where
+        P: Publisher + Send + Sync,
+    {
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(8);
         let msg = OtaMessage::EnsurePendingOta {
             respond_to: ota_status_publisher,
@@ -136,11 +142,14 @@ impl OtaHandler {
         })
     }
 
-    pub async fn ota_event(
+    pub async fn ota_event<P>(
         &self,
-        sdk: &impl Publisher,
+        sdk: &P,
         data: HashMap<String, AstarteType>,
-    ) -> Result<(), DeviceManagerError> {
+    ) -> Result<(), DeviceManagerError>
+    where
+        P: Publisher + Send + Sync,
+    {
         let Some(AstarteType::String(operation_str)) = data.get("operation") else {
             error!("missing ota operation: {:?}", data);
 
@@ -162,11 +171,14 @@ impl OtaHandler {
         }
     }
 
-    async fn handle_update(
+    async fn handle_update<P>(
         &self,
-        sdk: &impl Publisher,
+        sdk: &P,
         data: HashMap<String, AstarteType>,
-    ) -> Result<(), DeviceManagerError> {
+    ) -> Result<(), DeviceManagerError>
+    where
+        P: Publisher + Send + Sync,
+    {
         let Some(AstarteType::String(operation_str)) = data.get("uuid") else {
             error!("update data missing uuid: {:?}", data);
 
@@ -220,11 +232,14 @@ impl OtaHandler {
         Ok(ota_status_receiver)
     }
 
-    async fn check_update_already_in_progress(
+    async fn check_update_already_in_progress<P>(
         &self,
         uuid: Uuid,
-        sdk: &impl Publisher,
-    ) -> Result<(), DeviceManagerError> {
+        sdk: &P,
+    ) -> Result<(), DeviceManagerError>
+    where
+        P: Publisher + Send + Sync,
+    {
         match self.get_ota_status().await {
             Err(_) => Ok(()),
             Ok(OtaStatus::Idle) => Ok(()),
@@ -255,11 +270,14 @@ impl OtaHandler {
         }
     }
 
-    async fn handle_cancel(
+    async fn handle_cancel<P>(
         &self,
-        sdk: &impl Publisher,
+        sdk: &P,
         data: HashMap<String, AstarteType>,
-    ) -> Result<(), DeviceManagerError> {
+    ) -> Result<(), DeviceManagerError>
+    where
+        P: Publisher + Send + Sync,
+    {
         let Some(AstarteType::String(request_uuid_str)) = &data.get("uuid") else {
             return Err(DeviceManagerError::OtaError(OtaError::Request(
                 "Missing uuid in cancel request data",
@@ -443,7 +461,10 @@ impl From<&OtaError> for OtaStatusMessage {
     }
 }
 
-async fn send_ota_event(sdk: &impl Publisher, ota_status: &OtaStatus) -> Result<(), OtaError> {
+async fn send_ota_event<P>(sdk: &P, ota_status: &OtaStatus) -> Result<(), OtaError>
+where
+    P: Publisher + Send + Sync,
+{
     if ota_status.ota_request().is_none() {
         return Ok(());
     }

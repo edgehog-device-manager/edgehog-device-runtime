@@ -28,7 +28,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::data::MockPublisher;
+use crate::data::tests::MockPublisher;
 use crate::error::DeviceManagerError;
 use crate::ota::ota_handle::{run_ota, Ota, OtaRequest, OtaStatus, PersistentState};
 use crate::ota::ota_handler::{OtaEvent, OtaHandler};

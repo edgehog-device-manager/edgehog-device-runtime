@@ -20,6 +20,7 @@
 
 use crate::error::DeviceManagerError;
 use astarte_device_sdk::AstarteAggregate;
+use procfs::Current;
 
 #[derive(Debug, AstarteAggregate)]
 #[allow(non_snake_case)]
@@ -32,13 +33,13 @@ pub struct SystemStatus {
 
 /// get structured data for `io.edgehog.devicemanager.SystemStatus` interface
 pub fn get_system_status() -> Result<SystemStatus, DeviceManagerError> {
-    let meminfo = procfs::Meminfo::new()?;
+    let meminfo = procfs::Meminfo::current()?;
 
     Ok(SystemStatus {
         availMemoryBytes: meminfo.mem_available.unwrap_or(0) as i64,
         bootId: procfs::sys::kernel::random::boot_id()?,
         taskCount: procfs::process::all_processes()?.count() as i32,
-        uptimeMillis: procfs::Uptime::new()?.uptime_duration().as_millis() as i64,
+        uptimeMillis: procfs::Uptime::current()?.uptime_duration().as_millis() as i64,
     })
 }
 

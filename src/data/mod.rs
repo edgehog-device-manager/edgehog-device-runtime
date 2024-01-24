@@ -21,23 +21,21 @@
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, AstarteDeviceDataEvent};
 use async_trait::async_trait;
-#[cfg(test)]
-use mockall::automock;
 
 pub mod astarte_device_sdk_lib;
+#[cfg(feature = "message-hub")]
 pub mod astarte_message_hub_node;
 
-#[cfg_attr(test, automock)]
 #[async_trait]
-pub trait Publisher: Send + Sync {
-    async fn send_object<T: 'static>(
+pub trait Publisher: Clone {
+    async fn send_object<T>(
         &self,
         interface_name: &str,
         interface_path: &str,
         data: T,
     ) -> Result<(), AstarteError>
     where
-        T: AstarteAggregate + Send;
+        T: AstarteAggregate + Send + 'static;
     //TODO add send_object_with_timestamp to this trait
     async fn send(
         &self,
@@ -47,8 +45,49 @@ pub trait Publisher: Send + Sync {
     ) -> Result<(), AstarteError>;
 }
 
-#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait Subscriber {
-    async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, AstarteError>;
+    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
+
+    async fn exit(self) -> Result<(), AstarteError>;
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    use mockall::mock;
+
+    mock! {
+        pub Publisher {}
+        #[async_trait]
+        impl Publisher for Publisher {
+            async fn send_object<T>(
+                &self,
+                interface_name: &str,
+                interface_path: &str,
+                data: T,
+            ) -> Result<(), AstarteError>
+            where
+                T: AstarteAggregate + Send + 'static;
+            async fn send(
+                &self,
+                interface_name: &str,
+                interface_path: &str,
+                data: AstarteType,
+            ) -> Result<(), AstarteError>;
+        }
+        impl Clone for Publisher {
+            fn clone(&self) -> Self;
+        }
+    }
+
+    mock! {
+        pub Subscriber {}
+        #[async_trait]
+        impl Subscriber for Subscriber {
+             async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
+             async fn exit(self) -> Result<(), AstarteError>;
+        }
+    }
 }
