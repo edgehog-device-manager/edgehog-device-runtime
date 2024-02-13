@@ -119,7 +119,7 @@ impl Connections {
 
                 let handle = entry.get_mut();
 
-                // check if the the connection is finished or not. If it is finished, return the
+                // check if the connection is finished or not. If it is finished, return the
                 // entry so that a new connection with the same Key can be created
                 if !handle.is_finished() {
                     return Err(Error::IdAlreadyUsed(id));

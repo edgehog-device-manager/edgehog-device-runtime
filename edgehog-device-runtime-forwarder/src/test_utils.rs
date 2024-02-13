@@ -1,4 +1,4 @@
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 // SPDX-License-Identifier: Apache-2.0
 
 //! Module containing utility functions and structures to perform integration test of the library.
@@ -8,7 +8,7 @@ use crate::connections_manager::{ConnectionsManager, Disconnected};
 use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::{
     http::Message as ProtobufHttpMessage, http::Request as ProtobufHttpRequest,
-    message::Protocol as ProtobufProtocol, prost::Message,
+    message::Protocol as ProtobufProtocol, prost::Message, web_socket::Close as ProtobufClose,
     web_socket::Message as ProtobufWsMessage, Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
 };
 use futures::{SinkExt, StreamExt};
@@ -19,8 +19,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 use tokio_tungstenite::WebSocketStream;
-use tracing::log::warn;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 use url::Url;
 
 /// Build a listener on a free port.
@@ -85,7 +84,7 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> TungMessage {
     headers.insert("Sec-WebSocket-Version".to_string(), "13".to_string());
     headers.insert("Sec-WebSocket-Protocol".to_string(), "tty".to_string());
     headers.insert(
-        "Seco-WebSocket-Extensions".to_string(),
+        "Sec-WebSocket-Extensions".to_string(),
         "permessage-deflate".to_string(),
     );
     headers.insert(
@@ -133,7 +132,16 @@ pub fn create_ws_msg(socket_id: Vec<u8>, frame: TungMessage) -> TungMessage {
                 TungMessage::Binary(data) => ProtobufWsMessage::Binary(data),
                 TungMessage::Ping(data) => ProtobufWsMessage::Ping(data),
                 TungMessage::Pong(data) => ProtobufWsMessage::Pong(data),
-                TungMessage::Close(_) => panic!("should call the create_ws_close() function"),
+                TungMessage::Close(c) => match c {
+                    None => ProtobufWsMessage::Close(ProtobufClose {
+                        code: 1000,
+                        reason: String::new(),
+                    }),
+                    Some(c) => ProtobufWsMessage::Close(ProtobufClose {
+                        code: u16::from(c.code) as u32,
+                        reason: c.reason.into_owned(),
+                    }),
+                },
                 TungMessage::Frame(_) => unreachable!("shouldn't be sent"),
             }),
         })),
@@ -174,7 +182,7 @@ pub struct TestConnections<M> {
 }
 
 impl<M> TestConnections<M> {
-    /// Create a websocket connection and mock the bridge the device will connect to.
+    /// Create a WebSocket connection and mock the Edgehog instance the device will connect to.
     pub async fn mock_ws_server(&self) -> WebSocketStream<TcpStream> {
         let (stream, _) = self
             .listener
@@ -200,7 +208,7 @@ impl TestConnections<MockServer> {
         let mock_server = MockServer::start();
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session_token=abcd");
+        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
 
         Self {
             mock_server,
@@ -229,7 +237,7 @@ impl TestConnections<MockWebSocket> {
         let mock_server = MockWebSocket::start().await;
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session_token=abcd");
+        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
 
         Self {
             mock_server,
@@ -242,7 +250,7 @@ impl TestConnections<MockWebSocket> {
     #[instrument(skip_all)]
     pub async fn mock(&mut self, connecting_handle: JoinHandle<WebSocketStream<TcpStream>>) {
         let ws_stream = connecting_handle.await.unwrap();
-        MockWebSocket::mock(ws_stream);
+        let _handle = MockWebSocket::mock(ws_stream);
         self.mock_server.0 = WsState::Connected;
     }
 }
@@ -278,7 +286,7 @@ impl MockWebSocket {
         }
     }
 
-    /// Retrieve the port the mock server will listen to new websocket connections.
+    /// Retrieve the port the mock server will listen to new WebSocket connections.
     pub fn port(&self) -> Option<u16> {
         match self.0 {
             WsState::Pending { port, .. } => Some(port),
@@ -320,9 +328,9 @@ impl MockWebSocket {
             let msg = msg.expect("failed to receive from ws");
             // check what kind of frame is received
             let msg_response = match msg {
-                // if binary or close, forward it
+                // if binary, forward it
                 TungMessage::Binary(data) => TungMessage::Binary(data),
-                TungMessage::Close(c) => TungMessage::Close(c),
+                TungMessage::Close(_) => break,
                 // if ping is received, send pong
                 TungMessage::Ping(data) => TungMessage::Pong(data),
                 // skip the following messages
