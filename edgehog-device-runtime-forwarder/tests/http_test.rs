@@ -1,4 +1,4 @@
-// Copyright 2023 SECO Mind Srl
+// Copyright 2024 SECO Mind Srl
 // SPDX-License-Identifier: Apache-2.0
 
 use edgehog_device_forwarder_proto::http::Message as HttpMessage;

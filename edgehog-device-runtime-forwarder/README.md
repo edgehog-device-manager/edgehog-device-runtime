@@ -1,5 +1,5 @@
 <!---
-  Copyright 2023 SECO Mind Srl
+  Copyright 2024 SECO Mind Srl
   SPDX-License-Identifier: Apache-2.0
 -->
 
@@ -39,10 +39,10 @@ sending the request to Astarte, which then forwards it to the Device Runtime, ha
 The Device Runtime retrieves session information from the remote terminal request and communicates it to the Forwarder,
 a module capable of managing connections with the device.
 Using the received information, the Forwarder establishes a WebSocket connection with Edgehog. On top of this
-connection, other types of connections (HTTP, WebSocket, etc.) can be established. At this point of the implementation, 
-the library only supports HTTP connections. For instance, the Service receiving HTTP requests could be an HTTP server 
-providing access to some device resources. In this scenario, Edgehog makes one or more HTTP requests to the Forwarder, 
-which forwards them to the Service. Then the Service replies with one or more HTTP responses, that will be forwarded 
+connection, other types of connections (HTTP, WebSocket, etc.) can be established. At this point of the implementation,
+the library only supports HTTP connections. For instance, the Service receiving HTTP requests could be an HTTP server
+providing access to some device resources. In this scenario, Edgehog makes one or more HTTP requests to the Forwarder,
+which forwards them to the Service. Then the Service replies with one or more HTTP responses, that will be forwarded
 to Edgehog.
 
 ## Components
@@ -76,14 +76,14 @@ to Edgehog.
 
 ### Astarte
 
-- Provides the necessary functions to convert an `Astarte aggregate object` into a `SessionInfo` struct, used by the 
+- Provides the necessary functions to convert an `Astarte aggregate object` into a `SessionInfo` struct, used by the
 library to store the session information between the device and Edgehog.
 
 ## Usage
 
 The entry point to the library's functionalities is the `ConnectionsManager` struct, which exposes two main methods:
 
-- **`connect`**: This method takes as input the URL containing the information necessary to establish a 
+- **`connect`**: This method takes as input the URL containing the information necessary to establish a
 WebSocket session with Edgehog.
 - **`handle_connections`**: This method continuously loops, managing send/receive events over the WebSocket channel.
 
