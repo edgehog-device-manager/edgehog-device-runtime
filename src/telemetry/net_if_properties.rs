@@ -18,10 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::DeviceManagerError;
+use std::{collections::HashMap, fmt::Display};
+
 use astarte_device_sdk::types::AstarteType;
 use log::warn;
-use std::collections::HashMap;
+
+use crate::error::DeviceManagerError;
 
 #[derive(Debug)]
 enum TechnologyType {
@@ -30,14 +32,13 @@ enum TechnologyType {
     WiFi,
 }
 
-impl ToString for TechnologyType {
-    fn to_string(&self) -> String {
+impl Display for TechnologyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TechnologyType::Ethernet => "Ethernet",
-            TechnologyType::Cellular => "Cellular",
-            TechnologyType::WiFi => "WiFi",
+            TechnologyType::Ethernet => write!(f, "Ethernet"),
+            TechnologyType::Cellular => write!(f, "Cellular"),
+            TechnologyType::WiFi => write!(f, "WiFi"),
         }
-        .to_owned()
     }
 }
 
@@ -110,13 +111,10 @@ fn get_supported_network_interfaces() -> Result<Vec<NetworkInterfaceProperties>,
 /// get structured data for `io.edgehog.devicemanager.NetworkInterfaceProperties` interface
 pub async fn get_network_interface_properties(
 ) -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-    let supported_networks_interfaces = get_supported_network_interfaces().map_or_else(
-        |err| {
-            warn!("{err}");
-            Default::default()
-        },
-        |d| d,
-    );
+    let supported_networks_interfaces = get_supported_network_interfaces().unwrap_or_else(|err| {
+        warn!("{err}");
+        Default::default()
+    });
 
     Ok(network_interface_to_astarte(supported_networks_interfaces))
 }
