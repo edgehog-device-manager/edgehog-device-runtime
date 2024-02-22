@@ -28,6 +28,10 @@
 pub(crate) mod client;
 pub mod docker;
 pub mod error;
+pub mod image;
+mod properties;
+pub mod request;
+pub mod service;
 
 #[cfg(feature = "mock")]
 mod mock;
