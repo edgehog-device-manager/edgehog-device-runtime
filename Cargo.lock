@@ -132,7 +132,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "212bcca36dfcacf39f62eed84ea400ff7dd74c18ccdfbf01c0dd039328b46afd"
 dependencies = [
- "astarte-device-sdk-derive",
+ "astarte-device-sdk-derive 0.5.1",
  "async-trait",
  "base64 0.21.2",
  "bson",
@@ -160,14 +160,16 @@ dependencies = [
 [[package]]
 name = "astarte-device-sdk"
 version = "0.6.1"
-source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust?branch=release-0.6#019c2e17a4d4c7e7007773370fec5280d57801e5"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust.git?branch=temp-merged#e8e0b0383dd43f03141e146ff3b925ca5137aeaa"
 dependencies = [
+ "astarte-device-sdk-derive 0.6.1",
  "async-trait",
  "base64 0.21.2",
  "bson",
  "chrono",
  "ecdsa",
  "flate2",
+ "futures",
  "http",
  "itertools 0.11.0",
  "log",
@@ -197,6 +199,16 @@ checksum = "c5355b4ecb5e2a4b63e8e447b2a00fed038802d26b6e29b8ddc2ee8e93acc15b"
 dependencies = [
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "astarte-device-sdk-derive"
+version = "0.6.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust.git?branch=temp-merged#e8e0b0383dd43f03141e146ff3b925ca5137aeaa"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.28",
 ]
 
 [[package]]
@@ -1210,6 +1222,7 @@ dependencies = [
  "displaydoc",
  "futures",
  "hyper",
+ "itertools 0.11.0",
  "mockall",
  "petgraph",
  "serde",
