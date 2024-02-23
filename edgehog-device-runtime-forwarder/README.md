@@ -23,14 +23,14 @@ sequenceDiagram
     participant Service
     User ->> Edgehog: Open remote terminal
     Edgehog ->> Astarte: Remote terminal request
-    Astarte ->> Device Runtime:  Remote terminal request
+    Astarte ->> Device Runtime: Remote terminal request
     Device Runtime ->> Forwarder: Session info (host, port, session_token)
     Forwarder ->> Edgehog: Start WebSocket session
     loop
-      Edgehog ->> Forwarder: Send HTTP requests to Service
-      Forwarder ->> Service: Forward HTTP request
-      Service ->> Forwarder: Send HTTP response
-      Forwarder ->> Edgehog: Forward HTTP response
+        Edgehog ->> Forwarder: Send HTTP requests to Service
+        Forwarder ->> Service: Forward HTTP request
+        Service ->> Forwarder: Send HTTP response
+        Forwarder ->> Edgehog: Forward HTTP response
     end
 ```
 
@@ -51,8 +51,9 @@ to Edgehog.
 
 - Establishes a WebSocket connection between the device and Edgehog.
 - Acts as a multiplexer for forwarding messages between Edgehog and internal device connections (e.g., with
-[ttyd](https://github.com/tsl0922/ttyd)).
-- Handles WebSocket frames (carrying HTTP requests/responses), decoding binary data into an internal Rust representation.
+  [ttyd](https://github.com/tsl0922/ttyd)).
+- Handles WebSocket frames (carrying HTTP requests/responses), decoding binary data into an internal Rust
+  representation.
 - Handles reconnection operations on WebSocket errors.
 - Maintains a collection of connections with channel writing handles.
 
@@ -77,14 +78,14 @@ to Edgehog.
 ### Astarte
 
 - Provides the necessary functions to convert an `Astarte aggregate object` into a `SessionInfo` struct, used by the
-library to store the session information between the device and Edgehog.
+  library to store the session information between the device and Edgehog.
 
 ## Usage
 
 The entry point to the library's functionalities is the `ConnectionsManager` struct, which exposes two main methods:
 
 - **`connect`**: This method takes as input the URL containing the information necessary to establish a
-WebSocket session with Edgehog.
+  WebSocket session with Edgehog.
 - **`handle_connections`**: This method continuously loops, managing send/receive events over the WebSocket channel.
 
 The `astarte.rs` module contains the functionalities that can be utilized to retrieve

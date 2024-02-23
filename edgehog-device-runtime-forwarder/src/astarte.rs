@@ -8,14 +8,13 @@
 use std::{collections::HashMap, num::TryFromIntError};
 
 use astarte_device_sdk::{types::AstarteType, AstarteAggregate, Error as SdkError};
-use displaydoc::Display;
 use thiserror::Error;
 use tracing::instrument;
 use url::{Host, ParseError, Url};
 
 /// Astarte errors.
 #[non_exhaustive]
-#[derive(Display, Error, Debug)]
+#[derive(displaydoc::Display, Error, Debug)]
 pub enum AstarteError {
     /// Error occurring when different fields from those of the mapping are received.
     Sdk(#[from] SdkError),

@@ -1,7 +1,7 @@
 /*
  * This file is part of Edgehog.
  *
- * Copyright 2024 SECO Mind Srl
+ * Copyright 2023 SECO Mind Srl
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ use tokio::task::JoinHandle;
 
 const CHANNEL_STATE_SIZE: usize = 5;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Key(SessionInfo);
 
 impl Deref for Key {
@@ -73,7 +73,7 @@ impl Hash for Key {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum SessionStatus {
     Connecting,
     Connected,
@@ -252,7 +252,7 @@ impl Forwarder {
             .send(SessionState::connecting(session_token.clone()))
             .await
         {
-            error!("failed to change session state to connecting, {err}");
+            error!("failed to change session state to connected, {err}");
         }
 
         match ConnectionsManager::connect(bridge_url.clone()).await {
@@ -275,7 +275,7 @@ impl Forwarder {
                     .send(SessionState::disconnected(session_token))
                     .await
                 {
-                    error!("failed to change session state to disconnected, {err}");
+                    error!("failed to change session state to connected, {err}");
                 }
             }
             Err(err) => {
@@ -284,7 +284,7 @@ impl Forwarder {
                     .send(SessionState::disconnected(session_token))
                     .await
                 {
-                    error!("failed to change session state to disconnected, {err}");
+                    error!("failed to change session state to connected, {err}");
                 }
                 error!("failed to connect, {err}")
             }

@@ -12,7 +12,6 @@ use std::num::TryFromIntError;
 use std::ops::Not;
 use std::str::FromStr;
 
-use displaydoc::Display;
 use thiserror::Error as ThisError;
 use url::ParseError;
 
@@ -29,7 +28,7 @@ use edgehog_device_forwarder_proto::{
 };
 
 /// Errors occurring while handling [`protobuf`](https://protobuf.dev/overview/) messages
-#[derive(Display, ThisError, Debug)]
+#[derive(displaydoc::Display, ThisError, Debug)]
 #[non_exhaustive]
 pub enum ProtocolError {
     /// Failed to serialize into Protobuf.

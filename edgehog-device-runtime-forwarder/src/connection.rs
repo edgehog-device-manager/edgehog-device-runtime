@@ -8,7 +8,6 @@
 
 use std::ops::{Deref, DerefMut};
 
-use displaydoc::Display;
 use thiserror::Error as ThisError;
 use tokio::sync::mpsc::Sender;
 use tokio::task::{JoinError, JoinHandle};
@@ -21,7 +20,7 @@ use crate::messages::{
 
 /// Connection errors.
 #[non_exhaustive]
-#[derive(Display, ThisError, Debug)]
+#[derive(displaydoc::Display, ThisError, Debug)]
 pub enum ConnectionError {
     /// Channel error.
     ChannelToWs,

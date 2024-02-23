@@ -34,7 +34,6 @@ bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 displaydoc = { workspace = true }
 env_logger = { workspace = true }
-edgehog-device-forwarder-proto = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 futures = { workspace = true }
 log = { workspace = true }
@@ -68,7 +67,7 @@ tokio-stream = { workspace = true, features = ["net"] }
 [features]
 message-hub = ["astarte-device-sdk/message-hub"]
 systemd = ["dep:systemd"]
-forwarder = ["dep:edgehog-forwarder", "dep:edgehog-device-forwarder-proto"]
+forwarder = ["dep:edgehog-forwarder"]
 e2e_test = []
 
 [workspace.dependencies]
@@ -104,12 +103,11 @@ tempdir = "0.3.7"
 thiserror = "1.0.56"
 tokio = "1.35.1"
 tokio-stream = "0.1.14"
-tokio-tungstenite = "0.20.1"
+tokio-tungstenite = "0.21.0"
 tokio-util = "0.7.10"
 toml = "0.8.2"
 tonic = "0.10.2"
 tracing = "0.1.40"
-tungstenite = "0.20.1"
 udev = "0.8.0"
 url = "2.4.1"
 uuid = "1.6.1"

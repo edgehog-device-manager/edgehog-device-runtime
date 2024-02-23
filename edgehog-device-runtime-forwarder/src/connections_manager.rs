@@ -6,7 +6,6 @@
 use std::ops::ControlFlow;
 
 use backoff::{Error as BackoffError, ExponentialBackoff};
-use displaydoc::Display;
 use futures::{future, SinkExt, StreamExt, TryFutureExt};
 use thiserror::Error as ThisError;
 use tokio::net::TcpStream;
@@ -27,7 +26,7 @@ use crate::messages::{Http, HttpMessage, Id, ProtoMessage, ProtocolError};
 pub(crate) const CHANNEL_SIZE: usize = 50;
 
 /// Errors occurring during the connections management.
-#[derive(Display, ThisError, Debug)]
+#[derive(displaydoc::Display, ThisError, Debug)]
 #[non_exhaustive]
 pub enum Error {
     /// Error performing exponential backoff when trying to (re)connect with Edgehog.
@@ -204,7 +203,7 @@ impl ConnectionsManager {
                     }
                     None => {
                         trace!("ws stream next() returned None, connection already closed");
-                        WebSocketEvents::Receive(Err(tungstenite::Error::AlreadyClosed))
+                        WebSocketEvents::Receive(Err(tokio_tungstenite::tungstenite::Error::AlreadyClosed))
                     }
                 }
             }

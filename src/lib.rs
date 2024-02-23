@@ -244,7 +244,7 @@ where
                             self.ota_event_channel.send(data_event).await.unwrap()
                         }
                         #[cfg(feature = "forwarder")]
-                        "io.edgehog.devicemanager.RemoteTerminalRequest" => {
+                        "io.edgehog.devicemanager.ForwarderSessionRequest" => {
                             self.forwarder.handle_sessions(data_event)
                         }
                         _ => {

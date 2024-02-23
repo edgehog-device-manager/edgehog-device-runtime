@@ -12,8 +12,7 @@ use httpmock::Mock;
 use std::future::Future;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::WebSocketStream;
-use tungstenite::Message as TungMessage;
+use tokio_tungstenite::{tungstenite::Message as TungMessage, WebSocketStream};
 use url::Url;
 
 use edgehog_device_forwarder_proto::prost::Message;
