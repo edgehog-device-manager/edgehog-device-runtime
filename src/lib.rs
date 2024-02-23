@@ -407,6 +407,7 @@ mod tests {
                 pairing_token: None,
                 ignore_ssl: false,
             }),
+            #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
             store_directory: PathBuf::new(),
@@ -438,6 +439,7 @@ mod tests {
                 pairing_token: None,
                 ignore_ssl: false,
             }),
+            #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
             store_directory: PathBuf::new(),
@@ -466,6 +468,7 @@ mod tests {
                 pairing_token: None,
                 ignore_ssl: false,
             }),
+            #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
             store_directory: PathBuf::new(),
