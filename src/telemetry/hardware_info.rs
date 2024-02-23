@@ -54,7 +54,9 @@ pub fn get_hardware_info() -> Result<HashMap<String, AstarteType>, DeviceManager
 
 #[cfg(not(test))]
 fn get_cpu_info() -> ProcResult<CpuInfo> {
-    procfs::CpuInfo::new()
+    use procfs::Current;
+
+    procfs::CpuInfo::current()
 }
 
 #[cfg(not(test))]
@@ -64,11 +66,15 @@ fn get_machine_architecture() -> String {
 
 #[cfg(not(test))]
 fn get_meminfo() -> ProcResult<Meminfo> {
-    procfs::Meminfo::new()
+    use procfs::Current;
+
+    procfs::Meminfo::current()
 }
 
 #[cfg(test)]
 fn get_cpu_info() -> ProcResult<CpuInfo> {
+    use procfs::FromRead;
+
     let data = r#"processor       : 0
 vendor_id       : GenuineIntel
 model           : 158
@@ -88,7 +94,7 @@ Serial          : 0000000000000000
 
     let r = std::io::Cursor::new(data.as_bytes());
 
-    Ok(CpuInfo::from_reader(r).unwrap())
+    Ok(CpuInfo::from_read(r).unwrap())
 }
 
 #[cfg(test)]
@@ -98,6 +104,8 @@ fn get_machine_architecture() -> String {
 
 #[cfg(test)]
 fn get_meminfo() -> ProcResult<Meminfo> {
+    use procfs::FromRead;
+
     let data = r#"MemTotal:        1019356 kB
 MemFree:          739592 kB
 MemAvailable:     802296 kB
@@ -143,7 +151,7 @@ CmaFree:          194196 kB
 "#;
 
     let r = std::io::Cursor::new(data.as_bytes());
-    Ok(Meminfo::from_reader(r).unwrap())
+    Ok(Meminfo::from_read(r).unwrap())
 }
 
 #[cfg(test)]

@@ -735,6 +735,7 @@ pub async fn wget(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::io;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
@@ -751,6 +752,7 @@ mod tests {
     use crate::ota::ota_handler_test::deploy_status_stream;
     use crate::ota::rauc::BundleInfo;
     use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, SystemUpdate};
+    use crate::repository::file_state_repository::FileStateError;
     use crate::repository::{MockStateRepository, StateRepository};
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
@@ -1329,9 +1331,10 @@ mod tests {
         let mut system_update = MockSystemUpdate::new();
 
         state_mock.expect_write().returning(|_| {
-            Err(DeviceManagerError::FatalError(
-                "Unable to write".to_string(),
-            ))
+            Err(FileStateError::Write {
+                path: "/ota.bin".into(),
+                backtrace: io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
+            })
         });
 
         system_update.expect_info().returning(|_: &str| {
@@ -1653,9 +1656,12 @@ mod tests {
         let system_update = MockSystemUpdate::new();
 
         state_mock.expect_exists().returning(|| true);
-        state_mock
-            .expect_read()
-            .returning(move || Err(DeviceManagerError::FatalError("Unable to read".to_string())));
+        state_mock.expect_read().returning(move || {
+            Err(FileStateError::Write {
+                path: "/ota.bin".into(),
+                backtrace: io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
+            })
+        });
 
         let ota = Ota::mock_new(system_update, state_mock);
         let ota_status = ota.success().await;

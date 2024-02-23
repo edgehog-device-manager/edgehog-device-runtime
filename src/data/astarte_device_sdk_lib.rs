@@ -18,19 +18,44 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::options::{AstarteOptions, AstarteOptionsError};
+use std::path::Path;
+
+use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::store::memory::MemoryStore;
+use astarte_device_sdk::transport::mqtt::{registration, Mqtt, MqttConfig};
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{
-    registration, AstarteAggregate, AstarteDeviceDataEvent, AstarteDeviceSdk, AstarteError,
-};
+use astarte_device_sdk::{error::Error as AstarteError, AstarteDeviceDataEvent, AstarteDeviceSdk};
+use astarte_device_sdk::{prelude::*, EventReceiver};
 use async_trait::async_trait;
+use log::error;
 use serde::Deserialize;
+use tokio::task::JoinHandle;
 
 use crate::data::{Publisher, Subscriber};
-use crate::error::DeviceManagerError;
-use crate::repository::file_state_repository::FileStateRepository;
+use crate::device::DeviceProxy;
+use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
-use crate::{get_hardware_id_from_dbus, DeviceManagerOptions};
+
+/// Error returned by the [`astarte_device_sdk`].
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum DeviceSdkError {
+    /// missing device ID
+    MissingDeviceId,
+    /// couldn't get the hardware id from DBus
+    Zbus(#[from] zbus::Error),
+    /// couldn't pair device to Astarte
+    Pairing(#[from] astarte_device_sdk::transport::mqtt::PairingError),
+    /// couldn't write credential secret
+    WriteSecret(#[source] FileStateError),
+    /// couldn't read credential secret
+    ReadSecret(#[source] FileStateError),
+    /// couldn't get credential secret or pairing token
+    MissingCredentialSecret,
+    /// couldn't add interfaces directory
+    Interfaces(#[source] astarte_device_sdk::builder::BuilderError),
+    /// couldn't connect to Astarte
+    Connect(#[source] astarte_device_sdk::Error),
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AstarteDeviceSdkConfigOptions {
@@ -39,15 +64,122 @@ pub struct AstarteDeviceSdkConfigOptions {
     pub credentials_secret: Option<String>,
     pub pairing_url: String,
     pub pairing_token: Option<String>,
+    #[serde(default)]
+    pub ignore_ssl: bool,
 }
 
-#[derive(Clone)]
-pub struct AstarteDeviceSdkLib {
-    pub device_sdk: AstarteDeviceSdk,
+impl AstarteDeviceSdkConfigOptions {
+    async fn device_id_or_from_dbus(&self) -> Result<String, DeviceSdkError> {
+        if let Some(id) = self.device_id.as_ref().filter(|id| !id.is_empty()) {
+            return Ok(id.clone());
+        }
+
+        hardware_id_from_dbus()
+            .await?
+            .ok_or(DeviceSdkError::MissingDeviceId)
+    }
+
+    async fn credentials_secret(
+        &self,
+        device_id: &str,
+        store_directory: impl AsRef<Path>,
+    ) -> Result<String, DeviceSdkError> {
+        let cred = self.credentials_secret.as_ref().filter(|id| !id.is_empty());
+
+        if let Some(secret) = cred {
+            return Ok(secret.clone());
+        }
+
+        let registry = FileStateRepository::new(
+            store_directory.as_ref(),
+            format!("credentials_{}.json", device_id),
+        );
+
+        if StateRepository::<String>::exists(&registry).await {
+            return registry.read().await.map_err(DeviceSdkError::ReadSecret);
+        }
+
+        if let Some(token) = &self.pairing_token {
+            return self.register_device(device_id, token, registry).await;
+        }
+
+        Err(DeviceSdkError::MissingCredentialSecret)
+    }
+
+    async fn register_device(
+        &self,
+        device_id: &str,
+        token: &str,
+        cred_state_repo: impl StateRepository<String, Err = FileStateError>,
+    ) -> Result<String, DeviceSdkError> {
+        let credential_secret =
+            registration::register_device(token, &self.pairing_url, &self.realm, device_id).await?;
+
+        cred_state_repo
+            .write(&credential_secret)
+            .await
+            .map_err(DeviceSdkError::WriteSecret)?;
+
+        Ok(credential_secret)
+    }
+
+    pub async fn connect(
+        &self,
+        store_dir: &Path,
+        interface_dir: &Path,
+    ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError> {
+        let device_id = self.device_id_or_from_dbus().await?;
+
+        let credentials_secret = self.credentials_secret(&device_id, &store_dir).await?;
+
+        let mut mqtt_cfg = MqttConfig::new(
+            &self.realm,
+            &device_id,
+            &credentials_secret,
+            &self.pairing_url,
+        );
+
+        if self.ignore_ssl {
+            mqtt_cfg.ignore_ssl_errors();
+        }
+
+        let (device, rx) = DeviceBuilder::new()
+            .store(MemoryStore::new())
+            .interface_directory(interface_dir)
+            .map_err(DeviceSdkError::Interfaces)?
+            .connect(mqtt_cfg)
+            .await
+            .map_err(DeviceSdkError::Connect)?
+            .build();
+
+        let mut device_cl = device.clone();
+        let handle = tokio::spawn(async move { device_cl.handle_events().await });
+
+        Ok((
+            DeviceSdkPublisher(device),
+            DeviceSdkSubscriber { rx, handle },
+        ))
+    }
 }
+
+pub async fn hardware_id_from_dbus() -> Result<Option<String>, DeviceSdkError> {
+    let connection = zbus::Connection::system().await?;
+    let proxy = DeviceProxy::new(&connection).await?;
+    let hardware_id: String = proxy.get_hardware_id("").await?;
+
+    if hardware_id.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(hardware_id))
+}
+
+/// Sender for the Astarte SDK
+#[derive(Debug, Clone)]
+pub struct DeviceSdkPublisher(AstarteDeviceSdk<MemoryStore, Mqtt>);
 
 #[async_trait]
-impl Publisher for AstarteDeviceSdkLib {
+impl Publisher for DeviceSdkPublisher {
     async fn send_object<T: 'static>(
         &self,
         interface_name: &str,
@@ -57,7 +189,7 @@ impl Publisher for AstarteDeviceSdkLib {
     where
         T: AstarteAggregate + Send,
     {
-        self.device_sdk
+        self.0
             .send_object(interface_name, interface_path, data)
             .await
     }
@@ -68,308 +200,172 @@ impl Publisher for AstarteDeviceSdkLib {
         interface_path: &str,
         data: AstarteType,
     ) -> Result<(), AstarteError> {
-        self.device_sdk
-            .send(interface_name, interface_path, data)
-            .await
+        self.0.send(interface_name, interface_path, data).await
     }
+}
+
+/// Receiver for the Astarte SDK
+#[derive(Debug)]
+pub struct DeviceSdkSubscriber {
+    handle: JoinHandle<Result<(), AstarteError>>,
+    rx: EventReceiver,
 }
 
 #[async_trait]
-impl Subscriber for AstarteDeviceSdkLib {
-    async fn on_event(&mut self) -> Result<AstarteDeviceDataEvent, AstarteError> {
-        self.device_sdk.handle_events().await
-    }
-}
-
-impl AstarteDeviceSdkLib {
-    pub async fn new(sdk_options: AstarteOptions) -> Result<Self, DeviceManagerError> {
-        let device = AstarteDeviceSdk::new(&sdk_options).await?;
-        Ok(AstarteDeviceSdkLib { device_sdk: device })
-    }
-}
-
-pub async fn astarte_map_options(
-    opts: &DeviceManagerOptions,
-) -> Result<AstarteOptions, DeviceManagerError> {
-    let astarte_device_sdk_options = opts.astarte_device_sdk.as_ref().ok_or_else(|| {
-        AstarteOptionsError::ConfigError("Unable to find Astarte SDK options".to_string())
-    })?;
-
-    let device_id: String = get_device_id(astarte_device_sdk_options.device_id.clone()).await?;
-    let store_directory = opts.store_directory.to_owned();
-    let credentials_secret: String = get_credentials_secret(
-        &device_id,
-        astarte_device_sdk_options,
-        FileStateRepository::new(&store_directory, format!("credentials_{}.json", device_id)),
-    )
-    .await?;
-
-    let mut sdk_options = AstarteOptions::new(
-        &astarte_device_sdk_options.realm,
-        &device_id,
-        &credentials_secret,
-        &astarte_device_sdk_options.pairing_url,
-    );
-
-    if Some(true) == opts.astarte_ignore_ssl {
-        sdk_options = sdk_options.ignore_ssl_errors();
+impl Subscriber for DeviceSdkSubscriber {
+    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>> {
+        self.rx.recv().await
     }
 
-    let interfaces_dir = opts
-        .interfaces_directory
-        .to_str()
-        .ok_or_else(|| AstarteOptionsError::ConfigError("Non utf-8 interface path".to_string()))?;
+    async fn exit(self) -> Result<(), AstarteError> {
+        self.handle.abort();
 
-    sdk_options
-        .interface_directory(interfaces_dir)
-        .map_err(Into::into)
-}
+        match self.handle.await {
+            Ok(res) => res,
+            Err(err) if err.is_cancelled() => Ok(()),
+            Err(err) => {
+                error!("failed to join task {err}");
 
-async fn get_device_id(opt_device_id: Option<String>) -> Result<String, DeviceManagerError> {
-    if let Some(device_id) = opt_device_id {
-        if !device_id.is_empty() {
-            return Ok(device_id);
+                Ok(())
+            }
         }
-    }
-
-    get_hardware_id_from_dbus().await
-}
-
-async fn get_credentials_secret(
-    device_id: &str,
-    opts: &AstarteDeviceSdkConfigOptions,
-    cred_state_repo: impl StateRepository<String>,
-) -> Result<String, DeviceManagerError> {
-    if let Some(secret) = opts.credentials_secret.clone() {
-        if !secret.is_empty() {
-            return Ok(secret);
-        }
-    }
-    if cred_state_repo.exists().await {
-        get_credentials_secret_from_persistence(cred_state_repo).await
-    } else if let Some(token) = opts.pairing_token.clone() {
-        get_credentials_secret_from_registration(device_id, &token, opts, cred_state_repo).await
-    } else {
-        Err(DeviceManagerError::FatalError(
-            "Missing arguments".to_string(),
-        ))
-    }
-}
-
-async fn get_credentials_secret_from_persistence(
-    cred_state_repo: impl StateRepository<String>,
-) -> Result<String, DeviceManagerError> {
-    Ok(cred_state_repo.read().await.expect("Unable to read secret"))
-}
-
-async fn get_credentials_secret_from_registration(
-    device_id: &str,
-    token: &str,
-    opts: &AstarteDeviceSdkConfigOptions,
-    cred_state_repo: impl StateRepository<String>,
-) -> Result<String, DeviceManagerError> {
-    let registration =
-        registration::register_device(token, &opts.pairing_url, &opts.realm, device_id).await;
-    if let Ok(credentials_secret) = registration {
-        cred_state_repo
-            .write(&credentials_secret)
-            .await
-            .expect("Unable to write secret");
-        Ok(credentials_secret)
-    } else {
-        Err(DeviceManagerError::FatalError(format!(
-            "Pairing error ({:?})",
-            registration.err()
-        )))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use super::*;
 
-    use crate::data::astarte_device_sdk_lib::{
-        get_credentials_secret, get_credentials_secret_from_registration, get_device_id,
-        AstarteDeviceSdkConfigOptions,
-    };
+    use astarte_device_sdk::transport::mqtt::PairingError;
+    use tempdir::TempDir;
+
     use crate::repository::MockStateRepository;
-    use crate::{AstarteLibrary, DeviceManagerError, DeviceManagerOptions};
 
     #[tokio::test]
     async fn device_id_test() {
-        assert_eq!(
-            get_device_id(Some("target".to_string())).await.unwrap(),
-            "target".to_string()
-        );
+        let opts = AstarteDeviceSdkConfigOptions {
+            realm: "foo".to_string(),
+            device_id: Some("target".to_string()),
+            credentials_secret: None,
+            pairing_url: String::new(),
+            pairing_token: None,
+            ignore_ssl: false,
+        };
+
+        let id = opts.device_id_or_from_dbus().await.unwrap();
+        assert_eq!(id, "target");
     }
 
     #[tokio::test]
     async fn credentials_secret_test() {
-        let state_mock = MockStateRepository::<String>::new();
-        let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
-            astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
-                realm: "".to_string(),
-                device_id: None,
-                credentials_secret: Some("credentials_secret".to_string()),
-                pairing_url: "".to_string(),
-                pairing_token: None,
-            }),
-            astarte_message_hub: None,
-            interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
-            download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
-            telemetry_config: Some(vec![]),
+        let _dir = TempDir::new("sdk_cred").unwrap();
+        let path = _dir.path().to_owned();
+
+        let options = AstarteDeviceSdkConfigOptions {
+            realm: "".to_string(),
+            device_id: None,
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            ignore_ssl: false,
         };
-        assert_eq!(
-            get_credentials_secret(
-                "device_id",
-                &options.astarte_device_sdk.unwrap(),
-                state_mock
-            )
-            .await
-            .unwrap(),
-            "credentials_secret".to_string()
-        );
+
+        let secret = options.credentials_secret("device_id", path).await.unwrap();
+
+        assert_eq!(secret, "credentials_secret");
     }
 
     #[tokio::test]
     async fn not_enough_arguments_credentials_secret_test() {
-        let mut state_mock = MockStateRepository::<String>::new();
-        state_mock.expect_exists().returning(|| false);
-        let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
-            astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
-                realm: "".to_string(),
-                device_id: None,
-                credentials_secret: None,
-                pairing_url: "".to_string(),
-                pairing_token: None,
-            }),
-            astarte_message_hub: None,
-            interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
-            download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
-            telemetry_config: Some(vec![]),
+        let _dir = TempDir::new("sdk_cred").unwrap();
+        let path = _dir.path().to_owned();
+
+        let options = AstarteDeviceSdkConfigOptions {
+            realm: "".to_string(),
+            device_id: None,
+            credentials_secret: None,
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            ignore_ssl: false,
         };
-        assert!(get_credentials_secret(
-            "device_id",
-            &options.astarte_device_sdk.unwrap(),
-            state_mock
-        )
-        .await
-        .is_err());
+
+        let res = options.credentials_secret("device_id", &path).await;
+
+        assert!(res.is_err());
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Unable to read secret: FatalError(\"\")")]
     async fn get_credentials_secret_persistence_fail() {
-        let mut state_mock = MockStateRepository::<String>::new();
-        state_mock.expect_exists().returning(|| true);
-        state_mock
-            .expect_read()
-            .returning(move || Err(DeviceManagerError::FatalError("".to_owned())));
+        let _dir = TempDir::new("sdk_cred").unwrap();
+        let path = _dir.path().to_owned();
 
-        let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
-            astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
-                realm: "".to_string(),
-                device_id: Some("device_id".to_owned()),
-                credentials_secret: None,
-                pairing_url: "".to_string(),
-                pairing_token: None,
-            }),
-            astarte_message_hub: None,
-            interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
-            download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
-            telemetry_config: Some(vec![]),
+        let device_id = "device_id";
+
+        let path = path.join(format!("credentials_{}.json", device_id));
+
+        tokio::fs::write(&path, b"\0").await.unwrap();
+
+        let options = AstarteDeviceSdkConfigOptions {
+            realm: "".to_string(),
+            device_id: Some(device_id.to_owned()),
+            credentials_secret: None,
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            ignore_ssl: true,
         };
 
-        assert!(get_credentials_secret(
-            "device_id",
-            &options.astarte_device_sdk.unwrap(),
-            state_mock
-        )
-        .await
-        .is_err());
+        let res = options.credentials_secret(device_id, path).await;
+        assert!(res.is_err());
     }
 
     #[tokio::test]
     async fn get_credentials_secret_persistence_success() {
-        let mut state_mock = MockStateRepository::<String>::new();
-        state_mock.expect_exists().returning(|| true);
-        state_mock
-            .expect_read()
-            .returning(move || Ok("cred_secret".to_owned()));
+        let _dir = TempDir::new("sdk_cred").unwrap();
+        let path = _dir.path().to_owned();
 
-        let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
-            astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
-                realm: "".to_string(),
-                device_id: Some("device_id".to_owned()),
-                credentials_secret: None,
-                pairing_url: "".to_string(),
-                pairing_token: None,
-            }),
-            astarte_message_hub: None,
-            interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
-            download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
-            telemetry_config: Some(vec![]),
+        let device_id = "device_id";
+
+        let full_path = path.join(format!("credentials_{}.json", device_id));
+
+        let exp = "credential_secret";
+
+        tokio::fs::write(&full_path, format!("\"{exp}\""))
+            .await
+            .unwrap();
+
+        let options = AstarteDeviceSdkConfigOptions {
+            realm: "".to_string(),
+            device_id: Some(device_id.to_owned()),
+            credentials_secret: None,
+            pairing_url: "".to_string(),
+            pairing_token: None,
+            ignore_ssl: false,
         };
 
-        assert!(get_credentials_secret(
-            "device_id",
-            &options.astarte_device_sdk.unwrap(),
-            state_mock
-        )
-        .await
-        .is_ok());
+        let secret = options.credentials_secret(device_id, path).await.unwrap();
+
+        assert_eq!(secret, exp);
     }
 
     #[tokio::test]
     async fn get_credentials_secret_from_registration_fail() {
-        let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
-            astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
-                realm: "".to_string(),
-                device_id: Some("device_id".to_owned()),
-                credentials_secret: Some("credentials_secret".to_string()),
-                pairing_url: "".to_string(),
-                pairing_token: None,
-            }),
-            interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
-            download_directory: PathBuf::new(),
-            astarte_ignore_ssl: Some(false),
-            telemetry_config: Some(vec![]),
-            astarte_message_hub: None,
+        let device_id = "device_id";
+        let token = "token";
+        let options = AstarteDeviceSdkConfigOptions {
+            realm: String::new(),
+            device_id: Some(device_id.to_owned()),
+            credentials_secret: Some("credentials_secret".to_string()),
+            pairing_url: String::new(),
+            pairing_token: Some(token.to_string()),
+            ignore_ssl: false,
         };
 
         let state_mock = MockStateRepository::<String>::new();
-        let cred_result = get_credentials_secret_from_registration(
-            "",
-            "",
-            &options.astarte_device_sdk.unwrap(),
-            state_mock,
-        )
-        .await;
-        assert!(cred_result.is_err());
-        match cred_result.err().unwrap() {
-            DeviceManagerError::FatalError(val) => {
-                assert_eq!(
-                    val,
-                    "Pairing error (Some(InvalidUrl(RelativeUrlWithoutBase)))".to_string()
-                );
-            }
-            _ => {
-                panic!("Wrong DeviceManagerError type");
-            }
-        };
+        let cred_result = options.register_device(device_id, token, state_mock).await;
+
+        assert!(matches!(
+            cred_result,
+            Err(DeviceSdkError::Pairing(PairingError::InvalidUrl(_)))
+        ));
     }
 }

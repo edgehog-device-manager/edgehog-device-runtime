@@ -79,40 +79,38 @@ async fn main() -> Result<(), DeviceManagerError> {
 
     match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSDK => {
-            use edgehog_device_runtime::data::astarte_device_sdk_lib::{
-                astarte_map_options, AstarteDeviceSdkLib,
-            };
+            let astarte_sdk_options = options
+                .astarte_device_sdk
+                .as_ref()
+                .expect("couldn't find astarte options");
+            let (publisher, subscriber) = astarte_sdk_options
+                .connect(&options.store_directory, &options.interfaces_directory)
+                .await?;
 
-            let astarte_options = astarte_map_options(&options).await?;
-            let mut dm = edgehog_device_runtime::DeviceManager::new(
-                options,
-                AstarteDeviceSdkLib::new(astarte_options).await?,
-            )
-            .await?;
+            let dm =
+                edgehog_device_runtime::DeviceManager::new(options, publisher, subscriber).await?;
 
             dm.init().await?;
 
-            dm.run().await;
+            dm.run().await?;
         }
+        #[cfg(feature = "message-hub")]
         AstarteLibrary::AstarteMessageHub => {
-            use edgehog_device_runtime::data::astarte_message_hub_node::AstarteMessageHubNode;
-
             let astarte_message_hub_options = options
                 .astarte_message_hub
-                .clone()
+                .as_ref()
                 .expect("Unable to find MessageHub options");
 
-            let publisher = AstarteMessageHubNode::new(
-                astarte_message_hub_options,
-                &options.interfaces_directory,
-            )
-            .await?;
+            let (publisher, subscriber) = astarte_message_hub_options
+                .connect(&options.interfaces_directory)
+                .await?;
 
-            let mut dm = edgehog_device_runtime::DeviceManager::new(options, publisher).await?;
+            let dm =
+                edgehog_device_runtime::DeviceManager::new(options, publisher, subscriber).await?;
 
             dm.init().await?;
 
-            dm.run().await;
+            dm.run().await?;
         }
     };
 

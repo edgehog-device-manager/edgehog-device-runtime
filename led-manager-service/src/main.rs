@@ -45,7 +45,7 @@ impl LedManager {
 async fn main() -> zbus::Result<()> {
     let leds = LedManager { leds: Vec::new() };
 
-    ConnectionBuilder::session()?
+    let _conn = ConnectionBuilder::session()?
         .name("io.edgehog.LedManager")?
         .serve_at("/io/edgehog/LedManager", leds)?
         .build()

@@ -23,10 +23,9 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::panic;
 use std::path::PathBuf;
+use tempdir::TempDir;
 
-use edgehog_device_runtime::data::astarte_device_sdk_lib::{
-    astarte_map_options, AstarteDeviceSdkConfigOptions, AstarteDeviceSdkLib,
-};
+use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use edgehog_device_runtime::e2e_test::{get_hardware_info, get_os_info, get_runtime_info};
 use edgehog_device_runtime::{AstarteLibrary, DeviceManager, DeviceManagerOptions};
 
@@ -54,31 +53,40 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     let pairing_url = astarte_api_url.to_owned() + "/pairing";
     let e2e_token: &str = &std::env::var("E2E_TOKEN").unwrap();
 
+    let store_path = TempDir::new("e2e-test").unwrap();
+    let interfaces_directory = PathBuf::from("./edgehog/astarte-interfaces");
+
+    let astarte_options = AstarteDeviceSdkConfigOptions {
+        realm: realm.to_owned(),
+        device_id: Some(device_id.to_owned()),
+        credentials_secret: Some(credentials_secret),
+        pairing_url: pairing_url.to_string(),
+        pairing_token: None,
+        ignore_ssl: false,
+    };
+
+    let (publisher, subscriber) = astarte_options
+        .connect(store_path.path(), &interfaces_directory)
+        .await
+        .expect("couldn't connect to astarte");
+
     let device_options = DeviceManagerOptions {
         astarte_library: AstarteLibrary::AstarteDeviceSDK,
-        astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
-            realm: realm.to_owned(),
-            device_id: Some(device_id.to_owned()),
-            credentials_secret: Some(credentials_secret),
-            pairing_url: pairing_url.to_string(),
-            pairing_token: None,
-        }),
-        interfaces_directory: "./edgehog/astarte-interfaces".into(),
+        astarte_device_sdk: Some(astarte_options),
+        interfaces_directory,
         store_directory: PathBuf::new(),
         download_directory: PathBuf::new(),
-        astarte_ignore_ssl: Some(false),
         telemetry_config: Some(vec![]),
+        #[cfg(feature = "message-hub")]
         astarte_message_hub: None,
     };
 
-    let astarte_options = astarte_map_options(&device_options).await?;
-    let astarte_device_sdk_lib = AstarteDeviceSdkLib::new(astarte_options).await?;
-    let mut dm = DeviceManager::new(device_options, astarte_device_sdk_lib).await?;
+    let dm = DeviceManager::new(device_options, publisher, subscriber).await?;
 
     dm.init().await?;
 
     tokio::task::spawn(async move {
-        dm.run().await;
+        dm.run().await.unwrap();
     });
 
     //Waiting for Edgehog Device Runtime to be ready...
