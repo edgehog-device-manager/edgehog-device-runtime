@@ -76,7 +76,7 @@ systemd = ["dep:systemd"]
 e2e_test = []
 
 [workspace.dependencies]
-astarte-device-sdk = "0.7.0"
+astarte-device-sdk = "0.7.1"
 astarte-message-hub-proto = "0.6.1"
 async-trait = "0.1.77"
 base64 = "0.21.6"
