@@ -9,13 +9,12 @@ use std::hash::Hash;
 use std::{collections::HashMap, num::TryFromIntError};
 
 use astarte_device_sdk::{types::AstarteType, AstarteAggregate, Error as SdkError};
-use thiserror::Error;
 use tracing::instrument;
 use url::{Host, ParseError, Url};
 
 /// Astarte errors.
 #[non_exhaustive]
-#[derive(displaydoc::Display, Error, Debug)]
+#[derive(displaydoc::Display, thiserror::Error, Debug)]
 pub enum AstarteError {
     /// Error occurring when different fields from those of the mapping are received.
     Sdk(#[from] SdkError),
@@ -45,6 +44,8 @@ pub struct SessionInfo {
     pub port: u16,
     /// Session token.
     pub session_token: String,
+    /// Flag to enable secure session establishment
+    pub secure: bool,
 }
 
 impl Hash for SessionInfo {
@@ -61,6 +62,7 @@ impl AstarteAggregate for SessionInfo {
         hm.insert("host".to_string(), self.host.to_string().into());
         hm.insert("port".to_string(), AstarteType::Integer(self.port.into()));
         hm.insert("session_token".to_string(), self.session_token.into());
+        hm.insert("secure".to_string(), self.secure.into());
         Ok(hm)
     }
 }
@@ -73,8 +75,13 @@ impl TryFrom<&SessionInfo> for Url {
             return Err(AstarteError::MissingUrlInfo("missing session token"));
         }
 
+        let schema = if value.secure { "wss" } else { "ws" };
+
         Url::parse_with_params(
-            &format!("ws://{}:{}/device/websocket", value.host, value.port),
+            &format!(
+                "{}://{}:{}/device/websocket",
+                schema, value.host, value.port
+            ),
             &[("session", &value.session_token)],
         )
         .map_err(AstarteError::ParseUrl)
@@ -104,10 +111,17 @@ pub fn retrieve_session_info(
         .try_into()
         .map_err(SdkError::Types)?;
 
+    let secure: bool = map
+        .remove("secure")
+        .ok_or_else(|| AstarteError::MissingUrlInfo("Missing flag for secure session"))?
+        .try_into()
+        .map_err(SdkError::Types)?;
+
     Ok(SessionInfo {
         host,
         port,
         session_token,
+        secure,
     })
 }
 
@@ -121,6 +135,7 @@ mod tests {
             host: Host::Ipv4(Ipv4Addr::LOCALHOST),
             port: 8080,
             session_token: token.to_string(),
+            secure: false,
         }
     }
 
@@ -128,6 +143,7 @@ mod tests {
         host: &str,
         port: i32,
         session_token: &str,
+        secure: bool,
     ) -> HashMap<String, AstarteType> {
         let mut hm = HashMap::new();
 
@@ -144,6 +160,8 @@ mod tests {
                 AstarteType::String(session_token.to_string()),
             );
         }
+
+        hm.insert("secure".to_string(), AstarteType::Boolean(secure));
 
         hm
     }
@@ -192,20 +210,21 @@ mod tests {
     #[test]
     fn test_retrieve_sinfo() {
         let err_cases = [
-            create_astarte_hashmap("", 8080, "test_token"),
-            create_astarte_hashmap("127.0.0.1", 0, "test_token"),
-            create_astarte_hashmap("127.0.0.1", 8080, ""),
+            create_astarte_hashmap("", 8080, "test_token", false),
+            create_astarte_hashmap("127.0.0.1", 0, "test_token", false),
+            create_astarte_hashmap("127.0.0.1", 8080, "", false),
         ];
 
         for hm in err_cases {
             assert!(retrieve_session_info(hm).is_err());
         }
 
-        let hm = create_astarte_hashmap("127.0.0.1", 8080, "test_token");
+        let hm = create_astarte_hashmap("127.0.0.1", 8080, "test_token", false);
         let sinfo = retrieve_session_info(hm).unwrap();
 
         assert_eq!(sinfo.host, Host::<&str>::Ipv4(Ipv4Addr::LOCALHOST));
         assert_eq!(sinfo.port, 8080);
         assert_eq!(sinfo.session_token, "test_token".to_string());
+        assert!(!sinfo.secure);
     }
 }

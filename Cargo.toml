@@ -33,8 +33,9 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 displaydoc = { workspace = true }
-env_logger = { workspace = true }
+edgehog-device-forwarder-proto = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
+env_logger = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 procfs = { workspace = true }
@@ -114,6 +115,9 @@ url = "2.4.1"
 uuid = "1.6.1"
 wifiscanner = "0.5.1"
 zbus = { version = "3.14.1", default-features = false }
+rustls = "0.22.2"
+rustls-pemfile = "2.1.0"
+rustls-native-certs = "0.7.0"
 
 [patch.crates-io]
 # Temporary till fix is unstreamed

@@ -188,13 +188,16 @@ impl<P> Forwarder<P> {
 
         // check if the remote terminal task is already running. if not, spawn a new task and add it
         // to the collection
+        // flag indicating whether the connection should use TLS, i.e. 'ws' or 'wss' scheme.
+        let secure = sinfo.secure;
         let session_token = sinfo.session_token.clone();
         let publisher = self.publisher.clone();
         self.get_running(sinfo).or_insert_with(|| {
             info!("opening a new session");
             // spawn a new task responsible for handling the remote terminal operations
             tokio::spawn(async move {
-                if let Err(err) = Self::handle_session(edgehog_url, session_token, publisher).await
+                if let Err(err) =
+                    Self::handle_session(edgehog_url, session_token, secure, publisher).await
                 {
                     error!("session failed, {err}");
                 }
@@ -228,6 +231,7 @@ impl<P> Forwarder<P> {
     async fn handle_session(
         edgehog_url: Url,
         session_token: String,
+        secure: bool,
         publisher: P,
     ) -> Result<(), ForwarderError>
     where
@@ -238,7 +242,9 @@ impl<P> Forwarder<P> {
             .send(&publisher)
             .await?;
 
-        if let Err(err) = Self::connect(edgehog_url, session_token.clone(), &publisher).await {
+        if let Err(err) =
+            Self::connect(edgehog_url, session_token.clone(), secure, &publisher).await
+        {
             error!("failed to connect, {err}");
         }
 
@@ -255,12 +261,13 @@ impl<P> Forwarder<P> {
     async fn connect(
         edgehog_url: Url,
         session_token: String,
+        secure: bool,
         publisher: &P,
     ) -> Result<(), ForwarderError>
     where
         P: Publisher + 'static + Send + Sync,
     {
-        let mut con_manager = ConnectionsManager::connect(edgehog_url.clone()).await?;
+        let mut con_manager = ConnectionsManager::connect(edgehog_url.clone(), secure).await?;
 
         // update the session state to "Connected"
         SessionState::connected(session_token.clone())
@@ -489,6 +496,7 @@ mod tests {
                     host: Host::Ipv4(Ipv4Addr::LOCALHOST),
                     port: 8080,
                     session_token: "abcd".to_string(),
+                    secure: false,
                 },
                 tokio::spawn(async {}),
             )]),
