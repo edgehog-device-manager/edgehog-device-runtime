@@ -18,34 +18,52 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::DeviceManagerError;
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::{astarte_aggregate, AstarteAggregate};
+use log::{error, warn};
 use std::collections::HashMap;
 use sysinfo::{DiskExt, System, SystemExt};
 
 #[derive(Debug, AstarteAggregate)]
-#[allow(non_snake_case)]
+#[astarte_aggregate(rename_all = "camelCase")]
 pub struct DiskUsage {
-    pub totalBytes: i64,
-    pub freeBytes: i64,
+    pub total_bytes: i64,
+    pub free_bytes: i64,
 }
 
 /// get structured data for `io.edgehog.devicemanager.StorageUsage` interface
 /// /dev/ is excluded from the device names since it is common for all devices
-pub fn get_storage_usage() -> Result<HashMap<String, DiskUsage>, DeviceManagerError> {
-    let mut ret: HashMap<String, DiskUsage> = HashMap::new();
+pub fn get_storage_usage() -> HashMap<String, DiskUsage> {
     let mut sys = System::new_all();
     sys.refresh_disks();
 
-    for disk in sys.disks() {
-        let disk_name = disk.name().to_str().unwrap().replace("/dev/", "");
-        ret.insert(
-            disk_name.to_owned() as String,
-            DiskUsage {
-                totalBytes: disk.total_space() as i64,
-                freeBytes: disk.available_space() as i64,
-            },
-        );
-    }
-    Ok(ret)
+    sys.disks()
+        .iter()
+        .filter_map(|disk| {
+            let Some(name) = disk.name().to_str() else {
+                warn!("non-utf8 path {}, ignoring", disk.name().to_string_lossy());
+                return None;
+            };
+            let name = name.strip_prefix("/dev/").unwrap_or(name);
+            // remove disks with a higher depth
+            if name.contains('/') {
+                warn!("not simple disks device, ignoring");
+                return None;
+            }
+            let Ok(total_bytes) = disk.total_space().try_into() else {
+                error!("disk size too big, ignoring");
+                return None;
+            };
+            let Ok(free_bytes) = disk.available_space().try_into() else {
+                error!("available space too big, ignoring");
+                return None;
+            };
+            Some((
+                name.to_string(),
+                DiskUsage {
+                    total_bytes,
+                    free_bytes,
+                },
+            ))
+        })
+        .collect()
 }
