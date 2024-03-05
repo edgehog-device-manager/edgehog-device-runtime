@@ -11,7 +11,7 @@ use std::ops::{Deref, DerefMut};
 use thiserror::Error as ThisError;
 use tokio::sync::mpsc::Sender;
 use tokio::task::{JoinError, JoinHandle};
-use tracing::{debug, error, instrument, span, Level};
+use tracing::{debug, error, instrument};
 
 use crate::messages::{
     Http as ProtoHttp, HttpMessage as ProtoHttpMessage, HttpResponse, Id, ProtoMessage,
@@ -76,17 +76,16 @@ impl Connection {
     #[instrument(skip_all)]
     pub(crate) fn spawn(self) -> ConnectionHandle {
         // spawn a task responsible for notifying when new data is available
-        let handle = tokio::spawn(async move {
-            // the span in used to know from which request a possible error is generated
-            let span = span!(Level::DEBUG, "spawn", id = %self.id);
-            let _enter = span.enter();
-
-            if let Err(err) = self.task().await {
-                error!("connection task failed with error {err:?}");
-            }
-        });
+        let handle = tokio::spawn(async move { self.spawn_inner().await });
 
         ConnectionHandle { handle }
+    }
+
+    #[instrument(skip_all, fields(id = %self.id))]
+    async fn spawn_inner(self) {
+        if let Err(err) = self.task().await {
+            error!("connection task failed with error {err:?}");
+        }
     }
 
     /// Send an HTTP request, wait for a response, build a protobuf message and send it to the

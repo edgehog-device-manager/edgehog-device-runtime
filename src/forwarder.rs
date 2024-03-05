@@ -1,7 +1,7 @@
 /*
  * This file is part of Edgehog.
  *
- * Copyright 2023 SECO Mind Srl
+ * Copyright 2023-2024 SECO Mind Srl
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ use std::{
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
-use edgehog_forwarder::astarte::{retrieve_connection_info, SessionInfo};
+use edgehog_forwarder::astarte::{retrieve_connection_info, AstarteError, SessionInfo};
 use edgehog_forwarder::connections_manager::ConnectionsManager;
 use log::error;
 use reqwest::Url;
@@ -40,7 +40,7 @@ use tokio::task::JoinHandle;
 
 const CHANNEL_STATE_SIZE: usize = 5;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Key(SessionInfo);
 
 impl Deref for Key {
@@ -73,7 +73,7 @@ impl Hash for Key {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum SessionStatus {
     Connecting,
     Connected,
@@ -83,9 +83,9 @@ enum SessionStatus {
 impl Display for SessionStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Connecting => write!(f, "connecting"),
-            Self::Connected => write!(f, "connected"),
-            Self::Disconnected => write!(f, "disconnected"),
+            Self::Connecting => write!(f, "Connecting"),
+            Self::Connected => write!(f, "Connected"),
+            Self::Disconnected => write!(f, "Disconnected"),
         }
     }
 }
@@ -121,7 +121,12 @@ impl SessionState {
 
 impl From<SessionState> for AstarteType {
     fn from(value: SessionState) -> Self {
-        Self::String(value.status.to_string())
+        match value.status {
+            SessionStatus::Connecting | SessionStatus::Connected => {
+                Self::String(value.status.to_string())
+            }
+            SessionStatus::Disconnected => Self::Unset,
+        }
     }
 }
 
@@ -165,7 +170,7 @@ impl Forwarder {
 
             if let Err(err) = publisher
                 .send(
-                    "io.edgehog.devicemanager.ForwarderSessionsState",
+                    "io.edgehog.devicemanager.ForwarderSessionState",
                     &ipath,
                     idata,
                 )
@@ -178,8 +183,12 @@ impl Forwarder {
 
     /// Start a device forwarder instance.
     pub fn handle_sessions(&mut self, astarte_event: AstarteDeviceDataEvent) {
-        let Some(idata) = Self::retrieve_astarte_data(astarte_event) else {
-            return;
+        let idata = match Self::retrieve_astarte_data(astarte_event) {
+            Ok(idata) => idata,
+            Err(err) => {
+                error!("{err}");
+                return;
+            }
         };
 
         // retrieve the Url that the device must use to open a WebSocket connection with a host
@@ -205,23 +214,21 @@ impl Forwarder {
         let session_token = cinfo.session_token.clone();
         self.get_running(cinfo).or_insert_with(||
             // spawn a new task responsible for handling the remote terminal operations
-            Self::spawn_task(bridge_url, session_token, tx_state));
+            tokio::spawn(Self::handle_session(bridge_url, session_token, tx_state)));
     }
 
     fn retrieve_astarte_data(
         astarte_event: AstarteDeviceDataEvent,
-    ) -> Option<HashMap<String, AstarteType>> {
+    ) -> Result<HashMap<String, AstarteType>, AstarteError> {
         if astarte_event.path != "/request" {
-            error!("received data from an unknown path/interface: {astarte_event:?}");
-            return None;
+            return Err(AstarteError::WrongPath(astarte_event.path));
         }
 
         let Aggregation::Object(idata) = astarte_event.data else {
-            error!("received wrong Aggregation data type");
-            return None;
+            return Err(AstarteError::WrongData);
         };
 
-        Some(idata)
+        Ok(idata)
     }
 
     /// Remove terminated sessions and return the searched one.
@@ -230,15 +237,6 @@ impl Forwarder {
         self.tasks.retain(|_, jh| !jh.is_finished());
 
         self.tasks.entry(Key(cinfo))
-    }
-
-    /// Spawn the task responsible for handling a device forwarder instance.
-    fn spawn_task(
-        bridge_url: Url,
-        session_token: String,
-        tx_state: Sender<SessionState>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(Self::handle_session(bridge_url, session_token, tx_state))
     }
 
     /// Handle remote session connection, operations and disconnection.
@@ -252,42 +250,45 @@ impl Forwarder {
             .send(SessionState::connecting(session_token.clone()))
             .await
         {
+            error!("failed to change session state to connecting, {err}");
+            // return since the channel has been closed
+            return;
+        }
+
+        let mut con_manager = match ConnectionsManager::connect(bridge_url.clone()).await {
+            Ok(con_manager) => con_manager,
+            Err(err) => {
+                // unset the session state, meaning that the device correctly disconnected itself
+                if let Err(err) = tx_state
+                    .send(SessionState::disconnected(session_token))
+                    .await
+                {
+                    error!("failed to change session state to disconnected, {err}");
+                }
+                error!("failed to connect, {err}");
+                return;
+            }
+        };
+
+        // update the session state to "connected"
+        if let Err(err) = tx_state
+            .send(SessionState::connected(session_token.clone()))
+            .await
+        {
             error!("failed to change session state to connected, {err}");
         }
 
-        match ConnectionsManager::connect(bridge_url.clone()).await {
-            Ok(mut con_manager) => {
-                // update the session state to "connected"
-                if let Err(err) = tx_state
-                    .send(SessionState::connected(session_token.clone()))
-                    .await
-                {
-                    error!("failed to change session state to connected, {err}");
-                }
+        // handle the connections
+        if let Err(err) = con_manager.handle_connections().await {
+            error!("failed to handle connections, {err}");
+        }
 
-                // handle the connections
-                if let Err(err) = con_manager.handle_connections().await {
-                    error!("failed to handle connections, {err}");
-                }
-
-                // update the session state to "disconnected"
-                if let Err(err) = tx_state
-                    .send(SessionState::disconnected(session_token))
-                    .await
-                {
-                    error!("failed to change session state to connected, {err}");
-                }
-            }
-            Err(err) => {
-                // update the session state to "disconnected"
-                if let Err(err) = tx_state
-                    .send(SessionState::disconnected(session_token))
-                    .await
-                {
-                    error!("failed to change session state to connected, {err}");
-                }
-                error!("failed to connect, {err}")
-            }
+        // unset the session state, meaning that the device correctly disconnected itself
+        if let Err(err) = tx_state
+            .send(SessionState::disconnected(session_token))
+            .await
+        {
+            error!("failed to change session state to disconnected, {err}");
         }
     }
 }
@@ -306,11 +307,12 @@ mod tests {
         );
         data.insert("port".to_string(), AstarteType::Integer(port));
         data.insert("host".to_string(), AstarteType::String(host.to_string()));
+        data.insert("secure".to_string(), AstarteType::Boolean(false));
 
         let data = Aggregation::Object(data);
 
         AstarteDeviceDataEvent {
-            interface: "io.edgehog.devicemanager.RemoteTerminalRequest".to_string(),
+            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/request".to_string(),
             data,
         }
@@ -323,9 +325,9 @@ mod tests {
         mock_pub
             .expect_send()
             .with(
-                predicate::eq("io.edgehog.devicemanager.ForwarderSessionsState"),
+                predicate::eq("io.edgehog.devicemanager.ForwarderSessionState"),
                 predicate::eq("/abcd/status"),
-                predicate::eq(AstarteType::String("connecting".to_string())),
+                predicate::eq(AstarteType::String("Connecting".to_string())),
             )
             .times(1)
             .returning(|_, _, _| Ok(()));
@@ -352,21 +354,21 @@ mod tests {
     async fn test_retrieve_astarte_data() {
         // wrong path
         let data_event = AstarteDeviceDataEvent {
-            interface: "io.edgehog.devicemanager.RemoteTerminalRequest".to_string(),
+            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/WRONG_PATH".to_string(),
             data: Aggregation::Individual(AstarteType::Boolean(false)),
         };
 
-        assert_eq!(None, Forwarder::retrieve_astarte_data(data_event));
+        assert!(Forwarder::retrieve_astarte_data(data_event).is_err());
 
         // wrong aggregation data
         let data_event = AstarteDeviceDataEvent {
-            interface: "io.edgehog.devicemanager.RemoteTerminalRequest".to_string(),
+            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/request".to_string(),
             data: Aggregation::Individual(AstarteType::Boolean(false)),
         };
 
-        assert_eq!(None, Forwarder::retrieve_astarte_data(data_event));
+        assert!(Forwarder::retrieve_astarte_data(data_event).is_err());
 
         // correct data event
         let data_event = remote_terminal_req("abcd", 8080, "127.0.0.1");
@@ -381,7 +383,11 @@ mod tests {
             "host".to_string(),
             AstarteType::String("127.0.0.1".to_string()),
         );
+        data.insert("secure".to_string(), AstarteType::Boolean(false));
 
-        assert_eq!(Some(data), Forwarder::retrieve_astarte_data(data_event))
+        let res =
+            Forwarder::retrieve_astarte_data(data_event).expect("failed to retrieve astarte data");
+
+        assert_eq!(data, res)
     }
 }

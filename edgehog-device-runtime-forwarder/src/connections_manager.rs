@@ -99,25 +99,27 @@ impl ConnectionsManager {
             backoff::future::retry(ExponentialBackoff::default(), || async {
                 debug!("creating WebSocket connection with {}", url);
 
-                match connect_async(url).await {
-                    Ok(ws_res) => Ok(ws_res),
-                    Err(TungError::Http(http_res)) if http_res.status().is_client_error() => {
+                connect_async(url).await.map_err(|err| match err {
+                    // stopping backoff because of a connection error with Edgehog
+                    TungError::Http(http_res) if http_res.status().is_client_error() => {
                         error!(
                             "received HTTP client error ({}), stopping backoff",
                             http_res.status()
                         );
-                        Err(BackoffError::Permanent(Error::TokenAlreadyUsed(get_token(
-                            url,
-                        )?)))
+
+                        match get_token(url) {
+                            Ok(token) => BackoffError::Permanent(Error::TokenAlreadyUsed(token)),
+                            Err(err) => BackoffError::Permanent(err),
+                        }
                     }
-                    Err(err) => {
+                    err => {
                         debug!("try reconnecting with backoff after tungstenite error: {err}");
-                        Err(BackoffError::Transient {
+                        BackoffError::Transient {
                             err: Error::WebSocket(err),
                             retry_after: None,
-                        })
+                        }
                     }
-                }
+                })
             })
             .await?;
 

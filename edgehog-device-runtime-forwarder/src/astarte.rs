@@ -27,6 +27,12 @@ pub enum AstarteError {
 
     /// Received a malformed port number, `{0}`.
     ParsePort(#[from] TryFromIntError),
+
+    /// Wrong path on astarte interface, {0}.
+    WrongPath(String),
+
+    /// Received Individual rather than Aggregation Astarte data type.
+    WrongData,
 }
 
 /// Struct representing the fields of an aggregated object the Astarte server can send to the device.
