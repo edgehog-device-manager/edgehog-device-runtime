@@ -6,7 +6,7 @@
 
 # Edgehog Device Runtime
 
-[![CI](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/check.yaml/badge.svg?branch=main)](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/check.yaml?branch=master)
+[![CI](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/edgehog-device-manager/edgehog-device-runtime/actions/workflows/ci.yaml?branch=main)
 [![codecov](https://codecov.io/gh/edgehog-device-manager/edgehog-device-runtime/branch/main/graph/badge.svg)](https://app.codecov.io/gh/edgehog-device-manager)
 
 Edgehog Device Runtime is a portable middleware written in [Rust](https://www.rust-lang.org/), that

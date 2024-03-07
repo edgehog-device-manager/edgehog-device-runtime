@@ -15,6 +15,6 @@
 
 ## Reporting a Vulnerability
 
-To submit a vulnerability report, please contact us at security AT secomind.com.
-Please, **do not use GitHub issues for vulnerability reports**.
-Your submission will be promptly reviewed and validated by a member of our team.
+To submit a vulnerability report, please contact us at security AT secomind.com. Please, **do not
+use GitHub issues for vulnerability reports**. Your submission will be promptly reviewed and
+validated by a member of our team.
