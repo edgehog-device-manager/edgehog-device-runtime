@@ -33,12 +33,9 @@ use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
 use edgehog_forwarder::astarte::{retrieve_connection_info, AstarteError, SessionInfo};
 use edgehog_forwarder::connections_manager::ConnectionsManager;
-use log::error;
+use log::{error, info};
 use reqwest::Url;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::task::JoinHandle;
-
-const CHANNEL_STATE_SIZE: usize = 5;
 
 #[derive(Debug, Clone)]
 struct Key(SessionInfo);
@@ -130,59 +127,43 @@ impl From<SessionState> for AstarteType {
     }
 }
 
+impl SessionState {
+    async fn send<P>(self, publisher: &P)
+    where
+        P: Publisher,
+    {
+        let ipath = format!("/{}/status", self.token);
+        let idata = self.into();
+
+        if let Err(err) = publisher
+            .send(
+                "io.edgehog.devicemanager.ForwarderSessionState",
+                &ipath,
+                idata,
+            )
+            .await
+        {
+            error!("publisher send error, {err}");
+        }
+    }
+}
+
 /// Device forwarder.
 ///
 /// It maintains a collection of tokio task handles, each one identified by a [`Key`] containing
 /// the connection information and responsible for providing forwarder functionalities. For
 /// instance, a task could open a remote terminal between the device and a certain host.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Forwarder {
-    tx_state: Sender<SessionState>,
     tasks: HashMap<Key, JoinHandle<()>>,
 }
 
 impl Forwarder {
-    /// Initialize the forwarder instance, spawning also a task responsible for sending a property
-    /// necessary to update the device session state.
-    pub fn init<P>(publisher: P) -> Self
+    /// Start a device forwarder instance.
+    pub fn handle_sessions<P>(&mut self, astarte_event: AstarteDeviceDataEvent, publisher: P)
     where
         P: Publisher + 'static + Send + Sync,
     {
-        let (tx_state, rx_state) = channel::<SessionState>(CHANNEL_STATE_SIZE);
-
-        // the handle is not stored because it is ended when all tx_state are dropped (which is when
-        // the Forwarder instance is dropped
-        tokio::spawn(Self::handle_session_state_task(publisher, rx_state));
-
-        Self {
-            tx_state,
-            tasks: Default::default(),
-        }
-    }
-
-    async fn handle_session_state_task<P>(publisher: P, mut rx_state: Receiver<SessionState>)
-    where
-        P: Publisher,
-    {
-        while let Some(msg) = rx_state.recv().await {
-            let ipath = format!("/{}/status", msg.token);
-            let idata = msg.into();
-
-            if let Err(err) = publisher
-                .send(
-                    "io.edgehog.devicemanager.ForwarderSessionState",
-                    &ipath,
-                    idata,
-                )
-                .await
-            {
-                error!("publisher send error, {err}");
-            }
-        }
-    }
-
-    /// Start a device forwarder instance.
-    pub fn handle_sessions(&mut self, astarte_event: AstarteDeviceDataEvent) {
         let idata = match Self::retrieve_astarte_data(astarte_event) {
             Ok(idata) => idata,
             Err(err) => {
@@ -209,12 +190,12 @@ impl Forwarder {
             }
         };
 
-        // check if the remote terminal task is already running. if not, spawn a new task and add it to the collection
-        let tx_state = self.tx_state.clone();
+        // check if the remote terminal task is already running. if not, spawn a new task and add it
+        // to the collection
         let session_token = cinfo.session_token.clone();
         self.get_running(cinfo).or_insert_with(||
             // spawn a new task responsible for handling the remote terminal operations
-            tokio::spawn(Self::handle_session(bridge_url, session_token, tx_state)));
+            tokio::spawn(Self::handle_session(bridge_url, session_token, publisher)));
     }
 
     fn retrieve_astarte_data(
@@ -240,43 +221,32 @@ impl Forwarder {
     }
 
     /// Handle remote session connection, operations and disconnection.
-    async fn handle_session(
-        bridge_url: Url,
-        session_token: String,
-        tx_state: Sender<SessionState>,
-    ) {
-        // update the session state to "connected"
-        if let Err(err) = tx_state
-            .send(SessionState::connecting(session_token.clone()))
-            .await
-        {
-            error!("failed to change session state to connecting, {err}");
-            // return since the channel has been closed
-            return;
-        }
+    async fn handle_session<P>(bridge_url: Url, session_token: String, publisher: P)
+    where
+        P: Publisher + 'static + Send + Sync,
+    {
+        // update the session state to "Connecting"
+        SessionState::connecting(session_token.clone())
+            .send(&publisher)
+            .await;
 
         let mut con_manager = match ConnectionsManager::connect(bridge_url.clone()).await {
             Ok(con_manager) => con_manager,
             Err(err) => {
                 // unset the session state, meaning that the device correctly disconnected itself
-                if let Err(err) = tx_state
-                    .send(SessionState::disconnected(session_token))
-                    .await
-                {
-                    error!("failed to change session state to disconnected, {err}");
-                }
+                SessionState::disconnected(session_token.clone())
+                    .send(&publisher)
+                    .await;
+
                 error!("failed to connect, {err}");
                 return;
             }
         };
 
-        // update the session state to "connected"
-        if let Err(err) = tx_state
-            .send(SessionState::connected(session_token.clone()))
-            .await
-        {
-            error!("failed to change session state to connected, {err}");
-        }
+        // update the session state to "Connected"
+        SessionState::connected(session_token.clone())
+            .send(&publisher)
+            .await;
 
         // handle the connections
         if let Err(err) = con_manager.handle_connections().await {
@@ -284,20 +254,16 @@ impl Forwarder {
         }
 
         // unset the session state, meaning that the device correctly disconnected itself
-        if let Err(err) = tx_state
-            .send(SessionState::disconnected(session_token))
-            .await
-        {
-            error!("failed to change session state to disconnected, {err}");
-        }
+        SessionState::disconnected(session_token.clone())
+            .send(&publisher)
+            .await;
+        info!("forwarder correctly disconnected");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::tests::MockPublisher;
-    use mockall::predicate;
 
     fn remote_terminal_req(session_token: &str, port: i32, host: &str) -> AstarteDeviceDataEvent {
         let mut data = HashMap::with_capacity(3);
@@ -316,38 +282,6 @@ mod tests {
             path: "/request".to_string(),
             data,
         }
-    }
-
-    #[tokio::test]
-    async fn test_handle_session_state_task() {
-        let mut mock_pub = MockPublisher::new();
-
-        mock_pub
-            .expect_send()
-            .with(
-                predicate::eq("io.edgehog.devicemanager.ForwarderSessionState"),
-                predicate::eq("/abcd/status"),
-                predicate::eq(AstarteType::String("Connecting".to_string())),
-            )
-            .times(1)
-            .returning(|_, _, _| Ok(()));
-
-        let (tx_state, rx_close) = channel::<SessionState>(CHANNEL_STATE_SIZE);
-
-        let handle = tokio::spawn(Forwarder::handle_session_state_task(mock_pub, rx_close));
-
-        // test sending and receiving
-
-        tx_state
-            .send(SessionState::connecting("abcd".to_string()))
-            .await
-            .unwrap();
-
-        // when dropping the forwarder, the tx_state channel extremity is dropped too, therefore the
-        // task handling session state must terminate.
-        drop(tx_state);
-
-        handle.await.unwrap();
     }
 
     #[tokio::test]
