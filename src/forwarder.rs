@@ -32,10 +32,25 @@ use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
 use edgehog_forwarder::astarte::{retrieve_connection_info, AstarteError, SessionInfo};
-use edgehog_forwarder::connections_manager::ConnectionsManager;
-use log::{error, info};
+use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
+use log::{debug, error, info};
 use reqwest::Url;
 use tokio::task::JoinHandle;
+
+const FORWARDER_SESSION_STATE_INTERFACE: &str = "io.edgehog.devicemanager.ForwarderSessionState";
+
+/// Forwarder errors
+#[derive(displaydoc::Display, thiserror::Error, Debug)]
+pub enum ForwarderError {
+    /// Astarte error
+    Astarte(#[from] astarte_device_sdk::Error),
+
+    /// Astarte type conversion error
+    Type(#[from] astarte_device_sdk::types::TypeError),
+
+    /// Connections manager error
+    ConnectionsManager(#[from] edgehog_forwarder::connections_manager::Error),
+}
 
 #[derive(Debug, Clone)]
 struct Key(SessionInfo);
@@ -128,23 +143,17 @@ impl From<SessionState> for AstarteType {
 }
 
 impl SessionState {
-    async fn send<P>(self, publisher: &P)
+    /// Send a property to Astarte to update the session state.
+    async fn send<P>(self, publisher: &P) -> Result<(), astarte_device_sdk::Error>
     where
-        P: Publisher,
+        P: Publisher + 'static + Send + Sync,
     {
         let ipath = format!("/{}/status", self.token);
         let idata = self.into();
 
-        if let Err(err) = publisher
-            .send(
-                "io.edgehog.devicemanager.ForwarderSessionState",
-                &ipath,
-                idata,
-            )
+        publisher
+            .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
             .await
-        {
-            error!("publisher send error, {err}");
-        }
     }
 }
 
@@ -153,14 +162,38 @@ impl SessionState {
 /// It maintains a collection of tokio task handles, each one identified by a [`Key`] containing
 /// the connection information and responsible for providing forwarder functionalities. For
 /// instance, a task could open a remote terminal between the device and a certain host.
-#[derive(Debug, Default)]
-pub struct Forwarder {
+#[derive(Debug)]
+pub struct Forwarder<P> {
+    publisher: P,
     tasks: HashMap<Key, JoinHandle<()>>,
 }
 
-impl Forwarder {
+impl<P> Forwarder<P> {
+    pub async fn init(publisher: P) -> Result<Self, ForwarderError>
+    where
+        P: Publisher + 'static + Send + Sync,
+    {
+        // unset all the existing sessions
+        // TODO: the following snippet assumes that the property has been stored, which is not the case until the [issue #346](https://github.com/edgehog-device-manager/edgehog-device-runtime/issues/346) is solved
+        debug!("unsetting ForwarderSessionState property");
+        for prop in publisher
+            .interface_props(FORWARDER_SESSION_STATE_INTERFACE)
+            .await?
+        {
+            debug!("unset {}", &prop.path);
+            publisher
+                .unset(FORWARDER_SESSION_STATE_INTERFACE, &prop.path)
+                .await?;
+        }
+
+        Ok(Self {
+            publisher,
+            tasks: HashMap::default(),
+        })
+    }
+
     /// Start a device forwarder instance.
-    pub fn handle_sessions<P>(&mut self, astarte_event: AstarteDeviceDataEvent, publisher: P)
+    pub fn handle_sessions(&mut self, astarte_event: AstarteDeviceDataEvent)
     where
         P: Publisher + 'static + Send + Sync,
     {
@@ -193,9 +226,16 @@ impl Forwarder {
         // check if the remote terminal task is already running. if not, spawn a new task and add it
         // to the collection
         let session_token = cinfo.session_token.clone();
-        self.get_running(cinfo).or_insert_with(||
+        let publisher = self.publisher.clone();
+        self.get_running(cinfo).or_insert_with(|| {
+            info!("opening a new session");
             // spawn a new task responsible for handling the remote terminal operations
-            tokio::spawn(Self::handle_session(bridge_url, session_token, publisher)));
+            tokio::spawn(async move {
+                if let Err(err) = Self::handle_session(bridge_url, session_token, publisher).await {
+                    error!("session failed, {err}");
+                }
+            })
+        });
     }
 
     fn retrieve_astarte_data(
@@ -221,49 +261,78 @@ impl Forwarder {
     }
 
     /// Handle remote session connection, operations and disconnection.
-    async fn handle_session<P>(bridge_url: Url, session_token: String, publisher: P)
+    async fn handle_session(
+        bridge_url: Url,
+        session_token: String,
+        publisher: P,
+    ) -> Result<(), ForwarderError>
     where
         P: Publisher + 'static + Send + Sync,
     {
         // update the session state to "Connecting"
         SessionState::connecting(session_token.clone())
             .send(&publisher)
-            .await;
+            .await?;
 
-        let mut con_manager = match ConnectionsManager::connect(bridge_url.clone()).await {
-            Ok(con_manager) => con_manager,
-            Err(err) => {
-                // unset the session state, meaning that the device correctly disconnected itself
-                SessionState::disconnected(session_token.clone())
-                    .send(&publisher)
-                    .await;
-
-                error!("failed to connect, {err}");
-                return;
-            }
-        };
-
-        // update the session state to "Connected"
-        SessionState::connected(session_token.clone())
-            .send(&publisher)
-            .await;
-
-        // handle the connections
-        if let Err(err) = con_manager.handle_connections().await {
-            error!("failed to handle connections, {err}");
+        if let Err(err) = Self::connect(bridge_url, session_token.clone(), &publisher).await {
+            error!("failed to connect, {err}");
         }
 
         // unset the session state, meaning that the device correctly disconnected itself
         SessionState::disconnected(session_token.clone())
             .send(&publisher)
-            .await;
+            .await?;
+
         info!("forwarder correctly disconnected");
+
+        Ok(())
+    }
+
+    async fn connect(
+        bridge_url: Url,
+        session_token: String,
+        publisher: &P,
+    ) -> Result<(), ForwarderError>
+    where
+        P: Publisher + 'static + Send + Sync,
+    {
+        let mut con_manager = ConnectionsManager::connect(bridge_url.clone()).await?;
+
+        // update the session state to "Connected"
+        SessionState::connected(session_token.clone())
+            .send(publisher)
+            .await?;
+
+        // handle the connections
+        while let Err(Disconnected(err)) = con_manager.handle_connections().await {
+            error!("WebSocket disconnected, {err}");
+
+            // in case of a websocket error, the connection has been lost, so update the session
+            // state to "Connecting"
+            SessionState::connecting(session_token.clone())
+                .send(publisher)
+                .await?;
+
+            con_manager
+                .reconnect()
+                .await
+                .map_err(ForwarderError::ConnectionsManager)?;
+
+            // update the session state to "Connected" since connection has been re-established
+            SessionState::connected(session_token.clone())
+                .send(publisher)
+                .await?;
+        }
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use astarte_device_sdk::store::memory::MemoryStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
 
     fn remote_terminal_req(session_token: &str, port: i32, host: &str) -> AstarteDeviceDataEvent {
         let mut data = HashMap::with_capacity(3);
@@ -293,7 +362,7 @@ mod tests {
             data: Aggregation::Individual(AstarteType::Boolean(false)),
         };
 
-        assert!(Forwarder::retrieve_astarte_data(data_event).is_err());
+        assert!(Forwarder::<astarte_device_sdk::AstarteDeviceSdk<MemoryStore, Mqtt>>::retrieve_astarte_data(data_event).is_err());
 
         // wrong aggregation data
         let data_event = AstarteDeviceDataEvent {
@@ -302,7 +371,7 @@ mod tests {
             data: Aggregation::Individual(AstarteType::Boolean(false)),
         };
 
-        assert!(Forwarder::retrieve_astarte_data(data_event).is_err());
+        assert!(Forwarder::<astarte_device_sdk::AstarteDeviceSdk<MemoryStore, Mqtt>>::retrieve_astarte_data(data_event).is_err());
 
         // correct data event
         let data_event = remote_terminal_req("abcd", 8080, "127.0.0.1");
@@ -320,7 +389,7 @@ mod tests {
         data.insert("secure".to_string(), AstarteType::Boolean(false));
 
         let res =
-            Forwarder::retrieve_astarte_data(data_event).expect("failed to retrieve astarte data");
+            Forwarder::<astarte_device_sdk::AstarteDeviceSdk<MemoryStore, Mqtt>>::retrieve_astarte_data(data_event).expect("failed to retrieve astarte data");
 
         assert_eq!(data, res)
     }

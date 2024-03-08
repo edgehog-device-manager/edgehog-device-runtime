@@ -79,7 +79,7 @@ pub struct DeviceManager<T: Publisher + Clone, U: Subscriber> {
     data_event_channel: Sender<AstarteDeviceDataEvent>,
     telemetry: Arc<RwLock<telemetry::Telemetry>>,
     #[cfg(feature = "forwarder")]
-    forwarder: forwarder::Forwarder,
+    forwarder: forwarder::Forwarder<T>,
 }
 
 impl<P, S> DeviceManager<P, S>
@@ -115,7 +115,7 @@ where
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
-        let forwarder = forwarder::Forwarder::default();
+        let forwarder = forwarder::Forwarder::init(publisher.clone()).await?;
 
         let device_runtime = Self {
             publisher,
@@ -245,9 +245,9 @@ where
                             self.ota_event_channel.send(data_event).await.unwrap()
                         }
                         #[cfg(feature = "forwarder")]
-                        "io.edgehog.devicemanager.ForwarderSessionRequest" => self
-                            .forwarder
-                            .handle_sessions(data_event, self.publisher.clone()),
+                        "io.edgehog.devicemanager.ForwarderSessionRequest" => {
+                            self.forwarder.handle_sessions(data_event)
+                        }
                         _ => {
                             self.data_event_channel.send(data_event).await.unwrap();
                         }

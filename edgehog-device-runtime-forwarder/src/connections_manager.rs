@@ -51,6 +51,10 @@ pub enum Error {
     BackOff(#[from] BackoffError<Box<Error>>),
 }
 
+/// WebSocket error causing disconnection.
+#[derive(displaydoc::Display, ThisError, Debug)]
+pub struct Disconnected(#[from] pub TungError);
+
 /// WebSocket stream alias.
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -135,13 +139,12 @@ impl ConnectionsManager {
     /// * A timeout event occurring before any data is received from the WebSocket connection,
     /// * Receiving data from one of the connections (e.g., between the device and TTYD).
     #[instrument(skip_all)]
-    pub async fn handle_connections(&mut self) -> Result<(), Error> {
+    pub async fn handle_connections(&mut self) -> Result<(), Disconnected> {
         loop {
             match self.event_loop().await {
                 Ok(ControlFlow::Continue(())) => {}
                 // if the device received a message bigger than the maximum size, drop the message
                 // but keep looping for next events
-                // TODO: it could be useful to have an Internal protobuf message type to communicate to Edgehog this error.
                 Err(TungError::Capacity(err)) => {
                     error!("capacity exceeded: {err}");
                 }
@@ -155,8 +158,7 @@ impl ConnectionsManager {
                     break;
                 }
                 Err(err) => {
-                    error!("WebSocket error {err:?}");
-                    self.reconnect().await?;
+                    return Err(Disconnected(err));
                 }
             }
         }
@@ -294,7 +296,7 @@ impl ConnectionsManager {
 
     /// Try to establish again a WebSocket connection with Edgehog in case the connection is lost.
     #[instrument(skip_all)]
-    pub(crate) async fn reconnect(&mut self) -> Result<(), Error> {
+    pub async fn reconnect(&mut self) -> Result<(), Error> {
         debug!("trying to reconnect");
 
         self.ws_stream = Self::ws_connect(&self.url).await?;

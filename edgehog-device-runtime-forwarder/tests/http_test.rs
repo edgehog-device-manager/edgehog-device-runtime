@@ -16,7 +16,7 @@ use tokio_tungstenite::{tungstenite::Message as TungMessage, WebSocketStream};
 use url::Url;
 
 use edgehog_device_forwarder_proto::prost::Message;
-use edgehog_device_runtime_forwarder::connections_manager::{ConnectionsManager, Error};
+use edgehog_device_runtime_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use uuid::Uuid;
 
 async fn bind_port() -> (TcpListener, u16) {
@@ -32,8 +32,10 @@ async fn bind_port() -> (TcpListener, u16) {
     (listener, port)
 }
 
-async fn con_manager(url: Url) -> Result<(), Error> {
-    let mut con_manager = ConnectionsManager::connect(url).await?;
+async fn con_manager(url: Url) -> Result<(), Disconnected> {
+    let mut con_manager = ConnectionsManager::connect(url)
+        .await
+        .expect("failed to connect connections manager");
     con_manager.handle_connections().await
 }
 
@@ -63,7 +65,7 @@ fn create_http_req(url: &str, request_id: Vec<u8>) -> TungMessage {
 struct TestConnections {
     mock_server: MockServer,
     listener: TcpListener,
-    connections_handle: JoinHandle<Result<(), Error>>,
+    connections_handle: JoinHandle<Result<(), Disconnected>>,
 }
 
 impl TestConnections {

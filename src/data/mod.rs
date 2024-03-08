@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::store::StoredProp;
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, AstarteDeviceDataEvent};
 use async_trait::async_trait;
@@ -43,6 +44,8 @@ pub trait Publisher: Clone {
         interface_path: &str,
         data: AstarteType,
     ) -> Result<(), AstarteError>;
+    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError>;
+    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError>;
 }
 
 #[async_trait]
@@ -75,6 +78,12 @@ pub mod tests {
                 interface_name: &str,
                 interface_path: &str,
                 data: AstarteType,
+            ) -> Result<(), AstarteError>;
+            async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError>;
+            async fn unset(
+                &self,
+                interface_name: &str,
+                interface_path: &str
             ) -> Result<(), AstarteError>;
         }
         impl Clone for Publisher {

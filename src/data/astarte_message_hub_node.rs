@@ -25,6 +25,7 @@ use std::path::Path;
 use astarte_device_sdk::builder::DeviceBuilder;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::memory::MemoryStore;
+use astarte_device_sdk::store::StoredProp;
 use astarte_device_sdk::transport::grpc::Grpc;
 use astarte_device_sdk::transport::grpc::GrpcConfig;
 use astarte_device_sdk::types::AstarteType;
@@ -118,6 +119,14 @@ impl Publisher for MessageHubPublisher {
         data: AstarteType,
     ) -> Result<(), AstarteError> {
         self.0.send(interface_name, interface_path, data).await
+    }
+
+    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError> {
+        self.0.interface_props(interface).await
+    }
+
+    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError> {
+        self.0.unset(interface_name, interface_path).await
     }
 }
 
