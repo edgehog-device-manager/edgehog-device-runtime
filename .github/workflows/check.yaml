@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        msrv: [1.66.1]
+        msrv: [1.72.0]
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - name: Install libudev, and Protoc
