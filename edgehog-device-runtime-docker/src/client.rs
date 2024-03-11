@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client to use to comunicate with the Docker daemon.
+//! Client to use to communicate with the Docker daemon.
 
 // Mock the client, this is behind a feature flag so we can test with both the real docker daemon
 // and the mocked one.

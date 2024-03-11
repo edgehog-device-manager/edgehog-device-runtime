@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023 SECO Mind Srl
+# Copyright 2023-2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,41 +15,70 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
+
+name: test
+on:
+  workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
-on:
-  push:
-    branches:
-      - 'main'
-      - 'release-*'
-  pull_request:
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
 env:
-  PB_REL: https://github.com/protocolbuffers/protobuf/releases
-name: test
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+  # Enable logging otherwise the logging lines will count as not covered in the test coverage
+  RUST_LOG: trace
 jobs:
   required:
     runs-on: ubuntu-latest
     name: ubuntu / ${{ matrix.toolchain }}
     strategy:
       matrix:
-        toolchain: [stable]
+        toolchain: [stable, beta]
     steps:
-      - name: Install libudev, and Protoc
+      - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev libsystemd-dev upower
-          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
-          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v4
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-      - name: cargo test --locked
+      - name: Install sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
+      - name: cargo generate-lockfile
+        if: hashFiles('Cargo.lock') == ''
+        run: cargo generate-lockfile
+      - name: Run cargo test --locked
         run: cargo test --locked --all-features --all-targets --workspace
-      - name: cargo test --doc
+      # https://github.com/rust-lang/cargo/issues/6669
+      - name: Run cargo test --doc
         run: cargo test --locked --all-features --doc --workspace
+  coverage:
+    runs-on: ubuntu-latest
+    name: ubuntu / stable / coverage
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt-get install -y libudev-dev libsystemd-dev upower
+      - uses: actions/checkout@v4
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: Install sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
+      - name: cargo install cargo-tarpaulin
+        uses: taiki-e/install-action@cargo-tarpaulin
+      - name: cargo generate-lockfile
+        if: hashFiles('Cargo.lock') == ''
+        run: cargo generate-lockfile
+      - name: Run cargo-tarpaulin with xml output
+        run: cargo tarpaulin --engine llvm --locked --all-features --ignore-tests --lib --out xml -- --test-threads 1
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+          fail_ci_if_error: true

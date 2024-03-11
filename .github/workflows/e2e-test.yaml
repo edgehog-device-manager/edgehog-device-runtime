@@ -1,6 +1,6 @@
-# This file is part of Astarte.
+# This file is part of Edgehog.
 #
-# Copyright 2022 SECO Mind Srl
+# Copyright 2022-2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,41 +16,34 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: End to End test
-
+name: e2e-test
 on:
-  # Run when pushing to stable branches
-  push:
-    branches:
-      - "main"
-      - "release-*"
-  pull_request:
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
 env:
-  PB_REL: https://github.com/protocolbuffers/protobuf/releases
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+  RUST_LOG: "debug"
+  E2E_REALM_NAME: "test"
+  ASTARTE_API_URL: "https://api.autotest.astarte-platform.org"
+  E2E_ASTARTE_API_URL: "https://api.autotest.astarte-platform.org"
 jobs:
   e2e-test:
     runs-on: ubuntu-latest
-    env:
-      REALM_NAME: edgehogdevicetest
-      ASTARTE_API_URL: https://api.autotest.astarte-platform.org
     steps:
-      - name: Install libudev, and Protoc
+      - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt-get install -y libudev-dev libsystemd-dev upower
-          curl -LO $PB_REL/download/v22.2/protoc-22.2-linux-x86_64.zip
-          unzip protoc-22.2-linux-x86_64.zip -d $HOME/.local
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - name: Create Astarte Cluster
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1
         with:
-          astarte_realm: $REALM_NAME
-      - name: Checkout sources
-        uses: actions/checkout@v4
+          astarte_version: "1.1.1"
+      - uses: actions/checkout@v4
       - name: Checkout edgehog-astarte-interfaces
         uses: actions/checkout@v4
         with:
@@ -68,14 +61,12 @@ jobs:
           echo "E2E_DEVICE_ID=$DEVICE_ID" >> $GITHUB_ENV
           CREDENTIALS_SECRET=$(astartectl pairing agent register --compact-output -- "$DEVICE_ID")
           echo "E2E_CREDENTIALS_SECRET=$CREDENTIALS_SECRET" >> $GITHUB_ENV
-          echo "RUST_LOG=debug" >> $GITHUB_ENV
           TOKEN=$(astartectl utils gen-jwt appengine)
           echo "E2E_TOKEN=$TOKEN" >> $GITHUB_ENV
-          echo "E2E_REALM_NAME=$REALM_NAME" >> $GITHUB_ENV
-          echo "E2E_ASTARTE_API_URL=$ASTARTE_API_URL" >> $GITHUB_ENV
-      - name: Install toolchain
+      - name: Install stable
         uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+      - name: Install sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.3
       - name: Run test
-        run: cargo e2e-test
+        run: |
+          cargo e2e-test

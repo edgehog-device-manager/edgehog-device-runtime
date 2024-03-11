@@ -75,7 +75,7 @@ async-trait = "0.1.77"
 base64 = "0.21.6"
 bollard = "0.15.0"
 bytes = "1.5.0"
-clap = "=4.3.24"
+clap = "4.3.24"
 displaydoc = "0.2.4"
 env_logger = "0.10.1"
 futures = "0.3.30"
@@ -104,3 +104,7 @@ udev = "0.8.0"
 uuid = "1.6.1"
 wifiscanner = "0.5.1"
 zbus = { version = "3.14.1", default-features = false }
+
+[patch.crates-io]
+# Temporary till fix is unstreamed
+displaydoc = { git = "https://github.com/joshuachp/displaydoc" }
