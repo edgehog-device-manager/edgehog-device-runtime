@@ -103,4 +103,4 @@ tracing = "0.1.40"
 udev = "0.8.0"
 uuid = "1.6.1"
 wifiscanner = "0.5.1"
-zbus = { version = "3.14.1", default-features = false }
+zbus = { version = "3.15.2", default-features = false }
