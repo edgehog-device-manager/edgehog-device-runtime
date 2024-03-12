@@ -60,7 +60,7 @@ fn proto_http_req(request_id: Vec<u8>, url: &Url, body: Vec<u8>) -> proto::Messa
     }
 }
 
-/// Create an HTTP request and wrap it into a [`tungstenite`] message.
+/// Create an HTTP request and wrap it into a [`tungstenite`](tokio_tungstenite::tungstenite) message.
 pub fn create_http_req(request_id: Vec<u8>, url: &str, body: Vec<u8>) -> TungMessage {
     let url = Url::parse(url).expect("failed to pars Url");
 
@@ -72,7 +72,7 @@ pub fn create_http_req(request_id: Vec<u8>, url: &str, body: Vec<u8>) -> TungMes
     TungMessage::Binary(buf)
 }
 
-/// Create an HTTP upgrade request and wrap it into a [`tungstenite`] message.
+/// Create an HTTP upgrade request and wrap it into a [`tungstenite`](tokio_tungstenite::tungstenite) message.
 pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> TungMessage {
     let url = Url::parse(url).expect("failed to pars Url");
     let port = url.port().expect("nonexistent port").into();
@@ -122,7 +122,7 @@ pub fn is_ws_upgrade_response(http_msg: ProtobufHttpMessage) -> bool {
     }
 }
 
-/// Create a binary [`tungstenite`] message carrying a WebSocket frame.
+/// Create a binary [`tungstenite`](tokio_tungstenite::tungstenite) message carrying a WebSocket frame.
 pub fn create_ws_msg(socket_id: Vec<u8>, frame: TungMessage) -> TungMessage {
     let proto_msg = proto::Message {
         protocol: Some(ProtobufProtocol::Ws(ProtobufWebSocket {
