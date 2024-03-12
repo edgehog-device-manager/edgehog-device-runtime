@@ -5,6 +5,7 @@
 //!
 //! Module responsible for handling a connection between a Device and Astarte.
 
+use std::hash::Hash;
 use std::{collections::HashMap, num::TryFromIntError};
 
 use astarte_device_sdk::{types::AstarteType, AstarteAggregate, Error as SdkError};
@@ -36,7 +37,7 @@ pub enum AstarteError {
 }
 
 /// Struct representing the fields of an aggregated object the Astarte server can send to the device.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SessionInfo {
     /// Hostname or IP address.
     pub host: Host,
@@ -44,6 +45,14 @@ pub struct SessionInfo {
     pub port: u16,
     /// Session token.
     pub session_token: String,
+}
+
+impl Hash for SessionInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.host.hash(state);
+        self.port.hash(state);
+        self.session_token.hash(state);
+    }
 }
 
 impl AstarteAggregate for SessionInfo {
@@ -74,7 +83,7 @@ impl TryFrom<&SessionInfo> for Url {
 
 /// Parse an `HashMap` containing pairs (Endpoint, [`AstarteType`]) into an URL.
 #[instrument(skip_all)]
-pub fn retrieve_connection_info(
+pub fn retrieve_session_info(
     mut map: HashMap<String, AstarteType>,
 ) -> Result<SessionInfo, AstarteError> {
     let host = map
@@ -107,7 +116,7 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
-    fn create_cinfo(token: &str) -> SessionInfo {
+    fn create_sinfo(token: &str) -> SessionInfo {
         SessionInfo {
             host: Host::Ipv4(Ipv4Addr::LOCALHOST),
             port: 8080,
@@ -141,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_astarte_aggregate() {
-        let cinfo = create_cinfo("test_token");
+        let sinfo = create_sinfo("test_token");
 
         let expected = [
             ("host", AstarteType::String("127.0.0.1".to_string())),
@@ -152,7 +161,7 @@ mod tests {
             ),
         ];
 
-        let res = cinfo.astarte_aggregate();
+        let res = sinfo.astarte_aggregate();
 
         assert!(res.is_ok());
 
@@ -164,16 +173,16 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_cinfo() {
+    fn test_try_from_sinfo() {
         // empty session token generates error
-        let cinfo = create_cinfo("");
+        let mut sinfo = create_sinfo("");
 
-        assert!(Url::try_from(&cinfo).is_err());
+        assert!(Url::try_from(&sinfo).is_err());
 
         // ok
-        let cinfo = create_cinfo("test_token");
+        sinfo = create_sinfo("test_token");
 
-        let case = Url::try_from(&cinfo).unwrap();
+        let case = Url::try_from(&sinfo).unwrap();
 
         assert_eq!(case.host(), Some(Host::Ipv4(Ipv4Addr::LOCALHOST)));
         assert_eq!(case.port(), Some(8080));
@@ -181,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_retrieve_cinfo() {
+    fn test_retrieve_sinfo() {
         let err_cases = [
             create_astarte_hashmap("", 8080, "test_token"),
             create_astarte_hashmap("127.0.0.1", 0, "test_token"),
@@ -189,14 +198,14 @@ mod tests {
         ];
 
         for hm in err_cases {
-            assert!(retrieve_connection_info(hm).is_err());
+            assert!(retrieve_session_info(hm).is_err());
         }
 
         let hm = create_astarte_hashmap("127.0.0.1", 8080, "test_token");
-        let cinfo = retrieve_connection_info(hm).unwrap();
+        let sinfo = retrieve_session_info(hm).unwrap();
 
-        assert_eq!(cinfo.host, Host::<&str>::Ipv4(Ipv4Addr::LOCALHOST));
-        assert_eq!(cinfo.port, 8080);
-        assert_eq!(cinfo.session_token, "test_token".to_string());
+        assert_eq!(sinfo.host, Host::<&str>::Ipv4(Ipv4Addr::LOCALHOST));
+        assert_eq!(sinfo.port, 8080);
+        assert_eq!(sinfo.session_token, "test_token".to_string());
     }
 }

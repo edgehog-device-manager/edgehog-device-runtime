@@ -1125,6 +1125,7 @@ dependencies = [
  "toml",
  "tonic",
  "udev",
+ "url",
  "uuid",
  "wifiscanner",
  "zbus",

@@ -51,6 +51,7 @@ tokio-util = { workspace = true }
 toml = { workspace = true }
 tonic = { workspace = true }
 udev = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true }
 zbus = { workspace = true, default-features = false, features = ["tokio"] }

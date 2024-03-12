@@ -20,18 +20,13 @@
 
 //! Manage the device forwarder operation.
 
-use std::borrow::Borrow;
+use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::{Display, Formatter};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    hash::Hash,
-    ops::Deref,
-};
 
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
-use edgehog_forwarder::astarte::{retrieve_connection_info, AstarteError, SessionInfo};
+use edgehog_forwarder::astarte::{retrieve_session_info, AstarteError, SessionInfo};
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use log::{debug, error, info};
 use reqwest::Url;
@@ -52,40 +47,7 @@ pub enum ForwarderError {
     ConnectionsManager(#[from] edgehog_forwarder::connections_manager::Error),
 }
 
-#[derive(Debug, Clone)]
-struct Key(SessionInfo);
-
-impl Deref for Key {
-    type Target = SessionInfo;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Borrow<SessionInfo> for Key {
-    fn borrow(&self) -> &SessionInfo {
-        &self.0
-    }
-}
-
-impl PartialEq for Key {
-    fn eq(&self, other: &Self) -> bool {
-        self.host == other.host && self.port == other.port
-    }
-}
-
-impl Eq for Key {}
-
-impl Hash for Key {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.host.hash(state);
-        self.port.hash(state);
-        self.session_token.hash(state);
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum SessionStatus {
     Connecting,
     Connected,
@@ -102,6 +64,7 @@ impl Display for SessionStatus {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct SessionState {
     token: String,
     status: SessionStatus,
@@ -165,7 +128,7 @@ impl SessionState {
 #[derive(Debug)]
 pub struct Forwarder<P> {
     publisher: P,
-    tasks: HashMap<Key, JoinHandle<()>>,
+    tasks: HashMap<SessionInfo, JoinHandle<()>>,
 }
 
 impl<P> Forwarder<P> {
@@ -206,8 +169,8 @@ impl<P> Forwarder<P> {
         };
 
         // retrieve the Url that the device must use to open a WebSocket connection with a host
-        let cinfo = match retrieve_connection_info(idata) {
-            Ok(cinfo) => cinfo,
+        let sinfo = match retrieve_session_info(idata) {
+            Ok(sinfo) => sinfo,
             // error while retrieving the connection information from the Astarte data
             Err(err) => {
                 error!("{err}");
@@ -215,7 +178,7 @@ impl<P> Forwarder<P> {
             }
         };
 
-        let bridge_url = match Url::try_from(&cinfo) {
+        let edgehog_url = match Url::try_from(&sinfo) {
             Ok(url) => url,
             Err(err) => {
                 error!("invalid url, {err}");
@@ -225,13 +188,14 @@ impl<P> Forwarder<P> {
 
         // check if the remote terminal task is already running. if not, spawn a new task and add it
         // to the collection
-        let session_token = cinfo.session_token.clone();
+        let session_token = sinfo.session_token.clone();
         let publisher = self.publisher.clone();
-        self.get_running(cinfo).or_insert_with(|| {
+        self.get_running(sinfo).or_insert_with(|| {
             info!("opening a new session");
             // spawn a new task responsible for handling the remote terminal operations
             tokio::spawn(async move {
-                if let Err(err) = Self::handle_session(bridge_url, session_token, publisher).await {
+                if let Err(err) = Self::handle_session(edgehog_url, session_token, publisher).await
+                {
                     error!("session failed, {err}");
                 }
             })
@@ -253,16 +217,16 @@ impl<P> Forwarder<P> {
     }
 
     /// Remove terminated sessions and return the searched one.
-    fn get_running(&mut self, cinfo: SessionInfo) -> Entry<Key, JoinHandle<()>> {
+    fn get_running(&mut self, sinfo: SessionInfo) -> Entry<SessionInfo, JoinHandle<()>> {
         // remove all finished tasks
         self.tasks.retain(|_, jh| !jh.is_finished());
 
-        self.tasks.entry(Key(cinfo))
+        self.tasks.entry(sinfo)
     }
 
     /// Handle remote session connection, operations and disconnection.
     async fn handle_session(
-        bridge_url: Url,
+        edgehog_url: Url,
         session_token: String,
         publisher: P,
     ) -> Result<(), ForwarderError>
@@ -274,7 +238,7 @@ impl<P> Forwarder<P> {
             .send(&publisher)
             .await?;
 
-        if let Err(err) = Self::connect(bridge_url, session_token.clone(), &publisher).await {
+        if let Err(err) = Self::connect(edgehog_url, session_token.clone(), &publisher).await {
             error!("failed to connect, {err}");
         }
 
@@ -289,14 +253,14 @@ impl<P> Forwarder<P> {
     }
 
     async fn connect(
-        bridge_url: Url,
+        edgehog_url: Url,
         session_token: String,
         publisher: &P,
     ) -> Result<(), ForwarderError>
     where
         P: Publisher + 'static + Send + Sync,
     {
-        let mut con_manager = ConnectionsManager::connect(bridge_url.clone()).await?;
+        let mut con_manager = ConnectionsManager::connect(edgehog_url.clone()).await?;
 
         // update the session state to "Connected"
         SessionState::connected(session_token.clone())
@@ -331,8 +295,13 @@ impl<P> Forwarder<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::tests::MockPublisher;
+    use astarte_device_sdk::interface::def::Ownership;
     use astarte_device_sdk::store::memory::MemoryStore;
+    use astarte_device_sdk::store::StoredProp;
     use astarte_device_sdk::transport::mqtt::Mqtt;
+    use std::net::Ipv4Addr;
+    use url::Host;
 
     fn remote_terminal_req(session_token: &str, port: i32, host: &str) -> AstarteDeviceDataEvent {
         let mut data = HashMap::with_capacity(3);
@@ -351,6 +320,199 @@ mod tests {
             path: "/request".to_string(),
             data,
         }
+    }
+
+    #[test]
+    fn test_session_status() {
+        let sstatus = [
+            SessionStatus::Connected,
+            SessionStatus::Connecting,
+            SessionStatus::Disconnected,
+        ]
+        .map(|ss| ss.to_string());
+        let exp_res = ["Connected", "Connecting", "Disconnected"];
+
+        // test display
+        for (idx, el) in sstatus.into_iter().enumerate() {
+            assert_eq!(&el, exp_res.get(idx).unwrap())
+        }
+    }
+
+    #[test]
+    fn test_session_state() {
+        let sstates = [
+            SessionState::connected("abcd".to_string()),
+            SessionState::connecting("abcd".to_string()),
+            SessionState::disconnected("abcd".to_string()),
+        ];
+        let exp_res = [
+            SessionState {
+                token: "abcd".to_string(),
+                status: SessionStatus::Connected,
+            },
+            SessionState {
+                token: "abcd".to_string(),
+                status: SessionStatus::Connecting,
+            },
+            SessionState {
+                token: "abcd".to_string(),
+                status: SessionStatus::Disconnected,
+            },
+        ];
+
+        for (idx, el) in sstates.into_iter().enumerate() {
+            assert_eq!(&el, exp_res.get(idx).unwrap())
+        }
+    }
+
+    #[test]
+    fn test_astarte_type_from_session_state() {
+        let sstates = [
+            SessionState::connected("abcd".to_string()),
+            SessionState::connecting("abcd".to_string()),
+            SessionState::disconnected("abcd".to_string()),
+        ]
+        .map(AstarteType::from);
+        let exp_res = [
+            AstarteType::String("Connected".to_string()),
+            AstarteType::String("Connecting".to_string()),
+            AstarteType::Unset,
+        ];
+
+        for (idx, el) in sstates.into_iter().enumerate() {
+            assert_eq!(&el, exp_res.get(idx).unwrap())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_state_send() {
+        let ss = SessionState::disconnected("abcd".to_string());
+        let mut publisher = MockPublisher::new();
+
+        publisher
+            .expect_send()
+            .withf(move |iface, ipath, idata| {
+                iface == FORWARDER_SESSION_STATE_INTERFACE
+                    && ipath == "/abcd/status"
+                    && idata == &AstarteType::Unset
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let res = ss.send(&publisher).await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_init_forwarder() {
+        let mut publisher = MockPublisher::new();
+        mock_forwarder_init(&mut publisher);
+        let f = Forwarder::init(publisher).await;
+
+        assert!(f.is_ok());
+
+        // test when an error is returned by the publisher
+        let mut publisher = MockPublisher::new();
+
+        publisher
+            .expect_interface_props()
+            .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
+            .returning(|_: &str| {
+                // the returned error is irrelevant, it is only necessary to the test
+                Err(astarte_device_sdk::error::Error::ConnectionTimeout)
+            });
+
+        let f = Forwarder::init(publisher).await;
+
+        assert!(f.is_err());
+
+        let mut publisher = MockPublisher::new();
+
+        publisher
+            .expect_interface_props()
+            .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
+            .returning(|_: &str| {
+                Ok(vec![StoredProp {
+                    interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
+                    path: "/abcd/status".to_string(),
+                    value: AstarteType::String("Connected".to_string()),
+                    interface_major: 0,
+                    ownership: Ownership::Device,
+                }])
+            });
+
+        publisher
+            .expect_unset()
+            .withf(move |iface, ipath| {
+                iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
+            })
+            // the returned error is irrelevant, it is only necessary to the test
+            .returning(|_, _| Err(astarte_device_sdk::error::Error::ConnectionTimeout));
+
+        let f = Forwarder::init(publisher).await;
+
+        assert!(f.is_err());
+    }
+
+    fn mock_forwarder_init(publisher: &mut MockPublisher) {
+        publisher
+            .expect_interface_props()
+            .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
+            .returning(|_: &str| {
+                Ok(vec![StoredProp {
+                    interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
+                    path: "/abcd/status".to_string(),
+                    value: AstarteType::String("Connected".to_string()),
+                    interface_major: 0,
+                    ownership: Ownership::Device,
+                }])
+            });
+
+        publisher
+            .expect_unset()
+            .withf(move |iface, ipath| {
+                iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
+            })
+            .returning(|_, _| Ok(()));
+    }
+
+    #[tokio::test]
+    async fn test_handle_sessions() {
+        let mut publisher = MockPublisher::new();
+
+        publisher.expect_clone().returning(MockPublisher::new);
+
+        let mut f = Forwarder {
+            publisher,
+            tasks: HashMap::from([(
+                SessionInfo {
+                    host: Host::Ipv4(Ipv4Addr::LOCALHOST),
+                    port: 8080,
+                    session_token: "abcd".to_string(),
+                },
+                tokio::spawn(async {}),
+            )]),
+        };
+
+        let astarte_event = AstarteDeviceDataEvent {
+            interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
+            path: "/request".to_string(),
+            data: Aggregation::Object(HashMap::from([
+                (
+                    "host".to_string(),
+                    AstarteType::String("127.0.0.1".to_string()),
+                ),
+                ("port".to_string(), AstarteType::Integer(8080)),
+                (
+                    "session_token".to_string(),
+                    AstarteType::String("abcd".to_string()),
+                ),
+                ("secure".to_string(), AstarteType::Boolean(false)),
+            ])),
+        };
+
+        // the test is successful once handle_sessions terminates
+        f.handle_sessions(astarte_event);
     }
 
     #[tokio::test]
