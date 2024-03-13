@@ -21,7 +21,7 @@
 use std::path::Path;
 
 use astarte_device_sdk::builder::DeviceBuilder;
-use astarte_device_sdk::store::memory::MemoryStore;
+use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::store::StoredProp;
 use astarte_device_sdk::transport::mqtt::{registration, Mqtt, MqttConfig};
 use astarte_device_sdk::types::AstarteType;
@@ -32,7 +32,7 @@ use log::error;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
 
-use crate::data::{Publisher, Subscriber};
+use crate::data::{ConnectOptions, Publisher, Subscriber};
 use crate::device::DeviceProxy;
 use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
@@ -124,14 +124,16 @@ impl AstarteDeviceSdkConfigOptions {
         Ok(credential_secret)
     }
 
-    pub async fn connect(
+    pub async fn connect<'a>(
         &self,
-        store_dir: &Path,
-        interface_dir: &Path,
+        store: SqliteStore,
+        connect_options: ConnectOptions<'a>,
     ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError> {
         let device_id = self.device_id_or_from_dbus().await?;
 
-        let credentials_secret = self.credentials_secret(&device_id, &store_dir).await?;
+        let credentials_secret = self
+            .credentials_secret(&device_id, connect_options.store_dir)
+            .await?;
 
         let mut mqtt_cfg = MqttConfig::new(
             &self.realm,
@@ -145,8 +147,8 @@ impl AstarteDeviceSdkConfigOptions {
         }
 
         let (device, rx) = DeviceBuilder::new()
-            .store(MemoryStore::new())
-            .interface_directory(interface_dir)
+            .store(store)
+            .interface_directory(connect_options.interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
             .connect(mqtt_cfg)
             .await
@@ -177,7 +179,7 @@ pub async fn hardware_id_from_dbus() -> Result<Option<String>, DeviceSdkError> {
 
 /// Sender for the Astarte SDK
 #[derive(Debug, Clone)]
-pub struct DeviceSdkPublisher(AstarteDeviceSdk<MemoryStore, Mqtt>);
+pub struct DeviceSdkPublisher(AstarteDeviceSdk<SqliteStore, Mqtt>);
 
 #[async_trait]
 impl Publisher for DeviceSdkPublisher {

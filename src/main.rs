@@ -24,6 +24,7 @@ use std::panic::{self, PanicInfo};
 use std::path::Path;
 
 use config::read_options;
+use edgehog_device_runtime::data::{connect_store, ConnectOptions};
 use edgehog_device_runtime::error::DeviceManagerError;
 use edgehog_device_runtime::AstarteLibrary;
 
@@ -77,15 +78,17 @@ async fn main() -> Result<(), DeviceManagerError> {
             })?;
     }
 
+    let connect_options = ConnectOptions::from(&options);
+    let store = connect_store(&options.store_directory).await?;
+
     match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSDK => {
             let astarte_sdk_options = options
                 .astarte_device_sdk
                 .as_ref()
                 .expect("couldn't find astarte options");
-            let (publisher, subscriber) = astarte_sdk_options
-                .connect(&options.store_directory, &options.interfaces_directory)
-                .await?;
+            let (publisher, subscriber) =
+                astarte_sdk_options.connect(store, connect_options).await?;
 
             let dm =
                 edgehog_device_runtime::DeviceManager::new(options, publisher, subscriber).await?;
@@ -102,7 +105,7 @@ async fn main() -> Result<(), DeviceManagerError> {
                 .expect("Unable to find MessageHub options");
 
             let (publisher, subscriber) = astarte_message_hub_options
-                .connect(&options.interfaces_directory)
+                .connect(store, connect_options)
                 .await?;
 
             let dm =

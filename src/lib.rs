@@ -393,9 +393,10 @@ mod tests {
     use astarte_device_sdk::types::AstarteType;
 
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
-    use crate::data::tests::MockPublisher;
     use crate::data::tests::MockSubscriber;
     use crate::data::tests::__mock_MockPublisher_Clone::__clone::Expectation;
+    use crate::data::tests::{create_tmp_store, MockPublisher};
+    use crate::data::ConnectOptions;
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
     use crate::telemetry::hardware_info::get_hardware_info;
@@ -428,6 +429,8 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn device_new_sdk_panic_fail() {
+        let (store, store_dir) = create_tmp_store().await;
+
         let options = DeviceManagerOptions {
             astarte_library: AstarteLibrary::AstarteDeviceSDK,
             astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
@@ -441,16 +444,18 @@ mod tests {
             #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
+            store_directory: store_dir.path().to_owned(),
             download_directory: PathBuf::new(),
             telemetry_config: Some(vec![]),
         };
+
+        let connect_opts = ConnectOptions::from(&options);
 
         let (publisher, subscriber) = options
             .astarte_device_sdk
             .as_ref()
             .unwrap()
-            .connect(&options.store_directory, &options.interfaces_directory)
+            .connect(store, connect_opts)
             .await
             .unwrap();
         let dm = DeviceManager::new(options, publisher, subscriber).await;

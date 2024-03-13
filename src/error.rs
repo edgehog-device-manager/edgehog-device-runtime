@@ -57,13 +57,16 @@ pub enum DeviceManagerError {
     DeviceSdk(#[from] DeviceSdkError),
 
     #[cfg(feature = "message-hub")]
-    #[error("Message hub error")]
+    #[error("message hub error")]
     MessageHub(#[from] crate::data::astarte_message_hub_node::MessageHubError),
 
     #[error("the connection was closed")]
     Disconnected,
 
+    #[error("couldn't connect to the store")]
+    Store(#[from] crate::data::StoreError),
+
     #[cfg(feature = "forwarder")]
-    #[error("Forwarder error")]
+    #[error("forwarder error")]
     Forwarder(#[from] crate::forwarder::ForwarderError),
 }

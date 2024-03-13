@@ -18,10 +18,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::store::StoredProp;
+use crate::DeviceManagerOptions;
+use astarte_device_sdk::store::sqlite::SqliteError;
+use astarte_device_sdk::store::{SqliteStore, StoredProp};
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, AstarteDeviceDataEvent};
 use async_trait::async_trait;
+use log::{debug, info};
+use std::path::{Path, PathBuf};
 
 pub mod astarte_device_sdk_lib;
 #[cfg(feature = "message-hub")]
@@ -55,11 +59,66 @@ pub trait Subscriber {
     async fn exit(self) -> Result<(), AstarteError>;
 }
 
+/// Store errors
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum StoreError {
+    /// couldn't connect to Sqlite store
+    Connect(#[source] SqliteError),
+    /// Path is not UTF-8, `{0}`
+    PathUtf8(PathBuf),
+}
+
+/// Options to connect a store to the Astarte device sdk or to the Message Hub nodes
+pub struct ConnectOptions<'a> {
+    interface_dir: &'a Path,
+    store_dir: &'a Path,
+}
+
+impl<'a> ConnectOptions<'a> {
+    pub fn new<I, S>(interface_dir: &'a I, store_dir: &'a S) -> Self
+    where
+        I: AsRef<Path>,
+        S: AsRef<Path>,
+    {
+        Self {
+            interface_dir: interface_dir.as_ref(),
+            store_dir: store_dir.as_ref(),
+        }
+    }
+}
+
+impl<'a> From<&'a DeviceManagerOptions> for ConnectOptions<'a> {
+    fn from(value: &'a DeviceManagerOptions) -> Self {
+        Self::new(&value.interfaces_directory, &value.store_directory)
+    }
+}
+
+/// Connect to the store.
+pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, StoreError>
+where
+    P: AsRef<Path>,
+{
+    let db_path = store_dir.as_ref().join("database.db");
+    let Some(db_path_str) = db_path.to_str() else {
+        return Err(StoreError::PathUtf8(db_path));
+    };
+    let store_path = format!("sqlite://{db_path_str}");
+
+    debug!("connecting to store {store_path}");
+    let store = SqliteStore::new(&store_path)
+        .await
+        .map_err(StoreError::Connect)?;
+
+    info!("connected to store {store_path}");
+    Ok(store)
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
 
     use mockall::mock;
+    use tempdir::TempDir;
 
     mock! {
         pub Publisher {}
@@ -98,5 +157,20 @@ pub mod tests {
              async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
              async fn exit(self) -> Result<(), AstarteError>;
         }
+    }
+
+    /// Create tmp store and store dir.
+    pub async fn create_tmp_store() -> (SqliteStore, TempDir) {
+        let tmp_dir = TempDir::new("edgehog-tmp-store").expect("failed to create tmp store dir");
+        let store = connect_store(tmp_dir.path())
+            .await
+            .expect("failed to connect store");
+
+        (store, tmp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_connect_store() {
+        create_tmp_store().await;
     }
 }
