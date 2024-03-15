@@ -62,4 +62,8 @@ pub enum DeviceManagerError {
 
     #[error("the connection was closed")]
     Disconnected,
+
+    #[cfg(feature = "forwarder")]
+    #[error("Forwarder error")]
+    Forwarder(#[from] crate::forwarder::ForwarderError),
 }

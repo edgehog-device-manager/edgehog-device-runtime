@@ -37,6 +37,8 @@ mod commands;
 pub mod data;
 mod device;
 pub mod error;
+#[cfg(feature = "forwarder")]
+mod forwarder;
 mod led_behavior;
 mod ota;
 mod power_management;
@@ -76,6 +78,8 @@ pub struct DeviceManager<T: Publisher + Clone, U: Subscriber> {
     ota_event_channel: Sender<AstarteDeviceDataEvent>,
     data_event_channel: Sender<AstarteDeviceDataEvent>,
     telemetry: Arc<RwLock<telemetry::Telemetry>>,
+    #[cfg(feature = "forwarder")]
+    forwarder: forwarder::Forwarder<T>,
 }
 
 impl<P, S> DeviceManager<P, S>
@@ -109,12 +113,18 @@ where
         )
         .await;
 
+        #[cfg(feature = "forwarder")]
+        // Initialize the forwarder instance
+        let forwarder = forwarder::Forwarder::init(publisher.clone()).await?;
+
         let device_runtime = Self {
             publisher,
             subscriber,
             ota_event_channel: ota_tx,
             data_event_channel: data_tx,
             telemetry: Arc::new(RwLock::new(tel)),
+            #[cfg(feature = "forwarder")]
+            forwarder,
         };
 
         device_runtime.init_ota_event(ota_handler, ota_rx);
@@ -233,6 +243,10 @@ where
                     match data_event.interface.as_str() {
                         "io.edgehog.devicemanager.OTARequest" => {
                             self.ota_event_channel.send(data_event).await.unwrap()
+                        }
+                        #[cfg(feature = "forwarder")]
+                        "io.edgehog.devicemanager.ForwarderSessionRequest" => {
+                            self.forwarder.handle_sessions(data_event)
                         }
                         _ => {
                             self.data_event_channel.send(data_event).await.unwrap();
@@ -381,6 +395,7 @@ mod tests {
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
     use crate::data::tests::MockPublisher;
     use crate::data::tests::MockSubscriber;
+    use crate::data::tests::__mock_MockPublisher_Clone::__clone::Expectation;
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
     use crate::telemetry::hardware_info::get_hardware_info;
@@ -393,6 +408,22 @@ mod tests {
     use crate::{
         AstarteLibrary, DeviceManager, DeviceManagerOptions, TelemetryMessage, TelemetryPayload,
     };
+
+    #[cfg(feature = "forwarder")]
+    fn mock_forwarder(publisher: &mut MockPublisher) -> &mut Expectation {
+        // define an expectation for the cloned MockPublisher due to the `init` method of the
+        // Forwarder struct
+        publisher.expect_clone().returning(move || {
+            let mut publisher_clone = MockPublisher::new();
+
+            publisher_clone
+                .expect_interface_props()
+                .withf(move |iface: &str| iface == "io.edgehog.devicemanager.ForwarderSessionState")
+                .returning(|_: &str| Ok(Vec::new()));
+
+            publisher_clone
+        })
+    }
 
     #[tokio::test]
     #[should_panic]
@@ -448,11 +479,15 @@ mod tests {
         };
 
         let mut publisher = MockPublisher::new();
+
+        #[cfg(feature = "forwarder")]
+        mock_forwarder(&mut publisher);
+
         publisher.expect_clone().returning(MockPublisher::new);
 
-        let subscribeer = MockSubscriber::new();
+        let subscriber = MockSubscriber::new();
 
-        let dm = DeviceManager::new(options, publisher, subscribeer).await;
+        let dm = DeviceManager::new(options, publisher, subscriber).await;
         assert!(dm.is_ok(), "error {}", dm.err().unwrap());
     }
 
@@ -479,7 +514,11 @@ mod tests {
         let os_info = get_os_info().await.expect("failed to get os info");
         let mut publisher = MockPublisher::new();
 
+        #[cfg(feature = "forwarder")]
+        mock_forwarder(&mut publisher);
+
         publisher.expect_clone().returning(MockPublisher::new);
+
         publisher
             .expect_send()
             .withf(
