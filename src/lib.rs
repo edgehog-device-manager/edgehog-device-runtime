@@ -309,7 +309,7 @@ where
             }
         }
 
-        let disks = telemetry::storage_usage::get_storage_usage()?;
+        let disks = telemetry::storage_usage::get_storage_usage();
         for (disk_name, storage) in disks {
             device
                 .send_object(
@@ -551,7 +551,7 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
-        let storage_usage = get_storage_usage().unwrap();
+        let storage_usage = get_storage_usage();
         publisher
             .expect_send_object()
             .withf(
@@ -616,7 +616,7 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: SystemStatus| Ok(()));
 
-        let storage_usage = get_storage_usage().unwrap();
+        let storage_usage = get_storage_usage();
         publisher
             .expect_send_object()
             .withf(
@@ -646,7 +646,7 @@ mod tests {
             },
         )
         .await;
-        for (path, payload) in get_storage_usage().unwrap() {
+        for (path, payload) in get_storage_usage() {
             DeviceManager::<_, MockSubscriber>::send_telemetry(
                 &publisher,
                 TelemetryMessage {

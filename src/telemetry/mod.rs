@@ -333,7 +333,7 @@ async fn send_data(
                 .await;
         }
         "io.edgehog.devicemanager.StorageUsage" => {
-            let storage_usage = storage_usage::get_storage_usage()?;
+            let storage_usage = storage_usage::get_storage_usage();
             for (path, payload) in storage_usage {
                 let _ = communication_channel
                     .send(TelemetryMessage {
