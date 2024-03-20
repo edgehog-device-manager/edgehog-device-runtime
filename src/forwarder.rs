@@ -25,8 +25,8 @@ use std::fmt::{Display, Formatter};
 
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
-use edgehog_forwarder::astarte::{retrieve_session_info, AstarteError, SessionInfo};
+use astarte_device_sdk::{AstarteDeviceDataEvent, FromEvent};
+use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use log::{debug, error, info};
 use reqwest::Url;
@@ -160,16 +160,8 @@ impl<P> Forwarder<P> {
     where
         P: Publisher + 'static + Send + Sync,
     {
-        let idata = match Self::retrieve_astarte_data(astarte_event) {
-            Ok(idata) => idata,
-            Err(err) => {
-                error!("{err}");
-                return;
-            }
-        };
-
         // retrieve the Url that the device must use to open a WebSocket connection with a host
-        let sinfo = match retrieve_session_info(idata) {
+        let sinfo = match SessionInfo::from_event(astarte_event) {
             Ok(sinfo) => sinfo,
             // error while retrieving the connection information from the Astarte data
             Err(err) => {
@@ -203,20 +195,6 @@ impl<P> Forwarder<P> {
                 }
             })
         });
-    }
-
-    fn retrieve_astarte_data(
-        astarte_event: AstarteDeviceDataEvent,
-    ) -> Result<HashMap<String, AstarteType>, AstarteError> {
-        if astarte_event.path != "/request" {
-            return Err(AstarteError::WrongPath(astarte_event.path));
-        }
-
-        let Aggregation::Object(idata) = astarte_event.data else {
-            return Err(AstarteError::WrongData);
-        };
-
-        Ok(idata)
     }
 
     /// Remove terminated sessions and return the searched one.
@@ -303,31 +281,9 @@ impl<P> Forwarder<P> {
 mod tests {
     use super::*;
     use crate::data::tests::MockPublisher;
-    use astarte_device_sdk::interface::def::Ownership;
-    use astarte_device_sdk::store::memory::MemoryStore;
     use astarte_device_sdk::store::StoredProp;
-    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::{interface::def::Ownership, Aggregation};
     use std::net::Ipv4Addr;
-    use url::Host;
-
-    fn remote_terminal_req(session_token: &str, port: i32, host: &str) -> AstarteDeviceDataEvent {
-        let mut data = HashMap::with_capacity(3);
-        data.insert(
-            "session_token".to_string(),
-            AstarteType::String(session_token.to_string()),
-        );
-        data.insert("port".to_string(), AstarteType::Integer(port));
-        data.insert("host".to_string(), AstarteType::String(host.to_string()));
-        data.insert("secure".to_string(), AstarteType::Boolean(false));
-
-        let data = Aggregation::Object(data);
-
-        AstarteDeviceDataEvent {
-            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
-            path: "/request".to_string(),
-            data,
-        }
-    }
 
     #[test]
     fn test_session_status() {
@@ -493,7 +449,7 @@ mod tests {
             publisher,
             tasks: HashMap::from([(
                 SessionInfo {
-                    host: Host::Ipv4(Ipv4Addr::LOCALHOST),
+                    host: Ipv4Addr::LOCALHOST.to_string(),
                     port: 8080,
                     session_token: "abcd".to_string(),
                     secure: false,
@@ -521,46 +477,5 @@ mod tests {
 
         // the test is successful once handle_sessions terminates
         f.handle_sessions(astarte_event);
-    }
-
-    #[tokio::test]
-    async fn test_retrieve_astarte_data() {
-        // wrong path
-        let data_event = AstarteDeviceDataEvent {
-            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
-            path: "/WRONG_PATH".to_string(),
-            data: Aggregation::Individual(AstarteType::Boolean(false)),
-        };
-
-        assert!(Forwarder::<astarte_device_sdk::AstarteDeviceSdk<MemoryStore, Mqtt>>::retrieve_astarte_data(data_event).is_err());
-
-        // wrong aggregation data
-        let data_event = AstarteDeviceDataEvent {
-            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
-            path: "/request".to_string(),
-            data: Aggregation::Individual(AstarteType::Boolean(false)),
-        };
-
-        assert!(Forwarder::<astarte_device_sdk::AstarteDeviceSdk<MemoryStore, Mqtt>>::retrieve_astarte_data(data_event).is_err());
-
-        // correct data event
-        let data_event = remote_terminal_req("abcd", 8080, "127.0.0.1");
-
-        let mut data = HashMap::with_capacity(3);
-        data.insert(
-            "session_token".to_string(),
-            AstarteType::String("abcd".to_string()),
-        );
-        data.insert("port".to_string(), AstarteType::Integer(8080));
-        data.insert(
-            "host".to_string(),
-            AstarteType::String("127.0.0.1".to_string()),
-        );
-        data.insert("secure".to_string(), AstarteType::Boolean(false));
-
-        let res =
-            Forwarder::<astarte_device_sdk::AstarteDeviceSdk<MemoryStore, Mqtt>>::retrieve_astarte_data(data_event).expect("failed to retrieve astarte data");
-
-        assert_eq!(data, res)
     }
 }

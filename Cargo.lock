@@ -1104,7 +1104,6 @@ dependencies = [
  "bytes",
  "clap",
  "displaydoc",
- "edgehog-device-forwarder-proto",
  "edgehog-device-runtime-forwarder",
  "env_logger",
  "futures",
