@@ -90,3 +90,11 @@ The entry point to the library's functionalities is the `ConnectionsManager` str
 
 The `astarte.rs` module contains the functionalities that can be utilized to retrieve
 the URL from the session information sent by Astarte.
+
+## WebSocket Secure
+
+The establishment of a secure WebSocket connection with Edgehog is automatically performed based on a boolean value sent
+by Astarte to the device. If the flag `secure` is set, the device will load the native device certificates and store
+them in the root certificate store.
+It is also possible to set the environment variable `EDGEHOG_FORWARDER_CA_PATH` to install a custom CA certificate in
+the root certificate store, which is useful in the case of testing on localhost.

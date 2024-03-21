@@ -164,12 +164,12 @@ mod tests {
     use astarte_device_sdk::AstarteAggregate;
     use astarte_message_hub_proto::astarte_message::Payload;
     use astarte_message_hub_proto::message_hub_server::{MessageHub, MessageHubServer};
+    use astarte_message_hub_proto::tonic::{Code, Request, Response, Status};
     use astarte_message_hub_proto::AstarteMessage;
     use async_trait::async_trait;
     use std::net::{Ipv6Addr, SocketAddr};
     use tokio::sync::oneshot::Sender;
     use tokio::task::JoinHandle;
-    use tonic::{Code, Request, Response, Status};
 
     use crate::data::astarte_message_hub_node::AstarteMessageHubOptions;
     use crate::data::tests::create_tmp_store;
@@ -205,7 +205,7 @@ mod tests {
         let addr = listener.local_addr().expect("failed to get local address");
 
         let handle = tokio::spawn(async move {
-            tonic::transport::Server::builder()
+            astarte_message_hub_proto::tonic::transport::Server::builder()
                 .add_service(MessageHubServer::new(msg_hub))
                 .serve_with_incoming_shutdown(
                     tokio_stream::wrappers::TcpListenerStream::new(listener),
@@ -243,7 +243,7 @@ mod tests {
 
         msg_hub
             .expect_attach()
-            .returning(|_| Err(tonic::Status::new(Code::Internal, "".to_string())));
+            .returning(|_| Err(Status::new(Code::Internal, "".to_string())));
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
@@ -299,7 +299,7 @@ mod tests {
 
         msg_hub
             .expect_send()
-            .returning(|_| Err(tonic::Status::new(Code::Internal, "".to_string())));
+            .returning(|_| Err(Status::new(Code::Internal, "".to_string())));
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
@@ -395,7 +395,7 @@ mod tests {
 
         msg_hub
             .expect_send()
-            .returning(|_| Err(tonic::Status::new(Code::Internal, "".to_string())));
+            .returning(|_| Err(Status::new(Code::Internal, "".to_string())));
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 

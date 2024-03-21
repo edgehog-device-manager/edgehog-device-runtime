@@ -40,7 +40,7 @@ use bollard::{
     system::EventsOptions,
 };
 use futures::Stream;
-use hyper::body::Body;
+use hyper::body::Bytes;
 use mockall::mock;
 
 type DockerStream<T> = Pin<Box<dyn Stream<Item = Result<T, Error>> + Send>>;
@@ -66,7 +66,7 @@ pub trait DockerTrait: Sized {
     fn create_image(
         &self,
         options: Option<CreateImageOptions<'static, String>>,
-        root_fs: Option<Body>,
+        root_fs: Option<Bytes>,
         credentials: Option<DockerCredentials>,
     ) -> DockerStream<CreateImageInfo>;
     async fn list_containers(
@@ -131,7 +131,7 @@ mock! {
         fn create_image(
             &self,
             options: Option<CreateImageOptions<'static, String>>,
-            root_fs: Option<Body>,
+            root_fs: Option<Bytes>,
             credentials: Option<DockerCredentials>,
         ) -> DockerStream<CreateImageInfo>;
         async fn list_containers(

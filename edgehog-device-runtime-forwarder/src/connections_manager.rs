@@ -12,8 +12,8 @@ use tokio::net::TcpStream;
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio_tungstenite::{
-    connect_async, tungstenite::Error as TungError, tungstenite::Message as TungMessage,
-    MaybeTlsStream, WebSocketStream,
+    connect_async_tls_with_config, tungstenite::Error as TungError,
+    tungstenite::Message as TungMessage, Connector, MaybeTlsStream, WebSocketStream,
 };
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
@@ -21,6 +21,7 @@ use url::Url;
 use crate::collection::Connections;
 use crate::connection::ConnectionError;
 use crate::messages::{Http, HttpMessage, Id, ProtoMessage, ProtocolError};
+use crate::tls::{device_tls_config, Error as TlsError};
 
 /// Size of the channels where to send proto messages.
 pub(crate) const CHANNEL_SIZE: usize = 50;
@@ -49,6 +50,8 @@ pub enum Error {
     TokenAlreadyUsed(String),
     /// Error while performing exponential backoff to create a WebSocket connection
     BackOff(#[from] BackoffError<Box<Error>>),
+    /// Tls error
+    Tls(#[from] TlsError),
 }
 
 /// WebSocket error causing disconnection.
@@ -63,20 +66,29 @@ pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 #[derive(Debug)]
 pub struct ConnectionsManager {
     /// Collection of connections, each identified by an ID.
-    connections: Connections,
+    pub(crate) connections: Connections,
     /// Websocket stream between the device and Edgehog.
-    ws_stream: WsStream,
+    pub(crate) ws_stream: WsStream,
     /// Channel used to send through the WebSocket messages coming from each connection.
-    rx_ws: Receiver<ProtoMessage>,
+    pub(crate) rx_ws: Receiver<ProtoMessage>,
     /// Edgehog URL.
-    url: Url,
+    pub(crate) url: Url,
+    /// Flag to indicate if TLS should be enabled.
+    pub(crate) secure: bool,
 }
 
 impl ConnectionsManager {
     /// Establish a new WebSocket connection between the device and Edgehog.
     #[instrument]
-    pub async fn connect(url: Url) -> Result<Self, Error> {
-        let ws_stream = Self::ws_connect(&url).await?;
+    pub async fn connect(url: Url, secure: bool) -> Result<Self, Error> {
+        // compute the TLS connector information or use a plain ws connection
+        let connector = if secure {
+            device_tls_config()?
+        } else {
+            Connector::Plain
+        };
+
+        let ws_stream = Self::ws_connect(&url, connector).await?;
 
         // this channel is used by tasks associated to the current session to exchange
         // available information on a given WebSocket between the device and TTYD.
@@ -90,6 +102,7 @@ impl ConnectionsManager {
             ws_stream,
             rx_ws,
             url,
+            secure,
         })
     }
 
@@ -97,33 +110,40 @@ impl ConnectionsManager {
     #[instrument(skip_all)]
     pub(crate) async fn ws_connect(
         url: &Url,
+        connector: Connector,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         // try opening a WebSocket connection with Edgehog using exponential backoff
         let (ws_stream, http_res) =
             backoff::future::retry(ExponentialBackoff::default(), || async {
                 debug!("creating WebSocket connection with {}", url);
 
-                connect_async(url).await.map_err(|err| match err {
-                    // stopping backoff because of a connection error with Edgehog
-                    TungError::Http(http_res) if http_res.status().is_client_error() => {
-                        error!(
-                            "received HTTP client error ({}), stopping backoff",
-                            http_res.status()
-                        );
+                let connector_cpy = connector.clone();
 
-                        match get_token(url) {
-                            Ok(token) => BackoffError::Permanent(Error::TokenAlreadyUsed(token)),
-                            Err(err) => BackoffError::Permanent(err),
+                // if the connector id Connector::Plain, a plain ws connection will be established
+                connect_async_tls_with_config(url, None, false, Some(connector_cpy))
+                    .await
+                    .map_err(|err| match err {
+                        TungError::Http(http_res) if http_res.status().is_client_error() => {
+                            error!(
+                                "received HTTP client error ({}), stopping backoff",
+                                http_res.status()
+                            );
+
+                            match get_token(url) {
+                                Ok(token) => {
+                                    BackoffError::Permanent(Error::TokenAlreadyUsed(token))
+                                }
+                                Err(err) => BackoffError::Permanent(err),
+                            }
                         }
-                    }
-                    err => {
-                        debug!("try reconnecting with backoff after tungstenite error: {err}");
-                        BackoffError::Transient {
-                            err: Error::WebSocket(err),
-                            retry_after: None,
+                        err => {
+                            debug!("try reconnecting with backoff after tungstenite error: {err}");
+                            BackoffError::Transient {
+                                err: Error::WebSocket(err),
+                                retry_after: None,
+                            }
                         }
-                    }
-                })
+                    })
             })
             .await?;
 
@@ -207,7 +227,7 @@ impl ConnectionsManager {
                     }
                     None => {
                         trace!("ws stream next() returned None, connection already closed");
-                        WebSocketEvents::Receive(Err(tokio_tungstenite::tungstenite::Error::AlreadyClosed))
+                        WebSocketEvents::Receive(Err(TungError::AlreadyClosed))
                     }
                 }
             }
@@ -221,13 +241,13 @@ impl ConnectionsManager {
         }
     }
 
-    /// Send a [`Tungstenite message`](tungstenite::Message) through the WebSocket toward Edgehog.
+    /// Send a [`Tungstenite message`](tokio_tungstenite::tungstenite::Message) through the WebSocket toward Edgehog.
     #[instrument(skip_all)]
     pub(crate) async fn send_to_ws(&mut self, tung_msg: TungMessage) -> Result<(), TungError> {
         self.ws_stream.send(tung_msg).await
     }
 
-    /// Handle a single WebSocket [`Tungstenite message`](tungstenite::Message).
+    /// Handle a single WebSocket [`Tungstenite message`](tokio_tungstenite::tungstenite::Message).
     #[instrument(skip_all)]
     pub(crate) async fn handle_tung_msg(
         &mut self,
@@ -299,7 +319,13 @@ impl ConnectionsManager {
     pub async fn reconnect(&mut self) -> Result<(), Error> {
         debug!("trying to reconnect");
 
-        self.ws_stream = Self::ws_connect(&self.url).await?;
+        let connector = if self.secure {
+            device_tls_config()?
+        } else {
+            Connector::Plain
+        };
+
+        self.ws_stream = Self::ws_connect(&self.url, connector).await?;
 
         info!("reconnected");
 
@@ -313,7 +339,7 @@ impl ConnectionsManager {
     }
 }
 
-fn get_token(url: &Url) -> Result<String, Error> {
+pub(crate) fn get_token(url: &Url) -> Result<String, Error> {
     url.query()
         .map(|s| s.trim_start_matches("session=").to_string())
         .ok_or(Error::TokenNotFound)

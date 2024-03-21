@@ -33,7 +33,8 @@ async fn bind_port() -> (TcpListener, u16) {
 }
 
 async fn con_manager(url: Url) -> Result<(), Disconnected> {
-    let mut con_manager = ConnectionsManager::connect(url)
+    let secure = false;
+    let mut con_manager = ConnectionsManager::connect(url, secure)
         .await
         .expect("failed to connect connections manager");
     con_manager.handle_connections().await
