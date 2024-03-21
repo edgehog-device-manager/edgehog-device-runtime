@@ -32,7 +32,7 @@ use log::error;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
 
-use crate::data::{ConnectOptions, Publisher, Subscriber};
+use crate::data::{Publisher, Subscriber};
 use crate::device::DeviceProxy;
 use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
@@ -124,16 +124,18 @@ impl AstarteDeviceSdkConfigOptions {
         Ok(credential_secret)
     }
 
-    pub async fn connect<'a>(
+    pub async fn connect<P>(
         &self,
         store: SqliteStore,
-        connect_options: ConnectOptions<'a>,
-    ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError> {
+        store_dir: P,
+        interface_dir: P,
+    ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError>
+    where
+        P: AsRef<Path>,
+    {
         let device_id = self.device_id_or_from_dbus().await?;
 
-        let credentials_secret = self
-            .credentials_secret(&device_id, connect_options.store_dir)
-            .await?;
+        let credentials_secret = self.credentials_secret(&device_id, store_dir).await?;
 
         let mut mqtt_cfg = MqttConfig::new(
             &self.realm,
@@ -148,7 +150,7 @@ impl AstarteDeviceSdkConfigOptions {
 
         let (device, rx) = DeviceBuilder::new()
             .store(store)
-            .interface_directory(connect_options.interface_dir)
+            .interface_directory(interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
             .connect(mqtt_cfg)
             .await

@@ -396,7 +396,6 @@ mod tests {
     use crate::data::tests::MockSubscriber;
     use crate::data::tests::__mock_MockPublisher_Clone::__clone::Expectation;
     use crate::data::tests::{create_tmp_store, MockPublisher};
-    use crate::data::ConnectOptions;
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
     use crate::telemetry::hardware_info::get_hardware_info;
@@ -449,13 +448,15 @@ mod tests {
             telemetry_config: Some(vec![]),
         };
 
-        let connect_opts = ConnectOptions::from(&options);
-
         let (publisher, subscriber) = options
             .astarte_device_sdk
             .as_ref()
             .unwrap()
-            .connect(store, connect_opts)
+            .connect(
+                store,
+                &options.store_directory,
+                &options.interfaces_directory,
+            )
             .await
             .unwrap();
         let dm = DeviceManager::new(options, publisher, subscriber).await;

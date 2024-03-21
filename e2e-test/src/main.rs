@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use tempdir::TempDir;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
-use edgehog_device_runtime::data::{connect_store, ConnectOptions};
+use edgehog_device_runtime::data::connect_store;
 use edgehog_device_runtime::e2e_test::{get_hardware_info, get_os_info, get_runtime_info};
 use edgehog_device_runtime::{AstarteLibrary, DeviceManager, DeviceManagerOptions};
 
@@ -96,7 +96,11 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         .expect("failed to connect store");
 
     let (publisher, subscriber) = astarte_options
-        .connect(store, ConnectOptions::from(&device_options))
+        .connect(
+            store,
+            &device_options.store_directory,
+            &device_options.interfaces_directory,
+        )
         .await
         .expect("couldn't connect to astarte");
 

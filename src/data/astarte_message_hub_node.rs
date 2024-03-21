@@ -34,11 +34,12 @@ use astarte_device_sdk::EventReceiver;
 use async_trait::async_trait;
 use log::error;
 use serde::Deserialize;
+use std::path::Path;
 use tokio::task::JoinHandle;
 use uuid::uuid;
 use uuid::Uuid;
 
-use crate::data::{ConnectOptions, Publisher, Subscriber};
+use crate::data::{Publisher, Subscriber};
 
 /// Device runtime node identifier.
 const DEVICE_RUNTIME_NODE_UUID: Uuid = uuid!("d72a6187-7cf1-44cc-87e8-e991936166db");
@@ -62,16 +63,19 @@ pub struct AstarteMessageHubOptions {
 }
 
 impl AstarteMessageHubOptions {
-    pub async fn connect<'a>(
+    pub async fn connect<P>(
         &self,
         store: SqliteStore,
-        connect_options: ConnectOptions<'a>,
-    ) -> Result<(MessageHubPublisher, MessageHubSubscriber), MessageHubError> {
+        interface_dir: P,
+    ) -> Result<(MessageHubPublisher, MessageHubSubscriber), MessageHubError>
+    where
+        P: AsRef<Path>,
+    {
         let grpc_cfg = GrpcConfig::new(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone());
 
         let (device, rx) = DeviceBuilder::new()
             .store(store)
-            .interface_directory(connect_options.interface_dir)
+            .interface_directory(interface_dir)
             .map_err(MessageHubError::Interfaces)?
             .connect(grpc_cfg)
             .await
@@ -169,7 +173,7 @@ mod tests {
 
     use crate::data::astarte_message_hub_node::AstarteMessageHubOptions;
     use crate::data::tests::create_tmp_store;
-    use crate::data::{ConnectOptions, Publisher, Subscriber};
+    use crate::data::{Publisher, Subscriber};
 
     mockall::mock! {
         MsgHub {}
@@ -226,9 +230,7 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
-        let node_result = opts
-            .connect(store, ConnectOptions::new(&tmp_store_path, &tmp_store_path))
-            .await;
+        let node_result = opts.connect(store, &tmp_store_path).await;
 
         drop_sender.send(()).expect("send shutdown");
         server_handle.await.expect("server shutdown");
@@ -250,7 +252,7 @@ mod tests {
         let node_result = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_store_path, &tmp_store_path))
+        .connect(store, &tmp_store_path)
         .await;
 
         drop_sender.send(()).expect("send shutdown");
@@ -276,7 +278,7 @@ mod tests {
         let node_result = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_store_path, &tmp_store_path))
+        .connect(store, &tmp_store_path)
         .await;
 
         drop_sender.send(()).expect("send shutdown");
@@ -306,7 +308,7 @@ mod tests {
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_store_path, &tmp_store_path))
+        .connect(store, &tmp_store_path)
         .await
         .unwrap();
 
@@ -363,7 +365,7 @@ mod tests {
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_dir, &tmp_dir))
+        .connect(store, &tmp_dir)
         .await
         .unwrap();
 
@@ -402,7 +404,7 @@ mod tests {
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_store_path, &tmp_store_path))
+        .connect(store, &tmp_store_path)
         .await
         .unwrap();
 
@@ -464,7 +466,7 @@ mod tests {
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_dir, &tmp_dir))
+        .connect(store, &tmp_dir)
         .await
         .unwrap();
 
@@ -536,7 +538,7 @@ mod tests {
         let (_publisher, mut subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(store, ConnectOptions::new(&tmp_dir, &tmp_dir))
+        .connect(store, &tmp_dir)
         .await
         .unwrap();
 

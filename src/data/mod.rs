@@ -18,7 +18,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::DeviceManagerOptions;
 use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::store::{SqliteStore, StoredProp};
 use astarte_device_sdk::types::AstarteType;
@@ -66,31 +65,6 @@ pub enum StoreError {
     Connect(#[source] SqliteError),
     /// Path is not UTF-8, `{0}`
     PathUtf8(PathBuf),
-}
-
-/// Options to connect a store to the Astarte device sdk or to the Message Hub nodes
-pub struct ConnectOptions<'a> {
-    interface_dir: &'a Path,
-    store_dir: &'a Path,
-}
-
-impl<'a> ConnectOptions<'a> {
-    pub fn new<I, S>(interface_dir: &'a I, store_dir: &'a S) -> Self
-    where
-        I: AsRef<Path>,
-        S: AsRef<Path>,
-    {
-        Self {
-            interface_dir: interface_dir.as_ref(),
-            store_dir: store_dir.as_ref(),
-        }
-    }
-}
-
-impl<'a> From<&'a DeviceManagerOptions> for ConnectOptions<'a> {
-    fn from(value: &'a DeviceManagerOptions) -> Self {
-        Self::new(&value.interfaces_directory, &value.store_directory)
-    }
 }
 
 /// Connect to the store.
