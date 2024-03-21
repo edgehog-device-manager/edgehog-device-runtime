@@ -5,7 +5,3 @@ Source: https://github.com/edgehog-device-manager/edgehog-device-runtime
 Files: CHANGELOG.md edgehog-device-runtime-docker/CHANGELOG.md
 Copyright: 2022 SECO Mind Srl
 License: CC0-1.0
-
-Files: CHANGELOG.md edgehog-device-runtime-docker/CHANGELOG.md
-Copyright: 2022 SECO Mind Srl
-License: CC0-1.0

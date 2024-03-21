@@ -39,7 +39,7 @@ pub fn device_tls_config() -> Result<Connector, Error> {
 
     // add native root certificates
     for cert in rustls_native_certs::load_native_certs().map_err(Error::RootCert)? {
-        root_certs.add(cert).unwrap();
+        root_certs.add(cert)?;
     }
     debug!("native root certificates added");
 
