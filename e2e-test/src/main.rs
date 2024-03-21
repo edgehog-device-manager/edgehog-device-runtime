@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use tempdir::TempDir;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
+use edgehog_device_runtime::data::connect_store;
 use edgehog_device_runtime::e2e_test::{get_hardware_info, get_os_info, get_runtime_info};
 use edgehog_device_runtime::{AstarteLibrary, DeviceManager, DeviceManagerOptions};
 
@@ -34,8 +35,14 @@ struct AstartePayload<T> {
     data: T,
 }
 
+fn env_as_bool(name: &str) -> bool {
+    matches!(std::env::var(name).as_deref(), Ok("1" | "true"))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError> {
+    env_logger::init();
+
     let orig_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         println!("Test failed");
@@ -46,15 +53,23 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
     //Waiting for Astarte Cluster to be ready...
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
-    let astarte_api_url = std::env::var("E2E_ASTARTE_API_URL").unwrap();
-    let realm = std::env::var("E2E_REALM_NAME").unwrap();
-    let device_id = std::env::var("E2E_DEVICE_ID").unwrap();
-    let credentials_secret = std::env::var("E2E_CREDENTIALS_SECRET").unwrap();
+    let astarte_api_url = std::env::var("E2E_ASTARTE_API_URL")
+        .expect("couldn't read environment variable E2E_ASTARTE_API_URL");
+    let realm =
+        std::env::var("E2E_REALM_NAME").expect("couldn't read environment variable E2E_REALM_NAME");
+    let device_id =
+        std::env::var("E2E_DEVICE_ID").expect("couldn't read environment variable E2E_DEVICE_ID");
+    let credentials_secret = std::env::var("E2E_CREDENTIALS_SECRET")
+        .expect("couldn't read environment variable E2E_CREDENTIALS_SECRET");
     let pairing_url = astarte_api_url.to_owned() + "/pairing";
-    let e2e_token: &str = &std::env::var("E2E_TOKEN").unwrap();
+    let e2e_token: &str =
+        &std::env::var("E2E_TOKEN").expect("couldn't read environment variable E2E_TOKEN");
+    let ignore_ssl = env_as_bool("E2E_IGNORE_SSL");
+    let interface_dir = std::env::var("E2E_INTERFACE_DIR")
+        .expect("couldn't read environment variable E2E_INTERFACE_DIR");
 
-    let store_path = TempDir::new("e2e-test").unwrap();
-    let interfaces_directory = PathBuf::from("./edgehog/astarte-interfaces");
+    let store_path = TempDir::new("e2e-test").expect("couldn't create store tmp dir");
+    let interfaces_directory = PathBuf::from(interface_dir);
 
     let astarte_options = AstarteDeviceSdkConfigOptions {
         realm: realm.to_owned(),
@@ -62,24 +77,32 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         credentials_secret: Some(credentials_secret),
         pairing_url: pairing_url.to_string(),
         pairing_token: None,
-        ignore_ssl: false,
+        ignore_ssl,
     };
-
-    let (publisher, subscriber) = astarte_options
-        .connect(store_path.path(), &interfaces_directory)
-        .await
-        .expect("couldn't connect to astarte");
 
     let device_options = DeviceManagerOptions {
         astarte_library: AstarteLibrary::AstarteDeviceSDK,
-        astarte_device_sdk: Some(astarte_options),
+        astarte_device_sdk: Some(astarte_options.clone()),
         interfaces_directory,
-        store_directory: PathBuf::new(),
+        store_directory: store_path.path().to_owned(),
         download_directory: PathBuf::new(),
         telemetry_config: Some(vec![]),
         #[cfg(feature = "message-hub")]
         astarte_message_hub: None,
     };
+
+    let store = connect_store(store_path.path())
+        .await
+        .expect("failed to connect store");
+
+    let (publisher, subscriber) = astarte_options
+        .connect(
+            store,
+            &device_options.store_directory,
+            &device_options.interfaces_directory,
+        )
+        .await
+        .expect("couldn't connect to astarte");
 
     let dm = DeviceManager::new(device_options, publisher, subscriber).await?;
 

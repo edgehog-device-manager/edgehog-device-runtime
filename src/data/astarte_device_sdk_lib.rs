@@ -21,7 +21,7 @@
 use std::path::Path;
 
 use astarte_device_sdk::builder::DeviceBuilder;
-use astarte_device_sdk::store::memory::MemoryStore;
+use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::store::StoredProp;
 use astarte_device_sdk::transport::mqtt::{registration, Mqtt, MqttConfig};
 use astarte_device_sdk::types::AstarteType;
@@ -124,14 +124,18 @@ impl AstarteDeviceSdkConfigOptions {
         Ok(credential_secret)
     }
 
-    pub async fn connect(
+    pub async fn connect<P>(
         &self,
-        store_dir: &Path,
-        interface_dir: &Path,
-    ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError> {
+        store: SqliteStore,
+        store_dir: P,
+        interface_dir: P,
+    ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError>
+    where
+        P: AsRef<Path>,
+    {
         let device_id = self.device_id_or_from_dbus().await?;
 
-        let credentials_secret = self.credentials_secret(&device_id, &store_dir).await?;
+        let credentials_secret = self.credentials_secret(&device_id, store_dir).await?;
 
         let mut mqtt_cfg = MqttConfig::new(
             &self.realm,
@@ -145,7 +149,7 @@ impl AstarteDeviceSdkConfigOptions {
         }
 
         let (device, rx) = DeviceBuilder::new()
-            .store(MemoryStore::new())
+            .store(store)
             .interface_directory(interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
             .connect(mqtt_cfg)
@@ -177,7 +181,7 @@ pub async fn hardware_id_from_dbus() -> Result<Option<String>, DeviceSdkError> {
 
 /// Sender for the Astarte SDK
 #[derive(Debug, Clone)]
-pub struct DeviceSdkPublisher(AstarteDeviceSdk<MemoryStore, Mqtt>);
+pub struct DeviceSdkPublisher(AstarteDeviceSdk<SqliteStore, Mqtt>);
 
 #[async_trait]
 impl Publisher for DeviceSdkPublisher {

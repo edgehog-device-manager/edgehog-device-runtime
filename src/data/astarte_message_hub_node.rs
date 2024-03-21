@@ -20,11 +20,9 @@
 
 //! Contains the implementation for the Astarte message hub node.
 
-use std::path::Path;
-
 use astarte_device_sdk::builder::DeviceBuilder;
 use astarte_device_sdk::prelude::*;
-use astarte_device_sdk::store::memory::MemoryStore;
+use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::store::StoredProp;
 use astarte_device_sdk::transport::grpc::Grpc;
 use astarte_device_sdk::transport::grpc::GrpcConfig;
@@ -36,6 +34,7 @@ use astarte_device_sdk::EventReceiver;
 use async_trait::async_trait;
 use log::error;
 use serde::Deserialize;
+use std::path::Path;
 use tokio::task::JoinHandle;
 use uuid::uuid;
 use uuid::Uuid;
@@ -66,6 +65,7 @@ pub struct AstarteMessageHubOptions {
 impl AstarteMessageHubOptions {
     pub async fn connect<P>(
         &self,
+        store: SqliteStore,
         interface_dir: P,
     ) -> Result<(MessageHubPublisher, MessageHubSubscriber), MessageHubError>
     where
@@ -74,8 +74,8 @@ impl AstarteMessageHubOptions {
         let grpc_cfg = GrpcConfig::new(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone());
 
         let (device, rx) = DeviceBuilder::new()
-            .store(MemoryStore::new())
-            .interface_directory(&interface_dir)
+            .store(store)
+            .interface_directory(interface_dir)
             .map_err(MessageHubError::Interfaces)?
             .connect(grpc_cfg)
             .await
@@ -94,7 +94,7 @@ impl AstarteMessageHubOptions {
 
 /// Sender for the MessageHub
 #[derive(Debug, Clone)]
-pub struct MessageHubPublisher(AstarteDeviceSdk<MemoryStore, Grpc>);
+pub struct MessageHubPublisher(AstarteDeviceSdk<SqliteStore, Grpc>);
 
 #[async_trait]
 impl Publisher for MessageHubPublisher {
@@ -167,12 +167,12 @@ mod tests {
     use astarte_message_hub_proto::AstarteMessage;
     use async_trait::async_trait;
     use std::net::{Ipv6Addr, SocketAddr};
-    use tempdir::TempDir;
     use tokio::sync::oneshot::Sender;
     use tokio::task::JoinHandle;
     use tonic::{Code, Request, Response, Status};
 
     use crate::data::astarte_message_hub_node::AstarteMessageHubOptions;
+    use crate::data::tests::create_tmp_store;
     use crate::data::{Publisher, Subscriber};
 
     mockall::mock! {
@@ -228,7 +228,9 @@ mod tests {
             endpoint: format!("http://[::1]:{port}"),
         };
 
-        let node_result = opts.connect("/tmp").await;
+        let (store, tmp_store_path) = create_tmp_store().await;
+
+        let node_result = opts.connect(store, &tmp_store_path).await;
 
         drop_sender.send(()).expect("send shutdown");
         server_handle.await.expect("server shutdown");
@@ -245,10 +247,12 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
+        let (store, tmp_store_path) = create_tmp_store().await;
+
         let node_result = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect("/tmp")
+        .connect(store, &tmp_store_path)
         .await;
 
         drop_sender.send(()).expect("send shutdown");
@@ -269,10 +273,12 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
+        let (store, tmp_store_path) = create_tmp_store().await;
+
         let node_result = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect("/tmp")
+        .connect(store, &tmp_store_path)
         .await;
 
         drop_sender.send(()).expect("send shutdown");
@@ -297,10 +303,12 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
+        let (store, tmp_store_path) = create_tmp_store().await;
+
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect("/tmp")
+        .connect(store, &tmp_store_path)
         .await
         .unwrap();
 
@@ -319,10 +327,10 @@ mod tests {
 
     #[tokio::test]
     async fn send_success() {
-        let dir = TempDir::new("message-hub-send-success").unwrap();
+        let (store, tmp_dir) = create_tmp_store().await;
 
         tokio::fs::write(
-            dir.path().join("test.Individual.json"),
+            tmp_dir.path().join("test.Individual.json"),
             r#"{"interface_name": "test.Individual",
     "version_major": 0,
     "version_minor": 1,
@@ -357,7 +365,7 @@ mod tests {
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(dir.path())
+        .connect(store, &tmp_dir)
         .await
         .unwrap();
 
@@ -391,10 +399,12 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
+        let (store, tmp_store_path) = create_tmp_store().await;
+
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect("/tmp")
+        .connect(store, &tmp_store_path)
         .await
         .unwrap();
 
@@ -420,10 +430,10 @@ mod tests {
 
     #[tokio::test]
     async fn send_object_success() {
-        let dir = TempDir::new("message-hub-send-object-success").unwrap();
+        let (store, tmp_dir) = create_tmp_store().await;
 
         tokio::fs::write(
-            dir.path().join("test.Object.json"),
+            tmp_dir.path().join("test.Object.json"),
             r#"{"interface_name": "test.Object",
     "version_major": 0,
     "version_minor": 1,
@@ -456,7 +466,7 @@ mod tests {
         let (publisher, _subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(dir.path())
+        .connect(store, &tmp_dir)
         .await
         .unwrap();
 
@@ -482,10 +492,10 @@ mod tests {
 
     #[tokio::test]
     async fn receive_success() {
-        let dir = TempDir::new("message-hub-receive-success").unwrap();
+        let (store, tmp_dir) = create_tmp_store().await;
 
         tokio::fs::write(
-            dir.path().join("test.server.Value.json"),
+            tmp_dir.path().join("test.server.Value.json"),
             r#"{"interface_name": "test.server.Value",
     "version_major": 0,
     "version_minor": 1,
@@ -528,7 +538,7 @@ mod tests {
         let (_publisher, mut subscriber) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
-        .connect(dir.path())
+        .connect(store, &tmp_dir)
         .await
         .unwrap();
 

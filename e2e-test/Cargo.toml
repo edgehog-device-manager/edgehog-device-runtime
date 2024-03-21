@@ -27,6 +27,7 @@ rust-version = { workspace = true }
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 edgehog-device-runtime = { path = "..", features = ["e2e_test"] }
+env_logger = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

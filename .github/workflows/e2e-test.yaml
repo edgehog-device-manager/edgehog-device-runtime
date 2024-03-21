@@ -30,6 +30,7 @@ env:
   E2E_REALM_NAME: "test"
   ASTARTE_API_URL: "https://api.autotest.astarte-platform.org"
   E2E_ASTARTE_API_URL: "https://api.autotest.astarte-platform.org"
+  E2E_INTERFACE_DIR: "./edgehog/astarte-interfaces"
 jobs:
   e2e-test:
     runs-on: ubuntu-latest
