@@ -71,11 +71,11 @@ mod tests {
     use std::net::Ipv4Addr;
     use url::Host;
 
-    fn create_sinfo(token: &str) -> SessionInfo {
+    fn create_sinfo(session_token: &str) -> SessionInfo {
         SessionInfo {
             host: Ipv4Addr::LOCALHOST.to_string(),
             port: 8080,
-            session_token: token.to_string(),
+            session_token: session_token.to_string(),
             secure: false,
         }
     }

@@ -28,8 +28,14 @@ pub enum Error {
     /// Error while reading from file.
     ReadFile(#[source] std::io::Error),
 
+    /// Read certificate
+    ReadCert(#[source] std::io::Error),
+
+    /// Failed to load root certificates
+    LoadRootCert(#[source] std::io::Error),
+
     /// Couldn't load root certificate.
-    RootCert(#[source] std::io::Error),
+    RootCert(#[source] rustls::Error),
 }
 
 /// Given the CA certificate, compute the device TLS configuration and return a Device connector.
@@ -38,7 +44,7 @@ pub fn device_tls_config() -> Result<Connector, Error> {
     let mut root_certs = RootCertStore::empty();
 
     // add native root certificates
-    for cert in rustls_native_certs::load_native_certs().map_err(Error::RootCert)? {
+    for cert in rustls_native_certs::load_native_certs().map_err(Error::LoadRootCert)? {
         root_certs.add(cert)?;
     }
     debug!("native root certificates added");
@@ -50,8 +56,9 @@ pub fn device_tls_config() -> Result<Connector, Error> {
         let file = std::fs::File::open(ca_cert_file).map_err(Error::ReadFile)?;
         let mut reader = BufReader::new(file);
 
-        for item in rustls_pemfile::certs(&mut reader) {
-            let cert = item.map_err(Error::ReadFile)?;
+        let certs = rustls_pemfile::certs(&mut reader);
+        for cert in certs {
+            let cert = cert.map_err(Error::ReadCert)?;
             root_certs.add(cert)?;
             debug!("added cert to root certificates");
         }

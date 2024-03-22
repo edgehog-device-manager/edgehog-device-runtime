@@ -16,3 +16,6 @@ pub mod tls;
 
 // re-exported dependencies
 pub use astarte_device_sdk;
+
+#[cfg(feature = "_test-utils")]
+pub mod test_utils;

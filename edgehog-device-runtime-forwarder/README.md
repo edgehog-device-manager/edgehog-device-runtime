@@ -8,30 +8,31 @@
 ## Overview
 
 The Edgehog Device Runtime Forwarder Library facilitates the communication and interaction
-between devices and Edgehog through WebSocket connections. This README provides a guide to
-understanding the structure of the library and how its components work together.
+between devices and Edgehog through WebSocket connections. This could be useful in the scenario where a remote user, who
+has access to Edgehog, wishes to open a remote terminal exposed by the device on a specific port and make it
+accessible through a WebSocket connection.
+This README provides a guide to  understanding the structure of the library and how its components work together.
 
 ## Sequence Diagram
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant Edgehog
-    participant Astarte
-    participant Device Runtime
-    participant Forwarder
-    participant Service
-    User ->> Edgehog: Open remote terminal
-    Edgehog ->> Astarte: Remote terminal request
-    Astarte ->> Device Runtime: Remote terminal request
-    Device Runtime ->> Forwarder: Session info (host, port, session_token)
-    Forwarder ->> Edgehog: Start WebSocket session
-    loop
-        Edgehog ->> Forwarder: Send HTTP requests to Service
-        Forwarder ->> Service: Forward HTTP request
-        Service ->> Forwarder: Send HTTP response
-        Forwarder ->> Edgehog: Forward HTTP response
-    end
+  actor User
+  participant Edgehog
+  participant Astarte
+  participant Device Runtime
+  participant Forwarder
+  participant Service (ttyd)
+
+  User ->> Edgehog: Open remote terminal
+  Edgehog ->> Astarte: Remote terminal request
+  Astarte ->> Device Runtime:  Remote terminal request
+  Device Runtime ->> Forwarder: Session info (host, port, session_token)
+  Forwarder ->> Edgehog: Start WebSocket session
+  Edgehog ->> Forwarder: Connect to Service (ttyd)
+  Forwarder ->> Service (ttyd): Start WebSocket connection
+
+  Note over Service (ttyd),User: Remote terminal connection
 ```
 
 The end user triggers a remote terminal request on the Edgehog Device Manager interface. Edgehog is responsible for
@@ -39,11 +40,10 @@ sending the request to Astarte, which then forwards it to the Device Runtime, ha
 The Device Runtime retrieves session information from the remote terminal request and communicates it to the Forwarder,
 a module capable of managing connections with the device.
 Using the received information, the Forwarder establishes a WebSocket connection with Edgehog. On top of this
-connection, other types of connections (HTTP, WebSocket, etc.) can be established. At this point of the implementation,
-the library only supports HTTP connections. For instance, the Service receiving HTTP requests could be an HTTP server
-providing access to some device resources. In this scenario, Edgehog makes one or more HTTP requests to the Forwarder,
-which forwards them to the Service. Then the Service replies with one or more HTTP responses, that will be forwarded
-to Edgehog.
+connection, other types of connections (HTTP, WebSocket, etc.) can be established. A specific use case is the opening
+of a remote terminal on the device. In this scenario, Edgehog requests the Forwarder to initiate a connection with a
+service called ttyd, exposing a terminal on a specified port through a WebSocket connection. Consequently, through
+a web page, the end user gains access to a terminal.
 
 ## Components
 
@@ -51,9 +51,9 @@ to Edgehog.
 
 - Establishes a WebSocket connection between the device and Edgehog.
 - Acts as a multiplexer for forwarding messages between Edgehog and internal device connections (e.g., with
-  [ttyd](https://github.com/tsl0922/ttyd)).
-- Handles WebSocket frames (carrying HTTP requests/responses), decoding binary data into an internal Rust
-  representation.
+[ttyd](https://github.com/tsl0922/ttyd)).
+- Handles WebSocket frames (carrying HTTP requests/responses or other WebSocket frames), decoding binary data into an
+  internal Rust representation.
 - Handles reconnection operations on WebSocket errors.
 - Maintains a collection of connections with channel writing handles.
 
@@ -65,10 +65,10 @@ to Edgehog.
 
 ### Connection
 
-- Defines `Connection` and `ConnectionHandle` structs.
-- Creates a new connection.
+- Defines `Connection` and `ConnectionHandle` structs, necessary to create new connections. At the moment, the only
+supported connections types are HTTP and WebSocket.
 - Spawns Tokio tasks responsible for managing connections.
-- Sends HTTP requests (e.g., to ttyd) and encodes responses into protobuf messages.
+- Sends messages and encodes responses into protobuf messages.
 
 ### Messages
 

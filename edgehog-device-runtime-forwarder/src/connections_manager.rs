@@ -20,7 +20,7 @@ use url::Url;
 
 use crate::collection::Connections;
 use crate::connection::ConnectionError;
-use crate::messages::{Http, HttpMessage, Id, ProtoMessage, ProtocolError};
+use crate::messages::{Id, ProtoMessage, ProtocolError};
 use crate::tls::{device_tls_config, Error as TlsError};
 
 /// Size of the channels where to send proto messages.
@@ -61,11 +61,12 @@ pub struct Disconnected(#[from] pub TungError);
 /// WebSocket stream alias.
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// Handler responsible for establishing a WebSocket connection between a device and Edgehog
-/// and for receiving and sending data from/to it.
+/// Handler responsible for
+/// - establishing a WebSocket connection between a device and Edgehog
+/// - receiving and sending data from/to it.
 #[derive(Debug)]
 pub struct ConnectionsManager {
-    /// Collection of connections, each identified by an ID.
+    /// Collection of connections.
     pub(crate) connections: Connections,
     /// Websocket stream between the device and Edgehog.
     pub(crate) ws_stream: WsStream,
@@ -90,9 +91,10 @@ impl ConnectionsManager {
 
         let ws_stream = Self::ws_connect(&url, connector).await?;
 
-        // this channel is used by tasks associated to the current session to exchange
-        // available information on a given WebSocket between the device and TTYD.
-        // it is also used to forward the incoming data from TTYD to the device.
+        // this channel is used by tasks associated with the current bridge-device session to exchange
+        // available information on a given connection between the device and another service.
+        // For instance, a device may have started a connection with a ttyd, a service used
+        // for sharing a remote terminal over a WebSocket interface.
         let (tx_ws, rx_ws) = channel(CHANNEL_SIZE);
 
         let connections = Connections::new(tx_ws);
@@ -112,7 +114,7 @@ impl ConnectionsManager {
         url: &Url,
         connector: Connector,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
-        // try opening a WebSocket connection with Edgehog using exponential backoff
+        // try opening a WebSocket connection using exponential backoff
         let (ws_stream, http_res) =
             backoff::future::retry(ExponentialBackoff::default(), || async {
                 debug!("creating WebSocket connection with {}", url);
@@ -152,31 +154,26 @@ impl ConnectionsManager {
         Ok(ws_stream)
     }
 
-    /// Manage the reception and transmission of data between the WebSocket and each connection.
-    ///
-    /// It performs specific operations depending on the occurrence of one of the following events:
-    /// * Receiving data from the WebSocket,
-    /// * A timeout event occurring before any data is received from the WebSocket connection,
-    /// * Receiving data from one of the connections (e.g., between the device and TTYD).
+    /// Manage the reception and transmission of data between the WebSocket and each device connection.
     #[instrument(skip_all)]
     pub async fn handle_connections(&mut self) -> Result<(), Disconnected> {
         loop {
             match self.event_loop().await {
                 Ok(ControlFlow::Continue(())) => {}
-                // if the device received a message bigger than the maximum size, drop the message
-                // but keep looping for next events
-                Err(TungError::Capacity(err)) => {
-                    error!("capacity exceeded: {err}");
-                }
                 // if a close frame has been received or the closing handshake is correctly
                 // terminated, the manager terminates the handling of the connections
                 Ok(ControlFlow::Break(())) | Err(TungError::ConnectionClosed) => break,
-                // if the connection has been suddenly interrupted, try re-establishing it.
-                // only Tungstenite errors should be handled for device reconnection
+                // if the device received a message bigger than the maximum size, notify the error
+                Err(TungError::Capacity(err)) => {
+                    error!("capacity exceeded: {err}");
+                    break;
+                }
                 Err(TungError::AlreadyClosed) => {
                     error!("BUG: trying to read/write on an already closed WebSocket");
                     break;
                 }
+                // if the connection has been suddenly interrupted, try re-establishing it.
+                // only Tungstenite errors should be handled for device reconnection
                 Err(err) => {
                     return Err(Disconnected(err));
                 }
@@ -187,6 +184,10 @@ impl ConnectionsManager {
     }
 
     /// Handle a single connection event.
+    ///
+    /// It performs specific operations depending on the occurrence of one of the following events:
+    /// * Receiving data from the Edgehog-device WebSocket connection,
+    /// * Receiving data from one of the device connections (e.g., between the device and TTYD).
     #[instrument(skip_all)]
     pub(crate) async fn event_loop(&mut self) -> Result<ControlFlow<()>, TungError> {
         let event = self.select_ws_event().await;
@@ -198,7 +199,7 @@ impl ConnectionsManager {
                     .and_then(|msg| self.handle_tung_msg(msg))
                     .await
             }
-            // receive data from a connection (e.g., TTYD)
+            // receive data from a device connection (e.g., TTYD)
             WebSocketEvents::Send(tung_msg) => {
                 let msg = match tung_msg.encode() {
                     Ok(msg) => TungMessage::Binary(msg),
@@ -222,18 +223,18 @@ impl ConnectionsManager {
             res = self.ws_stream.next() => {
                 match res {
                     Some(msg) => {
-                        trace!("forwarding received tungstenite message: {msg:?}");
+                        trace!("received tungstenite message from Edgehog: {msg:?}");
                         WebSocketEvents::Receive(msg)
                     }
                     None => {
-                        trace!("ws stream next() returned None, connection already closed");
+                        trace!("ws_stream next() returned None, connection already closed");
                         WebSocketEvents::Receive(Err(TungError::AlreadyClosed))
                     }
                 }
             }
             next = self.rx_ws.recv() => match next {
                 Some(msg) => {
-                    trace!("forwarding proto message received from a device connection: {msg:?}");
+                    trace!("proto message received from a device connection: {msg:?}");
                     WebSocketEvents::Send(msg)
                 }
                 None => unreachable!("BUG: tx_ws channel should never be closed"),
@@ -259,9 +260,9 @@ impl ConnectionsManager {
                 let msg = TungMessage::Pong(data);
                 self.send_to_ws(msg).await?;
             }
-            TungMessage::Pong(_) => debug!("received Pong frame"),
+            TungMessage::Pong(_) => debug!("received pong"),
             TungMessage::Close(close_frame) => {
-                debug!("WebSocket close frame {close_frame:?}, closing active connections");
+                debug!("received close frame {close_frame:?}, closing active connections");
                 self.disconnect();
                 info!("closed every connection");
                 return Ok(ControlFlow::Break(()));
@@ -289,27 +290,19 @@ impl ConnectionsManager {
         Ok(ControlFlow::Continue(()))
     }
 
-    /// Handle a [`protobuf message`](ProtoMessage).
+    /// Handle a [`protocol message`](ProtoMessage).
     pub(crate) async fn handle_proto_msg(&mut self, proto_msg: ProtoMessage) -> Result<(), Error> {
         // remove from the collection all the terminated connections
         self.connections.remove_terminated();
 
-        // handle only HTTP requests, not other kind of protobuf messages
         match proto_msg {
-            ProtoMessage::Http(Http {
-                request_id,
-                http_msg: HttpMessage::Request(http_req),
-            }) => self.connections.handle_http(request_id, http_req),
-            ProtoMessage::Http(Http {
-                request_id,
-                http_msg: HttpMessage::Response(_http_res),
-            }) => {
-                error!("Http response should not be sent by Edgehog");
-                Err(Error::WrongMessage(request_id))
+            ProtoMessage::Http(http) => {
+                trace!("received HTTP message: {http:?}");
+                self.connections.handle_http(http)
             }
-            ProtoMessage::WebSocket(_ws) => {
-                error!("WebSocket messages are not supported yet");
-                Err(Error::Unsupported)
+            ProtoMessage::WebSocket(ws) => {
+                trace!("received WebSocket frame: {ws:?}");
+                self.connections.handle_ws(ws).await
             }
         }
     }
@@ -328,7 +321,6 @@ impl ConnectionsManager {
         self.ws_stream = Self::ws_connect(&self.url, connector).await?;
 
         info!("reconnected");
-
         Ok(())
     }
 
@@ -339,6 +331,7 @@ impl ConnectionsManager {
     }
 }
 
+/// Retrieve the session token query parameter from an URL
 pub(crate) fn get_token(url: &Url) -> Result<String, Error> {
     url.query()
         .map(|s| s.trim_start_matches("session=").to_string())

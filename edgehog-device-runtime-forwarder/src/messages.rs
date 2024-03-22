@@ -6,6 +6,7 @@
 //! The structures belonging to this module are used to serialize/deserialize to/from the protobuf
 //! data representation.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::TryFromIntError;
@@ -13,18 +14,20 @@ use std::ops::Not;
 use std::str::FromStr;
 
 use thiserror::Error as ThisError;
+use tokio_tungstenite::tungstenite::{Error as TungError, Message as TungMessage};
+use tracing::{debug, error, instrument, warn};
 use url::ParseError;
 
 use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::{
-    http::Message as ProtoHttpMessage,
-    http::Request as ProtoHttpRequest,
-    http::Response as ProtoHttpResponse,
-    message::Protocol as ProtoProtocol,
+    http::Message as ProtobufHttpMessage,
+    http::Request as ProtobufHttpRequest,
+    http::Response as ProtobufHttpResponse,
+    message::Protocol as ProtobufProtocol,
     prost::{self, Message as ProstMessage},
-    web_socket::Close as ProtoWsClose,
-    web_socket::Message as ProtoWsMessage,
-    Http as ProtoHttp, WebSocket as ProtoWebSocket,
+    web_socket::Close as ProtobufWsClose,
+    web_socket::Message as ProtobufWsMessage,
+    Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
 };
 
 /// Errors occurring while handling [`protobuf`](https://protobuf.dev/overview/) messages
@@ -43,18 +46,28 @@ pub enum ProtocolError {
     ParseUrl(#[from] ParseError),
     /// Wrong HTTP method field.
     InvalidHttpMethod(#[from] http::method::InvalidMethod),
+    /// Invalid Uri.
+    InvalidUri(#[from] http::uri::InvalidUri),
     /// Http error.
     Http(#[from] http::Error),
     /// Invalid HTTP status code
     InvalidStatusCode(#[from] http::status::InvalidStatusCode),
     /// Error while parsing Headers.
     ParseHeaders(#[from] http::header::ToStrError),
-    /// Invalid port number
+    /// Invalid port number.
     InvalidPortNumber(#[from] TryFromIntError),
+    /// Wrong HTTP method field, `{0}`.
+    WrongHttpMethod(String),
+    /// Error performing exponential backoff when trying to connect with TTYD, {0}
+    WebSocketConnect(#[from] TungError),
+    /// Received a wrong WebSocket frame.
+    WrongWsFrame,
+    /// Couldn't build the request {0}
+    ReqBuild(&'static str),
 }
 
 /// Requests Id.
-#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Default, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Id(Vec<u8>);
 
 impl Debug for Id {
@@ -93,7 +106,7 @@ pub(crate) enum ProtoMessage {
 impl ProtoMessage {
     /// Encode [`ProtoMessage`] struct into the corresponding [`protobuf`](https://protobuf.dev/overview/) version.
     pub(crate) fn encode(self) -> Result<Vec<u8>, ProtocolError> {
-        let protocol = ProtoProtocol::from(self);
+        let protocol = ProtobufProtocol::from(self);
 
         let msg = proto::Message {
             protocol: Some(protocol),
@@ -110,6 +123,34 @@ impl ProtoMessage {
         let msg = proto::Message::decode(bytes).map_err(ProtocolError::from)?;
         Self::try_from(msg)
     }
+
+    /// Convert a Tungstenite frame into a ProtoMessage
+    pub(crate) fn try_from_tung(
+        socket_id: Id,
+        tung_msg: TungMessage,
+    ) -> Result<Self, ProtocolError> {
+        Ok(Self::WebSocket(WebSocket {
+            socket_id,
+            message: WebSocketMessage::try_from(tung_msg)?,
+        }))
+    }
+
+    /// Return the internal WebSocket message if it matches the type.
+    pub(crate) fn into_ws(self) -> Option<WebSocket> {
+        match self {
+            ProtoMessage::Http(_) => None,
+            ProtoMessage::WebSocket(ws) => Some(ws),
+        }
+    }
+
+    /// Return the internal http message if it matches the type.
+    #[cfg(test)]
+    pub(crate) fn into_http(self) -> Option<Http> {
+        match self {
+            ProtoMessage::Http(http) => Some(http),
+            ProtoMessage::WebSocket(_) => None,
+        }
+    }
 }
 
 impl TryFrom<proto::Message> for ProtoMessage {
@@ -124,30 +165,30 @@ impl TryFrom<proto::Message> for ProtoMessage {
     }
 }
 
-impl TryFrom<ProtoProtocol> for ProtoMessage {
+impl TryFrom<ProtobufProtocol> for ProtoMessage {
     type Error = ProtocolError;
 
-    fn try_from(value: ProtoProtocol) -> Result<Self, Self::Error> {
+    fn try_from(value: ProtobufProtocol) -> Result<Self, Self::Error> {
         let protocol = match value {
-            ProtoProtocol::Http(http) => ProtoMessage::Http(http.try_into()?),
-            ProtoProtocol::Ws(ws) => ProtoMessage::WebSocket(ws.try_into()?),
+            ProtobufProtocol::Http(http) => ProtoMessage::Http(http.try_into()?),
+            ProtobufProtocol::Ws(ws) => ProtoMessage::WebSocket(ws.try_into()?),
         };
 
         Ok(protocol)
     }
 }
 
-impl From<ProtoMessage> for ProtoProtocol {
+impl From<ProtoMessage> for ProtobufProtocol {
     fn from(protocol: ProtoMessage) -> Self {
         match protocol {
             ProtoMessage::Http(http) => {
-                let proto_http = ProtoHttp::from(http);
-                ProtoProtocol::Http(proto_http)
+                let proto_http = ProtobufHttp::from(http);
+                ProtobufProtocol::Http(proto_http)
             }
             ProtoMessage::WebSocket(ws) => {
-                let proto_ws = ProtoWebSocket::from(ws);
+                let proto_ws = ProtobufWebSocket::from(ws);
 
-                ProtoProtocol::Ws(proto_ws)
+                ProtobufProtocol::Ws(proto_ws)
             }
         }
     }
@@ -169,24 +210,36 @@ impl Http {
             http_msg,
         }
     }
+
+    pub(crate) fn bad_gateway(request_id: Id) -> Self {
+        Self {
+            request_id,
+            http_msg: HttpMessage::Response(HttpResponse {
+                status_code: http::StatusCode::BAD_GATEWAY,
+                headers: http::HeaderMap::new(),
+                body: Vec::new(),
+            }),
+        }
+    }
 }
 
-impl TryFrom<ProtoHttp> for Http {
+impl TryFrom<ProtobufHttp> for Http {
     type Error = ProtocolError;
 
-    fn try_from(value: ProtoHttp) -> Result<Self, Self::Error> {
-        let ProtoHttp {
+    fn try_from(value: ProtobufHttp) -> Result<Self, Self::Error> {
+        let ProtobufHttp {
             request_id,
             message,
         } = value;
 
+        // check also request_id emptiness
         let request_id = request_id.try_into()?;
 
         message
             .ok_or(ProtocolError::Empty)
             .and_then(|msg| match msg {
-                ProtoHttpMessage::Request(req) => req.try_into().map(HttpMessage::Request),
-                ProtoHttpMessage::Response(res) => res.try_into().map(HttpMessage::Response),
+                ProtobufHttpMessage::Request(req) => req.try_into().map(HttpMessage::Request),
+                ProtobufHttpMessage::Response(res) => res.try_into().map(HttpMessage::Response),
             })
             .map(|http_msg: HttpMessage| Http {
                 request_id,
@@ -195,16 +248,16 @@ impl TryFrom<ProtoHttp> for Http {
     }
 }
 
-impl From<Http> for ProtoHttp {
+impl From<Http> for ProtobufHttp {
     fn from(value: Http) -> Self {
         let message = match value.http_msg {
             HttpMessage::Request(req) => {
-                let proto_req = ProtoHttpRequest::from(req);
-                ProtoHttpMessage::Request(proto_req)
+                let proto_req = ProtobufHttpRequest::from(req);
+                ProtobufHttpMessage::Request(proto_req)
             }
             HttpMessage::Response(res) => {
-                let proto_res = ProtoHttpResponse::from(res);
-                ProtoHttpMessage::Response(proto_res)
+                let proto_res = ProtobufHttpResponse::from(res);
+                ProtobufHttpMessage::Response(proto_res)
             }
         };
 
@@ -222,16 +275,42 @@ pub(crate) enum HttpMessage {
     Response(HttpResponse),
 }
 
+impl HttpMessage {
+    pub(crate) fn into_req(self) -> Option<HttpRequest> {
+        match self {
+            HttpMessage::Request(req) => Some(req),
+            HttpMessage::Response(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn into_res(self) -> Option<HttpResponse> {
+        match self {
+            HttpMessage::Request(_) => None,
+            HttpMessage::Response(res) => Some(res),
+        }
+    }
+}
+
+fn check_ws_upgrade_headers(headers: &http::HeaderMap) -> bool {
+    static WEBSOCKET_UPGRADE: http::HeaderValue = http::HeaderValue::from_static("websocket");
+
+    headers
+        .get_all(http::header::UPGRADE)
+        .iter()
+        .any(|v| v == WEBSOCKET_UPGRADE)
+}
+
 /// HTTP request fields.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct HttpRequest {
-    path: String,
-    query_string: String,
-    method: http::Method,
-    headers: http::HeaderMap,
-    body: Vec<u8>,
+    pub(crate) method: http::Method,
+    pub(crate) path: String,
+    pub(crate) query_string: String,
+    pub(crate) headers: http::HeaderMap,
+    pub(crate) body: Vec<u8>,
     /// Port on the device to which the request will be sent.
-    port: u16,
+    pub(crate) port: u16,
 }
 
 impl HttpRequest {
@@ -251,12 +330,60 @@ impl HttpRequest {
 
         Ok(http_builder)
     }
+
+    /// Check if the HTTP request contains an "Upgrade" header.
+    pub(crate) fn is_ws_upgrade(&self) -> bool {
+        check_ws_upgrade_headers(&self.headers)
+    }
+
+    /// Convert an [`HttpRequest`] into an [`http::Request`](http::Request)
+    #[instrument(skip_all)]
+    pub(crate) fn ws_upgrade(mut self) -> Result<http::Request<()>, ProtocolError> {
+        let uri: http::Uri = format!(
+            "ws://localhost:{}/{}?{}",
+            self.port, self.path, self.query_string
+        )
+        .parse()?;
+
+        // remove unsupported WebSocket headers
+        self.remove_unsupported_ws_ext();
+
+        // add method
+        let mut req = http::request::Builder::new().uri(uri).method(self.method);
+
+        // add the headers to the request
+        req.headers_mut()
+            .ok_or(ProtocolError::ReqBuild("getting headers"))?
+            .extend(self.headers);
+
+        // the body of an upgrade request should be empty.
+        if !self.body.is_empty() {
+            warn!(
+                "HTTP upgrade request contains non-empty body, {:?}",
+                self.body
+            );
+        }
+
+        req.body(()).map_err(ProtocolError::from)
+    }
+
+    /// Remove unsupported WebSocket headers.
+    #[instrument(skip_all)]
+    fn remove_unsupported_ws_ext(&mut self) {
+        // TODO: at the moment TTYD permessage-deflate extension is not supported by tungstenite. We should filter the supported ones implemented in tungstenite
+        if let Some(extensions) = self.headers.remove("sec-websocket-extensions") {
+            debug!(
+                "WebSocket extensions removed: {}",
+                String::from_utf8_lossy(extensions.as_bytes())
+            );
+        }
+    }
 }
 
-impl TryFrom<ProtoHttpRequest> for HttpRequest {
+impl TryFrom<ProtobufHttpRequest> for HttpRequest {
     type Error = ProtocolError;
-    fn try_from(value: ProtoHttpRequest) -> Result<Self, Self::Error> {
-        let ProtoHttpRequest {
+    fn try_from(value: ProtobufHttpRequest) -> Result<Self, Self::Error> {
+        let ProtobufHttpRequest {
             path,
             method,
             query_string,
@@ -275,7 +402,7 @@ impl TryFrom<ProtoHttpRequest> for HttpRequest {
     }
 }
 
-impl From<HttpRequest> for ProtoHttpRequest {
+impl From<HttpRequest> for ProtobufHttpRequest {
     fn from(http_req: HttpRequest) -> Self {
         Self {
             path: http_req.path,
@@ -291,35 +418,32 @@ impl From<HttpRequest> for ProtoHttpRequest {
 /// HTTP response fields.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct HttpResponse {
-    status_code: http::StatusCode,
-    headers: http::HeaderMap,
-    body: Vec<u8>,
+    pub(crate) status_code: http::StatusCode,
+    pub(crate) headers: http::HeaderMap,
+    pub(crate) body: Vec<u8>,
 }
 
 impl HttpResponse {
-    /// Create a new HTTP response.
-    pub(crate) fn new(
-        status_code: http::StatusCode,
-        headers: http::HeaderMap,
-        body: Vec<u8>,
-    ) -> Self {
-        Self {
+    /// Create an [`HttpResponse`] message from a [`reqwest`] response.
+    pub(crate) async fn from_reqw_response(
+        http_res: reqwest::Response,
+    ) -> Result<Self, reqwest::Error> {
+        let status_code = http_res.status();
+        let headers = http_res.headers().clone();
+        let body = http_res.bytes().await?.into();
+
+        Ok(Self {
             status_code,
             headers,
             body,
-        }
-    }
-
-    /// Return the status code of the HTTP response.
-    pub(crate) fn status(&self) -> u16 {
-        self.status_code.as_u16()
+        })
     }
 }
 
-impl TryFrom<ProtoHttpResponse> for HttpResponse {
+impl TryFrom<ProtobufHttpResponse> for HttpResponse {
     type Error = ProtocolError;
-    fn try_from(value: ProtoHttpResponse) -> Result<Self, Self::Error> {
-        let ProtoHttpResponse {
+    fn try_from(value: ProtobufHttpResponse) -> Result<Self, Self::Error> {
+        let ProtobufHttpResponse {
             status_code,
             headers,
             body,
@@ -333,7 +457,7 @@ impl TryFrom<ProtoHttpResponse> for HttpResponse {
     }
 }
 
-impl From<HttpResponse> for ProtoHttpResponse {
+impl From<HttpResponse> for ProtobufHttpResponse {
     fn from(http_res: HttpResponse) -> Self {
         Self {
             status_code: http_res.status_code.as_u16().into(),
@@ -343,17 +467,33 @@ impl From<HttpResponse> for ProtoHttpResponse {
     }
 }
 
-/// WebSocket request fields.
-#[derive(Debug, Eq, PartialEq)]
-pub(crate) struct WebSocket {
-    socket_id: Id,
-    message: WebSocketMessage,
-}
-
-impl TryFrom<ProtoWebSocket> for WebSocket {
+impl TryFrom<http::Response<Option<Vec<u8>>>> for HttpResponse {
     type Error = ProtocolError;
 
-    fn try_from(value: ProtoWebSocket) -> Result<Self, Self::Error> {
+    fn try_from(mut value: http::Response<Option<Vec<u8>>>) -> Result<Self, Self::Error> {
+        let status_code = value.status();
+        let headers = value.headers().clone();
+        let body = value.body_mut().take().unwrap_or_default();
+
+        Ok(Self {
+            status_code,
+            headers,
+            body,
+        })
+    }
+}
+
+/// WebSocket message fields.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct WebSocket {
+    pub(crate) socket_id: Id,
+    pub(crate) message: WebSocketMessage,
+}
+
+impl TryFrom<ProtobufWebSocket> for WebSocket {
+    type Error = ProtocolError;
+
+    fn try_from(value: ProtobufWebSocket) -> Result<Self, Self::Error> {
         let proto::WebSocket { socket_id, message } = value;
 
         let Some(msg) = message else {
@@ -361,11 +501,11 @@ impl TryFrom<ProtoWebSocket> for WebSocket {
         };
 
         let message = match msg {
-            ProtoWsMessage::Text(data) => WebSocketMessage::text(data),
-            ProtoWsMessage::Binary(data) => WebSocketMessage::binary(data),
-            ProtoWsMessage::Ping(data) => WebSocketMessage::ping(data),
-            ProtoWsMessage::Pong(data) => WebSocketMessage::pong(data),
-            ProtoWsMessage::Close(close) => WebSocketMessage::close(
+            ProtobufWsMessage::Text(data) => WebSocketMessage::Text(data),
+            ProtobufWsMessage::Binary(data) => WebSocketMessage::Binary(data),
+            ProtobufWsMessage::Ping(data) => WebSocketMessage::Ping(data),
+            ProtobufWsMessage::Pong(data) => WebSocketMessage::Pong(data),
+            ProtobufWsMessage::Close(close) => WebSocketMessage::close(
                 close.code.try_into()?,
                 close.reason.is_empty().not().then_some(close.reason),
             ),
@@ -378,14 +518,14 @@ impl TryFrom<ProtoWebSocket> for WebSocket {
     }
 }
 
-impl From<WebSocket> for ProtoWebSocket {
+impl From<WebSocket> for ProtobufWebSocket {
     fn from(ws: WebSocket) -> Self {
         let ws_message = match ws.message {
-            WebSocketMessage::Text(data) => ProtoWsMessage::Text(data),
-            WebSocketMessage::Binary(data) => ProtoWsMessage::Binary(data),
-            WebSocketMessage::Ping(data) => ProtoWsMessage::Ping(data),
-            WebSocketMessage::Pong(data) => ProtoWsMessage::Pong(data),
-            WebSocketMessage::Close { code, reason } => ProtoWsMessage::Close(ProtoWsClose {
+            WebSocketMessage::Text(data) => ProtobufWsMessage::Text(data),
+            WebSocketMessage::Binary(data) => ProtobufWsMessage::Binary(data),
+            WebSocketMessage::Ping(data) => ProtobufWsMessage::Ping(data),
+            WebSocketMessage::Pong(data) => ProtobufWsMessage::Pong(data),
+            WebSocketMessage::Close { code, reason } => ProtobufWsMessage::Close(ProtobufWsClose {
                 code: code.into(),
                 reason: reason.unwrap_or_default(),
             }),
@@ -409,29 +549,59 @@ pub(crate) enum WebSocketMessage {
 }
 
 impl WebSocketMessage {
-    /// Create a text frame.
-    pub(crate) fn text(data: String) -> Self {
-        Self::Text(data)
-    }
-
-    /// Create a binary frame.
-    pub(crate) fn binary(data: Vec<u8>) -> Self {
-        Self::Binary(data)
-    }
-
-    /// Create a ping frame.
-    pub(crate) fn ping(data: Vec<u8>) -> Self {
-        Self::Ping(data)
-    }
-
-    /// Create a pong frame.
-    pub(crate) fn pong(data: Vec<u8>) -> Self {
-        Self::Pong(data)
-    }
-
     /// Create a close frame.
     pub(crate) fn close(code: u16, reason: Option<String>) -> Self {
         Self::Close { code, reason }
+    }
+}
+
+impl TryFrom<TungMessage> for WebSocketMessage {
+    type Error = ProtocolError;
+
+    fn try_from(tung_msg: TungMessage) -> Result<Self, Self::Error> {
+        let msg = match tung_msg {
+            TungMessage::Text(data) => WebSocketMessage::Text(data),
+            TungMessage::Binary(data) => WebSocketMessage::Binary(data),
+            TungMessage::Ping(data) => WebSocketMessage::Ping(data),
+            TungMessage::Pong(data) => WebSocketMessage::Pong(data),
+            TungMessage::Close(data) => {
+                // instead of returning an error, here i build a default close frame in case no frame is passed
+                let (code, reason) = match data {
+                    Some(close_frame) => {
+                        let code = close_frame.code.into();
+                        let reason =
+                            Some(close_frame.reason.into_owned()).filter(|s| !s.is_empty());
+                        (code, reason)
+                    }
+                    None => (1000, None),
+                };
+
+                WebSocketMessage::close(code, reason)
+            }
+            TungMessage::Frame(_) => {
+                error!("this kind of message should not be sent");
+                return Err(ProtocolError::WrongWsFrame);
+            }
+        };
+
+        Ok(msg)
+    }
+}
+
+impl From<WebSocketMessage> for TungMessage {
+    fn from(value: WebSocketMessage) -> Self {
+        match value {
+            WebSocketMessage::Text(data) => Self::Text(data),
+            WebSocketMessage::Binary(data) => Self::Binary(data),
+            WebSocketMessage::Ping(data) => Self::Ping(data),
+            WebSocketMessage::Pong(data) => Self::Pong(data),
+            WebSocketMessage::Close { code, reason } => {
+                Self::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    code: code.into(),
+                    reason: Cow::Owned(reason.unwrap_or_default()),
+                }))
+            }
+        }
     }
 }
 
@@ -454,6 +624,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     fn http_message_req() -> HttpMessage {
         HttpMessage::Request(HttpRequest {
@@ -473,10 +644,10 @@ mod tests {
         }
     }
 
-    fn empty_protobuf_http(id: &[u8]) -> ProtoHttp {
-        ProtoHttp {
+    fn empty_protobuf_http(id: &[u8]) -> ProtobufHttp {
+        ProtobufHttp {
             request_id: id.to_vec(),
-            message: Some(ProtoHttpMessage::Request(ProtoHttpRequest {
+            message: Some(ProtobufHttpMessage::Request(ProtobufHttpRequest {
                 body: Vec::new(),
                 headers: HashMap::new(),
                 query_string: String::new(),
@@ -487,11 +658,58 @@ mod tests {
         }
     }
 
-    fn empty_protobuf_ws(id: &[u8]) -> ProtoWebSocket {
-        ProtoWebSocket {
+    fn empty_protobuf_ws(id: &[u8]) -> ProtobufWebSocket {
+        ProtobufWebSocket {
             socket_id: id.to_vec(),
-            message: Some(ProtoWsMessage::Binary(b"test_data".to_vec())),
+            message: Some(ProtobufWsMessage::Binary(b"test_data".to_vec())),
         }
+    }
+
+    fn upgrade_req(body: Vec<u8>) -> HttpRequest {
+        let headers = headermap_http_upgrade();
+
+        HttpRequest {
+            method: http::Method::GET,
+            path: String::new(),
+            query_string: String::new(),
+            headers,
+            body,
+            port: 0,
+        }
+    }
+
+    fn headermap_http_upgrade() -> http::HeaderMap {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::HOST,
+            "localhost:1234".to_string().parse().unwrap(),
+        );
+        headers.insert(
+            http::header::CONNECTION,
+            "keep-alive, Upgrade".to_string().parse().unwrap(),
+        );
+        headers.insert(
+            http::header::UPGRADE,
+            "websocket".to_string().parse().unwrap(),
+        );
+        headers.insert(
+            http::header::SEC_WEBSOCKET_VERSION,
+            "13".to_string().parse().unwrap(),
+        );
+        headers.insert(
+            http::header::SEC_WEBSOCKET_PROTOCOL,
+            "tty".to_string().parse().unwrap(),
+        );
+        headers.insert(
+            http::header::SEC_WEBSOCKET_EXTENSIONS,
+            "permessage-deflate".to_string().parse().unwrap(),
+        );
+        headers.insert(
+            http::header::SEC_WEBSOCKET_KEY,
+            "KZFI7tLjyq4dy8TqCPDRzA==".to_string().parse().unwrap(),
+        );
+
+        headers
     }
 
     #[test]
@@ -518,10 +736,24 @@ mod tests {
     }
 
     #[test]
+    fn test_into_http() {
+        let proto_msg = ProtoMessage::Http(empty_http(b"test_id"));
+
+        assert!(proto_msg.into_http().is_some());
+
+        let proto_msg = ProtoMessage::WebSocket(WebSocket {
+            socket_id: Id::try_from(b"test_id".to_vec()).unwrap(),
+            message: WebSocketMessage::Binary(b"test_data".to_vec()),
+        });
+
+        assert!(proto_msg.into_http().is_none());
+    }
+
+    #[test]
     fn test_from_protobuf_protocol() {
         // test WebSocket match case
         let id = b"test_id".to_vec();
-        let proto = ProtoProtocol::Ws(empty_protobuf_ws(&id));
+        let proto = ProtobufProtocol::Ws(empty_protobuf_ws(&id));
         let res = ProtoMessage::try_from(proto).unwrap();
 
         let exp = ProtoMessage::WebSocket(WebSocket {
@@ -535,9 +767,9 @@ mod tests {
     #[test]
     fn test_try_from_protobuf_http() {
         // test response ok
-        let protobuf_msg = ProtoHttp {
+        let protobuf_msg = ProtobufHttp {
             request_id: b"test_id".to_vec(),
-            message: Some(ProtoHttpMessage::Response(ProtoHttpResponse {
+            message: Some(ProtobufHttpMessage::Response(ProtobufHttpResponse {
                 body: Vec::new(),
                 headers: HashMap::new(),
                 status_code: 200,
@@ -547,7 +779,7 @@ mod tests {
         assert!(Http::try_from(protobuf_msg).is_ok());
 
         // test missing message
-        let protobuf_msg = ProtoHttp {
+        let protobuf_msg = ProtobufHttp {
             request_id: b"test_id".to_vec(),
             message: None,
         };
@@ -564,7 +796,29 @@ mod tests {
 
         let expected = empty_protobuf_http(b"test_id");
 
-        assert_eq!(ProtoHttp::from(msg), expected);
+        assert_eq!(ProtobufHttp::from(msg), expected);
+    }
+
+    #[test]
+    fn test_into_req_res() {
+        let http_res = HttpMessage::Response(HttpResponse {
+            headers: http::HeaderMap::new(),
+            body: Vec::new(),
+            status_code: http::StatusCode::from_u16(200).unwrap(),
+        });
+
+        assert!(http_res.into_req().is_none());
+
+        let http_req = http_message_req();
+
+        assert!(http_req.into_res().is_none());
+    }
+
+    #[test]
+    fn test_ws_upgrade() {
+        let http_req = upgrade_req(b"body".to_vec());
+
+        assert!(http_req.ws_upgrade().is_ok());
     }
 
     #[test]
@@ -575,13 +829,13 @@ mod tests {
             body: Vec::new(),
         };
 
-        assert_eq!(200, http_res.status());
+        assert_eq!(200, http_res.status_code.as_u16());
     }
 
     #[test]
     fn test_try_from_protobuf_websocket() {
         // empty ws message
-        let protobuf_msg = ProtoWebSocket {
+        let protobuf_msg = ProtobufWebSocket {
             socket_id: b"test_id".to_vec(),
             message: None,
         };
@@ -592,9 +846,9 @@ mod tests {
         ));
 
         // empty ID message
-        let protobuf_msg = ProtoWebSocket {
+        let protobuf_msg = ProtobufWebSocket {
             socket_id: Vec::new(),
-            message: Some(ProtoWsMessage::Binary(Vec::new())),
+            message: Some(ProtobufWsMessage::Binary(Vec::new())),
         };
 
         assert!(matches!(
@@ -605,23 +859,23 @@ mod tests {
         // check all variants
         let protobuf_msgs = [
             (
-                ProtoWsMessage::Text(String::new()),
+                ProtobufWsMessage::Text(String::new()),
                 WebSocketMessage::Text(String::new()),
             ),
             (
-                ProtoWsMessage::Binary(Vec::new()),
+                ProtobufWsMessage::Binary(Vec::new()),
                 WebSocketMessage::Binary(Vec::new()),
             ),
             (
-                ProtoWsMessage::Ping(Vec::new()),
+                ProtobufWsMessage::Ping(Vec::new()),
                 WebSocketMessage::Ping(Vec::new()),
             ),
             (
-                ProtoWsMessage::Pong(Vec::new()),
+                ProtobufWsMessage::Pong(Vec::new()),
                 WebSocketMessage::Pong(Vec::new()),
             ),
             (
-                ProtoWsMessage::Close(ProtoWsClose {
+                ProtobufWsMessage::Close(ProtobufWsClose {
                     code: 1000,
                     reason: String::new(),
                 }),
@@ -633,7 +887,7 @@ mod tests {
         ]
         .map(|(case, exp)| {
             (
-                ProtoWebSocket {
+                ProtobufWebSocket {
                     socket_id: b"test_id".to_vec(),
                     message: Some(case),
                 },
@@ -655,26 +909,26 @@ mod tests {
         let proto_msgs = [
             (
                 WebSocketMessage::Text(String::new()),
-                ProtoWsMessage::Text(String::new()),
+                ProtobufWsMessage::Text(String::new()),
             ),
             (
                 WebSocketMessage::Binary(Vec::new()),
-                ProtoWsMessage::Binary(Vec::new()),
+                ProtobufWsMessage::Binary(Vec::new()),
             ),
             (
                 WebSocketMessage::Ping(Vec::new()),
-                ProtoWsMessage::Ping(Vec::new()),
+                ProtobufWsMessage::Ping(Vec::new()),
             ),
             (
                 WebSocketMessage::Pong(Vec::new()),
-                ProtoWsMessage::Pong(Vec::new()),
+                ProtobufWsMessage::Pong(Vec::new()),
             ),
             (
                 WebSocketMessage::Close {
                     code: 1000,
                     reason: None,
                 },
-                ProtoWsMessage::Close(ProtoWsClose {
+                ProtobufWsMessage::Close(ProtobufWsClose {
                     code: 1000,
                     reason: String::new(),
                 }),
@@ -686,7 +940,7 @@ mod tests {
                     socket_id: Id::try_from(b"test_id".to_vec()).unwrap(),
                     message: case,
                 },
-                ProtoWebSocket {
+                ProtobufWebSocket {
                     socket_id: b"test_id".to_vec(),
                     message: Some(exp),
                 },
@@ -694,7 +948,95 @@ mod tests {
         });
 
         for (case, exp) in proto_msgs {
-            assert_eq!(ProtoWebSocket::from(case), exp);
+            assert_eq!(ProtobufWebSocket::from(case), exp);
+        }
+    }
+
+    #[test]
+    fn test_try_from_websocket_message() {
+        // check ok variants
+        let tung_msgs = [
+            (
+                TungMessage::Text(String::new()),
+                WebSocketMessage::Text(String::new()),
+            ),
+            (
+                TungMessage::Binary(Vec::new()),
+                WebSocketMessage::Binary(Vec::new()),
+            ),
+            (
+                TungMessage::Ping(Vec::new()),
+                WebSocketMessage::Ping(Vec::new()),
+            ),
+            (
+                TungMessage::Pong(Vec::new()),
+                WebSocketMessage::Pong(Vec::new()),
+            ),
+            (
+                TungMessage::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    code: CloseCode::Normal,
+                    reason: Cow::Owned(String::new()),
+                })),
+                WebSocketMessage::Close {
+                    code: 1000,
+                    reason: None,
+                },
+            ),
+            (
+                TungMessage::Close(None),
+                WebSocketMessage::Close {
+                    code: 1000,
+                    reason: None,
+                },
+            ),
+        ];
+
+        for (case, exp) in tung_msgs {
+            assert_eq!(WebSocketMessage::try_from(case).unwrap(), exp);
+        }
+
+        // check orr variants
+        let case = TungMessage::Frame(
+            tokio_tungstenite::tungstenite::protocol::frame::Frame::ping(b"test_frame".to_vec()),
+        );
+
+        assert!(WebSocketMessage::try_from(case).is_err());
+    }
+
+    #[test]
+    fn test_from_websocket_message() {
+        // check all variants
+        let tung_msgs = [
+            (
+                WebSocketMessage::Text(String::new()),
+                TungMessage::Text(String::new()),
+            ),
+            (
+                WebSocketMessage::Binary(Vec::new()),
+                TungMessage::Binary(Vec::new()),
+            ),
+            (
+                WebSocketMessage::Ping(Vec::new()),
+                TungMessage::Ping(Vec::new()),
+            ),
+            (
+                WebSocketMessage::Pong(Vec::new()),
+                TungMessage::Pong(Vec::new()),
+            ),
+            (
+                WebSocketMessage::Close {
+                    code: 1000,
+                    reason: Some("test_reason".to_string()),
+                },
+                TungMessage::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                    code: CloseCode::Normal,
+                    reason: Cow::Owned("test_reason".to_string()),
+                })),
+            ),
+        ];
+
+        for (case, exp) in tung_msgs {
+            assert_eq!(TungMessage::from(case), exp);
         }
     }
 }
