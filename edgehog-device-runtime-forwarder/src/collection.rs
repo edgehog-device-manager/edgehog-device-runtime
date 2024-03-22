@@ -1,14 +1,14 @@
 // Copyright 2024 SECO Mind Srl
 // SPDX-License-Identifier: Apache-2.0
 
-//! Connections' collection and respective methods.
+//! Collection of connections and respective methods.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 
 use crate::connection::{Connection, ConnectionHandle};
 use crate::connections_manager::Error;
@@ -52,15 +52,15 @@ impl Connections {
         } = http;
 
         // the HTTP message can't be an http response
-        let http_req = http_msg.into_req().ok_or_else(|| {
+        let Some(http_req) = http_msg.into_req() else {
             error!("Http response should not be sent by Edgehog");
-            Error::WrongMessage(request_id.clone())
-        })?;
+            return Err(Error::WrongMessage(request_id));
+        };
 
         // before executing the HTTP request, check if it is an Upgrade request.
         // if so, handle it properly.
         if http_req.is_ws_upgrade() {
-            info!("Connection upgrade");
+            debug!("Upgrade the HTTP connection to WS");
             return self.add_ws(request_id, http_req);
         }
 

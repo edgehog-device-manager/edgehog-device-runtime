@@ -30,7 +30,8 @@ async fn test_internal_ws() {
         "ws://localhost:{}/remote-terminal?session=abcd",
         test_connections.mock_server.port().unwrap()
     );
-    let http_req = create_http_upgrade_req(request_id.clone(), &url);
+    let http_req = create_http_upgrade_req(request_id.clone(), &url)
+        .expect("failed to create http upgrade request");
 
     let protobuf_res = send_ws_and_wait_next(&mut ws_bridge, http_req).await;
 

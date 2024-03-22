@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use clap::Parser;
+use edgehog_forwarder::test_utils::con_manager;
 use tokio::task::JoinSet;
 use tracing::info;
 
@@ -23,7 +24,8 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
-    use edgehog_forwarder::test_utils::con_manager;
+    env_logger::init();
+
     let Cli {
         host,
         port,

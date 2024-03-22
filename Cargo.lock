@@ -1110,6 +1110,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "edgehog-device-runtime-forwarder",
+ "env_logger",
  "tokio",
  "tracing",
 ]
@@ -1215,7 +1216,6 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "url",
- "uuid",
 ]
 
 [[package]]

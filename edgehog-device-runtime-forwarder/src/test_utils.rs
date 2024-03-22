@@ -20,7 +20,7 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 use tokio_tungstenite::WebSocketStream;
 use tracing::{debug, instrument, warn};
-use url::Url;
+use url::{ParseError, Url};
 
 /// Build a listener on a free port.
 pub async fn bind_port() -> (TcpListener, u16) {
@@ -73,9 +73,9 @@ pub fn create_http_req(request_id: Vec<u8>, url: &str, body: Vec<u8>) -> TungMes
 }
 
 /// Create an HTTP upgrade request and wrap it into a [`tungstenite`](tokio_tungstenite::tungstenite) message.
-pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> TungMessage {
-    let url = Url::parse(url).expect("failed to pars Url");
-    let port = url.port().expect("nonexistent port").into();
+pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> Result<TungMessage, ParseError> {
+    let url = Url::parse(url)?;
+    let port = url.port().ok_or(ParseError::InvalidPort)?.into();
 
     let mut headers = HashMap::new();
     headers.insert("Host".to_string(), format!("localhost:{port}"));
@@ -107,9 +107,9 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> TungMessage {
     };
 
     let mut buf = Vec::with_capacity(proto_msg.encoded_len());
-    proto_msg.encode(&mut buf).unwrap();
+    proto_msg.encode(&mut buf).expect("not enough capacity");
 
-    TungMessage::Binary(buf)
+    Ok(TungMessage::Binary(buf))
 }
 
 /// Check if the protobuf message contains an HTTP response upgrade
