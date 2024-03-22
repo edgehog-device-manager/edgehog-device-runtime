@@ -16,21 +16,27 @@ struct Cli {
     /// Session token
     #[arg(short, long)]
     token: String,
+    /// Secure the connection using WSS
+    #[arg(short, long, default_value_t = false)]
+    secure: bool,
 }
 
 #[tokio::main]
 async fn main() {
     use edgehog_forwarder::test_utils::con_manager;
-    let Cli { host, port, token } = Cli::parse();
+    let Cli {
+        host,
+        port,
+        token,
+        secure,
+    } = Cli::parse();
 
-    let url = format!("ws://{host}:{port}/device/websocket?session={token}");
+    let url = format!(
+        "{}://{host}:{port}/device/websocket?session={token}",
+        if secure { "wss" } else { "ws" }
+    );
     let mut js = JoinSet::new();
 
-    js.spawn(con_manager(
-        "ws://kaiki.local:4000/device/websocket?session=abcd".to_string(),
-        false,
-    ));
-    let secure = false;
     js.spawn(con_manager(url, secure));
 
     while let Some(res) = js.join_next().await {
