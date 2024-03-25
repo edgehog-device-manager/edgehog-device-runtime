@@ -31,6 +31,7 @@ The following information are sent to remote Edgehog instance:
 - Network interface info
 - Base image (data is read from `/etc/os-release`)
 - Battery status data
+- Remote Terminal
 
 ## How it Works
 

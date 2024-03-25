@@ -1141,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "astarte-device-sdk",
  "astarte-message-hub-proto",
