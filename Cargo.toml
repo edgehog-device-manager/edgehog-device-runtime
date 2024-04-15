@@ -74,7 +74,7 @@ e2e_test = []
 [workspace.dependencies]
 astarte-device-sdk = "0.7.2"
 astarte-message-hub-proto = "0.6.1"
-async-trait = "0.1.77"
+async-trait = "0.1.80"
 backoff = "0.4.0"
 base64 = "0.22.0"
 bollard = "0.16.0"
