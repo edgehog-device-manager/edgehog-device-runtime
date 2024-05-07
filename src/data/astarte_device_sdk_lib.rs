@@ -21,18 +21,13 @@
 use std::path::Path;
 
 use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::store::StoredProp;
-use astarte_device_sdk::transport::mqtt::{registration, Mqtt, MqttConfig};
-use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{error::Error as AstarteError, AstarteDeviceDataEvent, AstarteDeviceSdk};
-use astarte_device_sdk::{prelude::*, EventReceiver};
-use async_trait::async_trait;
-use log::error;
+use astarte_device_sdk::transport::mqtt::{Credential, MqttConfig};
+use astarte_device_sdk::{error::Error as AstarteError, DeviceClient};
 use serde::Deserialize;
 use tokio::task::JoinHandle;
 
-use crate::data::{Publisher, Subscriber};
 use crate::device::DeviceProxy;
 use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
@@ -53,7 +48,7 @@ pub enum DeviceSdkError {
     /// couldn't get credential secret or pairing token
     MissingCredentialSecret,
     /// couldn't add interfaces directory
-    Interfaces(#[source] astarte_device_sdk::builder::BuilderError),
+    Interfaces(#[source] astarte_device_sdk::introspection::AddInterfaceError),
     /// couldn't connect to Astarte
     Connect(#[source] astarte_device_sdk::Error),
 }
@@ -84,11 +79,11 @@ impl AstarteDeviceSdkConfigOptions {
         &self,
         device_id: &str,
         store_directory: impl AsRef<Path>,
-    ) -> Result<String, DeviceSdkError> {
+    ) -> Result<Credential, DeviceSdkError> {
         let cred = self.credentials_secret.as_ref().filter(|id| !id.is_empty());
 
         if let Some(secret) = cred {
-            return Ok(secret.clone());
+            return Ok(Credential::secret(secret));
         }
 
         let registry = FileStateRepository::new(
@@ -97,31 +92,18 @@ impl AstarteDeviceSdkConfigOptions {
         );
 
         if StateRepository::<String>::exists(&registry).await {
-            return registry.read().await.map_err(DeviceSdkError::ReadSecret);
+            return registry
+                .read()
+                .await
+                .map_err(DeviceSdkError::ReadSecret)
+                .map(Credential::secret);
         }
 
         if let Some(token) = &self.pairing_token {
-            return self.register_device(device_id, token, registry).await;
+            return Ok(Credential::paring_token(token));
         }
 
         Err(DeviceSdkError::MissingCredentialSecret)
-    }
-
-    async fn register_device(
-        &self,
-        device_id: &str,
-        token: &str,
-        cred_state_repo: impl StateRepository<String, Err = FileStateError>,
-    ) -> Result<String, DeviceSdkError> {
-        let credential_secret =
-            registration::register_device(token, &self.pairing_url, &self.realm, device_id).await?;
-
-        cred_state_repo
-            .write(&credential_secret)
-            .await
-            .map_err(DeviceSdkError::WriteSecret)?;
-
-        Ok(credential_secret)
     }
 
     pub async fn connect<P>(
@@ -129,7 +111,13 @@ impl AstarteDeviceSdkConfigOptions {
         store: SqliteStore,
         store_dir: P,
         interface_dir: P,
-    ) -> Result<(DeviceSdkPublisher, DeviceSdkSubscriber), DeviceSdkError>
+    ) -> Result<
+        (
+            DeviceClient<SqliteStore>,
+            JoinHandle<Result<(), AstarteError>>,
+        ),
+        DeviceSdkError,
+    >
     where
         P: AsRef<Path>,
     {
@@ -140,7 +128,7 @@ impl AstarteDeviceSdkConfigOptions {
         let mut mqtt_cfg = MqttConfig::new(
             &self.realm,
             &device_id,
-            &credentials_secret,
+            credentials_secret,
             &self.pairing_url,
         );
 
@@ -148,7 +136,7 @@ impl AstarteDeviceSdkConfigOptions {
             mqtt_cfg.ignore_ssl_errors();
         }
 
-        let (device, rx) = DeviceBuilder::new()
+        let (device, mut connection) = DeviceBuilder::new()
             .store(store)
             .interface_directory(interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
@@ -157,13 +145,9 @@ impl AstarteDeviceSdkConfigOptions {
             .map_err(DeviceSdkError::Connect)?
             .build();
 
-        let mut device_cl = device.clone();
-        let handle = tokio::spawn(async move { device_cl.handle_events().await });
+        let handle = tokio::spawn(async move { connection.handle_events().await });
 
-        Ok((
-            DeviceSdkPublisher(device),
-            DeviceSdkSubscriber { rx, handle },
-        ))
+        Ok((device, handle))
     }
 }
 
@@ -179,80 +163,11 @@ pub async fn hardware_id_from_dbus() -> Result<Option<String>, DeviceSdkError> {
     Ok(Some(hardware_id))
 }
 
-/// Sender for the Astarte SDK
-#[derive(Debug, Clone)]
-pub struct DeviceSdkPublisher(AstarteDeviceSdk<SqliteStore, Mqtt>);
-
-#[async_trait]
-impl Publisher for DeviceSdkPublisher {
-    async fn send_object<T: 'static>(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: T,
-    ) -> Result<(), AstarteError>
-    where
-        T: AstarteAggregate + Send,
-    {
-        self.0
-            .send_object(interface_name, interface_path, data)
-            .await
-    }
-
-    async fn send(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: AstarteType,
-    ) -> Result<(), AstarteError> {
-        self.0.send(interface_name, interface_path, data).await
-    }
-
-    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError> {
-        self.0.interface_props(interface).await
-    }
-
-    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError> {
-        self.0.unset(interface_name, interface_path).await
-    }
-}
-
-/// Receiver for the Astarte SDK
-#[derive(Debug)]
-pub struct DeviceSdkSubscriber {
-    handle: JoinHandle<Result<(), AstarteError>>,
-    rx: EventReceiver,
-}
-
-#[async_trait]
-impl Subscriber for DeviceSdkSubscriber {
-    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>> {
-        self.rx.recv().await
-    }
-
-    async fn exit(self) -> Result<(), AstarteError> {
-        self.handle.abort();
-
-        match self.handle.await {
-            Ok(res) => res,
-            Err(err) if err.is_cancelled() => Ok(()),
-            Err(err) => {
-                error!("failed to join task {err}");
-
-                Ok(())
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use astarte_device_sdk::transport::mqtt::PairingError;
     use tempdir::TempDir;
-
-    use crate::repository::MockStateRepository;
 
     #[tokio::test]
     async fn device_id_test() {
@@ -285,7 +200,7 @@ mod tests {
 
         let secret = options.credentials_secret("device_id", path).await.unwrap();
 
-        assert_eq!(secret, "credentials_secret");
+        assert_eq!(secret, Credential::secret("credentials_secret"));
     }
 
     #[tokio::test]
@@ -357,28 +272,6 @@ mod tests {
 
         let secret = options.credentials_secret(device_id, path).await.unwrap();
 
-        assert_eq!(secret, exp);
-    }
-
-    #[tokio::test]
-    async fn get_credentials_secret_from_registration_fail() {
-        let device_id = "device_id";
-        let token = "token";
-        let options = AstarteDeviceSdkConfigOptions {
-            realm: String::new(),
-            device_id: Some(device_id.to_owned()),
-            credentials_secret: Some("credentials_secret".to_string()),
-            pairing_url: String::new(),
-            pairing_token: Some(token.to_string()),
-            ignore_ssl: false,
-        };
-
-        let state_mock = MockStateRepository::<String>::new();
-        let cred_result = options.register_device(device_id, token, state_mock).await;
-
-        assert!(matches!(
-            cred_result,
-            Err(DeviceSdkError::Pairing(PairingError::InvalidUrl(_)))
-        ));
+        assert_eq!(secret, Credential::secret(exp));
     }
 }

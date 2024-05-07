@@ -80,26 +80,20 @@ async fn main() -> Result<(), DeviceManagerError> {
 
     let store = connect_store(&options.store_directory).await?;
 
-    match &options.astarte_library {
+    let (pub_sub, handle) = match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSDK => {
             let astarte_sdk_options = options
                 .astarte_device_sdk
                 .as_ref()
                 .expect("couldn't find astarte options");
-            let (publisher, subscriber) = astarte_sdk_options
+
+            astarte_sdk_options
                 .connect(
                     store,
                     &options.store_directory,
                     &options.interfaces_directory,
                 )
-                .await?;
-
-            let dm =
-                edgehog_device_runtime::DeviceManager::new(options, publisher, subscriber).await?;
-
-            dm.init().await?;
-
-            dm.run().await?;
+                .await?
         }
         #[cfg(feature = "message-hub")]
         AstarteLibrary::AstarteMessageHub => {
@@ -108,18 +102,17 @@ async fn main() -> Result<(), DeviceManagerError> {
                 .as_ref()
                 .expect("Unable to find MessageHub options");
 
-            let (publisher, subscriber) = astarte_message_hub_options
+            astarte_message_hub_options
                 .connect(store, &options.interfaces_directory)
-                .await?;
-
-            let dm =
-                edgehog_device_runtime::DeviceManager::new(options, publisher, subscriber).await?;
-
-            dm.init().await?;
-
-            dm.run().await?;
+                .await?
         }
     };
+
+    let dm = edgehog_device_runtime::DeviceManager::new(options, pub_sub, handle).await?;
+
+    dm.init().await?;
+
+    dm.run().await?;
 
     Ok(())
 }

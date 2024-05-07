@@ -31,6 +31,7 @@ rust-version = "1.72.0"
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
+astarte-message-hub-proto = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -73,7 +74,7 @@ forwarder = ["dep:edgehog-forwarder"]
 e2e_test = []
 
 [workspace.dependencies]
-astarte-device-sdk = "0.7.4"
+astarte-device-sdk = "0.8.2"
 astarte-message-hub-proto = "0.6.2"
 async-trait = "0.1.77"
 backoff = "0.4.0"
