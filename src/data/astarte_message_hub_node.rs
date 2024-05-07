@@ -21,25 +21,16 @@
 //! Contains the implementation for the Astarte message hub node.
 
 use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::store::StoredProp;
-use astarte_device_sdk::transport::grpc::Grpc;
-use astarte_device_sdk::transport::grpc::GrpcConfig;
-use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::AstarteDeviceDataEvent;
-use astarte_device_sdk::AstarteDeviceSdk;
+use astarte_device_sdk::transport::grpc::{GrpcConfig, GrpcError};
+use astarte_device_sdk::DeviceClient;
 use astarte_device_sdk::Error as AstarteError;
-use astarte_device_sdk::EventReceiver;
-use async_trait::async_trait;
-use log::error;
 use serde::Deserialize;
 use std::path::Path;
 use tokio::task::JoinHandle;
-use uuid::uuid;
-use uuid::Uuid;
-
-use crate::data::{Publisher, Subscriber};
+use uuid::{uuid, Uuid};
 
 /// Device runtime node identifier.
 const DEVICE_RUNTIME_NODE_UUID: Uuid = uuid!("d72a6187-7cf1-44cc-87e8-e991936166db");
@@ -50,9 +41,11 @@ pub enum MessageHubError {
     /// missing configuration for the Astarte Message Hub
     MissingConfig,
     /// couldn't add interfaces directory
-    Interfaces(#[source] astarte_device_sdk::builder::BuilderError),
+    Interfaces(#[source] AddInterfaceError),
     /// couldn't connect to Astarte
     Connect(#[source] astarte_device_sdk::Error),
+    /// Invalid endpoint
+    Endpoint(#[source] GrpcError),
 }
 
 /// Struct containing the configuration options for the Astarte message hub.
@@ -67,13 +60,20 @@ impl AstarteMessageHubOptions {
         &self,
         store: SqliteStore,
         interface_dir: P,
-    ) -> Result<(MessageHubPublisher, MessageHubSubscriber), MessageHubError>
+    ) -> Result<
+        (
+            DeviceClient<SqliteStore>,
+            JoinHandle<Result<(), AstarteError>>,
+        ),
+        MessageHubError,
+    >
     where
         P: AsRef<Path>,
     {
-        let grpc_cfg = GrpcConfig::new(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone());
+        let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone())
+            .map_err(MessageHubError::Endpoint)?;
 
-        let (device, rx) = DeviceBuilder::new()
+        let (device, mut connection) = DeviceBuilder::new()
             .store(store)
             .interface_directory(interface_dir)
             .map_err(MessageHubError::Interfaces)?
@@ -82,79 +82,9 @@ impl AstarteMessageHubOptions {
             .map_err(MessageHubError::Connect)?
             .build();
 
-        let mut device_cl = device.clone();
-        let handle = tokio::spawn(async move { device_cl.handle_events().await });
+        let handle = tokio::spawn(async move { connection.handle_events().await });
 
-        Ok((
-            MessageHubPublisher(device),
-            MessageHubSubscriber { rx, handle },
-        ))
-    }
-}
-
-/// Sender for the MessageHub
-#[derive(Debug, Clone)]
-pub struct MessageHubPublisher(AstarteDeviceSdk<SqliteStore, Grpc>);
-
-#[async_trait]
-impl Publisher for MessageHubPublisher {
-    async fn send_object<T: 'static>(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: T,
-    ) -> Result<(), AstarteError>
-    where
-        T: AstarteAggregate + Send,
-    {
-        self.0
-            .send_object(interface_name, interface_path, data)
-            .await
-    }
-
-    async fn send(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: AstarteType,
-    ) -> Result<(), AstarteError> {
-        self.0.send(interface_name, interface_path, data).await
-    }
-
-    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError> {
-        self.0.interface_props(interface).await
-    }
-
-    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError> {
-        self.0.unset(interface_name, interface_path).await
-    }
-}
-
-/// Receiver for the Astarte SDK
-#[derive(Debug)]
-pub struct MessageHubSubscriber {
-    handle: JoinHandle<Result<(), AstarteError>>,
-    rx: EventReceiver,
-}
-
-#[async_trait]
-impl Subscriber for MessageHubSubscriber {
-    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>> {
-        self.rx.recv().await
-    }
-
-    async fn exit(self) -> Result<(), AstarteError> {
-        self.handle.abort();
-
-        match self.handle.await {
-            Ok(res) => res,
-            Err(err) if err.is_cancelled() => Ok(()),
-            Err(err) => {
-                error!("failed to join task {err}");
-
-                Ok(())
-            }
-        }
+        Ok((device, handle))
     }
 }
 
@@ -305,14 +235,14 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
-        let (publisher, _subscriber) = AstarteMessageHubOptions {
+        let (pub_sub, _handle) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
         .connect(store, &tmp_store_path)
         .await
         .unwrap();
 
-        let send_result = publisher
+        let send_result = pub_sub
             .send(
                 "test.Individual",
                 "/sValue",
@@ -362,14 +292,14 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
-        let (publisher, _subscriber) = AstarteMessageHubOptions {
+        let (pub_sub, _handle) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
         .connect(store, &tmp_dir)
         .await
         .unwrap();
 
-        let send_result = publisher
+        let send_result = pub_sub
             .send(
                 "test.Individual",
                 "/sValue",
@@ -401,7 +331,7 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
-        let (publisher, _subscriber) = AstarteMessageHubOptions {
+        let (pub_sub, _handle) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
         .connect(store, &tmp_store_path)
@@ -413,7 +343,7 @@ mod tests {
             s_value: String,
         }
 
-        let send_result = publisher
+        let send_result = pub_sub
             .send_object(
                 "test.Object",
                 "/obj",
@@ -463,7 +393,7 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
-        let (publisher, _subscriber) = AstarteMessageHubOptions {
+        let (pub_sub, _handle) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
         .connect(store, &tmp_dir)
@@ -475,7 +405,7 @@ mod tests {
             s_value: String,
         }
 
-        let send_result = publisher
+        let send_result = pub_sub
             .send_object(
                 "test.Object",
                 "/obj",
@@ -535,14 +465,14 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
-        let (_publisher, mut subscriber) = AstarteMessageHubOptions {
+        let (pub_sub, _handle) = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}"),
         }
         .connect(store, &tmp_dir)
         .await
         .unwrap();
 
-        let data_receive_result = subscriber.on_event().await.unwrap();
+        let data_receive_result = pub_sub.recv().await;
 
         drop_sender.send(()).expect("send shutdown");
         server_handle.await.expect("server shutdown");
