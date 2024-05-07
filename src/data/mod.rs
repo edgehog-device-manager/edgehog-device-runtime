@@ -18,10 +18,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::properties::PropAccess;
 use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::store::{SqliteStore, StoredProp};
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, AstarteDeviceDataEvent};
+use astarte_device_sdk::{
+    error::Error as AstarteError, AstarteAggregate, Client, DeviceClient, DeviceEvent,
+};
 use async_trait::async_trait;
 use log::{debug, info};
 use std::path::{Path, PathBuf};
@@ -31,7 +34,7 @@ pub mod astarte_device_sdk_lib;
 pub mod astarte_message_hub_node;
 
 #[async_trait]
-pub trait Publisher: Clone {
+pub trait Publisher {
     async fn send_object<T>(
         &self,
         interface_name: &str,
@@ -53,9 +56,46 @@ pub trait Publisher: Clone {
 
 #[async_trait]
 pub trait Subscriber {
-    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
+    async fn recv(&self) -> Result<DeviceEvent, AstarteError>;
+}
 
-    async fn exit(self) -> Result<(), AstarteError>;
+#[async_trait]
+impl Publisher for DeviceClient<SqliteStore> {
+    async fn send_object<T: 'static>(
+        &self,
+        interface_name: &str,
+        interface_path: &str,
+        data: T,
+    ) -> Result<(), AstarteError>
+    where
+        T: AstarteAggregate + Send,
+    {
+        Client::send_object(self, interface_name, interface_path, data).await
+    }
+
+    async fn send(
+        &self,
+        interface_name: &str,
+        interface_path: &str,
+        data: AstarteType,
+    ) -> Result<(), AstarteError> {
+        Client::send(self, interface_name, interface_path, data).await
+    }
+
+    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError> {
+        PropAccess::interface_props(self, interface).await
+    }
+
+    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError> {
+        Client::unset(self, interface_name, interface_path).await
+    }
+}
+
+#[async_trait]
+impl Subscriber for DeviceClient<SqliteStore> {
+    async fn recv(&self) -> Result<DeviceEvent, AstarteError> {
+        Client::recv(self).await
+    }
 }
 
 /// Store errors
@@ -79,7 +119,7 @@ where
     let store_path = format!("sqlite://{db_path_str}");
 
     debug!("connecting to store {store_path}");
-    let store = SqliteStore::new(&store_path)
+    let store = SqliteStore::from_uri(&store_path)
         .await
         .map_err(StoreError::Connect)?;
 
@@ -95,9 +135,10 @@ pub mod tests {
     use tempdir::TempDir;
 
     mock! {
-        pub Publisher {}
+        pub PubSub {}
+
         #[async_trait]
-        impl Publisher for Publisher {
+        impl Publisher for PubSub {
             async fn send_object<T>(
                 &self,
                 interface_name: &str,
@@ -119,17 +160,14 @@ pub mod tests {
                 interface_path: &str
             ) -> Result<(), AstarteError>;
         }
-        impl Clone for Publisher {
-            fn clone(&self) -> Self;
-        }
-    }
 
-    mock! {
-        pub Subscriber {}
         #[async_trait]
-        impl Subscriber for Subscriber {
-             async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
-             async fn exit(self) -> Result<(), AstarteError>;
+        impl Subscriber for PubSub {
+             async fn recv(&self) -> Result<DeviceEvent, AstarteError>;
+        }
+
+        impl Clone for PubSub {
+            fn clone(&self) -> Self;
         }
     }
 
