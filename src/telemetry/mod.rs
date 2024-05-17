@@ -203,7 +203,7 @@ impl Telemetry {
 
             // TODO: the error should be bubbled up
             if let Err(err) = send_data(&communication_channel, &interface_name).await {
-                error!("coulnd't send telemetry data: {:#?}", err)
+                error!("couldn't send telemetry data: {:#?}", err)
             }
         }
     }
