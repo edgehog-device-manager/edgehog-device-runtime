@@ -37,7 +37,7 @@ udev = "0.6.3"
 wifiscanner = "0.5.*"
 bytes = "1"
 tokio-util = "0.7.8"
-astarte-message-hub = "0.5.2"
+astarte-message-hub = "0.5.4"
 tonic = "=0.8.2"
 
 [dev-dependencies]

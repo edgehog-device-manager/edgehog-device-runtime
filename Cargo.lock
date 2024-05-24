@@ -112,9 +112,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-message-hub"
-version = "0.5.2"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15bf94f54598b70b3a5c1baf08fa25ba739430d81c5a695499e4a4c5d8a723e2"
+checksum = "3c4e7e93b157daa4293a0a990b7ef94843ff34d046f2fe04efc8f5c2e36a417b"
 dependencies = [
  "astarte-device-sdk",
  "async-trait",
