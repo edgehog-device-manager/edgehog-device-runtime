@@ -70,9 +70,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk"
-version = "0.5.1"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "212bcca36dfcacf39f62eed84ea400ff7dd74c18ccdfbf01c0dd039328b46afd"
+checksum = "2f1a283dfbc66664589bac4973e9d57ed8eb9078512b2217f4a6f9ac8a118d71"
 dependencies = [
  "astarte-device-sdk-derive",
  "async-trait",
@@ -92,6 +92,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempdir",
  "thiserror",
  "tokio",
  "url",
@@ -101,9 +102,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-derive"
-version = "0.5.1"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5355b4ecb5e2a4b63e8e447b2a00fed038802d26b6e29b8ddc2ee8e93acc15b"
+checksum = "1bc1b51586bf695f4b675a697b9710c7d41cbdc760c38efd0dff517365e73577"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -111,9 +112,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-message-hub"
-version = "0.5.2"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15bf94f54598b70b3a5c1baf08fa25ba739430d81c5a695499e4a4c5d8a723e2"
+checksum = "3c4e7e93b157daa4293a0a990b7ef94843ff34d046f2fe04efc8f5c2e36a417b"
 dependencies = [
  "astarte-device-sdk",
  "async-trait",
