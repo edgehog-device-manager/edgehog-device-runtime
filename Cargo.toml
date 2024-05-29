@@ -72,8 +72,8 @@ forwarder = ["dep:edgehog-forwarder"]
 e2e_test = []
 
 [workspace.dependencies]
-astarte-device-sdk = "0.7.2"
-astarte-message-hub-proto = "0.6.1"
+astarte-device-sdk = "0.7.4"
+astarte-message-hub-proto = "0.6.2"
 async-trait = "0.1.77"
 backoff = "0.4.0"
 base64 = "0.22.0"
