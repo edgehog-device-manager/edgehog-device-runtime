@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: CC0-1.0
 [package]
 name = "edgehog-device-runtime"
-version = "0.8.1"
+version = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 rust-version = { workspace = true }
@@ -22,6 +22,7 @@ members = [
 ]
 
 [workspace.package]
+version = "0.8.1"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.72.0"
@@ -82,7 +83,7 @@ bytes = "1.5.0"
 clap = "4.3.24"
 displaydoc = "0.2.4"
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.1.0" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
 env_logger = "0.11.3"
 futures = "0.3.30"
 hex = "0.4.3"
