@@ -3,7 +3,7 @@
 
 [package]
 name = "edgehog-device-runtime-forwarder"
-version = "0.1.0"
+version = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 rust-version = { workspace = true }

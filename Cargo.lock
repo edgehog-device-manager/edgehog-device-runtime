@@ -1151,7 +1151,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "astarte-device-sdk",
  "astarte-message-hub-proto",
@@ -1206,7 +1206,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-forwarder"
-version = "0.1.0"
+version = "0.8.1"
 dependencies = [
  "astarte-device-sdk",
  "async-trait",
