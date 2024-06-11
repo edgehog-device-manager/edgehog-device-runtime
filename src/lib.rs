@@ -45,7 +45,7 @@ mod power_management;
 pub mod repository;
 #[cfg(feature = "systemd")]
 pub mod systemd_wrapper;
-mod telemetry;
+pub mod telemetry;
 
 const MAX_OTA_OPERATION: usize = 2;
 
@@ -366,26 +366,6 @@ where
     }
 }
 
-#[cfg(not(tarpaulin))]
-#[cfg(feature = "e2e_test")]
-pub mod e2e_test {
-    use crate::{telemetry, DeviceManagerError};
-    use astarte_device_sdk::types::AstarteType;
-    use std::collections::HashMap;
-
-    pub async fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::os_info::get_os_info().await
-    }
-
-    pub fn get_hardware_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::hardware_info::get_hardware_info()
-    }
-
-    pub fn get_runtime_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-        telemetry::runtime_info::get_runtime_info()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -394,7 +374,6 @@ mod tests {
 
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
     use crate::data::tests::MockSubscriber;
-    use crate::data::tests::__mock_MockPublisher_Clone::__clone::Expectation;
     use crate::data::tests::{create_tmp_store, MockPublisher};
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
@@ -410,7 +389,7 @@ mod tests {
     };
 
     #[cfg(feature = "forwarder")]
-    fn mock_forwarder(publisher: &mut MockPublisher) -> &mut Expectation {
+    fn mock_forwarder(publisher: &mut MockPublisher) {
         // define an expectation for the cloned MockPublisher due to the `init` method of the
         // Forwarder struct
         publisher.expect_clone().returning(move || {
@@ -422,7 +401,7 @@ mod tests {
                 .returning(|_: &str| Ok(Vec::new()));
 
             publisher_clone
-        })
+        });
     }
 
     #[tokio::test]

@@ -26,18 +26,21 @@ on:
       - release-*
 permissions:
   contents: read
+  pull-requests: read
 # Spend CI time only on latest ref
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 jobs:
   dco:
-    uses: ./.github/workflows/dco.yaml
+    runs-on: ubuntu-latest
+    name: DCO / DCO
     permissions:
-      actions: read
       pull-requests: read
-    with:
-      pr: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: joshuachp/dco-check@v0.1.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
   reuse:
     uses: ./.github/workflows/reuse-lint.yaml
   check:
