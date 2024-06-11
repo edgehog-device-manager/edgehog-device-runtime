@@ -27,7 +27,9 @@ use tempdir::TempDir;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use edgehog_device_runtime::data::connect_store;
-use edgehog_device_runtime::e2e_test::{get_hardware_info, get_os_info, get_runtime_info};
+use edgehog_device_runtime::telemetry::{
+    hardware_info::get_hardware_info, os_info::get_os_info, runtime_info::get_runtime_info,
+};
 use edgehog_device_runtime::{AstarteLibrary, DeviceManager, DeviceManagerOptions};
 
 #[derive(Serialize, Deserialize)]

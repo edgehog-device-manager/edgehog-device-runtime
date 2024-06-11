@@ -35,10 +35,10 @@ use tokio::time::Duration;
 
 pub(crate) mod base_image;
 pub(crate) mod battery_status;
-pub(crate) mod hardware_info;
+pub mod hardware_info;
 pub(crate) mod net_if_properties;
-pub(crate) mod os_info;
-pub(crate) mod runtime_info;
+pub mod os_info;
+pub mod runtime_info;
 pub(crate) mod storage_usage;
 pub(crate) mod system_info;
 pub(crate) mod system_status;
