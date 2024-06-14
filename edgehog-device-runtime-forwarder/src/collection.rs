@@ -89,7 +89,7 @@ impl Connections {
         let ProtoWebSocket { socket_id, message } = ws;
 
         // check if there exist a WebSocket connection with the specified id
-        // and send a WebSocket message toward the task responsoble for handling it
+        // and send a WebSocket message toward the task responsible for handling it
         match self.connections.entry(socket_id.clone()) {
             Entry::Occupied(entry) => {
                 let handle = entry.get();
