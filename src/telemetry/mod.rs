@@ -263,26 +263,26 @@ impl Telemetry {
         &mut self,
         interface_name: &str,
         endpoint: &str,
-        data: &AstarteType,
+        data: Option<&AstarteType>,
     ) {
         match (endpoint, data) {
-            ("enable", AstarteType::Boolean(enabled)) => {
+            ("enable", Some(AstarteType::Boolean(enabled))) => {
                 self.set_enabled(interface_name, *enabled).await;
             }
 
-            ("enable", AstarteType::Unset) => {
+            ("enable", None) => {
                 self.unset_enabled(interface_name).await;
             }
 
-            ("periodSeconds", AstarteType::LongInteger(period)) => {
+            ("periodSeconds", Some(AstarteType::LongInteger(period))) => {
                 self.set_period(interface_name, *period as u64).await;
             }
 
-            ("periodSeconds", AstarteType::Integer(period)) => {
+            ("periodSeconds", Some(AstarteType::Integer(period))) => {
                 self.set_period(interface_name, *period as u64).await;
             }
 
-            ("periodSeconds", AstarteType::Unset) => {
+            ("periodSeconds", None) => {
                 self.unset_period(interface_name).await;
             }
 
@@ -420,12 +420,12 @@ mod tests {
         let (tx, _) = tokio::sync::mpsc::channel(32);
         let mut tel = Telemetry::from_default_config(Some(config), tx, t_dir.clone()).await;
 
-        tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(false))
+        tel.telemetry_config_event(interface_name, "enable", Some(&AstarteType::Boolean(false)))
             .await;
         tel.telemetry_config_event(
             interface_name,
             "periodSeconds",
-            &AstarteType::LongInteger(30),
+            Some(&AstarteType::LongInteger(30)),
         )
         .await;
 
@@ -467,9 +467,9 @@ mod tests {
         let (tx, _) = tokio::sync::mpsc::channel(32);
         let mut tel = Telemetry::from_default_config(Some(config), tx, t_dir.clone()).await;
 
-        tel.telemetry_config_event(interface_name, "enable", &AstarteType::Unset)
+        tel.telemetry_config_event(interface_name, "enable", None)
             .await;
-        tel.telemetry_config_event(interface_name, "periodSeconds", &AstarteType::Unset)
+        tel.telemetry_config_event(interface_name, "periodSeconds", None)
             .await;
 
         let telemetry_config = tel.telemetry_task_configs.clone();
@@ -510,12 +510,12 @@ mod tests {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         let mut tel = Telemetry::from_default_config(Some(config), tx, t_dir).await;
-        tel.telemetry_config_event(interface_name, "enable", &AstarteType::Boolean(true))
+        tel.telemetry_config_event(interface_name, "enable", Some(&AstarteType::Boolean(true)))
             .await;
         tel.telemetry_config_event(
             interface_name,
             "periodSeconds",
-            &AstarteType::LongInteger(10),
+            Some(&AstarteType::LongInteger(10)),
         )
         .await;
 

@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::data::tests::MockPubSub;
 use astarte_device_sdk::types::AstarteType;
 use futures::StreamExt;
 use httpmock::prelude::*;
@@ -28,7 +29,6 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::data::tests::MockPublisher;
 use crate::error::DeviceManagerError;
 use crate::ota::ota_handle::{run_ota, Ota, OtaRequest, OtaStatus, PersistentState};
 use crate::ota::ota_handler::{OtaEvent, OtaHandler};
@@ -123,9 +123,9 @@ async fn handle_ota_event_bundle_not_compatible() {
         ),
     ]);
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
@@ -137,7 +137,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
@@ -149,7 +149,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
@@ -167,7 +167,7 @@ async fn handle_ota_event_bundle_not_compatible() {
     );
     let expected_message_cp = expected_message.clone();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -182,7 +182,7 @@ async fn handle_ota_event_bundle_not_compatible() {
 
     let (ota_handler, _dir) =
         OtaHandler::mock_new_with_path(system_update, state_mock, "bundle_not_compatible");
-    let result = ota_handler.ota_event(&publisher, data).await;
+    let result = ota_handler.ota_event(&pub_sub, data).await;
     mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
@@ -253,9 +253,9 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         ),
     ]);
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
@@ -267,7 +267,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
@@ -279,7 +279,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
@@ -291,7 +291,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Deploying")
@@ -306,7 +306,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
     let expected_message = "Update failed with signal -1".to_string();
     let expected_message_cl = expected_message.clone();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -321,7 +321,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
 
     let (ota_handler, _dir) =
         OtaHandler::mock_new_with_path(system_update, state_mock, "install_completed_fail");
-    let result = ota_handler.ota_event(&publisher, data).await;
+    let result = ota_handler.ota_event(&pub_sub, data).await;
     mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
@@ -396,10 +396,10 @@ async fn ota_event_fail_deployed() {
         AstarteType::String("Update".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
@@ -411,7 +411,7 @@ async fn ota_event_fail_deployed() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
@@ -423,7 +423,7 @@ async fn ota_event_fail_deployed() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
@@ -435,7 +435,7 @@ async fn ota_event_fail_deployed() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Deploying")
@@ -447,7 +447,7 @@ async fn ota_event_fail_deployed() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -462,7 +462,7 @@ async fn ota_event_fail_deployed() {
 
     let (ota_handler, _dir) =
         OtaHandler::mock_new_with_path(system_update, state_mock, "fail_deployed");
-    let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+    let result = ota_handler.ota_event(&pub_sub, ota_req_map).await;
     mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
@@ -552,10 +552,10 @@ async fn ota_event_update_success() {
         AstarteType::String("Update".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -571,7 +571,7 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -587,7 +587,7 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -603,7 +603,7 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -619,7 +619,7 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -635,7 +635,7 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -651,7 +651,7 @@ async fn ota_event_update_success() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -669,7 +669,7 @@ async fn ota_event_update_success() {
 
     let (ota_handler, _dir) =
         OtaHandler::mock_new_with_path(system_update, state_mock, "update_success");
-    let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+    let result = ota_handler.ota_event(&pub_sub, ota_req_map).await;
     mock_ota_file_request.assert_async().await;
     assert!(result.is_ok());
 }
@@ -695,10 +695,10 @@ async fn ota_event_update_already_in_progress_same_uuid() {
         AstarteType::String("Update".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
@@ -717,7 +717,7 @@ async fn ota_event_update_already_in_progress_same_uuid() {
     let ota_handler = OtaHandler::mock_new_with_ota(ota);
 
     let err = ota_handler
-        .ota_event(&publisher, ota_req_map)
+        .ota_event(&pub_sub, ota_req_map)
         .await
         .expect_err("expected already in progress error");
 
@@ -750,10 +750,10 @@ async fn ota_event_update_already_in_progress_different_uuid() {
         AstarteType::String("Update".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -776,7 +776,7 @@ async fn ota_event_update_already_in_progress_different_uuid() {
     let ota_handler = OtaHandler::mock_new_with_ota(ota);
 
     let err = ota_handler
-        .ota_event(&publisher, ota_req_map)
+        .ota_event(&pub_sub, ota_req_map)
         .await
         .expect_err("expected already in progress error");
 
@@ -817,9 +817,9 @@ async fn ota_event_canceled() {
         AstarteType::String("Cancel".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -830,7 +830,7 @@ async fn ota_event_canceled() {
         .once()
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
-    let res = ota_handler.ota_event(&publisher, ota_req_map).await;
+    let res = ota_handler.ota_event(&pub_sub, ota_req_map).await;
 
     assert!(res.is_ok(), "ota cancel failed with: {}", res.unwrap_err());
 
@@ -937,9 +937,9 @@ async fn ota_event_success_after_canceled_event() {
         AstarteType::String("Cancel".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -952,7 +952,7 @@ async fn ota_event_success_after_canceled_event() {
 
     let ota_handler_cl = ota_handler.clone();
     let cancel_handle =
-        tokio::spawn(async move { ota_handler_cl.ota_event(&publisher, ota_cancel).await });
+        tokio::spawn(async move { ota_handler_cl.ota_event(&pub_sub, ota_cancel).await });
 
     // Receive the next OTA event
     let status = rx_update.recv().await.expect("ota should be downloading");
@@ -986,10 +986,10 @@ async fn ota_event_success_after_canceled_event() {
         AstarteType::String("Update".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1005,7 +1005,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1021,7 +1021,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1037,7 +1037,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1053,7 +1053,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1069,7 +1069,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1085,7 +1085,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(
             move |interface_name: &str, path: &str, ota_event: &OtaEvent| {
@@ -1101,7 +1101,7 @@ async fn ota_event_success_after_canceled_event() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
         .in_sequence(&mut seq);
 
-    let result = ota_handler.ota_event(&publisher, ota_update).await;
+    let result = ota_handler.ota_event(&pub_sub, ota_update).await;
     assert!(result.is_ok(), "update should succeed");
 
     // One for the cancelled and one for the successful
@@ -1127,9 +1127,9 @@ async fn ota_event_not_canceled() {
         AstarteType::String("Cancel".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -1148,7 +1148,7 @@ async fn ota_event_not_canceled() {
     });
     let ota_handler = OtaHandler::mock_new_with_ota(ota);
 
-    let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+    let result = ota_handler.ota_event(&pub_sub, ota_req_map).await;
 
     assert!(
         result.is_ok(),
@@ -1175,9 +1175,9 @@ async fn ota_event_not_canceled_empty() {
         AstarteType::String("Cancel".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -1194,7 +1194,7 @@ async fn ota_event_not_canceled_empty() {
     let (ota_handler, _dir) =
         OtaHandler::mock_new_with_path(system_update, state_mock, "not_cancelled_empty");
 
-    let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+    let result = ota_handler.ota_event(&pub_sub, ota_req_map).await;
 
     assert!(
         result.is_ok(),
@@ -1221,9 +1221,9 @@ async fn ota_event_not_canceled_different_uuid() {
         AstarteType::String("Cancel".to_string()),
     );
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -1245,7 +1245,7 @@ async fn ota_event_not_canceled_different_uuid() {
     });
     let ota_handler = OtaHandler::mock_new_with_ota(ota);
 
-    let result = ota_handler.ota_event(&publisher, ota_req_map).await;
+    let result = ota_handler.ota_event(&pub_sub, ota_req_map).await;
 
     assert!(
         result.is_ok(),
@@ -1275,8 +1275,8 @@ async fn ensure_pending_ota_ota_is_done_fail() {
         .expect_boot_slot()
         .returning(|| Ok("A".to_owned()));
 
-    let mut publisher = MockPublisher::new();
-    publisher
+    let mut pub_sub = MockPubSub::new();
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Failure")
@@ -1289,7 +1289,7 @@ async fn ensure_pending_ota_ota_is_done_fail() {
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
 
     let ota_handler = OtaHandler::mock_new(system_update, state_mock);
-    let result = ota_handler.ensure_pending_ota_is_done(&publisher).await;
+    let result = ota_handler.ensure_pending_ota_is_done(&pub_sub).await;
     assert!(result.is_err());
 
     if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
@@ -1332,10 +1332,10 @@ async fn ensure_pending_ota_is_done_ota_success() {
         ))
     });
 
-    let mut publisher = MockPublisher::new();
+    let mut pub_sub = MockPubSub::new();
     let mut seq = mockall::Sequence::new();
 
-    publisher
+    pub_sub
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Success")
@@ -1348,7 +1348,7 @@ async fn ensure_pending_ota_is_done_ota_success() {
         .in_sequence(&mut seq);
 
     let ota_handler = OtaHandler::mock_new(system_update, state_mock);
-    let result = ota_handler.ensure_pending_ota_is_done(&publisher).await;
+    let result = ota_handler.ensure_pending_ota_is_done(&pub_sub).await;
 
     assert!(result.is_ok());
 }
