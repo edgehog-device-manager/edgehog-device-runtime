@@ -114,7 +114,7 @@ toml = "0.8.2"
 tracing = "0.1.40"
 udev = "0.8.0"
 url = "2.4.1"
-uuid = "1.6.1"
+uuid = "1.9.1"
 wifiscanner = "0.5.1"
 zbus = { version = "3.14.1", default-features = false }
 
