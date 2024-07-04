@@ -33,14 +33,12 @@ concurrency:
   cancel-in-progress: true
 jobs:
   dco:
-    runs-on: ubuntu-latest
-    name: DCO / DCO
+    uses: ./.github/workflows/dco.yaml
+    with:
+      pr: ${{ github.event.pull_request.number }}
     permissions:
+      actions: read
       pull-requests: read
-    steps:
-      - uses: joshuachp/dco-check@v0.1.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
   reuse:
     uses: ./.github/workflows/reuse-lint.yaml
   check:

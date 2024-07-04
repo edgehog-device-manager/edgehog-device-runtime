@@ -21,6 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       pr:
+        description: "PR for which to check the status of the DCO"
         type: string
   workflow_call:
     inputs:
