@@ -15,6 +15,7 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
 - **Rust** >= 1.72.0
 - **libsystemd** (optional)
 - **libudev**: Gathering information about network interfaces.
+- **ttyd** >= 1.7.4
 
 ### Runtime Dependencies
 
@@ -40,12 +41,13 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
   ```sh
   cargo build --features systemd
   ```
-- **[ttyd](https://github.com/tsl0922/ttyd)**: command-line tool for sharing terminal over the web.
-  To provide the remote terminal functionality, the program must run on the default port `7681` with
-  the flag `-W` enabled, which enables the write-mode on the remote terminal.
-  To start ttyd locally run the command `ttyd -W bash`.
-  Note: It is possible to specify a different kind of shell, depending on the ones installed.
-  To build the `runtime` make sure you have ttyd installed on your system and the forwarder feature enabled.
-  ```sh
-  cargo build --features forwarder
-  ```
+    - **[ttyd](https://github.com/tsl0922/ttyd)**: command-line tool for sharing terminal over the
+      web. To provide the remote terminal functionality, the program must run on the default port
+      `7681` with the flag `-W` enabled, which enables the write-mode on the remote terminal. To start
+      ttyd locally run the command `ttyd -W bash` (the `-W` option is only available for ttyd >= 1.7.4).
+      Note: It is possible to specify a different kind of shell, depending on the ones installed. To
+      build the `runtime` make sure you have ttyd installed on your system and the forwarder feature
+      enabled.
+      ```sh
+      cargo build --features forwarder
+      ```
