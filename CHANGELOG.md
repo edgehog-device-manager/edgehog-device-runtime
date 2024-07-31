@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Update OS requirements to specify ttyd minimum version
+- Update Astarte Device SDK to 0.8.2 release
 
 ## [0.8.1] - 2024-06-10
 

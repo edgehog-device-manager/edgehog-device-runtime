@@ -66,7 +66,7 @@ impl TryFrom<&SessionInfo> for Url {
 mod tests {
     use super::*;
     use astarte_device_sdk::types::AstarteType;
-    use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
+    use astarte_device_sdk::{DeviceEvent, Value};
     use std::collections::HashMap;
     use std::net::Ipv4Addr;
     use url::Host;
@@ -85,7 +85,7 @@ mod tests {
         port: i32,
         session_token: &str,
         secure: bool,
-    ) -> AstarteDeviceDataEvent {
+    ) -> DeviceEvent {
         let mut hm = HashMap::new();
 
         hm.insert("host".to_string(), AstarteType::String(host.to_string()));
@@ -96,10 +96,10 @@ mod tests {
         );
         hm.insert("secure".to_string(), AstarteType::Boolean(secure));
 
-        AstarteDeviceDataEvent {
+        DeviceEvent {
             interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/request".to_string(),
-            data: Aggregation::Object(hm),
+            data: Value::Object(hm),
         }
     }
 

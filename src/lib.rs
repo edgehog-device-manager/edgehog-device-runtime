@@ -22,11 +22,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
+use astarte_device_sdk::{DeviceEvent, Value};
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
 use crate::data::{Publisher, Subscriber};
 use crate::error::DeviceManagerError;
@@ -71,26 +72,26 @@ pub struct DeviceManagerOptions {
 }
 
 #[derive(Debug)]
-pub struct DeviceManager<T: Publisher + Clone, U: Subscriber> {
-    publisher: T,
-    subscriber: U,
+pub struct DeviceManager<T: Publisher + Subscriber> {
+    pub_sub: T,
+    // handle necessary to terminate the pub_sub
+    handle: JoinHandle<Result<(), astarte_device_sdk::Error>>,
     // We pass all Astarte event through a channel, to avoid blocking the main loop
-    ota_event_channel: Sender<AstarteDeviceDataEvent>,
-    data_event_channel: Sender<AstarteDeviceDataEvent>,
+    ota_event_channel: Sender<DeviceEvent>,
+    data_event_channel: Sender<DeviceEvent>,
     telemetry: Arc<RwLock<telemetry::Telemetry>>,
     #[cfg(feature = "forwarder")]
     forwarder: forwarder::Forwarder<T>,
 }
 
-impl<P, S> DeviceManager<P, S>
+impl<T> DeviceManager<T>
 where
-    P: Publisher + Send + Sync + 'static,
-    S: Subscriber + 'static,
+    T: Publisher + Subscriber + Clone + Send + Sync + 'static,
 {
     pub async fn new(
         opts: DeviceManagerOptions,
-        publisher: P,
-        subscriber: S,
+        pub_sub: T,
+        handle: JoinHandle<Result<(), astarte_device_sdk::Error>>,
     ) -> Result<Self, DeviceManagerError> {
         #[cfg(feature = "systemd")]
         systemd_wrapper::systemd_notify_status("Initializing");
@@ -99,7 +100,7 @@ where
 
         let ota_handler = OtaHandler::new(&opts).await?;
 
-        ota_handler.ensure_pending_ota_is_done(&publisher).await?;
+        ota_handler.ensure_pending_ota_is_done(&pub_sub).await?;
 
         let (ota_tx, ota_rx) = channel(MAX_OTA_OPERATION);
         let (data_tx, data_rx) = channel(32);
@@ -115,11 +116,11 @@ where
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
-        let forwarder = forwarder::Forwarder::init(publisher.clone()).await?;
+        let forwarder = forwarder::Forwarder::init(pub_sub.clone()).await?;
 
         let device_runtime = Self {
-            publisher,
-            subscriber,
+            pub_sub,
+            handle,
             ota_event_channel: ota_tx,
             data_event_channel: data_tx,
             telemetry: Arc::new(RwLock::new(tel)),
@@ -133,12 +134,8 @@ where
         Ok(device_runtime)
     }
 
-    fn init_ota_event(
-        &self,
-        ota_handler: OtaHandler,
-        mut ota_rx: Receiver<AstarteDeviceDataEvent>,
-    ) {
-        let publisher = self.publisher.clone();
+    fn init_ota_event(&self, ota_handler: OtaHandler, mut ota_rx: Receiver<DeviceEvent>) {
+        let pub_sub = self.pub_sub.clone();
         let ota_handler = Arc::new(ota_handler);
         tokio::spawn(async move {
             while let Some(data_event) = ota_rx.recv().await {
@@ -151,12 +148,12 @@ where
                         .as_slice(),
                     &data_event.data,
                 ) {
-                    (["request"], Aggregation::Object(data)) => {
-                        let publisher = publisher.clone();
+                    (["request"], Value::Object(data)) => {
+                        let pub_sub_cl = pub_sub.clone();
                         let data = data.clone();
                         let ota_handler = ota_handler.clone();
                         tokio::spawn(async move {
-                            if let Err(err) = ota_handler.ota_event(&publisher, data).await {
+                            if let Err(err) = ota_handler.ota_event(&pub_sub_cl, data).await {
                                 error!("ota error {err}");
                             }
                         });
@@ -169,7 +166,7 @@ where
         });
     }
 
-    fn init_data_event(&self, mut data_rx: Receiver<AstarteDeviceDataEvent>) {
+    fn init_data_event(&self, mut data_rx: Receiver<DeviceEvent>) {
         let self_telemetry = self.telemetry.clone();
         tokio::spawn(async move {
             while let Some(data_event) = data_rx.recv().await {
@@ -186,23 +183,27 @@ where
                     (
                         "io.edgehog.devicemanager.Commands",
                         ["request"],
-                        Aggregation::Individual(AstarteType::String(command)),
+                        Value::Individual(AstarteType::String(command)),
                     ) => commands::execute_command(command).await,
                     (
                         "io.edgehog.devicemanager.config.Telemetry",
                         ["request", interface_name, endpoint],
-                        Aggregation::Individual(data),
+                        v,
                     ) => {
+                        // since the interface is a property, this will map Unset to None and
+                        // Individual to Some
+                        let prop = v.as_individual();
+
                         self_telemetry
                             .write()
                             .await
-                            .telemetry_config_event(interface_name, endpoint, data)
+                            .telemetry_config_event(interface_name, endpoint, prop)
                             .await;
                     }
                     (
                         "io.edgehog.devicemanager.LedBehavior",
                         [led_id, "behavior"],
-                        Aggregation::Individual(AstarteType::String(behavior)),
+                        Value::Individual(AstarteType::String(behavior)),
                     ) => {
                         tokio::spawn(led_behavior::set_behavior(
                             led_id.to_string(),
@@ -218,10 +219,10 @@ where
     }
 
     fn init_telemetry_event(&self, mut telemetry_rx: Receiver<TelemetryMessage>) {
-        let publisher = self.publisher.clone();
+        let pub_sub = self.pub_sub.clone();
         tokio::spawn(async move {
             while let Some(msg) = telemetry_rx.recv().await {
-                Self::send_telemetry(&publisher, msg).await;
+                Self::send_telemetry(&pub_sub, msg).await;
             }
         });
     }
@@ -235,8 +236,8 @@ where
             tel_clone.write().await.run_telemetry().await;
         });
 
-        while let Some(data_event) = self.subscriber.on_event().await {
-            match data_event {
+        loop {
+            match self.pub_sub.recv().await {
                 Ok(data_event) => {
                     debug!("incoming: {:?}", data_event);
 
@@ -253,13 +254,22 @@ where
                         }
                     }
                 }
+                Err(astarte_device_sdk::Error::Disconnected) => break,
                 Err(err) => error!("{:?}", err),
             }
         }
 
         error!("publisher closed, device disconnected");
 
-        self.subscriber.exit().await?;
+        self.handle.abort();
+
+        match self.handle.await {
+            Ok(res) => res?,
+            Err(err) if err.is_cancelled() => {}
+            Err(err) => {
+                error!("failed to join task {err}");
+            }
+        }
 
         Err(DeviceManagerError::Disconnected)
     }
@@ -274,7 +284,7 @@ where
     }
 
     pub async fn send_initial_telemetry(&self) -> Result<(), DeviceManagerError> {
-        let device = &self.publisher;
+        let device = &self.pub_sub;
 
         let data = [
             (
@@ -333,10 +343,10 @@ where
         Ok(())
     }
 
-    async fn send_telemetry(publisher: &P, msg: TelemetryMessage) {
+    async fn send_telemetry(pub_sub: &T, msg: TelemetryMessage) {
         match msg.payload {
             TelemetryPayload::SystemStatus(data) => {
-                let _ = publisher
+                let _ = pub_sub
                     .send_object(
                         "io.edgehog.devicemanager.SystemStatus",
                         "/systemStatus",
@@ -345,7 +355,7 @@ where
                     .await;
             }
             TelemetryPayload::StorageUsage(data) => {
-                let _ = publisher
+                let _ = pub_sub
                     .send_object(
                         "io.edgehog.devicemanager.StorageUsage",
                         format!("/{}", msg.path).as_str(),
@@ -354,7 +364,7 @@ where
                     .await;
             }
             TelemetryPayload::BatteryStatus(data) => {
-                let _ = publisher
+                let _ = pub_sub
                     .send_object(
                         "io.edgehog.devicemanager.BatteryStatus",
                         format!("/{}", msg.path).as_str(),
@@ -373,8 +383,9 @@ mod tests {
     use astarte_device_sdk::types::AstarteType;
 
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
-    use crate::data::tests::MockSubscriber;
-    use crate::data::tests::{create_tmp_store, MockPublisher};
+    use crate::data::tests::create_tmp_store;
+    use crate::data::tests::MockPubSub;
+    use crate::data::tests::__mock_MockPubSub_Clone::__clone::Expectation;
     use crate::telemetry::base_image::get_base_image;
     use crate::telemetry::battery_status::{get_battery_status, BatteryStatus};
     use crate::telemetry::hardware_info::get_hardware_info;
@@ -389,11 +400,11 @@ mod tests {
     };
 
     #[cfg(feature = "forwarder")]
-    fn mock_forwarder(publisher: &mut MockPublisher) {
+    fn mock_forwarder(publisher: &mut MockPubSub) -> &mut Expectation {
         // define an expectation for the cloned MockPublisher due to the `init` method of the
         // Forwarder struct
         publisher.expect_clone().returning(move || {
-            let mut publisher_clone = MockPublisher::new();
+            let mut publisher_clone = MockPubSub::new();
 
             publisher_clone
                 .expect_interface_props()
@@ -401,7 +412,7 @@ mod tests {
                 .returning(|_: &str| Ok(Vec::new()));
 
             publisher_clone
-        });
+        })
     }
 
     #[tokio::test]
@@ -427,7 +438,7 @@ mod tests {
             telemetry_config: Some(vec![]),
         };
 
-        let (publisher, subscriber) = options
+        let (pub_sub, handle) = options
             .astarte_device_sdk
             .as_ref()
             .unwrap()
@@ -438,7 +449,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let dm = DeviceManager::new(options, publisher, subscriber).await;
+        let dm = DeviceManager::new(options, pub_sub, handle).await;
 
         assert!(dm.is_ok());
     }
@@ -463,16 +474,14 @@ mod tests {
             telemetry_config: Some(vec![]),
         };
 
-        let mut publisher = MockPublisher::new();
+        let mut pub_sub = MockPubSub::new();
 
         #[cfg(feature = "forwarder")]
-        mock_forwarder(&mut publisher);
+        mock_forwarder(&mut pub_sub);
 
-        publisher.expect_clone().returning(MockPublisher::new);
+        pub_sub.expect_clone().returning(MockPubSub::new);
 
-        let subscriber = MockSubscriber::new();
-
-        let dm = DeviceManager::new(options, publisher, subscriber).await;
+        let dm = DeviceManager::new(options, pub_sub, tokio::spawn(async { Ok(()) })).await;
         assert!(dm.is_ok(), "error {}", dm.err().unwrap());
     }
 
@@ -497,14 +506,14 @@ mod tests {
         };
 
         let os_info = get_os_info().await.expect("failed to get os info");
-        let mut publisher = MockPublisher::new();
+        let mut pub_sub = MockPubSub::new();
 
         #[cfg(feature = "forwarder")]
-        mock_forwarder(&mut publisher);
+        mock_forwarder(&mut pub_sub);
 
-        publisher.expect_clone().returning(MockPublisher::new);
+        pub_sub.expect_clone().returning(MockPubSub::new);
 
-        publisher
+        pub_sub
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -515,7 +524,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let hardware_info = get_hardware_info().unwrap();
-        publisher
+        pub_sub
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -526,7 +535,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let runtime_info = get_runtime_info().unwrap();
-        publisher
+        pub_sub
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -537,7 +546,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let storage_usage = get_storage_usage();
-        publisher
+        pub_sub
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &DiskUsage| {
@@ -548,7 +557,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: DiskUsage| Ok(()));
 
         let network_iface_props = get_network_interface_properties().await.unwrap();
-        publisher
+        pub_sub
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -559,7 +568,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let system_info = get_system_info().unwrap();
-        publisher
+        pub_sub
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -570,7 +579,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
         let base_image = get_base_image().await.expect("failed to get base image");
-        publisher
+        pub_sub
             .expect_send()
             .withf(
                 move |interface_name: &str, interface_path: &str, data: &AstarteType| {
@@ -580,7 +589,7 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: AstarteType| Ok(()));
 
-        let dm = DeviceManager::new(options, publisher, MockSubscriber::new()).await;
+        let dm = DeviceManager::new(options, pub_sub, tokio::spawn(async { Ok(()) })).await;
         assert!(dm.is_ok());
 
         let telemetry_result = dm.unwrap().send_initial_telemetry().await;
@@ -590,8 +599,8 @@ mod tests {
     #[tokio::test]
     async fn send_telemetry_success() {
         let system_status = get_system_status().unwrap();
-        let mut publisher = MockPublisher::new();
-        publisher
+        let mut pub_sub = MockPubSub::new();
+        pub_sub
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &SystemStatus| {
@@ -602,7 +611,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: SystemStatus| Ok(()));
 
         let storage_usage = get_storage_usage();
-        publisher
+        pub_sub
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &DiskUsage| {
@@ -613,7 +622,7 @@ mod tests {
             .returning(|_: &str, _: &str, _: DiskUsage| Ok(()));
 
         let battery_status = get_battery_status().await.unwrap();
-        publisher
+        pub_sub
             .expect_send_object()
             .withf(
                 move |interface_name: &str, interface_path: &str, _: &BatteryStatus| {
@@ -623,8 +632,8 @@ mod tests {
             )
             .returning(|_: &str, _: &str, _: BatteryStatus| Ok(()));
 
-        DeviceManager::<_, MockSubscriber>::send_telemetry(
-            &publisher,
+        DeviceManager::send_telemetry(
+            &pub_sub,
             TelemetryMessage {
                 path: "".to_string(),
                 payload: TelemetryPayload::SystemStatus(system_status),
@@ -632,8 +641,8 @@ mod tests {
         )
         .await;
         for (path, payload) in get_storage_usage() {
-            DeviceManager::<_, MockSubscriber>::send_telemetry(
-                &publisher,
+            DeviceManager::send_telemetry(
+                &pub_sub,
                 TelemetryMessage {
                     path,
                     payload: TelemetryPayload::StorageUsage(payload),
@@ -642,8 +651,8 @@ mod tests {
             .await;
         }
         for (path, payload) in get_battery_status().await.unwrap() {
-            DeviceManager::<_, MockSubscriber>::send_telemetry(
-                &publisher,
+            DeviceManager::send_telemetry(
+                &pub_sub,
                 TelemetryMessage {
                     path,
                     payload: TelemetryPayload::BatteryStatus(payload),
