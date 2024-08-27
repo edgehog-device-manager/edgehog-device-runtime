@@ -73,14 +73,14 @@ forwarder = ["dep:edgehog-forwarder"]
 e2e_test = []
 
 [workspace.dependencies]
-astarte-device-sdk = "0.8.2"
+astarte-device-sdk = "0.8.3"
 astarte-message-hub-proto = "0.6.2"
 async-trait = "0.1.77"
 backoff = "0.4.0"
 base64 = "0.22.0"
 bollard = "0.16.1"
 bytes = "1.5.0"
-clap = "4.3.24"
+clap = "=4.4.18"
 displaydoc = "0.2.5"
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
