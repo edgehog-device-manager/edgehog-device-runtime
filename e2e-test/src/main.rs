@@ -97,7 +97,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         .await
         .expect("failed to connect store");
 
-    let (publisher, subscriber) = astarte_options
+    let (pub_sub, handle) = astarte_options
         .connect(
             store,
             &device_options.store_directory,
@@ -106,7 +106,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
         .await
         .expect("couldn't connect to astarte");
 
-    let dm = DeviceManager::new(device_options, publisher, subscriber).await?;
+    let dm = DeviceManager::new(device_options, pub_sub, handle).await?;
 
     dm.init().await?;
 

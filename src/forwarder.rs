@@ -25,7 +25,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{AstarteDeviceDataEvent, FromEvent};
+use astarte_device_sdk::{DeviceEvent, FromEvent};
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use log::{debug, error, info};
@@ -94,17 +94,6 @@ impl SessionState {
     }
 }
 
-impl From<SessionState> for AstarteType {
-    fn from(value: SessionState) -> Self {
-        match value.status {
-            SessionStatus::Connecting | SessionStatus::Connected => {
-                Self::String(value.status.to_string())
-            }
-            SessionStatus::Disconnected => Self::Unset,
-        }
-    }
-}
-
 impl SessionState {
     /// Send a property to Astarte to update the session state.
     async fn send<P>(self, publisher: &P) -> Result<(), astarte_device_sdk::Error>
@@ -112,11 +101,21 @@ impl SessionState {
         P: Publisher + 'static + Send + Sync,
     {
         let ipath = format!("/{}/status", self.token);
-        let idata = self.into();
 
-        publisher
-            .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
-            .await
+        match self.status {
+            SessionStatus::Connecting | SessionStatus::Connected => {
+                let idata = AstarteType::String(self.status.to_string());
+
+                publisher
+                    .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
+                    .await
+            }
+            SessionStatus::Disconnected => {
+                publisher
+                    .unset(FORWARDER_SESSION_STATE_INTERFACE, &ipath)
+                    .await
+            }
+        }
     }
 }
 
@@ -156,9 +155,9 @@ impl<P> Forwarder<P> {
     }
 
     /// Start a device forwarder instance.
-    pub fn handle_sessions(&mut self, astarte_event: AstarteDeviceDataEvent)
+    pub fn handle_sessions(&mut self, astarte_event: DeviceEvent)
     where
-        P: Publisher + 'static + Send + Sync,
+        P: Publisher + Clone + 'static + Send + Sync,
     {
         // retrieve the Url that the device must use to open a WebSocket connection with a host
         let sinfo = match SessionInfo::from_event(astarte_event) {
@@ -280,9 +279,9 @@ impl<P> Forwarder<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::tests::MockPublisher;
+    use crate::data::tests::MockPubSub;
     use astarte_device_sdk::store::StoredProp;
-    use astarte_device_sdk::{interface::def::Ownership, Aggregation};
+    use astarte_device_sdk::{interface::def::Ownership, Value};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -328,56 +327,50 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_astarte_type_from_session_state() {
-        let sstates = [
-            SessionState::connected("abcd".to_string()),
-            SessionState::connecting("abcd".to_string()),
-            SessionState::disconnected("abcd".to_string()),
-        ]
-        .map(AstarteType::from);
-        let exp_res = [
-            AstarteType::String("Connected".to_string()),
-            AstarteType::String("Connecting".to_string()),
-            AstarteType::Unset,
-        ];
-
-        for (idx, el) in sstates.into_iter().enumerate() {
-            assert_eq!(&el, exp_res.get(idx).unwrap())
-        }
-    }
-
     #[tokio::test]
     async fn test_session_state_send() {
-        let ss = SessionState::disconnected("abcd".to_string());
-        let mut publisher = MockPublisher::new();
+        let ss = SessionState::connected("abcd".to_string());
+        let mut pub_sub = MockPubSub::new();
 
-        publisher
+        pub_sub
             .expect_send()
             .withf(move |iface, ipath, idata| {
                 iface == FORWARDER_SESSION_STATE_INTERFACE
                     && ipath == "/abcd/status"
-                    && idata == &AstarteType::Unset
+                    && idata == &AstarteType::String("Connected".to_string())
             })
             .returning(|_, _, _| Ok(()));
 
-        let res = ss.send(&publisher).await;
+        pub_sub
+            .expect_unset()
+            .withf(move |iface, ipath| {
+                iface == FORWARDER_SESSION_STATE_INTERFACE && ipath == "/abcd/status"
+            })
+            .returning(|_, _| Ok(()));
+
+        let res = ss.send(&pub_sub).await;
+
+        assert!(res.is_ok());
+
+        // send unset in case of SessionState::disconnected
+        let ss = SessionState::disconnected("abcd".to_string());
+        let res = ss.send(&pub_sub).await;
 
         assert!(res.is_ok());
     }
 
     #[tokio::test]
     async fn test_init_forwarder() {
-        let mut publisher = MockPublisher::new();
-        mock_forwarder_init(&mut publisher);
-        let f = Forwarder::init(publisher).await;
+        let mut pub_sub = MockPubSub::new();
+        mock_forwarder_init(&mut pub_sub);
+        let f = Forwarder::init(pub_sub).await;
 
         assert!(f.is_ok());
 
         // test when an error is returned by the publisher
-        let mut publisher = MockPublisher::new();
+        let mut pub_sub = MockPubSub::new();
 
-        publisher
+        pub_sub
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
             .returning(|_: &str| {
@@ -385,13 +378,13 @@ mod tests {
                 Err(astarte_device_sdk::error::Error::ConnectionTimeout)
             });
 
-        let f = Forwarder::init(publisher).await;
+        let f = Forwarder::init(pub_sub).await;
 
         assert!(f.is_err());
 
-        let mut publisher = MockPublisher::new();
+        let mut pub_sub = MockPubSub::new();
 
-        publisher
+        pub_sub
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
             .returning(|_: &str| {
@@ -404,7 +397,7 @@ mod tests {
                 }])
             });
 
-        publisher
+        pub_sub
             .expect_unset()
             .withf(move |iface, ipath| {
                 iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
@@ -412,13 +405,13 @@ mod tests {
             // the returned error is irrelevant, it is only necessary to the test
             .returning(|_, _| Err(astarte_device_sdk::error::Error::ConnectionTimeout));
 
-        let f = Forwarder::init(publisher).await;
+        let f = Forwarder::init(pub_sub).await;
 
         assert!(f.is_err());
     }
 
-    fn mock_forwarder_init(publisher: &mut MockPublisher) {
-        publisher
+    fn mock_forwarder_init(pub_sub: &mut MockPubSub) {
+        pub_sub
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
             .returning(|_: &str| {
@@ -431,7 +424,7 @@ mod tests {
                 }])
             });
 
-        publisher
+        pub_sub
             .expect_unset()
             .withf(move |iface, ipath| {
                 iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
@@ -441,9 +434,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_sessions() {
-        let mut publisher = MockPublisher::new();
+        let mut publisher = MockPubSub::new();
 
-        publisher.expect_clone().returning(MockPublisher::new);
+        publisher.expect_clone().returning(MockPubSub::new);
 
         let mut f = Forwarder {
             publisher,
@@ -458,10 +451,10 @@ mod tests {
             )]),
         };
 
-        let astarte_event = AstarteDeviceDataEvent {
+        let astarte_event = DeviceEvent {
             interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
             path: "/request".to_string(),
-            data: Aggregation::Object(HashMap::from([
+            data: Value::Object(HashMap::from([
                 (
                     "host".to_string(),
                     AstarteType::String("127.0.0.1".to_string()),

@@ -113,4 +113,5 @@ jobs:
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.5
       - name: cargo +${{ matrix.msrv }} check
-        run: cargo check --all-features --workspace
+        # the compatibility with the MSRV needs to be checked only for the binary
+        run: cargo check --all-features -p edgehog-device-runtime
