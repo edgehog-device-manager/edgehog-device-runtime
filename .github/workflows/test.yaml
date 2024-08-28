@@ -34,7 +34,7 @@ jobs:
     name: ubuntu / ${{ matrix.toolchain }}
     strategy:
       matrix:
-        toolchain: [ stable, beta ]
+        toolchain: [stable, beta]
     steps:
       - name: Install system dependencies
         run: |
@@ -78,7 +78,23 @@ jobs:
       - name: Run cargo-tarpaulin with xml output
         run: cargo +stable tarpaulin --engine llvm --locked --all-features --ignore-tests --packages edgehog-device-runtime edgehog-device-runtime-docker edgehog-device-runtime-forwarder --exclude-files src/main.rs --out xml -- --test-threads 1
       - name: Upload to codecov.io
+        if: ${{ github.event_name == 'push' }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           fail_ci_if_error: true
+      # Save data to use in workflow_run
+      - name: Save PR number
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          echo "$PR_NUMBER" > ./pr_number
+      - name: Upload coverage artifact
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            pr_number
+            cobertura.xml
