@@ -19,9 +19,14 @@ use edgehog_device_runtime_forwarder::test_utils::{
 #[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_internal_ws() {
+    env_logger::builder().is_test(true).init();
+
+    // Mock server for ttyd
     let mut test_connections = TestConnections::<MockWebSocket>::init().await;
 
+    // Edgehog
     let mut ws_bridge = test_connections.mock_ws_server().await;
+    // Device listener (waiting for Edgehog -> Device)
     let listener = test_connections.mock_server.device_listener().unwrap();
     let connection_handle = MockWebSocket::open_ws_device(listener);
 
