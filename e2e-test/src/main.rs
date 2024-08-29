@@ -19,11 +19,17 @@
  */
 
 use astarte_device_sdk::types::AstarteType;
+use clap::Parser;
+use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
+use log::{error, info};
+use reqwest::Response;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
-use std::panic;
 use std::path::PathBuf;
+use std::time::Duration;
 use tempdir::TempDir;
+use url::Url;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use edgehog_device_runtime::data::connect_store;
@@ -37,65 +43,102 @@ struct AstartePayload<T> {
     data: T,
 }
 
-fn env_as_bool(name: &str) -> bool {
-    matches!(std::env::var(name).as_deref(), Ok("1" | "true"))
+#[derive(Debug, Parser)]
+struct Cli {
+    /// Astarte API base url
+    #[arg(short = 'u', long, env = "E2E_ASTARTE_API_URL")]
+    api_url: Url,
+    /// Astarte realm to use
+    #[arg(short, long, env = "E2E_REALM_NAME")]
+    realm: String,
+    /// Astarte device id to send data from.
+    #[arg(short, long, env = "E2E_DEVICE_ID")]
+    device_id: String,
+    /// The test device credentials secret
+    #[arg(short, long, env = "E2E_CREDENTIALS_SECRET")]
+    secret: String,
+    /// Token with access to the Astarte APIs
+    #[arg(short, long, env = "E2E_TOKEN")]
+    token: String,
+    /// Ignore SSL errors when talking to MQTT Broker.
+    #[arg(long, env = "E2E_IGNORE_SSL")]
+    ignore_ssl: bool,
+    /// Interface directory for the Device.
+    #[arg(short, long, env = "E2E_INTERFACE_DIR")]
+    interface_dir: PathBuf,
+}
+
+impl Cli {
+    fn pairing_url(&self) -> color_eyre::Result<Url> {
+        let mut url = self.api_url.clone();
+
+        url.path_segments_mut()
+            .map_err(|()| eyre!("couldn't get path for pairing url"))?
+            .push("pairing");
+
+        Ok(url)
+    }
+}
+
+/// Retry the future multiple times
+async fn retry<'a, F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
+where
+    F: FnMut() -> T,
+    T: Future<Output = color_eyre::Result<U>>,
+{
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+    for i in 1..=times {
+        match (f)().await {
+            Ok(o) => return Ok(o),
+            Err(err) => {
+                error!("failed retry {i} for: {err}");
+
+                interval.tick().await;
+            }
+        }
+    }
+
+    bail!("to many attempts")
 }
 
 #[tokio::main]
-async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError> {
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
+
     env_logger::init();
 
-    let orig_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic_info| {
-        println!("Test failed");
-        orig_hook(panic_info);
-        std::process::exit(1);
-    }));
+    let cli = Cli::parse();
 
-    //Waiting for Astarte Cluster to be ready...
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    wait_for_cluster(&cli.api_url).await?;
 
-    let astarte_api_url = std::env::var("E2E_ASTARTE_API_URL")
-        .expect("couldn't read environment variable E2E_ASTARTE_API_URL");
-    let realm =
-        std::env::var("E2E_REALM_NAME").expect("couldn't read environment variable E2E_REALM_NAME");
-    let device_id =
-        std::env::var("E2E_DEVICE_ID").expect("couldn't read environment variable E2E_DEVICE_ID");
-    let credentials_secret = std::env::var("E2E_CREDENTIALS_SECRET")
-        .expect("couldn't read environment variable E2E_CREDENTIALS_SECRET");
-    let pairing_url = astarte_api_url.to_owned() + "/pairing";
-    let e2e_token: &str =
-        &std::env::var("E2E_TOKEN").expect("couldn't read environment variable E2E_TOKEN");
-    let ignore_ssl = env_as_bool("E2E_IGNORE_SSL");
-    let interface_dir = std::env::var("E2E_INTERFACE_DIR")
-        .expect("couldn't read environment variable E2E_INTERFACE_DIR");
+    let pairing_url = dbg!(cli.pairing_url()?);
 
-    let store_path = TempDir::new("e2e-test").expect("couldn't create store tmp dir");
-    let interfaces_directory = PathBuf::from(interface_dir);
+    let store_path = TempDir::new("e2e-test").wrap_err("couldn't create temp directory")?;
 
     let astarte_options = AstarteDeviceSdkConfigOptions {
-        realm: realm.to_owned(),
-        device_id: Some(device_id.to_owned()),
-        credentials_secret: Some(credentials_secret),
+        realm: cli.realm.clone(),
+        device_id: Some(cli.device_id.clone()),
+        credentials_secret: Some(cli.secret.clone()),
         pairing_url: pairing_url.to_string(),
         pairing_token: None,
-        ignore_ssl,
+        ignore_ssl: cli.ignore_ssl,
     };
 
     let device_options = DeviceManagerOptions {
         astarte_library: AstarteLibrary::AstarteDeviceSDK,
         astarte_device_sdk: Some(astarte_options.clone()),
-        interfaces_directory,
-        store_directory: store_path.path().to_owned(),
-        download_directory: PathBuf::new(),
-        telemetry_config: Some(vec![]),
+        interfaces_directory: cli.interface_dir.clone(),
+        store_directory: store_path.path().to_path_buf(),
+        download_directory: store_path.path().join("downloads"),
+        telemetry_config: Some(Vec::new()),
         #[cfg(feature = "message-hub")]
         astarte_message_hub: None,
     };
 
     let store = connect_store(store_path.path())
         .await
-        .expect("failed to connect store");
+        .wrap_err("couldn't connect to the store")?;
 
     let (pub_sub, handle) = astarte_options
         .connect(
@@ -104,214 +147,216 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
             &device_options.interfaces_directory,
         )
         .await
-        .expect("couldn't connect to astarte");
+        .wrap_err("couldn't connect to astarte")?;
 
     let dm = DeviceManager::new(device_options, pub_sub, handle).await?;
 
     dm.init().await?;
 
-    tokio::task::spawn(async move {
-        dm.run().await.unwrap();
-    });
+    tokio::task::spawn(async move { dm.run().await });
 
     //Waiting for Edgehog Device Runtime to be ready...
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-    do_e2e_test(
-        astarte_api_url.to_owned(),
-        realm.to_owned(),
-        device_id.to_owned(),
-        e2e_token.to_owned(),
-    )
-    .await;
 
-    println!("Tests completed successfully");
+    os_info_test(&cli).await?;
+    hardware_info_test(&cli).await?;
+    runtime_info_test(&cli).await?;
+
+    info!("Tests completed successfully");
 
     Ok(())
 }
-pub struct Test {
-    api_url: String,
-    realm: String,
-    device_id: String,
-    e2e_token: String,
+
+async fn wait_for_cluster(api_url: &Url) -> color_eyre::Result<()> {
+    let appengine = api_url.join("/appengine/health")?.to_string();
+    let pairing = api_url.join("/pairing/health")?.to_string();
+
+    retry(20, move || {
+        let appengine = appengine.clone();
+        let pairing = pairing.clone();
+
+        async move {
+            reqwest::get(&appengine)
+                .await
+                .and_then(Response::error_for_status)
+                .wrap_err("call failed")?;
+
+            reqwest::get(&pairing)
+                .await
+                .and_then(Response::error_for_status)
+                .wrap_err("call failed")
+        }
+    })
+    .await?;
+
+    Ok(())
 }
 
-impl<'a> Test {
-    pub async fn run<F, T>(&self, f: F, fn_name: &str)
-    where
-        F: Fn(String, String, String, String) -> T + 'static,
-        T: Future<Output = ()> + 'static,
-    {
-        println!("Run {} ", fn_name);
-        f(
-            self.api_url.clone(),
-            self.realm.clone(),
-            self.device_id.clone(),
-            self.e2e_token.clone(),
-        )
-        .await;
-        println!("Test {} completed successfully", fn_name);
-    }
+async fn get_interface_data<T>(cli: &Cli, interface: &str) -> color_eyre::Result<T>
+where
+    T: DeserializeOwned,
+{
+    let url = cli
+        .api_url
+        .join(&format!(
+            "/appengine/v1/{}/devices/{}/interfaces/{interface}",
+            cli.realm, cli.device_id
+        ))?
+        .to_string();
+
+    retry(20, || async {
+        reqwest::Client::new()
+            .get(&url)
+            .bearer_auth(&cli.token)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await
+            .map_err(Into::into)
+    })
+    .await
 }
 
-async fn do_e2e_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
-    let test = Test {
-        api_url,
-        realm,
-        device_id,
-        e2e_token,
-    };
-    test.run(os_info_test, "os_info_test").await;
-    test.run(hardware_info_test, "hardware_info_test").await;
-    test.run(runtime_info_test, "runtime_info_test").await;
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OsInfo {
+    os_name: String,
+    os_version: String,
 }
 
-async fn os_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
-    let os_info_from_lib = get_os_info().await.unwrap();
-    let json_os_info = reqwest::Client::new()
-        .get(format!(
-            "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.OSInfo",
-            api_url, realm, device_id
-        ))
-        .header("Authorization", format!("Bearer {}", e2e_token))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
+async fn os_info_test(cli: &Cli) -> color_eyre::Result<()> {
+    let mut os_info_from_lib = get_os_info().await?;
+    let os_info_from_astarte: AstartePayload<OsInfo> =
+        get_interface_data(cli, "io.edgehog.devicemanager.OSInfo").await?;
 
-    #[derive(Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct OsInfo {
-        os_name: String,
-        os_version: String,
-    }
+    let name = os_info_from_lib
+        .remove("/osName")
+        .ok_or_eyre("missing osName")?;
+    assert_eq!(AstarteType::String(os_info_from_astarte.data.os_name), name);
 
-    let os_info_from_astarte: AstartePayload<OsInfo> = serde_json::from_str(&json_os_info).unwrap();
-    assert_eq!(
-        AstarteType::String(os_info_from_astarte.data.os_name),
-        os_info_from_lib.get("/osName").unwrap().to_owned()
-    );
+    let version = os_info_from_lib
+        .remove("/osVersion")
+        .ok_or_eyre("missing os version")?;
     assert_eq!(
         AstarteType::String(os_info_from_astarte.data.os_version),
-        os_info_from_lib.get("/osVersion").unwrap().to_owned()
+        version
     );
+
+    Ok(())
 }
 
-async fn hardware_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
-    let hardware_info_from_lib = get_hardware_info().unwrap();
-    let json_hardware_info = reqwest::Client::new()
-        .get(format!(
-            "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.HardwareInfo",
-            api_url, realm, device_id
-        ))
-        .header("Authorization", format!("Bearer {}", e2e_token))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
+#[derive(Serialize, Deserialize)]
+struct HardwareInfo {
+    cpu: Cpu,
+    mem: Mem,
+}
 
-    #[derive(Serialize, Deserialize)]
-    struct HardwareInfo {
-        cpu: Cpu,
-        mem: Mem,
-    }
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Cpu {
+    architecture: String,
+    model: String,
+    model_name: String,
+    vendor: String,
+}
 
-    #[derive(Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Cpu {
-        architecture: String,
-        model: String,
-        model_name: String,
-        vendor: String,
-    }
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Mem {
+    total_bytes: i64,
+}
 
-    #[derive(Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Mem {
-        total_bytes: i64,
-    }
+async fn hardware_info_test(cli: &Cli) -> color_eyre::Result<()> {
+    let mut hardware_info_from_lib = get_hardware_info()?;
 
     let hardware_info_from_astarte: AstartePayload<HardwareInfo> =
-        serde_json::from_str(&json_hardware_info).unwrap();
+        get_interface_data(cli, "io.edgehog.devicemanager.HardwareInfo").await?;
+
+    let arch = hardware_info_from_lib
+        .remove("/cpu/architecture")
+        .ok_or_eyre("couldn't get cpu arch")?;
     assert_eq!(
         AstarteType::String(hardware_info_from_astarte.data.cpu.architecture),
-        hardware_info_from_lib
-            .get("/cpu/architecture")
-            .unwrap()
-            .to_owned()
+        arch
     );
+
+    let model = hardware_info_from_lib
+        .remove("/cpu/model")
+        .ok_or_eyre("couldn't get cpu model")?;
     assert_eq!(
         AstarteType::String(hardware_info_from_astarte.data.cpu.model),
-        hardware_info_from_lib.get("/cpu/model").unwrap().to_owned()
+        model
     );
+
+    let name = hardware_info_from_lib
+        .remove("/cpu/modelName")
+        .ok_or_eyre("couldn't get cpu model name")?;
     assert_eq!(
         AstarteType::String(hardware_info_from_astarte.data.cpu.model_name),
-        hardware_info_from_lib
-            .get("/cpu/modelName")
-            .unwrap()
-            .to_owned()
+        name
     );
+
+    let vendor = hardware_info_from_lib
+        .remove("/cpu/vendor")
+        .ok_or_eyre("couldn't get cpu vendor")?;
     assert_eq!(
         AstarteType::String(hardware_info_from_astarte.data.cpu.vendor),
-        hardware_info_from_lib
-            .get("/cpu/vendor")
-            .unwrap()
-            .to_owned()
+        vendor
     );
+
+    let total = hardware_info_from_lib
+        .remove("/mem/totalBytes")
+        .ok_or_eyre("coudln't get total memory")?;
     assert_eq!(
         AstarteType::LongInteger(hardware_info_from_astarte.data.mem.total_bytes),
-        hardware_info_from_lib
-            .get("/mem/totalBytes")
-            .unwrap()
-            .to_owned()
+        total
     );
+
+    Ok(())
 }
 
-async fn runtime_info_test(api_url: String, realm: String, device_id: String, e2e_token: String) {
-    let runtime_info_from_lib = get_runtime_info().unwrap();
-    let runtime_info_json = reqwest::Client::new()
-        .get(format!(
-            "{}/appengine/v1/{}/devices/{}/interfaces/io.edgehog.devicemanager.RuntimeInfo",
-            api_url, realm, device_id
-        ))
-        .header("Authorization", format!("Bearer {}", e2e_token))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
+#[derive(Serialize, Deserialize)]
+struct RuntimeInfo {
+    environment: String,
+    name: String,
+    url: String,
+    version: String,
+}
 
-    #[derive(Serialize, Deserialize)]
-    struct RuntimeInfo {
-        environment: String,
-        name: String,
-        url: String,
-        version: String,
-    }
+async fn runtime_info_test(cli: &Cli) -> color_eyre::Result<()> {
+    let mut runtime_info_from_lib = get_runtime_info()?;
 
     let runtime_info_from_astarte: AstartePayload<RuntimeInfo> =
-        serde_json::from_str(&runtime_info_json).unwrap();
+        get_interface_data(cli, "io.edgehog.devicemanager.RuntimeInfo").await?;
+
+    let env = runtime_info_from_lib
+        .remove("/environment")
+        .ok_or_eyre("coudln't get environment")?;
     assert_eq!(
         AstarteType::String(runtime_info_from_astarte.data.environment),
-        runtime_info_from_lib
-            .get("/environment")
-            .unwrap()
-            .to_owned()
+        env
     );
+
+    let name = runtime_info_from_lib
+        .remove("/name")
+        .ok_or_eyre("couldn't get the name")?;
     assert_eq!(
         AstarteType::String(runtime_info_from_astarte.data.name),
-        runtime_info_from_lib.get("/name").unwrap().to_owned()
+        name
     );
-    assert_eq!(
-        AstarteType::String(runtime_info_from_astarte.data.url),
-        runtime_info_from_lib.get("/url").unwrap().to_owned()
-    );
+    let url = runtime_info_from_lib
+        .remove("/url")
+        .ok_or_eyre("coudln't get the url")?;
+    assert_eq!(AstarteType::String(runtime_info_from_astarte.data.url), url);
+
+    let version = runtime_info_from_lib
+        .remove("/version")
+        .ok_or_eyre("couldn't get the version")?;
     assert_eq!(
         AstarteType::String(runtime_info_from_astarte.data.version),
-        runtime_info_from_lib.get("/version").unwrap().to_owned()
+        version
     );
+
+    Ok(())
 }

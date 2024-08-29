@@ -227,30 +227,34 @@ where
         });
     }
 
-    pub async fn run(mut self) -> Result<(), DeviceManagerError> {
+    pub async fn run(self) -> Result<(), DeviceManagerError> {
+        let this = self;
+        #[cfg(feature = "forwarder")]
+        let mut this = this;
+
         #[cfg(feature = "systemd")]
         systemd_wrapper::systemd_notify_status("Running");
 
-        let tel_clone = self.telemetry.clone();
+        let tel_clone = Arc::clone(&this.telemetry);
         tokio::task::spawn(async move {
             tel_clone.write().await.run_telemetry().await;
         });
 
         loop {
-            match self.pub_sub.recv().await {
+            match this.pub_sub.recv().await {
                 Ok(data_event) => {
                     debug!("incoming: {:?}", data_event);
 
                     match data_event.interface.as_str() {
                         "io.edgehog.devicemanager.OTARequest" => {
-                            self.ota_event_channel.send(data_event).await.unwrap()
+                            this.ota_event_channel.send(data_event).await.unwrap()
                         }
                         #[cfg(feature = "forwarder")]
                         "io.edgehog.devicemanager.ForwarderSessionRequest" => {
-                            self.forwarder.handle_sessions(data_event)
+                            this.forwarder.handle_sessions(data_event)
                         }
                         _ => {
-                            self.data_event_channel.send(data_event).await.unwrap();
+                            this.data_event_channel.send(data_event).await.unwrap();
                         }
                     }
                 }
@@ -261,9 +265,9 @@ where
 
         error!("publisher closed, device disconnected");
 
-        self.handle.abort();
+        this.handle.abort();
 
-        match self.handle.await {
+        match this.handle.await {
             Ok(res) => res?,
             Err(err) if err.is_cancelled() => {}
             Err(err) => {

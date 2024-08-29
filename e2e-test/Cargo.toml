@@ -26,13 +26,17 @@ rust-version = { workspace = true }
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
+color-eyre = { workspace = true }
 edgehog-device-runtime = { path = ".." }
 env_logger = { workspace = true }
+log = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempdir = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
 
 [features]
 message-hub = ["edgehog-device-runtime/message-hub"]
