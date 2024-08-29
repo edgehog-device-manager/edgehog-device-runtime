@@ -15,8 +15,11 @@ use futures::{SinkExt, StreamExt};
 use httpmock::prelude::*;
 use httpmock::Mock;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 use tokio_tungstenite::WebSocketStream;
 use tracing::{debug, instrument, warn};
@@ -158,13 +161,16 @@ pub async fn send_ws_and_wait_next(
     ws_stream: &mut WebSocketStream<TcpStream>,
     data: TungMessage,
 ) -> proto::Message {
-    ws_stream.send(data).await.expect("failed to send over ws");
+    timeout(Duration::from_secs(2), ws_stream.send(data))
+        .await
+        .unwrap()
+        .expect("failed to send over ws");
 
     // should receive an HTTP response with status code 101, stating that the connection upgrade
     // was successful
-    let http_res = ws_stream
-        .next()
+    let http_res = timeout(Duration::from_secs(2), ws_stream.next())
         .await
+        .unwrap()
         .expect("ws already closed")
         .expect("failed to receive from ws")
         .into_data();
@@ -310,9 +316,16 @@ impl MockWebSocket {
                 .await
                 .expect("failed to accept connection");
 
-            tokio_tungstenite::accept_async(stream)
-                .await
-                .expect("failed to open a ws with the device")
+            tokio_tungstenite::accept_hdr_async(stream, |req: &Request, mut res: Response| {
+                if let Some(h) = req.headers().get("Sec-WebSocket-Protocol") {
+                    res.headers_mut()
+                        .insert("Sec-WebSocket-Protocol", h.clone());
+                }
+
+                Ok(res)
+            })
+            .await
+            .expect("failed to open a ws with the device")
         })
     }
 

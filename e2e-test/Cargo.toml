@@ -1,6 +1,6 @@
-# This file is part of Hedgehog.
+# This file is part of Edgehog.
 #
-# Copyright 2023 SECO Mind Srl
+# Copyright 2023-2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
-edgehog-device-runtime = { path = "..", features = ["e2e_test"] }
+edgehog-device-runtime = { path = ".." }
 env_logger = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
@@ -35,5 +35,4 @@ tempdir = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [features]
-# NOTE: needed to build with --all-features
 message-hub = ["edgehog-device-runtime/message-hub"]

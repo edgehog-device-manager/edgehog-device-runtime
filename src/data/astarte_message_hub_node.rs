@@ -92,10 +92,13 @@ impl AstarteMessageHubOptions {
 mod tests {
     use astarte_device_sdk::types::AstarteType;
     use astarte_device_sdk::AstarteAggregate;
-    use astarte_message_hub_proto::astarte_message::Payload;
-    use astarte_message_hub_proto::message_hub_server::{MessageHub, MessageHubServer};
-    use astarte_message_hub_proto::tonic::{Code, Request, Response, Status};
-    use astarte_message_hub_proto::AstarteMessage;
+    use astarte_message_hub_proto::{
+        astarte_message::Payload,
+        message_hub_server::{MessageHub, MessageHubServer},
+        pbjson_types::Empty,
+        tonic::{Code, Request, Response, Status},
+        AstarteMessage,
+    };
     use async_trait::async_trait;
     use std::net::{Ipv6Addr, SocketAddr};
     use tokio::sync::oneshot::Sender;
@@ -117,11 +120,11 @@ mod tests {
             async fn send(
                 &self,
                 request: Request<astarte_message_hub_proto::AstarteMessage>,
-            ) -> Result<Response<pbjson_types::Empty>, Status> ;
+            ) -> Result<Response<astarte_message_hub_proto::pbjson_types::Empty>, Status> ;
             async fn detach(
                 &self,
                 request: Request<astarte_message_hub_proto::Node>,
-            ) -> Result<Response<pbjson_types::Empty>, Status> ;
+            ) -> Result<Response<astarte_message_hub_proto::pbjson_types::Empty>, Status> ;
         }
     }
 
@@ -288,7 +291,7 @@ mod tests {
 
         msg_hub
             .expect_send()
-            .returning(|_| Ok(Response::new(pbjson_types::Empty {})));
+            .returning(|_| Ok(Response::new(Empty {})));
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
@@ -389,7 +392,7 @@ mod tests {
 
         msg_hub
             .expect_send()
-            .returning(|_| Ok(Response::new(pbjson_types::Empty {})));
+            .returning(|_| Ok(Response::new(Empty {})));
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 

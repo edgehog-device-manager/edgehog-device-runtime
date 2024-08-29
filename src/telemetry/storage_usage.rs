@@ -21,7 +21,7 @@
 use astarte_device_sdk::{astarte_aggregate, AstarteAggregate};
 use log::{error, warn};
 use std::collections::HashMap;
-use sysinfo::{DiskExt, System, SystemExt};
+use sysinfo::Disks;
 
 #[derive(Debug, AstarteAggregate)]
 #[astarte_aggregate(rename_all = "camelCase")]
@@ -33,10 +33,10 @@ pub struct DiskUsage {
 /// get structured data for `io.edgehog.devicemanager.StorageUsage` interface
 /// /dev/ is excluded from the device names since it is common for all devices
 pub fn get_storage_usage() -> HashMap<String, DiskUsage> {
-    let mut sys = System::new_all();
-    sys.refresh_disks();
+    let disks = Disks::new_with_refreshed_list();
 
-    sys.disks()
+    disks
+        .list()
         .iter()
         .filter_map(|disk| {
             let Some(name) = disk.name().to_str() else {

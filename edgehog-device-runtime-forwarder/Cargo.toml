@@ -26,11 +26,12 @@ rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots", "url"] }
 tracing = { workspace = true, features = ["log"] }
 url = { workspace = true }
 
 [dev-dependencies]
+env_logger = { workspace = true }
 httpmock = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 
