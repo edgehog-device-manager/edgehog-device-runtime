@@ -20,6 +20,8 @@
 
 //! Contains the implementation for the Astarte message hub node.
 
+use std::path::Path;
+
 use astarte_device_sdk::builder::DeviceBuilder;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
@@ -28,8 +30,8 @@ use astarte_device_sdk::transport::grpc::{GrpcConfig, GrpcError};
 use astarte_device_sdk::DeviceClient;
 use astarte_device_sdk::Error as AstarteError;
 use serde::Deserialize;
-use std::path::Path;
 use tokio::task::JoinHandle;
+use url::Url;
 use uuid::{uuid, Uuid};
 
 /// Device runtime node identifier.
@@ -52,7 +54,7 @@ pub enum MessageHubError {
 #[derive(Debug, Deserialize, Clone)]
 pub struct AstarteMessageHubOptions {
     /// The Endpoint of the Astarte Message Hub
-    endpoint: String,
+    pub endpoint: Url,
 }
 
 impl AstarteMessageHubOptions {
@@ -70,7 +72,7 @@ impl AstarteMessageHubOptions {
     where
         P: AsRef<Path>,
     {
-        let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone())
+        let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .map_err(MessageHubError::Endpoint)?;
 
         let (device, mut connection) = DeviceBuilder::new()
@@ -158,7 +160,7 @@ mod tests {
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let opts = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         };
 
         let (store, tmp_store_path) = create_tmp_store().await;
@@ -183,7 +185,7 @@ mod tests {
         let (store, tmp_store_path) = create_tmp_store().await;
 
         let node_result = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_store_path)
         .await;
@@ -209,7 +211,7 @@ mod tests {
         let (store, tmp_store_path) = create_tmp_store().await;
 
         let node_result = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_store_path)
         .await;
@@ -239,7 +241,7 @@ mod tests {
         let (store, tmp_store_path) = create_tmp_store().await;
 
         let (pub_sub, _handle) = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_store_path)
         .await
@@ -296,7 +298,7 @@ mod tests {
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let (pub_sub, _handle) = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_dir)
         .await
@@ -335,7 +337,7 @@ mod tests {
         let (store, tmp_store_path) = create_tmp_store().await;
 
         let (pub_sub, _handle) = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_store_path)
         .await
@@ -397,7 +399,7 @@ mod tests {
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let (pub_sub, _handle) = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_dir)
         .await
@@ -469,7 +471,7 @@ mod tests {
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
         let (pub_sub, _handle) = AstarteMessageHubOptions {
-            endpoint: format!("http://[::1]:{port}"),
+            endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
         .connect(store, &tmp_dir)
         .await

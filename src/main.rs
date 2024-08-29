@@ -18,74 +18,68 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use clap::Parser;
 #[cfg(feature = "systemd")]
 use std::panic::{self, PanicInfo};
-use std::path::Path;
+
+use clap::Parser;
+use cli::Cli;
+use log::warn;
+use stable_eyre::eyre::{OptionExt, WrapErr};
 
 use config::read_options;
 use edgehog_device_runtime::data::connect_store;
-use edgehog_device_runtime::error::DeviceManagerError;
 use edgehog_device_runtime::AstarteLibrary;
 
+mod cli;
 mod config;
 
 //Error code state not recoverable
 #[allow(unused)]
 const ENOTRECOVERABLE: i32 = 131;
 
-#[derive(Debug, Parser)]
-struct Cli {
-    /// Override configuration file path
-    #[clap(short, long)]
-    configuration_file: Option<String>,
-}
-
 #[tokio::main]
-async fn main() -> Result<(), DeviceManagerError> {
+async fn main() -> stable_eyre::Result<()> {
+    stable_eyre::install()?;
     env_logger::init();
+
     #[cfg(feature = "systemd")]
     {
         let default_panic_hook = panic::take_hook();
         panic::set_hook(Box::new(move |panic_info| {
-            default_panic_hook(panic_info);
             systemd_panic_hook(panic_info);
+
+            default_panic_hook(panic_info);
         }));
     }
-    let Cli {
-        configuration_file: config_file_path,
-    } = Parser::parse();
 
-    let options = read_options(config_file_path).await?;
+    let cli = Cli::parse();
 
-    if !Path::new(&options.download_directory).exists() {
-        tokio::fs::create_dir_all(&options.download_directory)
-            .await
-            .map_err(|err| {
-                DeviceManagerError::FatalError(
-                    "Unable to create OTA download directory. ".to_owned() + &err.to_string(),
-                )
-            })?;
+    if cli.configuration_file.is_some() {
+        warn!("the option --configuration-file is deprecated, please use --config instead")
     }
 
-    if !Path::new(&options.store_directory).exists() {
+    let options = read_options(cli).await?;
+
+    if !options.download_directory.exists() {
+        tokio::fs::create_dir_all(&options.download_directory)
+            .await
+            .wrap_err("Unable to create OTA download directory.")?;
+    }
+
+    if !options.store_directory.exists() {
         tokio::fs::create_dir_all(&options.store_directory)
             .await
-            .map_err(|err| {
-                DeviceManagerError::FatalError(
-                    "Unable to create store directory. ".to_owned() + &err.to_string(),
-                )
-            })?;
+            .wrap_err("Unable to create store directory")?;
     }
 
     let store = connect_store(&options.store_directory).await?;
 
     let (pub_sub, handle) = match &options.astarte_library {
-        AstarteLibrary::AstarteDeviceSDK => {
+        AstarteLibrary::AstarteDeviceSdk => {
             let astarte_sdk_options = options
                 .astarte_device_sdk
                 .as_ref()
-                .expect("couldn't find astarte options");
+                .ok_or_eyre("couldn't get astarte options")?;
 
             astarte_sdk_options
                 .connect(
@@ -100,7 +94,7 @@ async fn main() -> Result<(), DeviceManagerError> {
             let astarte_message_hub_options = options
                 .astarte_message_hub
                 .as_ref()
-                .expect("Unable to find MessageHub options");
+                .ok_or_eyre("couldn't get MessageHub options")?;
 
             astarte_message_hub_options
                 .connect(store, &options.interfaces_directory)
@@ -128,7 +122,7 @@ fn systemd_panic_hook(panic_info: &PanicInfo) {
     };
 
     let location = if let Some(location) = panic_info.location() {
-        format!("in file '{}' at line {}", location.file(), location.line(),)
+        format!("in file '{}' at line {}", location.file(), location.line())
     } else {
         "".to_string()
     };

@@ -142,35 +142,35 @@ impl SystemUpdate for OTARauc<'static> {
         self.rauc
             .last_error()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError> {
         self.rauc
             .info(bundle)
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn operation(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .operation()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn compatible(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .compatible()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn boot_slot(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .boot_slot()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn receive_completed(&self) -> Result<ProgressStream, DeviceManagerError> {
@@ -198,7 +198,7 @@ impl SystemUpdate for OTARauc<'static> {
         self.rauc
             .get_primary()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn mark(
@@ -209,7 +209,7 @@ impl SystemUpdate for OTARauc<'static> {
         self.rauc
             .mark(state, slot_identifier)
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 }
 

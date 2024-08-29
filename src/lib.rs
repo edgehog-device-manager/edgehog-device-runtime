@@ -53,7 +53,7 @@ const MAX_OTA_OPERATION: usize = 2;
 #[derive(Deserialize, Debug, Clone)]
 pub enum AstarteLibrary {
     #[serde(rename = "astarte-device-sdk")]
-    AstarteDeviceSDK,
+    AstarteDeviceSdk,
     #[cfg(feature = "message-hub")]
     #[serde(rename = "astarte-message-hub")]
     AstarteMessageHub,
@@ -385,6 +385,7 @@ mod tests {
     use std::path::PathBuf;
 
     use astarte_device_sdk::types::AstarteType;
+    use url::Url;
 
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
     use crate::data::tests::create_tmp_store;
@@ -425,12 +426,12 @@ mod tests {
         let (store, store_dir) = create_tmp_store().await;
 
         let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
+            astarte_library: AstarteLibrary::AstarteDeviceSdk,
             astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
                 realm: "".to_string(),
                 device_id: Some("device_id".to_string()),
                 credentials_secret: Some("credentials_secret".to_string()),
-                pairing_url: "".to_string(),
+                pairing_url: Url::parse("http://[::]").unwrap(),
                 pairing_token: None,
                 ignore_ssl: false,
             }),
@@ -461,12 +462,12 @@ mod tests {
     #[tokio::test]
     async fn device_manager_new_success() {
         let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
+            astarte_library: AstarteLibrary::AstarteDeviceSdk,
             astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
                 realm: "".to_string(),
                 device_id: Some("device_id".to_string()),
                 credentials_secret: Some("credentials_secret".to_string()),
-                pairing_url: "".to_string(),
+                pairing_url: Url::parse("http://[::]").unwrap(),
                 pairing_token: None,
                 ignore_ssl: false,
             }),
@@ -492,12 +493,12 @@ mod tests {
     #[tokio::test]
     async fn send_initial_telemetry_success() {
         let options = DeviceManagerOptions {
-            astarte_library: AstarteLibrary::AstarteDeviceSDK,
+            astarte_library: AstarteLibrary::AstarteDeviceSdk,
             astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
                 realm: "".to_string(),
                 device_id: Some("device_id".to_string()),
                 credentials_secret: Some("credentials_secret".to_string()),
-                pairing_url: "".to_string(),
+                pairing_url: Url::parse("http://[::]").unwrap(),
                 pairing_token: None,
                 ignore_ssl: false,
             }),

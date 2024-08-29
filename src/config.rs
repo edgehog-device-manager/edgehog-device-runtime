@@ -18,32 +18,141 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use edgehog_device_runtime::{error::DeviceManagerError, DeviceManagerOptions};
-use log::info;
+use std::path::{Path, PathBuf};
 
-pub async fn read_options(
-    override_config_file_path: Option<String>,
-) -> Result<DeviceManagerOptions, DeviceManagerError> {
-    let paths = ["edgehog-config.toml", "/etc/edgehog/config.toml"]
-        .iter()
-        .map(|f| f.to_string());
+use edgehog_device_runtime::{
+    telemetry::TelemetryInterfaceConfig, AstarteLibrary, DeviceManagerOptions,
+};
+use serde::Deserialize;
+use stable_eyre::eyre::OptionExt;
 
-    let paths = override_config_file_path
+use crate::cli::{Cli, Command, DeviceSdkArgs, OverrideOption};
+
+/// Configuration file
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Config {
+    pub astarte_library: Option<AstarteLibrary>,
+
+    pub astarte_device_sdk: Option<DeviceSdkArgs>,
+    #[cfg(feature = "message-hub")]
+    pub astarte_message_hub: Option<crate::cli::MsgHubArgs>,
+
+    pub interfaces_directory: Option<PathBuf>,
+    pub store_directory: Option<PathBuf>,
+    pub download_directory: Option<PathBuf>,
+    pub telemetry_config: Option<Vec<TelemetryInterfaceConfig>>,
+}
+
+impl TryFrom<Config> for DeviceManagerOptions {
+    type Error = stable_eyre::eyre::Error;
+
+    fn try_from(value: Config) -> Result<Self, Self::Error> {
+        let astarte_library = value
+            .astarte_library
+            .ok_or_eyre("config is missing astarte_library value")?;
+
+        let astarte_device_sdk = value
+            .astarte_device_sdk
+            .map(|opt| opt.try_into())
+            .transpose()?;
+
+        #[cfg(feature = "message-hub")]
+        let astarte_message_hub = value
+            .astarte_message_hub
+            .map(|opt| opt.try_into())
+            .transpose()?;
+
+        let interfaces_directory = value
+            .interfaces_directory
+            .ok_or_eyre("config is missing interfaces directory")?;
+
+        let store_directory = value
+            .store_directory
+            .ok_or_eyre("config is missing store directory")?;
+
+        let download_directory = value
+            .download_directory
+            .unwrap_or(store_directory.join("download"));
+
+        Ok(Self {
+            astarte_library,
+            astarte_device_sdk,
+            #[cfg(feature = "message-hub")]
+            astarte_message_hub,
+            interfaces_directory,
+            store_directory,
+            download_directory,
+            telemetry_config: value.telemetry_config,
+        })
+    }
+}
+
+pub async fn read_options(cli: Cli) -> stable_eyre::Result<DeviceManagerOptions> {
+    let paths = [
+        Path::new("edgehog-config.toml"),
+        Path::new("/etc/edgehog/config.toml"),
+    ];
+
+    let override_config_file_path = cli.config.or(cli.configuration_file);
+
+    let mut paths = override_config_file_path
+        .as_deref()
         .into_iter()
         .chain(paths)
-        .filter(|f| std::path::Path::new(f).exists());
+        .filter(|f| f.is_file());
 
-    if let Some(path) = paths.into_iter().next() {
-        info!("Found configuration file {path}");
-
+    let mut config = if let Some(path) = paths.next() {
         let config = tokio::fs::read_to_string(path).await?;
 
-        let config = toml::from_str::<DeviceManagerOptions>(&config)?;
-
-        Ok(config)
+        toml::from_str(&config)?
     } else {
-        Err(DeviceManagerError::FatalError(
-            "Configuration file not found".to_string(),
-        ))
+        Config::default()
+    };
+
+    match cli.command {
+        Some(Command::DeviceSdk { device, shared }) => {
+            config.astarte_library = Some(AstarteLibrary::AstarteDeviceSdk);
+
+            if let Some(sdk) = &mut config.astarte_device_sdk {
+                sdk.merge(device)
+            } else {
+                config.astarte_device_sdk = Some(device);
+            }
+
+            config.interfaces_directory.merge(shared.interfaces_dir);
+            config.store_directory.merge(shared.store_dir);
+        }
+        None => {
+            // Default to the sdk if it's not set, since the msg-hub config could be set in the file
+            config.astarte_library = config
+                .astarte_library
+                .or(Some(AstarteLibrary::AstarteDeviceSdk));
+
+            if let Some(device) = cli.device {
+                if let Some(sdk) = &mut config.astarte_device_sdk {
+                    sdk.merge(device)
+                } else {
+                    config.astarte_device_sdk = Some(device);
+                }
+            }
+
+            if let Some(shared) = cli.shared {
+                config.interfaces_directory.merge(shared.interfaces_dir);
+                config.store_directory.merge(shared.store_dir);
+            }
+        }
+        #[cfg(feature = "message-hub")]
+        Some(Command::MsgHub { msghub, shared }) => {
+            if let Some(hub) = &mut config.astarte_message_hub {
+                hub.merge(msghub);
+            } else {
+                config.astarte_message_hub = Some(msghub);
+            }
+
+            config.interfaces_directory.merge(shared.interfaces_dir);
+            config.store_directory.merge(shared.store_dir);
+        }
     }
+
+    config.try_into()
 }

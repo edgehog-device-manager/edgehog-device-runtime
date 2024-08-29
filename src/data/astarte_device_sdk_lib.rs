@@ -21,12 +21,14 @@
 use std::path::Path;
 
 use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::transport::mqtt::{Credential, MqttConfig};
+use astarte_device_sdk::transport::mqtt::{Credential, MqttConfig, PairingError};
 use astarte_device_sdk::{error::Error as AstarteError, DeviceClient};
 use serde::Deserialize;
 use tokio::task::JoinHandle;
+use url::Url;
 
 use crate::device::DeviceProxy;
 use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
@@ -40,7 +42,7 @@ pub enum DeviceSdkError {
     /// couldn't get the hardware id from DBus
     Zbus(#[from] zbus::Error),
     /// couldn't pair device to Astarte
-    Pairing(#[from] astarte_device_sdk::transport::mqtt::PairingError),
+    Pairing(#[from] PairingError),
     /// couldn't write credential secret
     WriteSecret(#[source] FileStateError),
     /// couldn't read credential secret
@@ -48,7 +50,7 @@ pub enum DeviceSdkError {
     /// couldn't get credential secret or pairing token
     MissingCredentialSecret,
     /// couldn't add interfaces directory
-    Interfaces(#[source] astarte_device_sdk::introspection::AddInterfaceError),
+    Interfaces(#[source] AddInterfaceError),
     /// couldn't connect to Astarte
     Connect(#[source] astarte_device_sdk::Error),
 }
@@ -58,7 +60,7 @@ pub struct AstarteDeviceSdkConfigOptions {
     pub realm: String,
     pub device_id: Option<String>,
     pub credentials_secret: Option<String>,
-    pub pairing_url: String,
+    pub pairing_url: Url,
     pub pairing_token: Option<String>,
     #[serde(default)]
     pub ignore_ssl: bool,
@@ -129,7 +131,7 @@ impl AstarteDeviceSdkConfigOptions {
             &self.realm,
             &device_id,
             credentials_secret,
-            &self.pairing_url,
+            self.pairing_url.to_string(),
         );
 
         if self.ignore_ssl {
@@ -175,7 +177,7 @@ mod tests {
             realm: "foo".to_string(),
             device_id: Some("target".to_string()),
             credentials_secret: None,
-            pairing_url: String::new(),
+            pairing_url: Url::parse("http://[::]").unwrap(),
             pairing_token: None,
             ignore_ssl: false,
         };
@@ -193,7 +195,7 @@ mod tests {
             realm: "".to_string(),
             device_id: None,
             credentials_secret: Some("credentials_secret".to_string()),
-            pairing_url: "".to_string(),
+            pairing_url: Url::parse("http://[::]").unwrap(),
             pairing_token: None,
             ignore_ssl: false,
         };
@@ -212,7 +214,7 @@ mod tests {
             realm: "".to_string(),
             device_id: None,
             credentials_secret: None,
-            pairing_url: "".to_string(),
+            pairing_url: Url::parse("http://[::]").unwrap(),
             pairing_token: None,
             ignore_ssl: false,
         };
@@ -237,7 +239,7 @@ mod tests {
             realm: "".to_string(),
             device_id: Some(device_id.to_owned()),
             credentials_secret: None,
-            pairing_url: "".to_string(),
+            pairing_url: Url::parse("http://[::]").unwrap(),
             pairing_token: None,
             ignore_ssl: true,
         };
@@ -265,7 +267,7 @@ mod tests {
             realm: "".to_string(),
             device_id: Some(device_id.to_owned()),
             credentials_secret: None,
-            pairing_url: "".to_string(),
+            pairing_url: Url::parse("http://[::]").unwrap(),
             pairing_token: None,
             ignore_ssl: false,
         };

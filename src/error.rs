@@ -25,33 +25,34 @@ use crate::data::astarte_device_sdk_lib::DeviceSdkError;
 #[derive(Error, Debug)]
 pub enum DeviceManagerError {
     #[error(transparent)]
-    AstarteError(#[from] astarte_device_sdk::error::Error),
-    #[error(transparent)]
-    ProcError(#[from] procfs::ProcError),
+    Astarte(#[from] astarte_device_sdk::error::Error),
 
     #[error(transparent)]
-    IOError(#[from] std::io::Error),
+    Procfs(#[from] procfs::ProcError),
 
     #[error(transparent)]
-    ZbusError(#[from] zbus::Error),
+    Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Zbus(#[from] zbus::Error),
 
     #[error("unrecoverable error ({0})")]
-    FatalError(String),
+    Fatal(String),
 
     #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
+    Reqwest(#[from] reqwest::Error),
 
     #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
+    SerdeJson(#[from] serde_json::Error),
 
     #[error(transparent)]
-    OtaError(#[from] crate::ota::OtaError),
+    Ota(#[from] crate::ota::OtaError),
 
     #[error("configuration file error")]
-    ConfigFileError(#[from] toml::de::Error),
+    ConfigFile(#[from] toml::de::Error),
 
     #[error("integer parse error")]
-    ParseIntError(#[from] std::num::ParseIntError),
+    ParseInt(#[from] std::num::ParseIntError),
 
     #[error("device SDK error")]
     DeviceSdk(#[from] DeviceSdkError),

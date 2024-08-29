@@ -186,7 +186,7 @@ async fn handle_ota_event_bundle_not_compatible() {
     mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
-    if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
+    if let DeviceManagerError::Ota(ota_error) = result.err().unwrap() {
         if let OtaError::InvalidBaseImage(error_message) = ota_error {
             assert_eq!(expected_message.to_string(), error_message)
         } else {
@@ -326,7 +326,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
 
     assert!(result.is_err());
 
-    if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
+    if let DeviceManagerError::Ota(ota_error) = result.err().unwrap() {
         if let OtaError::InvalidBaseImage(error_message) = ota_error {
             assert_eq!(expected_message, error_message)
         } else {
@@ -369,7 +369,7 @@ async fn ota_event_fail_deployed() {
         .returning(|| Ok("B".to_owned()));
     system_update
         .expect_install_bundle()
-        .returning(|_| Err(DeviceManagerError::FatalError("install fail".to_string())));
+        .returning(|_| Err(DeviceManagerError::Fatal("install fail".to_string())));
 
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
@@ -466,7 +466,7 @@ async fn ota_event_fail_deployed() {
     mock_ota_file_request.assert_async().await;
 
     assert!(result.is_err());
-    if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
+    if let DeviceManagerError::Ota(ota_error) = result.err().unwrap() {
         if let OtaError::InvalidBaseImage(error_message) = ota_error {
             assert_eq!("Unable to install ota image".to_string(), error_message)
         } else {
@@ -724,7 +724,7 @@ async fn ota_event_update_already_in_progress_same_uuid() {
     assert!(
         matches!(
             err,
-            DeviceManagerError::OtaError(OtaError::UpdateAlreadyInProgress)
+            DeviceManagerError::Ota(OtaError::UpdateAlreadyInProgress)
         ),
         "expected error for update already in progress but got: {}",
         err
@@ -783,7 +783,7 @@ async fn ota_event_update_already_in_progress_different_uuid() {
     assert!(
         matches!(
             err,
-            DeviceManagerError::OtaError(OtaError::UpdateAlreadyInProgress)
+            DeviceManagerError::Ota(OtaError::UpdateAlreadyInProgress)
         ),
         "expected error for update already in progress but got: {}",
         err
@@ -1292,7 +1292,7 @@ async fn ensure_pending_ota_ota_is_done_fail() {
     let result = ota_handler.ensure_pending_ota_is_done(&pub_sub).await;
     assert!(result.is_err());
 
-    if let DeviceManagerError::OtaError(ota_error) = result.err().unwrap() {
+    if let DeviceManagerError::Ota(ota_error) = result.err().unwrap() {
         if let OtaError::SystemRollback(error_message) = ota_error {
             assert_eq!("Unable to switch slot", error_message)
         } else {

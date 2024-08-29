@@ -34,7 +34,7 @@ pub async fn get_os_info() -> Result<HashMap<String, AstarteType>, DeviceManager
         return parse_os_info(&os);
     }
 
-    Err(DeviceManagerError::FatalError(
+    Err(DeviceManagerError::Fatal(
         "No os-release file found".to_owned(),
     ))
 }

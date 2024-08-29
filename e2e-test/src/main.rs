@@ -112,7 +112,7 @@ async fn main() -> color_eyre::Result<()> {
 
     wait_for_cluster(&cli.api_url).await?;
 
-    let pairing_url = dbg!(cli.pairing_url()?);
+    let pairing_url = cli.pairing_url()?;
 
     let store_path = TempDir::new("e2e-test").wrap_err("couldn't create temp directory")?;
 
@@ -120,13 +120,13 @@ async fn main() -> color_eyre::Result<()> {
         realm: cli.realm.clone(),
         device_id: Some(cli.device_id.clone()),
         credentials_secret: Some(cli.secret.clone()),
-        pairing_url: pairing_url.to_string(),
+        pairing_url,
         pairing_token: None,
         ignore_ssl: cli.ignore_ssl,
     };
 
     let device_options = DeviceManagerOptions {
-        astarte_library: AstarteLibrary::AstarteDeviceSDK,
+        astarte_library: AstarteLibrary::AstarteDeviceSdk,
         astarte_device_sdk: Some(astarte_options.clone()),
         interfaces_directory: cli.interface_dir.clone(),
         store_directory: store_path.path().to_path_buf(),

@@ -819,7 +819,7 @@ mod tests {
         let state_mock = MockStateRepository::<PersistentState>::new();
 
         system_update.expect_last_error().returning(|| {
-            Err(DeviceManagerError::FatalError(
+            Err(DeviceManagerError::Fatal(
                 "Unable to call last error".to_string(),
             ))
         });
@@ -831,7 +831,7 @@ mod tests {
         assert!(last_error_result.is_err());
         assert!(matches!(
             last_error_result.err().unwrap(),
-            DeviceManagerError::FatalError(_)
+            DeviceManagerError::Fatal(_)
         ))
     }
 
@@ -1007,11 +1007,9 @@ mod tests {
         let state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
 
-        system_update.expect_info().returning(|_: &str| {
-            Err(DeviceManagerError::FatalError(
-                "Unable to get info".to_string(),
-            ))
-        });
+        system_update
+            .expect_info()
+            .returning(|_: &str| Err(DeviceManagerError::Fatal("Unable to get info".to_string())));
 
         let mut ota_request = OtaRequest::default();
         let binary_content = b"\x80\x02\x03";
@@ -1113,11 +1111,9 @@ mod tests {
         let state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
 
-        system_update.expect_info().returning(|_: &str| {
-            Err(DeviceManagerError::FatalError(
-                "Unable to get info".to_string(),
-            ))
-        });
+        system_update
+            .expect_info()
+            .returning(|_: &str| Err(DeviceManagerError::Fatal("Unable to get info".to_string())));
 
         let mut ota_request = OtaRequest::default();
         let binary_content = b"\x80\x02\x03";
@@ -1168,7 +1164,7 @@ mod tests {
 
         system_update
             .expect_compatible()
-            .returning(|| Err(DeviceManagerError::FatalError("empty value".to_string())));
+            .returning(|| Err(DeviceManagerError::Fatal("empty value".to_string())));
 
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
@@ -1281,7 +1277,7 @@ mod tests {
             .returning(|| Ok("rauc-demo-x86".to_string()));
 
         system_update.expect_boot_slot().returning(|| {
-            Err(DeviceManagerError::FatalError(
+            Err(DeviceManagerError::Fatal(
                 "unable to call boot slot".to_string(),
             ))
         });
@@ -1454,7 +1450,7 @@ mod tests {
 
         system_update
             .expect_install_bundle()
-            .returning(|_| Err(DeviceManagerError::FatalError("install fail".to_string())));
+            .returning(|_| Err(DeviceManagerError::Fatal("install fail".to_string())));
 
         let (ota, _dir) = Ota::mock_new_with_path(system_update, state_mock, "fail_install_bundle");
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
@@ -1478,11 +1474,9 @@ mod tests {
         let mut system_update = MockSystemUpdate::new();
 
         system_update.expect_install_bundle().returning(|_| Ok(()));
-        system_update.expect_operation().returning(|| {
-            Err(DeviceManagerError::FatalError(
-                "operation call fail".to_string(),
-            ))
-        });
+        system_update
+            .expect_operation()
+            .returning(|| Err(DeviceManagerError::Fatal("operation call fail".to_string())));
 
         let (ota, _dir) =
             Ota::mock_new_with_path(system_update, state_mock, "deployed_fail_operation");
@@ -1511,7 +1505,7 @@ mod tests {
             .expect_operation()
             .returning(|| Ok("".to_string()));
         system_update.expect_receive_completed().returning(|| {
-            Err(DeviceManagerError::FatalError(
+            Err(DeviceManagerError::Fatal(
                 "receive_completed call fail".to_string(),
             ))
         });
@@ -1748,7 +1742,7 @@ mod tests {
 
         let mut system_update = MockSystemUpdate::new();
         system_update.expect_boot_slot().returning(|| {
-            Err(DeviceManagerError::FatalError(
+            Err(DeviceManagerError::Fatal(
                 "unable to call boot slot".to_string(),
             ))
         });
@@ -1807,7 +1801,7 @@ mod tests {
             .expect_boot_slot()
             .returning(|| Ok("B".to_owned()));
         system_update.expect_get_primary().returning(|| {
-            Err(DeviceManagerError::FatalError(
+            Err(DeviceManagerError::Fatal(
                 "unable to call boot slot".to_string(),
             ))
         });
@@ -1844,7 +1838,7 @@ mod tests {
             .expect_get_primary()
             .returning(|| Ok("rootfs.0".to_owned()));
         system_update.expect_mark().returning(|_: &str, _: &str| {
-            Err(DeviceManagerError::FatalError(
+            Err(DeviceManagerError::Fatal(
                 "Unable to call mark function".to_string(),
             ))
         });

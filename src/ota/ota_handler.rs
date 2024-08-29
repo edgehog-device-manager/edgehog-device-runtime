@@ -109,7 +109,7 @@ impl OtaHandler {
         };
 
         if self.sender.send(msg).await.is_err() {
-            return Err(DeviceManagerError::OtaError(OtaError::Internal(
+            return Err(DeviceManagerError::Ota(OtaError::Internal(
                 "Unable to execute EnsurePendingOta, receiver channel dropped",
             )));
         }
@@ -118,7 +118,7 @@ impl OtaHandler {
             send_ota_event(sdk, &ota_status).await?;
 
             if let OtaStatus::Failure(ota_error, _) = ota_status {
-                return Err(DeviceManagerError::OtaError(ota_error));
+                return Err(DeviceManagerError::Ota(ota_error));
             }
         }
 
@@ -132,13 +132,13 @@ impl OtaHandler {
         };
 
         self.sender.send(msg).await.map_err(|_| {
-            DeviceManagerError::OtaError(OtaError::Internal(
+            DeviceManagerError::Ota(OtaError::Internal(
                 "Unable to get the ota status, receiver channel dropped",
             ))
         })?;
 
         ota_status_receiver.await.map_err(|_| {
-            DeviceManagerError::OtaError(OtaError::Internal("Unable to get the ota status"))
+            DeviceManagerError::Ota(OtaError::Internal("Unable to get the ota status"))
         })
     }
 
@@ -153,7 +153,7 @@ impl OtaHandler {
         let Some(AstarteType::String(operation_str)) = data.get("operation") else {
             error!("missing ota operation: {:?}", data);
 
-            return Err(DeviceManagerError::OtaError(OtaError::Request(
+            return Err(DeviceManagerError::Ota(OtaError::Request(
                 "Ota operation unsupported",
             )));
         };
@@ -164,7 +164,7 @@ impl OtaHandler {
             Err(()) => {
                 error!("could not parse operation: {}", operation_str);
 
-                Err(DeviceManagerError::OtaError(OtaError::Request(
+                Err(DeviceManagerError::Ota(OtaError::Request(
                     "Ota operation unsupported",
                 )))
             }
@@ -186,7 +186,7 @@ impl OtaHandler {
         };
 
         let uuid = Uuid::parse_str(operation_str).map_err(|_| {
-            DeviceManagerError::OtaError(OtaError::Request("Unable to parse request_uuid"))
+            DeviceManagerError::Ota(OtaError::Request("Unable to parse request_uuid"))
         })?;
 
         self.check_update_already_in_progress(uuid, sdk).await?;
@@ -201,7 +201,7 @@ impl OtaHandler {
                 *self.ota_cancellation.write().await = None;
             } else if let OtaStatus::Failure(ota_error, _) = ota_status {
                 *self.ota_cancellation.write().await = None;
-                return Err(DeviceManagerError::OtaError(ota_error));
+                return Err(DeviceManagerError::Ota(ota_error));
             }
         }
         Ok(())
@@ -224,7 +224,7 @@ impl OtaHandler {
         };
 
         self.sender.send(msg).await.map_err(|_| {
-            DeviceManagerError::OtaError(OtaError::Internal(
+            DeviceManagerError::Ota(OtaError::Internal(
                 "Unable to execute HandleOtaEvent, receiver channel dropped",
             ))
         })?;
@@ -263,9 +263,7 @@ impl OtaHandler {
                         .await;
                     }
                 }
-                Err(DeviceManagerError::OtaError(
-                    OtaError::UpdateAlreadyInProgress,
-                ))
+                Err(DeviceManagerError::Ota(OtaError::UpdateAlreadyInProgress))
             }
         }
     }
@@ -279,13 +277,13 @@ impl OtaHandler {
         P: Publisher + Send + Sync,
     {
         let Some(AstarteType::String(request_uuid_str)) = &data.get("uuid") else {
-            return Err(DeviceManagerError::OtaError(OtaError::Request(
+            return Err(DeviceManagerError::Ota(OtaError::Request(
                 "Missing uuid in cancel request data",
             )));
         };
 
         let request_uuid = Uuid::parse_str(request_uuid_str).map_err(|_| {
-            DeviceManagerError::OtaError(OtaError::Request("Unable to parse request_uuid"))
+            DeviceManagerError::Ota(OtaError::Request("Unable to parse request_uuid"))
         })?;
 
         let cancel_ota_request = OtaRequest {
