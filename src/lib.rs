@@ -21,6 +21,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::types::AstarteType;
 use astarte_device_sdk::{DeviceEvent, Value};
 use log::{debug, error, info, warn};
@@ -258,7 +259,11 @@ where
                         }
                     }
                 }
-                Err(astarte_device_sdk::Error::Disconnected) => break,
+                Err(RecvError::Disconnected) => {
+                    info!("Disconnected from Astarte");
+
+                    break;
+                }
                 Err(err) => error!("{:?}", err),
             }
         }

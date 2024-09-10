@@ -75,14 +75,15 @@ impl AstarteMessageHubOptions {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .map_err(MessageHubError::Endpoint)?;
 
-        let (device, mut connection) = DeviceBuilder::new()
+        let (device, connection) = DeviceBuilder::new()
             .store(store)
             .interface_directory(interface_dir)
             .map_err(MessageHubError::Interfaces)?
             .connect(grpc_cfg)
             .await
             .map_err(MessageHubError::Connect)?
-            .build();
+            .build()
+            .await;
 
         let handle = tokio::spawn(async move { connection.handle_events().await });
 
@@ -102,9 +103,12 @@ mod tests {
         AstarteMessage,
     };
     use async_trait::async_trait;
-    use std::net::{Ipv6Addr, SocketAddr};
-    use tokio::sync::oneshot::Sender;
+    use std::{
+        net::{Ipv6Addr, SocketAddr},
+        time::Duration,
+    };
     use tokio::task::JoinHandle;
+    use tokio::{sync::oneshot::Sender, time::timeout};
 
     use crate::data::astarte_message_hub_node::AstarteMessageHubOptions;
     use crate::data::tests::create_tmp_store;
@@ -113,8 +117,8 @@ mod tests {
     mockall::mock! {
         MsgHub {}
         #[async_trait]
-        impl MessageHub for MsgHub{
-            type AttachStream = tokio_stream::wrappers::ReceiverStream<Result<astarte_message_hub_proto::AstarteMessage, Status>>;
+        impl MessageHub for MsgHub {
+            type AttachStream = tokio_stream::wrappers::ReceiverStream<Result<astarte_message_hub_proto::MessageHubEvent, Status>>;
             async fn attach(
                 &self,
                 request: Request<astarte_message_hub_proto::Node>,
@@ -125,8 +129,16 @@ mod tests {
             ) -> Result<Response<astarte_message_hub_proto::pbjson_types::Empty>, Status> ;
             async fn detach(
                 &self,
-                request: Request<astarte_message_hub_proto::Node>,
+                request: Request<astarte_message_hub_proto::pbjson_types::Empty>,
             ) -> Result<Response<astarte_message_hub_proto::pbjson_types::Empty>, Status> ;
+            async fn add_interfaces(
+                &self,
+                request: Request<astarte_message_hub_proto::InterfacesJson>,
+            ) -> Result<Response<Empty>, Status>;
+            async fn remove_interfaces(
+                &self,
+                request: Request<astarte_message_hub_proto::InterfacesName>,
+            ) ->  Result<Response<Empty>, Status>;
         }
     }
 
@@ -427,21 +439,25 @@ mod tests {
 
     #[tokio::test]
     async fn receive_success() {
+        env_logger::builder()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Debug)
+            .init();
+
         let (store, tmp_dir) = create_tmp_store().await;
 
         tokio::fs::write(
             tmp_dir.path().join("test.server.Value.json"),
-            r#"{"interface_name": "test.server.Value",
+            r#"{
+    "interface_name": "test.server.Value",
     "version_major": 0,
     "version_minor": 1,
     "type": "datastream",
     "ownership": "server",
-    "mappings": [
-        {
+    "mappings": [{
             "endpoint": "/req",
             "type": "integer"
-        }
-    ]
+    }]
 }"#,
         )
         .await
@@ -453,11 +469,17 @@ mod tests {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
 
             tokio::spawn(async move {
-                tx.send(Ok(AstarteMessage {
-                    interface_name: "test.server.Value".to_string(),
-                    path: "/req".to_string(),
-                    timestamp: None,
-                    payload: Some(Payload::AstarteData(5.into())),
+                tx.send(Ok(astarte_message_hub_proto::MessageHubEvent {
+                    event: Some(
+                        astarte_message_hub_proto::message_hub_event::Event::Message(
+                            AstarteMessage {
+                                interface_name: "test.server.Value".to_string(),
+                                path: "/req".to_string(),
+                                timestamp: None,
+                                payload: Some(Payload::AstarteData(5.into())),
+                            },
+                        ),
+                    ),
                 }))
                 .await
                 .expect("send astarte message");
@@ -477,7 +499,7 @@ mod tests {
         .await
         .unwrap();
 
-        let data_receive_result = pub_sub.recv().await;
+        let data_receive_result = timeout(Duration::from_secs(2), pub_sub.recv()).await;
 
         drop_sender.send(()).expect("send shutdown");
         server_handle.await.expect("server shutdown");

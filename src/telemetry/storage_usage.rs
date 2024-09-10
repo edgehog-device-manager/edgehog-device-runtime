@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::{astarte_aggregate, AstarteAggregate};
+use astarte_device_sdk::AstarteAggregate;
 use log::{error, warn};
 use std::collections::HashMap;
 use sysinfo::Disks;

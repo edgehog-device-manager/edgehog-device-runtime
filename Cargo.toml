@@ -73,8 +73,8 @@ systemd = ["dep:systemd"]
 forwarder = ["dep:edgehog-forwarder"]
 
 [workspace.dependencies]
-astarte-device-sdk = "0.8.3"
-astarte-message-hub-proto = "0.6.2"
+astarte-device-sdk = {git = "https://github.com/astarte-platform/astarte-device-sdk-rust", rev="75007b04b122e1583e559af7f1ac7ba7e4e2cb48"}
+astarte-message-hub-proto = "0.7.0"
 async-trait = "0.1.82"
 backoff = "0.4.0"
 base64 = "0.22.1"

@@ -138,14 +138,15 @@ impl AstarteDeviceSdkConfigOptions {
             mqtt_cfg.ignore_ssl_errors();
         }
 
-        let (device, mut connection) = DeviceBuilder::new()
+        let (device, connection) = DeviceBuilder::new()
             .store(store)
             .interface_directory(interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
             .connect(mqtt_cfg)
             .await
             .map_err(DeviceSdkError::Connect)?
-            .build();
+            .build()
+            .await;
 
         let handle = tokio::spawn(async move { connection.handle_events().await });
 
