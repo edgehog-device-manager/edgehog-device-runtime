@@ -24,7 +24,7 @@ use edgehog_device_runtime::{
     telemetry::TelemetryInterfaceConfig, AstarteLibrary, DeviceManagerOptions,
 };
 use serde::Deserialize;
-use stable_eyre::eyre::OptionExt;
+use stable_eyre::eyre::{ensure, OptionExt};
 
 use crate::cli::{Cli, Command, DeviceSdkArgs, OverrideOption};
 
@@ -40,7 +40,7 @@ pub struct Config {
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
     pub download_directory: Option<PathBuf>,
-    pub telemetry_config: Option<Vec<TelemetryInterfaceConfig>>,
+    pub telemetry_config: Option<Vec<TelemetryInterfaceConfig<'static>>>,
 }
 
 impl TryFrom<Config> for DeviceManagerOptions {
@@ -92,6 +92,14 @@ pub async fn read_options(cli: Cli) -> stable_eyre::Result<DeviceManagerOptions>
         Path::new("edgehog-config.toml"),
         Path::new("/etc/edgehog/config.toml"),
     ];
+
+    if let Some(path) = &cli.config {
+        ensure!(
+            path.exists(),
+            "configuration file {} doesn't exists",
+            path.display()
+        );
+    }
 
     let override_config_file_path = cli.config.or(cli.configuration_file);
 

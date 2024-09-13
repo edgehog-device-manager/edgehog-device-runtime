@@ -25,9 +25,9 @@ use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::mqtt::{Credential, MqttConfig, PairingError};
-use astarte_device_sdk::{error::Error as AstarteError, DeviceClient};
+use astarte_device_sdk::DeviceClient;
 use serde::Deserialize;
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use url::Url;
 
 use crate::device::DeviceProxy;
@@ -110,16 +110,11 @@ impl AstarteDeviceSdkConfigOptions {
 
     pub async fn connect<P>(
         &self,
+        tasks: &mut JoinSet<stable_eyre::Result<()>>,
         store: SqliteStore,
         store_dir: P,
         interface_dir: P,
-    ) -> Result<
-        (
-            DeviceClient<SqliteStore>,
-            JoinHandle<Result<(), AstarteError>>,
-        ),
-        DeviceSdkError,
-    >
+    ) -> Result<DeviceClient<SqliteStore>, DeviceSdkError>
     where
         P: AsRef<Path>,
     {
@@ -138,7 +133,7 @@ impl AstarteDeviceSdkConfigOptions {
             mqtt_cfg.ignore_ssl_errors();
         }
 
-        let (device, connection) = DeviceBuilder::new()
+        let (client, connection) = DeviceBuilder::new()
             .store(store)
             .interface_directory(interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
@@ -148,9 +143,9 @@ impl AstarteDeviceSdkConfigOptions {
             .build()
             .await;
 
-        let handle = tokio::spawn(async move { connection.handle_events().await });
+        tasks.spawn(async move { connection.handle_events().await.map_err(Into::into) });
 
-        Ok((device, handle))
+        Ok(client)
     }
 }
 

@@ -214,7 +214,7 @@ impl SystemUpdate for OTARauc<'static> {
 }
 
 impl<'a> OTARauc<'a> {
-    pub async fn new() -> Result<OTARauc<'a>, DeviceManagerError> {
+    pub async fn connect() -> Result<OTARauc<'a>, DeviceManagerError> {
         let connection = zbus::Connection::system().await?;
 
         let proxy = RaucProxy::new(&connection).await?;

@@ -23,6 +23,8 @@ use log::{error, warn};
 use std::collections::HashMap;
 use sysinfo::Disks;
 
+use crate::data::Publisher;
+
 #[derive(Debug, AstarteAggregate)]
 #[astarte_aggregate(rename_all = "camelCase")]
 pub struct DiskUsage {
@@ -30,40 +32,70 @@ pub struct DiskUsage {
     pub free_bytes: i64,
 }
 
-/// get structured data for `io.edgehog.devicemanager.StorageUsage` interface
-/// /dev/ is excluded from the device names since it is common for all devices
-pub fn get_storage_usage() -> HashMap<String, DiskUsage> {
-    let disks = Disks::new_with_refreshed_list();
+#[derive(Debug)]
+pub struct StorageUsage {
+    disks: HashMap<String, DiskUsage>,
+}
 
-    disks
-        .list()
-        .iter()
-        .filter_map(|disk| {
-            let Some(name) = disk.name().to_str() else {
-                warn!("non-utf8 path {}, ignoring", disk.name().to_string_lossy());
-                return None;
-            };
-            let name = name.strip_prefix("/dev/").unwrap_or(name);
-            // remove disks with a higher depth
-            if name.contains('/') {
-                warn!("not simple disks device, ignoring");
-                return None;
+impl StorageUsage {
+    const INTERFACE: &str = "io.edgehog.devicemanager.StorageUsage";
+
+    /// Get structured data for `io.edgehog.devicemanager.StorageUsage` interface.
+    ///
+    /// The `/dev/` prefix is excluded from the device names since it is common for all devices.
+    pub fn read() -> Self {
+        let disks = Disks::new_with_refreshed_list();
+
+        let disks = disks
+            .list()
+            .iter()
+            .filter_map(|disk| {
+                let name = disk.name().to_string_lossy();
+                let name = name.strip_prefix("/dev/").unwrap_or(&name);
+
+                // remove disks with a higher depth
+                if name.contains('/') {
+                    warn!("not simple disks device, ignoring");
+                    return None;
+                }
+
+                let Ok(total_bytes) = disk.total_space().try_into() else {
+                    error!("disk size too big, ignoring");
+                    return None;
+                };
+
+                let Ok(free_bytes) = disk.available_space().try_into() else {
+                    error!("available space too big, ignoring");
+                    return None;
+                };
+
+                Some((
+                    // Format to be send as aggregate object path
+                    format!("/{name}"),
+                    DiskUsage {
+                        total_bytes,
+                        free_bytes,
+                    },
+                ))
+            })
+            .collect();
+
+        Self { disks }
+    }
+
+    /// Sends all the disks.
+    pub async fn send<T>(self, client: &T)
+    where
+        T: Publisher,
+    {
+        for (path, v) in self.disks {
+            if let Err(err) = client.send_object(Self::INTERFACE, &path, v).await {
+                error!(
+                    "couldn't send {}: {}",
+                    Self::INTERFACE,
+                    stable_eyre::Report::new(err)
+                )
             }
-            let Ok(total_bytes) = disk.total_space().try_into() else {
-                error!("disk size too big, ignoring");
-                return None;
-            };
-            let Ok(free_bytes) = disk.available_space().try_into() else {
-                error!("available space too big, ignoring");
-                return None;
-            };
-            Some((
-                name.to_string(),
-                DiskUsage {
-                    total_bytes,
-                    free_bytes,
-                },
-            ))
-        })
-        .collect()
+        }
+    }
 }

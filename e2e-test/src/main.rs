@@ -1,27 +1,27 @@
-/*
- * This file is part of Astarte.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022-2024 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
-use astarte_device_sdk::types::AstarteType;
 use clap::Parser;
 use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
-use log::{error, info};
+use edgehog_device_runtime::telemetry::hardware_info::HardwareInfo;
+use edgehog_device_runtime::telemetry::os_release::{OsInfo, OsRelease};
+use edgehog_device_runtime::telemetry::runtime_info::{RuntimeInfo, RUNTIME_INFO};
+use log::{debug, error, info};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -29,14 +29,12 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 use tempdir::TempDir;
+use tokio::task::JoinSet;
 use url::Url;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use edgehog_device_runtime::data::connect_store;
-use edgehog_device_runtime::telemetry::{
-    hardware_info::get_hardware_info, os_info::get_os_info, runtime_info::get_runtime_info,
-};
-use edgehog_device_runtime::{AstarteLibrary, DeviceManager, DeviceManagerOptions};
+use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions, Runtime};
 
 #[derive(Serialize, Deserialize)]
 struct AstartePayload<T> {
@@ -140,8 +138,11 @@ async fn main() -> color_eyre::Result<()> {
         .await
         .wrap_err("couldn't connect to the store")?;
 
-    let (pub_sub, handle) = astarte_options
+    let mut tasks = JoinSet::new();
+
+    let client = astarte_options
         .connect(
+            &mut tasks,
             store,
             &device_options.store_directory,
             &device_options.interfaces_directory,
@@ -149,16 +150,22 @@ async fn main() -> color_eyre::Result<()> {
         .await
         .wrap_err("couldn't connect to astarte")?;
 
-    let dm = DeviceManager::new(device_options, pub_sub, handle).await?;
+    let mut dm = Runtime::new(&mut tasks, device_options, client).await?;
 
-    dm.init().await?;
-
-    tokio::task::spawn(async move { dm.run().await });
+    tasks.spawn(async move {
+        dm.run()
+            .await
+            .wrap_err("the Device Runtime encontered an unrecoverable error")
+    });
 
     //Waiting for Edgehog Device Runtime to be ready...
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
-    os_info_test(&cli).await?;
+    let info = OsRelease::read()
+        .await
+        .ok_or_eyre("couldn't read os release")?;
+
+    os_info_test(&cli, info.os_info).await?;
     hardware_info_test(&cli).await?;
     runtime_info_test(&cli).await?;
 
@@ -179,12 +186,12 @@ async fn wait_for_cluster(api_url: &Url) -> color_eyre::Result<()> {
             reqwest::get(&appengine)
                 .await
                 .and_then(Response::error_for_status)
-                .wrap_err("call failed")?;
+                .wrap_err("appengine call failed")?;
 
             reqwest::get(&pairing)
                 .await
                 .and_then(Response::error_for_status)
-                .wrap_err("call failed")
+                .wrap_err("pairing call failed")
         }
     })
     .await?;
@@ -205,158 +212,83 @@ where
         .to_string();
 
     retry(20, || async {
-        reqwest::Client::new()
+        let body = reqwest::Client::new()
             .get(&url)
             .bearer_auth(&cli.token)
             .send()
-            .await?
-            .error_for_status()?
-            .json()
             .await
-            .map_err(Into::into)
+            .wrap_err_with(|| format!("get interface for {interface} failed"))?
+            .error_for_status()?
+            .text()
+            .await
+            .wrap_err("couldn't get body text")?;
+
+        debug!("response: {body}");
+
+        serde_json::from_str(&body)
+            .wrap_err_with(|| format!("coudln't deserialize interface {interface}"))
     })
     .await
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OsInfo {
-    os_name: String,
-    os_version: String,
-}
-
-async fn os_info_test(cli: &Cli) -> color_eyre::Result<()> {
-    let mut os_info_from_lib = get_os_info().await?;
+async fn os_info_test(cli: &Cli, info: OsInfo) -> color_eyre::Result<()> {
     let os_info_from_astarte: AstartePayload<OsInfo> =
         get_interface_data(cli, "io.edgehog.devicemanager.OSInfo").await?;
 
-    let name = os_info_from_lib
-        .remove("/osName")
-        .ok_or_eyre("missing osName")?;
-    assert_eq!(AstarteType::String(os_info_from_astarte.data.os_name), name);
+    let local_name = info.os_name.ok_or_eyre("missing osName")?;
+    let astarte_name = os_info_from_astarte
+        .data
+        .os_name
+        .ok_or_eyre("missing osName from Astarte")?;
+    assert_eq!(local_name, astarte_name);
 
-    let version = os_info_from_lib
-        .remove("/osVersion")
-        .ok_or_eyre("missing os version")?;
-    assert_eq!(
-        AstarteType::String(os_info_from_astarte.data.os_version),
-        version
-    );
+    let local_version = info.os_version.ok_or_eyre("missing osVersion")?;
+    let astarte_version = os_info_from_astarte
+        .data
+        .os_version
+        .ok_or_eyre("missing osVersion from Astarte")?;
+    assert_eq!(local_version, astarte_version);
 
     Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-struct HardwareInfo {
-    cpu: Cpu,
-    mem: Mem,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Cpu {
-    architecture: String,
-    model: String,
-    model_name: String,
-    vendor: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Mem {
-    total_bytes: i64,
 }
 
 async fn hardware_info_test(cli: &Cli) -> color_eyre::Result<()> {
-    let mut hardware_info_from_lib = get_hardware_info()?;
+    let local_hw = HardwareInfo::read().await;
 
-    let hardware_info_from_astarte: AstartePayload<HardwareInfo> =
-        get_interface_data(cli, "io.edgehog.devicemanager.HardwareInfo").await?;
+    let astarte_hw = get_interface_data::<AstartePayload<HardwareInfo>>(
+        cli,
+        "io.edgehog.devicemanager.HardwareInfo",
+    )
+    .await?
+    .data;
 
-    let arch = hardware_info_from_lib
-        .remove("/cpu/architecture")
-        .ok_or_eyre("couldn't get cpu arch")?;
-    assert_eq!(
-        AstarteType::String(hardware_info_from_astarte.data.cpu.architecture),
-        arch
-    );
+    assert_eq!(local_hw.cpu.architecture, astarte_hw.cpu.architecture);
 
-    let model = hardware_info_from_lib
-        .remove("/cpu/model")
-        .ok_or_eyre("couldn't get cpu model")?;
-    assert_eq!(
-        AstarteType::String(hardware_info_from_astarte.data.cpu.model),
-        model
-    );
+    assert_eq!(local_hw.cpu.model, astarte_hw.cpu.model);
 
-    let name = hardware_info_from_lib
-        .remove("/cpu/modelName")
-        .ok_or_eyre("couldn't get cpu model name")?;
-    assert_eq!(
-        AstarteType::String(hardware_info_from_astarte.data.cpu.model_name),
-        name
-    );
+    assert_eq!(local_hw.cpu.model_name, astarte_hw.cpu.model_name);
 
-    let vendor = hardware_info_from_lib
-        .remove("/cpu/vendor")
-        .ok_or_eyre("couldn't get cpu vendor")?;
-    assert_eq!(
-        AstarteType::String(hardware_info_from_astarte.data.cpu.vendor),
-        vendor
-    );
+    assert_eq!(local_hw.cpu.vendor, astarte_hw.cpu.vendor);
 
-    let total = hardware_info_from_lib
-        .remove("/mem/totalBytes")
-        .ok_or_eyre("coudln't get total memory")?;
-    assert_eq!(
-        AstarteType::LongInteger(hardware_info_from_astarte.data.mem.total_bytes),
-        total
-    );
+    assert_eq!(local_hw.mem.total_bytes, astarte_hw.mem.total_bytes);
 
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
-struct RuntimeInfo {
-    environment: String,
-    name: String,
-    url: String,
-    version: String,
-}
-
 async fn runtime_info_test(cli: &Cli) -> color_eyre::Result<()> {
-    let mut runtime_info_from_lib = get_runtime_info()?;
+    let local_rt = RUNTIME_INFO;
 
-    let runtime_info_from_astarte: AstartePayload<RuntimeInfo> =
-        get_interface_data(cli, "io.edgehog.devicemanager.RuntimeInfo").await?;
+    let astarte_rt = get_interface_data::<AstartePayload<RuntimeInfo>>(
+        cli,
+        "io.edgehog.devicemanager.RuntimeInfo",
+    )
+    .await?
+    .data;
 
-    let env = runtime_info_from_lib
-        .remove("/environment")
-        .ok_or_eyre("coudln't get environment")?;
-    assert_eq!(
-        AstarteType::String(runtime_info_from_astarte.data.environment),
-        env
-    );
-
-    let name = runtime_info_from_lib
-        .remove("/name")
-        .ok_or_eyre("couldn't get the name")?;
-    assert_eq!(
-        AstarteType::String(runtime_info_from_astarte.data.name),
-        name
-    );
-    let url = runtime_info_from_lib
-        .remove("/url")
-        .ok_or_eyre("coudln't get the url")?;
-    assert_eq!(AstarteType::String(runtime_info_from_astarte.data.url), url);
-
-    let version = runtime_info_from_lib
-        .remove("/version")
-        .ok_or_eyre("couldn't get the version")?;
-    assert_eq!(
-        AstarteType::String(runtime_info_from_astarte.data.version),
-        version
-    );
+    assert_eq!(local_rt.environment, astarte_rt.environment);
+    assert_eq!(local_rt.name, astarte_rt.name);
+    assert_eq!(local_rt.url, astarte_rt.url);
+    assert_eq!(local_rt.version, astarte_rt.version);
 
     Ok(())
 }

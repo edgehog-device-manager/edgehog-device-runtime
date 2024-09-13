@@ -18,16 +18,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use log::error;
+use crate::{
+    controller::message::{CmdReq, Commands},
+    error::DeviceManagerError,
+};
 
 /// handle io.edgehog.devicemanager.Commands
-pub(crate) async fn execute_command(command: &str) {
-    match command {
-        "Reboot" => {
-            crate::power_management::reboot().await.unwrap();
-        }
-        _ => {
-            error!("command not recognized");
-        }
+pub(crate) async fn execute_command(cmd: Commands) -> Result<(), DeviceManagerError> {
+    match cmd {
+        Commands::Request(CmdReq::Reboot) => crate::power_management::reboot().await,
     }
 }

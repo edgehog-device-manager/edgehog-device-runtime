@@ -27,7 +27,7 @@ use astarte_device_sdk::{
     error::Error as AstarteError, AstarteAggregate, Client, DeviceClient, DeviceEvent,
 };
 use async_trait::async_trait;
-use log::{debug, info};
+use log::{debug, error, info};
 use std::path::Path;
 
 pub mod astarte_device_sdk_lib;
@@ -44,7 +44,6 @@ pub trait Publisher {
     ) -> Result<(), AstarteError>
     where
         T: AstarteAggregate + Send + 'static;
-    //TODO add send_object_with_timestamp to this trait
     async fn send(
         &self,
         interface_name: &str,
@@ -120,6 +119,26 @@ where
 
     info!("connected to store {}", db_path.display());
     Ok(store)
+}
+
+/// Publishes the value to Astarte and logs if an error happens.
+///
+/// This is used to send telemetry data without returning an error.
+pub(crate) async fn publish<T>(
+    client: &T,
+    interface: &str,
+    path: &str,
+    data: impl Into<AstarteType>,
+) where
+    T: Publisher,
+{
+    if let Err(err) = client.send(interface, path, data.into()).await {
+        error!(
+            "failed to send {}{path}: {}",
+            interface,
+            stable_eyre::Report::new(err)
+        )
+    }
 }
 
 #[cfg(test)]

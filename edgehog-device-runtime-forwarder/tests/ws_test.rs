@@ -19,8 +19,6 @@ use edgehog_device_runtime_forwarder::test_utils::{
 #[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_internal_ws() {
-    env_logger::builder().is_test(true).init();
-
     // Mock server for ttyd
     let mut test_connections = TestConnections::<MockWebSocket>::init().await;
 

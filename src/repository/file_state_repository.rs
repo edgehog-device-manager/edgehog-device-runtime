@@ -55,6 +55,7 @@ pub enum FileStateError {
     },
 }
 
+#[derive(Debug, Clone)]
 pub struct FileStateRepository<T> {
     pub path: PathBuf,
     _marker: PhantomData<T>,

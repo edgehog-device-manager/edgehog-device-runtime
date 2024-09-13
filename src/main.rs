@@ -18,17 +18,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::convert::identity;
 #[cfg(feature = "systemd")]
 use std::panic::{self, PanicInfo};
 
 use clap::Parser;
 use cli::Cli;
-use log::warn;
+use log::{info, warn};
 use stable_eyre::eyre::{OptionExt, WrapErr};
 
 use config::read_options;
 use edgehog_device_runtime::data::connect_store;
 use edgehog_device_runtime::AstarteLibrary;
+use tokio::task::JoinSet;
 
 mod cli;
 mod config;
@@ -72,9 +74,16 @@ async fn main() -> stable_eyre::Result<()> {
             .wrap_err("Unable to create store directory")?;
     }
 
+    info!(
+        "Using {} as store directory",
+        options.store_directory.display()
+    );
+
     let store = connect_store(&options.store_directory).await?;
 
-    let (pub_sub, handle) = match &options.astarte_library {
+    let mut tasks = JoinSet::new();
+
+    let client = match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSdk => {
             let astarte_sdk_options = options
                 .astarte_device_sdk
@@ -83,6 +92,7 @@ async fn main() -> stable_eyre::Result<()> {
 
             astarte_sdk_options
                 .connect(
+                    &mut tasks,
                     store,
                     &options.store_directory,
                     &options.interfaces_directory,
@@ -97,16 +107,26 @@ async fn main() -> stable_eyre::Result<()> {
                 .ok_or_eyre("couldn't get MessageHub options")?;
 
             astarte_message_hub_options
-                .connect(store, &options.interfaces_directory)
+                .connect(&mut tasks, store, &options.interfaces_directory)
                 .await?
         }
     };
 
-    let dm = edgehog_device_runtime::DeviceManager::new(options, pub_sub, handle).await?;
+    let mut dm = edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
 
-    dm.init().await?;
+    tasks.spawn(async move {
+        dm.run()
+            .await
+            .wrap_err("the Device Runtime encontered an unrecoverable error")
+    });
 
-    dm.run().await?;
+    while let Some(res) = tasks.join_next().await {
+        // Crash if one of the tasks failed
+        res.wrap_err("failed to join tasks").and_then(identity)?;
+
+        // Otherwise abort all the tasks
+        tasks.abort_all();
+    }
 
     Ok(())
 }

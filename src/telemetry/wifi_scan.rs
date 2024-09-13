@@ -18,53 +18,115 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::DeviceManagerError;
+use crate::data::Publisher;
 use astarte_device_sdk::AstarteAggregate;
+use log::error;
+use stable_eyre::eyre::Context;
 use wifiscanner::Wifi;
 
+const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
+
 #[derive(Debug, AstarteAggregate, PartialEq)]
-#[allow(non_snake_case)]
+#[astarte_aggregate(rename_all = "camelCase")]
 pub struct WifiScanResult {
     channel: i32,
     connected: bool,
     essid: String,
-    macAddress: String,
+    mac_address: String,
     rssi: i32,
 }
 
-pub fn get_wifi_scan_results() -> Result<Vec<WifiScanResult>, DeviceManagerError> {
-    let mut ret = Vec::new();
-    if let Ok(wifi_array) = wifiscanner::scan() {
-        for wifi in wifi_array {
-            let w = wifi.try_into()?;
-            ret.push(w);
+pub async fn send_wifi_scan<T>(client: &T)
+where
+    T: Publisher,
+{
+    let res = tokio::task::spawn_blocking(|| {
+        wifiscanner::scan().unwrap_or_else(|err| {
+            // wifiscanner::Error doesn't impl Display
+            error!("couldn't get wifi networks: {err:?}",);
+
+            Vec::new()
+        })
+    })
+    .await;
+
+    let networks = match res {
+        Ok(networks) => networks,
+        Err(err) => {
+            error!(
+                "couldn't get wifi networks: {}",
+                stable_eyre::Report::new(err)
+            );
+
+            return;
+        }
+    };
+
+    let iter = networks
+        .into_iter()
+        .filter_map(|wifi| match WifiScanResult::try_from(wifi) {
+            Ok(value) => Some(value),
+            Err(err) => {
+                error!("couldn't get wifi scan information: {err}");
+
+                None
+            }
+        });
+
+    for scan in iter {
+        if let Err(err) = client.send_object(INTERFACE, "/ap", scan).await {
+            error!(
+                "couldn't send {}: {}",
+                INTERFACE,
+                stable_eyre::Report::new(err)
+            );
         }
     }
-
-    Ok(ret)
 }
 
 impl TryFrom<Wifi> for WifiScanResult {
-    type Error = DeviceManagerError;
+    type Error = stable_eyre::Report;
+
     fn try_from(wifi: Wifi) -> Result<Self, Self::Error> {
+        let channel = wifi
+            .channel
+            .parse()
+            .wrap_err_with(|| format!("channel value is not a valid i32: {}", wifi.channel))?;
+
+        let rssi = wifi
+            .signal_level
+            .parse()
+            .wrap_err_with(|| format!("rssi value is not a valid i32: {}", wifi.channel))?;
+
         Ok(WifiScanResult {
-            channel: wifi.channel.parse::<i32>()?,
+            channel,
             connected: false,
             essid: wifi.ssid,
-            macAddress: wifi.mac,
-            rssi: wifi.signal_level.parse::<i32>()?,
+            mac_address: wifi.mac,
+            rssi,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::telemetry::wifi_scan::{get_wifi_scan_results, WifiScanResult};
-    use wifiscanner::Wifi;
+    use crate::data::tests::MockPubSub;
 
-    #[test]
-    fn wifi_scan_test() {
-        assert!(get_wifi_scan_results().is_ok());
+    use super::*;
+
+    #[tokio::test]
+    async fn wifi_scan_test() {
+        let mut client = MockPubSub::new();
+
+        client
+            .expect_send_object::<WifiScanResult>()
+            .times(..)
+            .withf(|interface, path, _| {
+                interface == "io.edgehog.devicemanager.WiFiScanResults" && path == "/ap"
+            })
+            .returning(|_, _, _| Ok(()));
+
+        send_wifi_scan(&client).await;
     }
 
     #[test]
@@ -76,15 +138,14 @@ mod tests {
             signal_level: "-92".to_string(),
             security: "Open".to_string(),
         };
-        let inter: Result<WifiScanResult, _> = wifi.try_into();
-        assert!(inter.is_ok());
+        let inter = WifiScanResult::try_from(wifi).unwrap();
         assert_eq!(
-            inter.unwrap(),
+            inter,
             WifiScanResult {
                 channel: 6,
                 connected: false,
                 essid: "Vodafone Hotspot".to_string(),
-                macAddress: "ab:cd:ef:01:23:45".to_string(),
+                mac_address: "ab:cd:ef:01:23:45".to_string(),
                 rssi: -92
             }
         );

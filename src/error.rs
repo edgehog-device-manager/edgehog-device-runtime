@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::event::FromEventError;
 use thiserror::Error;
 
 use crate::data::astarte_device_sdk_lib::DeviceSdkError;
@@ -66,6 +67,9 @@ pub enum DeviceManagerError {
 
     #[error("couldn't connect to the store")]
     Store(#[from] crate::data::StoreError),
+
+    #[error("couldn't convert device event")]
+    FromEvent(#[from] FromEventError),
 
     #[cfg(feature = "forwarder")]
     #[error("forwarder error")]

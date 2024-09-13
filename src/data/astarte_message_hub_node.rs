@@ -28,9 +28,8 @@ use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::grpc::{GrpcConfig, GrpcError};
 use astarte_device_sdk::DeviceClient;
-use astarte_device_sdk::Error as AstarteError;
 use serde::Deserialize;
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use url::Url;
 use uuid::{uuid, Uuid};
 
@@ -60,15 +59,10 @@ pub struct AstarteMessageHubOptions {
 impl AstarteMessageHubOptions {
     pub async fn connect<P>(
         &self,
+        tasks: &mut JoinSet<stable_eyre::Result<()>>,
         store: SqliteStore,
         interface_dir: P,
-    ) -> Result<
-        (
-            DeviceClient<SqliteStore>,
-            JoinHandle<Result<(), AstarteError>>,
-        ),
-        MessageHubError,
-    >
+    ) -> Result<DeviceClient<SqliteStore>, MessageHubError>
     where
         P: AsRef<Path>,
     {
@@ -85,9 +79,9 @@ impl AstarteMessageHubOptions {
             .build()
             .await;
 
-        let handle = tokio::spawn(async move { connection.handle_events().await });
+        tasks.spawn(async move { connection.handle_events().await.map_err(Into::into) });
 
-        Ok((device, handle))
+        Ok(device)
     }
 }
 
@@ -107,7 +101,7 @@ mod tests {
         net::{Ipv6Addr, SocketAddr},
         time::Duration,
     };
-    use tokio::task::JoinHandle;
+    use tokio::task::{JoinHandle, JoinSet};
     use tokio::{sync::oneshot::Sender, time::timeout};
 
     use crate::data::astarte_message_hub_node::AstarteMessageHubOptions;
@@ -177,7 +171,8 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
-        let node_result = opts.connect(store, &tmp_store_path).await;
+        let mut tasks = JoinSet::new();
+        let node_result = opts.connect(&mut tasks, store, &tmp_store_path).await;
 
         drop_sender.send(()).expect("send shutdown");
         server_handle.await.expect("server shutdown");
@@ -196,10 +191,12 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
+        let mut tasks = JoinSet::new();
+
         let node_result = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_store_path)
+        .connect(&mut tasks, store, &tmp_store_path)
         .await;
 
         drop_sender.send(()).expect("send shutdown");
@@ -222,10 +219,11 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
+        let mut tasks = JoinSet::new();
         let node_result = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_store_path)
+        .connect(&mut tasks, store, &tmp_store_path)
         .await;
 
         drop_sender.send(()).expect("send shutdown");
@@ -252,10 +250,11 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
-        let (pub_sub, _handle) = AstarteMessageHubOptions {
+        let mut tasks = JoinSet::new();
+        let pub_sub = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_store_path)
+        .connect(&mut tasks, store, &tmp_store_path)
         .await
         .unwrap();
 
@@ -309,10 +308,11 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
-        let (pub_sub, _handle) = AstarteMessageHubOptions {
+        let mut tasks = JoinSet::new();
+        let pub_sub = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_dir)
+        .connect(&mut tasks, store, &tmp_dir)
         .await
         .unwrap();
 
@@ -348,10 +348,11 @@ mod tests {
 
         let (store, tmp_store_path) = create_tmp_store().await;
 
-        let (pub_sub, _handle) = AstarteMessageHubOptions {
+        let mut tasks = JoinSet::new();
+        let pub_sub = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_store_path)
+        .connect(&mut tasks, store, &tmp_store_path)
         .await
         .unwrap();
 
@@ -410,10 +411,11 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
-        let (pub_sub, _handle) = AstarteMessageHubOptions {
+        let mut tasks = JoinSet::new();
+        let pub_sub = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_dir)
+        .connect(&mut tasks, store, &tmp_dir)
         .await
         .unwrap();
 
@@ -439,11 +441,6 @@ mod tests {
 
     #[tokio::test]
     async fn receive_success() {
-        env_logger::builder()
-            .is_test(true)
-            .filter_level(log::LevelFilter::Debug)
-            .init();
-
         let (store, tmp_dir) = create_tmp_store().await;
 
         tokio::fs::write(
@@ -492,10 +489,11 @@ mod tests {
 
         let (server_handle, drop_sender, port) = run_local_server(msg_hub).await;
 
-        let (pub_sub, _handle) = AstarteMessageHubOptions {
+        let mut tasks = JoinSet::new();
+        let pub_sub = AstarteMessageHubOptions {
             endpoint: format!("http://[::1]:{port}").parse().unwrap(),
         }
-        .connect(store, &tmp_dir)
+        .connect(&mut tasks, store, &tmp_dir)
         .await
         .unwrap();
 
