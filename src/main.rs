@@ -19,8 +19,6 @@
  */
 
 use std::convert::identity;
-#[cfg(feature = "systemd")]
-use std::panic::{self, PanicInfo};
 
 use clap::Parser;
 use cli::Cli;
@@ -46,8 +44,8 @@ async fn main() -> stable_eyre::Result<()> {
 
     #[cfg(feature = "systemd")]
     {
-        let default_panic_hook = panic::take_hook();
-        panic::set_hook(Box::new(move |panic_info| {
+        let default_panic_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
             systemd_panic_hook(panic_info);
 
             default_panic_hook(panic_info);
@@ -132,7 +130,9 @@ async fn main() -> stable_eyre::Result<()> {
 }
 
 #[cfg(feature = "systemd")]
-fn systemd_panic_hook(panic_info: &PanicInfo) {
+// clippy warns about the deprecated type, even if the alternative is not present in the MSRV
+#[allow(deprecated)]
+fn systemd_panic_hook(panic_info: &std::panic::PanicInfo) {
     use edgehog_device_runtime::systemd_wrapper;
 
     let message = if let Some(panic_msg) = panic_info.payload().downcast_ref::<&str>() {
