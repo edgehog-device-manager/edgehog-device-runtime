@@ -41,9 +41,7 @@ jobs:
           sudo apt-get install -y libudev-dev libsystemd-dev upower
       - name: Create Astarte Cluster
         id: astarte
-        uses: astarte-platform/astarte-cluster-action@v1
-        with:
-          astarte_version: "1.1.1"
+        uses: astarte-platform/astarte-cluster-action@v1.2.0
       - uses: actions/checkout@v4
       - name: Checkout edgehog-astarte-interfaces
         uses: actions/checkout@v4
