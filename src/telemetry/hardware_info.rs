@@ -19,9 +19,9 @@
  */
 
 use crate::data::{publish, Publisher};
-use log::{debug, error};
 use procfs::{CpuInfo, Meminfo, ProcResult};
 use serde::Deserialize;
+use tracing::{debug, error};
 
 const INTERFACE: &str = "io.edgehog.devicemanager.HardwareInfo";
 

@@ -20,7 +20,7 @@
 
 use std::fmt::Display;
 
-use log::{debug, error};
+use tracing::{debug, error};
 use udev::Device;
 
 use crate::{

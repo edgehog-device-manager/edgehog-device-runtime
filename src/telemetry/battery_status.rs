@@ -17,7 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::AstarteAggregate;
-use log::{debug, error};
+use tracing::{debug, error};
 use zbus::zvariant::OwnedObjectPath;
 
 use crate::data::Publisher;

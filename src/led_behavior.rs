@@ -76,7 +76,7 @@ impl From<Blink> for BlinkConf {
 impl BlinkConf {
     #[cfg(not(test))]
     async fn blink(self, led_id: String) -> zbus::Result<()> {
-        use log::debug;
+        use tracing::debug;
 
         let connection = zbus::Connection::system().await?;
         let led_manager = LedManagerProxy::new(&connection).await?;

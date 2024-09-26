@@ -37,9 +37,7 @@ bytes = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 displaydoc = { workspace = true }
 edgehog-forwarder = { workspace = true, optional = true }
-env_logger = { workspace = true }
 futures = { workspace = true }
-log = { workspace = true }
 procfs = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true }
@@ -52,6 +50,8 @@ tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 udev = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
@@ -87,13 +87,11 @@ color-eyre = "0.6.3"
 displaydoc = "0.2.5"
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
-env_logger = "0.11.5"
 futures = "0.3.30"
 hex = "0.4.3"
 http = "1.1.0"
 httpmock = "0.7"
 hyper = "1.4.1"
-log = "0.4.22"
 mockall = "0.13.0"
 petgraph = "0.6.5"
 procfs = "0.16.0"
@@ -115,6 +113,7 @@ tokio-tungstenite = "0.24.0"
 tokio-util = "0.7.12"
 toml = "0.8.19"
 tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 udev = "0.9.0"
 url = "2.5.2"
 uuid = "1.10.0"

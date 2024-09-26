@@ -21,7 +21,6 @@ use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
 use edgehog_device_runtime::telemetry::hardware_info::HardwareInfo;
 use edgehog_device_runtime::telemetry::os_release::{OsInfo, OsRelease};
 use edgehog_device_runtime::telemetry::runtime_info::{RuntimeInfo, RUNTIME_INFO};
-use log::{debug, error, info};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -30,6 +29,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tempdir::TempDir;
 use tokio::task::JoinSet;
+use tracing::level_filters::LevelFilter;
+use tracing::{debug, error, info};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 use url::Url;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
@@ -103,8 +107,14 @@ where
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
-
-    env_logger::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::DEBUG.into())
+                .from_env_lossy(),
+        )
+        .try_init()?;
 
     let cli = Cli::parse();
 

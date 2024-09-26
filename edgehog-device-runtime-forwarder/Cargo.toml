@@ -31,9 +31,9 @@ tracing = { workspace = true, features = ["log"] }
 url = { workspace = true }
 
 [dev-dependencies]
-env_logger = { workspace = true }
 httpmock = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
 
 [features]
 _test-utils = ["dep:httpmock", "tokio/test-util"]

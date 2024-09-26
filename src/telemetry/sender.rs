@@ -20,8 +20,8 @@
 
 use std::{fmt::Display, str::FromStr, time::Duration};
 
-use log::{debug, info};
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, info};
 
 use crate::data::Publisher;
 

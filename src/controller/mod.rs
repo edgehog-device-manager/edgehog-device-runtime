@@ -18,10 +18,10 @@
 
 use actor::Actor;
 use astarte_device_sdk::{client::RecvError, FromEvent};
-use log::{error, info};
 use message::{LedEvent, RuntimeEvent, TelemetryEvent};
 use stable_eyre::eyre::Error;
 use tokio::{sync::mpsc, task::JoinSet};
+use tracing::{error, info};
 
 use crate::{
     commands::execute_command,

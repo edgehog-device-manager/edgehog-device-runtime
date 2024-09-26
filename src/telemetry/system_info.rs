@@ -18,9 +18,9 @@
 
 use crate::data::{publish, Publisher};
 
-use log::error;
 use procfs::cmdline;
 use std::env;
+use tracing::error;
 
 #[derive(Debug, Default)]
 pub struct SystemInfo {

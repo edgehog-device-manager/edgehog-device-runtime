@@ -27,9 +27,9 @@ use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
-use log::{debug, error, info};
 use reqwest::Url;
 use tokio::task::JoinHandle;
+use tracing::{debug, error, info};
 
 const FORWARDER_SESSION_STATE_INTERFACE: &str = "io.edgehog.devicemanager.ForwarderSessionState";
 

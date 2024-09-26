@@ -21,11 +21,11 @@
 use std::{borrow::Cow, collections::HashMap, ops::Deref, path::PathBuf, str::FromStr};
 
 use async_trait::async_trait;
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use system_info::SystemInfo;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
 
 use crate::{
     controller::{

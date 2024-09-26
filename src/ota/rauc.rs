@@ -23,8 +23,8 @@ use std::task::Poll;
 use async_trait::async_trait;
 use futures::stream::FusedStream;
 use futures::{future, ready, Stream, StreamExt, TryStreamExt};
-use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, warn};
 use zbus::dbus_proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 

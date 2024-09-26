@@ -20,9 +20,9 @@
 
 use std::io;
 
-use log::error;
 use systemd::daemon;
 use systemd::daemon::{STATE_ERRNO, STATE_READY, STATE_STATUS};
+use tracing::error;
 
 /// Check the result of the call to [`daemon::notify`].
 ///

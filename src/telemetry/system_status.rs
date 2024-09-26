@@ -19,8 +19,8 @@
  */
 
 use astarte_device_sdk::AstarteAggregate;
-use log::error;
 use procfs::Current;
+use tracing::error;
 
 #[derive(Debug, Clone, AstarteAggregate)]
 #[astarte_aggregate(rename_all = "camelCase")]

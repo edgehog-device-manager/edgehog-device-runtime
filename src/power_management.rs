@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 
 use crate::error::DeviceManagerError;
 

@@ -24,10 +24,10 @@ use std::sync::Arc;
 
 use astarte_device_sdk::AstarteAggregate;
 use async_trait::async_trait;
-use log::{debug, error, info};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info};
 
 use crate::controller::actor::Actor;
 use crate::controller::message::{OtaOperation, OtaRequest};
@@ -193,7 +193,7 @@ impl OtaHandler {
             }
             // Same OTA id
             Some(current) => {
-                debug!("Ota requst received with same ota id: {}", current.ota_id);
+                debug!("Ota request received with same ota id: {}", current.ota_id);
 
                 true
             }

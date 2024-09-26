@@ -20,8 +20,8 @@
 
 use crate::data::Publisher;
 use astarte_device_sdk::AstarteAggregate;
-use log::error;
 use stable_eyre::eyre::Context;
+use tracing::error;
 use wifiscanner::Wifi;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";

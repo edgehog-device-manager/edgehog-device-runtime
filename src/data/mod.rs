@@ -27,8 +27,8 @@ use astarte_device_sdk::{
     error::Error as AstarteError, AstarteAggregate, Client, DeviceClient, DeviceEvent,
 };
 use async_trait::async_trait;
-use log::{debug, error, info};
 use std::path::Path;
+use tracing::{debug, error, info};
 
 pub mod astarte_device_sdk_lib;
 #[cfg(feature = "message-hub")]

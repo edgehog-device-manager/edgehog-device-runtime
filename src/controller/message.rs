@@ -21,7 +21,7 @@ use std::{ops::Deref, time::Duration};
 use astarte_device_sdk::{
     event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
 };
-use log::{error, warn};
+use tracing::{error, warn};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

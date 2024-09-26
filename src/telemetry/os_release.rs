@@ -20,8 +20,8 @@ use std::{collections::HashMap, io};
 
 use crate::data::{publish, Publisher};
 use futures::TryFutureExt;
-use log::{debug, error};
 use serde::Deserialize;
+use tracing::{debug, error};
 
 async fn try_read_file(path: &str) -> io::Result<Option<String>> {
     match tokio::fs::read_to_string(path).await {

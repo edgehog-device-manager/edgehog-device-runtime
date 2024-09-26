@@ -19,9 +19,9 @@
  */
 
 use astarte_device_sdk::AstarteAggregate;
-use log::{error, warn};
 use std::collections::HashMap;
 use sysinfo::Disks;
+use tracing::{error, warn};
 
 use crate::data::Publisher;
 

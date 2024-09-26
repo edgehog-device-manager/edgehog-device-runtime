@@ -25,11 +25,11 @@ use std::{
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::TryStreamExt;
-use log::{debug, error, info, warn};
 use ota_handler::{OtaInProgress, OtaMessage};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 #[cfg(test)]

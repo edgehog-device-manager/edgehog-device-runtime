@@ -22,13 +22,16 @@ use std::convert::identity;
 
 use clap::Parser;
 use cli::Cli;
-use log::{info, warn};
 use stable_eyre::eyre::{OptionExt, WrapErr};
+use tracing::{info, warn};
 
 use config::read_options;
 use edgehog_device_runtime::data::connect_store;
 use edgehog_device_runtime::AstarteLibrary;
 use tokio::task::JoinSet;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod config;
@@ -37,10 +40,19 @@ mod config;
 #[allow(unused)]
 const ENOTRECOVERABLE: i32 = 131;
 
+const DEFAULT_LOG_DIRECTIVE: &str = concat!(env!("CARGO_PKG_NAME"), "=info");
+
 #[tokio::main]
 async fn main() -> stable_eyre::Result<()> {
     stable_eyre::install()?;
-    env_logger::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(DEFAULT_LOG_DIRECTIVE.parse()?)
+                .from_env_lossy(),
+        )
+        .try_init()?;
 
     #[cfg(feature = "systemd")]
     {
