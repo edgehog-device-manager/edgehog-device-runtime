@@ -23,6 +23,10 @@ use futures::TryFutureExt;
 use serde::Deserialize;
 use tracing::{debug, error};
 
+const OS_INFO_INTERFACE: &str = "io.edgehog.devicemanager.OSInfo";
+
+const BASE_IMAGE_INTERFACE: &str = "io.edgehog.devicemanager.BaseImage";
+
 async fn try_read_file(path: &str) -> io::Result<Option<String>> {
     match tokio::fs::read_to_string(path).await {
         Ok(content) => Ok(Some(content)),
@@ -93,15 +97,13 @@ pub struct OsInfo {
 }
 
 impl OsInfo {
-    const INTERFACE: &str = "io.edgehog.devicemanager.OSInfo";
-
     pub async fn send<T>(self, client: &T)
     where
         T: Publisher,
     {
         match self.os_name {
             Some(name) => {
-                publish(client, Self::INTERFACE, "/osName", name).await;
+                publish(client, OS_INFO_INTERFACE, "/osName", name).await;
             }
             None => {
                 debug!("missing NAME in os-info");
@@ -110,7 +112,7 @@ impl OsInfo {
 
         match self.os_version {
             Some(version) => {
-                publish(client, Self::INTERFACE, "/osVersion", version).await;
+                publish(client, OS_INFO_INTERFACE, "/osVersion", version).await;
             }
             None => {
                 debug!("missing VERSION_ID or BUILD_ID in os-info");
@@ -143,15 +145,13 @@ pub struct BaseImage {
 }
 
 impl BaseImage {
-    const INTERFACE: &str = "io.edgehog.devicemanager.BaseImage";
-
     pub async fn send<T>(self, client: &T)
     where
         T: Publisher,
     {
         match self.name {
             Some(name) => {
-                publish(client, Self::INTERFACE, "/name", name).await;
+                publish(client, BASE_IMAGE_INTERFACE, "/name", name).await;
             }
             None => {
                 debug!("missing IMAGE_ID in os-info");
@@ -160,7 +160,7 @@ impl BaseImage {
 
         match self.version {
             Some(version) => {
-                publish(client, Self::INTERFACE, "/version", version).await;
+                publish(client, BASE_IMAGE_INTERFACE, "/version", version).await;
             }
             None => {
                 debug!("missing IMAGE_VERSION in os-info");
@@ -169,7 +169,7 @@ impl BaseImage {
 
         match self.build_id {
             Some(build_id) => {
-                publish(client, Self::INTERFACE, "/buildId", build_id).await;
+                publish(client, BASE_IMAGE_INTERFACE, "/buildId", build_id).await;
             }
             None => {
                 debug!("no build id set in IMAGE_VERSION");

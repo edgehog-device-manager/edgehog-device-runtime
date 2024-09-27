@@ -22,6 +22,8 @@ use astarte_device_sdk::AstarteAggregate;
 use procfs::Current;
 use tracing::error;
 
+const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
+
 #[derive(Debug, Clone, AstarteAggregate)]
 #[astarte_aggregate(rename_all = "camelCase")]
 pub struct SystemStatus {
@@ -32,8 +34,6 @@ pub struct SystemStatus {
 }
 
 impl SystemStatus {
-    const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
-
     /// Get structured data for `io.edgehog.devicemanager.SystemStatus` interface
     ///
     /// The fields that errors or have an invalid value (too big to be sent to Astarte), will be
@@ -118,13 +118,10 @@ impl SystemStatus {
     where
         T: crate::data::Publisher,
     {
-        if let Err(err) = client
-            .send_object(Self::INTERFACE, "/systemStatus", self)
-            .await
-        {
+        if let Err(err) = client.send_object(INTERFACE, "/systemStatus", self).await {
             error!(
                 "couldn't send {}: {}",
-                Self::INTERFACE,
+                INTERFACE,
                 stable_eyre::Report::new(err)
             );
         }

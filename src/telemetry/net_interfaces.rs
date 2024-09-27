@@ -28,6 +28,8 @@ use crate::{
     error::DeviceManagerError,
 };
 
+const INTERFACE: &str = "io.edgehog.devicemanager.NetworkInterfaceProperties";
+
 const ARPHRD_ETHER: &str = "1";
 const ARPHRD_PPP: &str = "512";
 
@@ -56,8 +58,6 @@ struct NetworkInterface {
 }
 
 impl NetworkInterface {
-    const INTERFACE: &str = "io.edgehog.devicemanager.NetworkInterfaceProperties";
-
     fn read_device(device: Device) -> Option<NetworkInterface> {
         device.property_value("ID_BUS")?;
 
@@ -98,7 +98,7 @@ impl NetworkInterface {
     {
         publish(
             client,
-            Self::INTERFACE,
+            INTERFACE,
             &format!("/{}/macAddress", self.interface),
             self.mac_address,
         )
@@ -106,7 +106,7 @@ impl NetworkInterface {
 
         publish(
             client,
-            Self::INTERFACE,
+            INTERFACE,
             &format!("/{}/technologyType", self.interface),
             self.technology_type.to_string(),
         )

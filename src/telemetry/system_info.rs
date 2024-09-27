@@ -22,6 +22,8 @@ use procfs::cmdline;
 use std::env;
 use tracing::error;
 
+const INTERFACE: &str = "io.edgehog.devicemanager.SystemInfo";
+
 #[derive(Debug, Default)]
 pub struct SystemInfo {
     serial_number: Option<String>,
@@ -29,8 +31,6 @@ pub struct SystemInfo {
 }
 
 impl SystemInfo {
-    const INTERFACE: &str = "io.edgehog.devicemanager.SystemInfo";
-
     pub fn read() -> Self {
         let mut serial_number: Option<String> = env::var("EDGEHOG_SYSTEM_SERIAL_NUMBER").ok();
         let mut part_number: Option<String> = env::var("EDGEHOG_SYSTEM_PART_NUMBER").ok();
@@ -73,11 +73,11 @@ impl SystemInfo {
         T: Publisher,
     {
         if let Some(serial_number) = self.serial_number {
-            publish(client, Self::INTERFACE, "/serialNumber", serial_number).await;
+            publish(client, INTERFACE, "/serialNumber", serial_number).await;
         }
 
         if let Some(part_number) = self.part_number {
-            publish(client, Self::INTERFACE, "/partNumber", part_number).await;
+            publish(client, INTERFACE, "/partNumber", part_number).await;
         }
     }
 }

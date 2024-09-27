@@ -25,6 +25,8 @@ use tracing::{error, warn};
 
 use crate::data::Publisher;
 
+const INTERFACE: &str = "io.edgehog.devicemanager.StorageUsage";
+
 #[derive(Debug, AstarteAggregate)]
 #[astarte_aggregate(rename_all = "camelCase")]
 pub struct DiskUsage {
@@ -38,8 +40,6 @@ pub struct StorageUsage {
 }
 
 impl StorageUsage {
-    const INTERFACE: &str = "io.edgehog.devicemanager.StorageUsage";
-
     /// Get structured data for `io.edgehog.devicemanager.StorageUsage` interface.
     ///
     /// The `/dev/` prefix is excluded from the device names since it is common for all devices.
@@ -89,10 +89,10 @@ impl StorageUsage {
         T: Publisher,
     {
         for (path, v) in self.disks {
-            if let Err(err) = client.send_object(Self::INTERFACE, &path, v).await {
+            if let Err(err) = client.send_object(INTERFACE, &path, v).await {
                 error!(
                     "couldn't send {}: {}",
-                    Self::INTERFACE,
+                    INTERFACE,
                     stable_eyre::Report::new(err)
                 )
             }
