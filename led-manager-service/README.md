@@ -56,7 +56,7 @@ List all available LEds.
 
 ```bash
 $ dbus-send --print-reply --dest=io.edgehog.LedManager \
-/io/edgehog/LedManager io.edgehog.LedManager1.List
+  /io/edgehog/LedManager io.edgehog.LedManager1.List
 
 method return time=1664275587.650016 sender=:1.1 -> destination=:1.4 serial=5 reply_serial=2
    array [

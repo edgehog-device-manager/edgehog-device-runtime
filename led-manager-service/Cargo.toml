@@ -8,10 +8,14 @@
 name = "led-manager-service"
 version = "0.1.0"
 edition = { workspace = true }
+publish = false
 rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
+stable-eyre = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 zbus = { workspace = true, default-features = false, features = ["tokio"] }
