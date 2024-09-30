@@ -21,8 +21,8 @@
 use std::time::Duration;
 
 use crate::controller::actor::Actor;
-use crate::controller::message::{OtaOperation, OtaRequest};
 use crate::data::tests::MockPubSub;
+use crate::ota::event::{OtaOperation, OtaRequest};
 use futures::StreamExt;
 use httpmock::prelude::*;
 use mockall::Sequence;

@@ -18,14 +18,79 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::{
+    event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
+};
 use async_trait::async_trait;
 use tokio::time::{sleep, Duration, Instant};
+use tracing::error;
 use zbus::dbus_proxy;
 
-use crate::controller::{
-    actor::Actor,
-    message::{Blink, LedBehavior, LedEvent},
-};
+use crate::controller::actor::Actor;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedEvent {
+    pub led_id: String,
+    pub behavior: LedBehavior,
+}
+
+impl FromEvent for LedEvent {
+    type Err = FromEventError;
+
+    fn from_event(event: DeviceEvent) -> Result<Self, Self::Err> {
+        let led_id =
+            LedBehavior::led_id_from_path(&event.path).ok_or_else(|| FromEventError::Path {
+                interface: "io.edgehog.devicemanager.LedBehavior",
+                base_path: event.path.clone(),
+            })?;
+
+        LedBehavior::from_event(event).map(|behavior| LedEvent { led_id, behavior })
+    }
+}
+
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.LedBehavior",
+    aggregation = "individual"
+)]
+pub enum LedBehavior {
+    #[mapping(endpoint = "/%{led_id}/behavior")]
+    Behavior(Blink),
+}
+
+impl LedBehavior {
+    fn led_id_from_path(path: &str) -> Option<String> {
+        path.strip_prefix('/')
+            .and_then(|path| path.split_once('/').map(|(led_id, _)| led_id))
+            .map(str::to_string)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Blink {
+    Single,
+    Double,
+    Slow,
+}
+
+impl TryFrom<AstarteType> for Blink {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        match value.as_str() {
+            "Blink60Seconds" => Ok(Self::Single),
+            "DoubleBlink60Seconds" => Ok(Self::Double),
+            "SlowBlink60Seconds" => Ok(Self::Slow),
+            _ => {
+                error!("unrecognize LedBehavior behavior value {value}");
+
+                Err(TypeError::Conversion)
+            }
+        }
+    }
+}
 
 #[dbus_proxy(
     interface = "io.edgehog.LedManager1",
@@ -145,8 +210,11 @@ impl Actor for LedBlink {
 
 #[cfg(test)]
 mod tests {
+    use crate::controller::event::RuntimeEvent;
+
     use super::*;
 
+    use astarte_device_sdk::Value;
     use tokio::time::Duration;
 
     #[tokio::test]
@@ -168,5 +236,56 @@ mod tests {
         }
 
         tokio::time::resume();
+    }
+
+    #[test]
+    fn should_convert_led_from_event() {
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.LedBehavior".to_string(),
+            path: "/42/behavior".to_string(),
+            data: Value::Individual("Blink60Seconds".into()),
+        };
+
+        let res = RuntimeEvent::from_event(event).unwrap();
+
+        assert_eq!(
+            res,
+            RuntimeEvent::Led(LedEvent {
+                led_id: "42".into(),
+                behavior: LedBehavior::Behavior(Blink::Single)
+            })
+        );
+
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.LedBehavior".to_string(),
+            path: "/42/behavior".to_string(),
+            data: Value::Individual("DoubleBlink60Seconds".into()),
+        };
+
+        let res = RuntimeEvent::from_event(event).unwrap();
+
+        assert_eq!(
+            res,
+            RuntimeEvent::Led(LedEvent {
+                led_id: "42".into(),
+                behavior: LedBehavior::Behavior(Blink::Double)
+            })
+        );
+
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.LedBehavior".to_string(),
+            path: "/42/behavior".to_string(),
+            data: Value::Individual("SlowBlink60Seconds".into()),
+        };
+
+        let res = RuntimeEvent::from_event(event).unwrap();
+
+        assert_eq!(
+            res,
+            RuntimeEvent::Led(LedEvent {
+                led_id: "42".into(),
+                behavior: LedBehavior::Behavior(Blink::Slow)
+            })
+        );
     }
 }

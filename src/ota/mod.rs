@@ -23,6 +23,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use event::OtaRequest;
 use futures::stream::BoxStream;
 use futures::TryStreamExt;
 use ota_handler::{OtaInProgress, OtaMessage};
@@ -36,12 +37,12 @@ use uuid::Uuid;
 use mockall::automock;
 
 use crate::controller::actor::Actor;
-use crate::controller::message::OtaRequest;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::BundleInfo;
 use crate::repository::StateRepository;
 use crate::DeviceManagerOptions;
 
+pub mod event;
 pub(crate) mod ota_handler;
 #[cfg(test)]
 mod ota_handler_test;

@@ -21,6 +21,7 @@
 use std::{borrow::Cow, collections::HashMap, ops::Deref, path::PathBuf, str::FromStr};
 
 use async_trait::async_trait;
+use event::{TelemetryConfig, TelemetryEvent};
 use serde::{Deserialize, Serialize};
 use system_info::SystemInfo;
 use tokio::time::Duration;
@@ -28,10 +29,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::{
-    controller::{
-        actor::Actor,
-        message::{TelemetryConfig, TelemetryEvent},
-    },
+    controller::actor::Actor,
     data::Publisher,
     repository::{file_state_repository::FileStateRepository, StateRepository},
 };
@@ -45,6 +43,7 @@ use self::{
 };
 
 pub(crate) mod battery_status;
+pub mod event;
 pub mod hardware_info;
 pub(crate) mod net_interfaces;
 pub mod os_release;
@@ -445,9 +444,9 @@ where
 mod tests {
     use super::*;
 
-    use crate::controller::message::TelemetryPeriod;
     use crate::data::tests::MockPubSub;
 
+    use event::TelemetryPeriod;
     use mockall::Sequence;
     use storage_usage::DiskUsage;
     use tempdir::TempDir;

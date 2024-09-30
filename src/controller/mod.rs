@@ -18,7 +18,6 @@
 
 use actor::Actor;
 use astarte_device_sdk::{client::RecvError, FromEvent};
-use message::{LedEvent, RuntimeEvent, TelemetryEvent};
 use stable_eyre::eyre::Error;
 use tokio::{sync::mpsc, task::JoinSet};
 use tracing::{error, info};
@@ -27,14 +26,16 @@ use crate::{
     commands::execute_command,
     data::{Publisher, Subscriber},
     error::DeviceManagerError,
-    led_behavior::LedBlink,
+    led_behavior::{LedBlink, LedEvent},
     ota::ota_handler::OtaHandler,
-    telemetry::Telemetry,
+    telemetry::{event::TelemetryEvent, Telemetry},
     DeviceManagerOptions,
 };
 
+use self::event::RuntimeEvent;
+
 pub mod actor;
-pub mod message;
+pub mod event;
 
 #[derive(Debug)]
 pub struct Runtime<T> {

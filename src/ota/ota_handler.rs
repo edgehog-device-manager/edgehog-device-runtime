@@ -30,7 +30,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::controller::actor::Actor;
-use crate::controller::message::{OtaOperation, OtaRequest};
 use crate::data::Publisher;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::OTARauc;
@@ -39,6 +38,7 @@ use crate::ota::{Ota, OtaId, OtaStatus};
 use crate::repository::file_state_repository::FileStateRepository;
 use crate::MAX_OTA_OPERATION;
 
+use super::event::{OtaOperation, OtaRequest};
 use super::PersistentState;
 
 #[derive(AstarteAggregate, Debug)]
