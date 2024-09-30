@@ -786,6 +786,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellular-modems-service"
+version = "0.8.1"
+dependencies = [
+ "stable-eyre",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
