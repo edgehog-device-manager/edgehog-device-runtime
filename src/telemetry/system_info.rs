@@ -58,14 +58,6 @@ impl SystemInfo {
             serial_number,
             part_number,
         }
-
-        //let mut ret: HashMap<String, AstarteType> = HashMap::new();
-        //if let Some(f) = seral_number {
-        //    ret.insert("/serialNumber".to_owned(), f.into());
-        //}
-        //if let Some(f) = part_number {
-        //    ret.insert("/partNumber".to_owned(), f.into());
-        //}
     }
 
     pub async fn send<T>(self, client: &T)
