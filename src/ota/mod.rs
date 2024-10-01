@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use event::OtaRequest;
 use futures::stream::BoxStream;
 use futures::TryStreamExt;
-use ota_handler::{OtaInProgress, OtaMessage};
+use ota_handler::{OtaEvent, OtaInProgress, OtaMessage, OtaStatusMessage};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -194,6 +194,69 @@ impl OtaStatus {
             OtaStatus::Failure(_, id) => id.clone(),
         }
     }
+
+    /// Converts the status into an event
+    fn as_event(&self) -> Option<OtaEvent> {
+        let mut ota_event = OtaEvent {
+            requestUUID: "".to_string(),
+            status: "".to_string(),
+            statusProgress: 0,
+            statusCode: "".to_string(),
+            message: "".to_string(),
+        };
+
+        match self {
+            OtaStatus::Acknowledged(ota_request) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                ota_event.status = "Acknowledged".to_string();
+            }
+            OtaStatus::Downloading(ota_request, progress) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                ota_event.statusProgress = *progress;
+                ota_event.status = "Downloading".to_string();
+            }
+            OtaStatus::Deploying(ota_request, deploying_progress) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                ota_event.status = "Deploying".to_string();
+                ota_event.statusProgress = deploying_progress.percentage;
+                ota_event.message = deploying_progress.clone().message;
+            }
+            OtaStatus::Deployed(ota_request) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                ota_event.status = "Deployed".to_string();
+            }
+            OtaStatus::Rebooting(ota_request) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                ota_event.status = "Rebooting".to_string()
+            }
+            OtaStatus::Success(ota_request) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                ota_event.status = "Success".to_string();
+            }
+            OtaStatus::Failure(ota_error, ota_request) => {
+                if let Some(ota_request) = ota_request {
+                    ota_event.requestUUID = ota_request.uuid.to_string();
+                }
+                ota_event.status = "Failure".to_string();
+                let ota_status_message = OtaStatusMessage::from(ota_error);
+                ota_event.statusCode = ota_status_message.status_code;
+                ota_event.message = ota_status_message.message;
+            }
+            OtaStatus::Error(ota_error, ota_request) => {
+                ota_event.status = "Error".to_string();
+                ota_event.requestUUID = ota_request.uuid.to_string();
+                let ota_status_message = OtaStatusMessage::from(ota_error);
+                ota_event.statusCode = ota_status_message.status_code;
+                ota_event.message = ota_status_message.message;
+            }
+            OtaStatus::Idle
+            | OtaStatus::Init(_)
+            | OtaStatus::NoPendingOta
+            | OtaStatus::Rebooted => return None,
+        }
+
+        Some(ota_event)
+    }
 }
 
 impl Display for OtaStatus {
@@ -243,22 +306,6 @@ impl From<OtaRequest> for OtaId {
 impl Display for OtaId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.uuid)
-    }
-}
-
-impl OtaStatus {
-    pub fn ota_request(&self) -> Option<&OtaId> {
-        match self {
-            OtaStatus::Acknowledged(ota_request)
-            | OtaStatus::Downloading(ota_request, _)
-            | OtaStatus::Deploying(ota_request, _)
-            | OtaStatus::Deployed(ota_request)
-            | OtaStatus::Rebooting(ota_request)
-            | OtaStatus::Success(ota_request)
-            | OtaStatus::Error(_, ota_request) => Some(ota_request),
-            OtaStatus::Failure(_, ota_request) => ota_request.as_ref(),
-            _ => None,
-        }
     }
 }
 

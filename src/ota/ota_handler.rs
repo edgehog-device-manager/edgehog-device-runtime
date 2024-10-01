@@ -51,9 +51,9 @@ pub struct OtaEvent {
     pub message: String,
 }
 
-struct OtaStatusMessage {
-    status_code: String,
-    message: String,
+pub(crate) struct OtaStatusMessage {
+    pub(crate) status_code: String,
+    pub(crate) message: String,
 }
 
 /// Message passed to the OTA thread to start the upgrade
@@ -241,69 +241,6 @@ impl OtaHandler {
     }
 }
 
-impl From<&OtaStatus> for OtaEvent {
-    fn from(ota_status: &OtaStatus) -> Self {
-        let mut ota_event = OtaEvent {
-            requestUUID: "".to_string(),
-            status: "".to_string(),
-            statusProgress: 0,
-            statusCode: "".to_string(),
-            message: "".to_string(),
-        };
-
-        match ota_status {
-            OtaStatus::Acknowledged(ota_request) => {
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.status = "Acknowledged".to_string();
-            }
-            OtaStatus::Downloading(ota_request, progress) => {
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.statusProgress = *progress;
-                ota_event.status = "Downloading".to_string();
-            }
-            OtaStatus::Deploying(ota_request, deploying_progress) => {
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.status = "Deploying".to_string();
-                ota_event.statusProgress = deploying_progress.percentage;
-                ota_event.message = deploying_progress.clone().message;
-            }
-            OtaStatus::Deployed(ota_request) => {
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.status = "Deployed".to_string();
-            }
-            OtaStatus::Rebooting(ota_request) => {
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.status = "Rebooting".to_string()
-            }
-            OtaStatus::Success(ota_request) => {
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                ota_event.status = "Success".to_string();
-            }
-            OtaStatus::Failure(ota_error, ota_request) => {
-                if let Some(ota_request) = ota_request {
-                    ota_event.requestUUID = ota_request.uuid.to_string();
-                }
-                ota_event.status = "Failure".to_string();
-                let ota_status_message = OtaStatusMessage::from(ota_error);
-                ota_event.statusCode = ota_status_message.status_code;
-                ota_event.message = ota_status_message.message;
-            }
-            OtaStatus::Error(ota_error, ota_request) => {
-                ota_event.status = "Error".to_string();
-                ota_event.requestUUID = ota_request.uuid.to_string();
-                let ota_status_message = OtaStatusMessage::from(ota_error);
-                ota_event.statusCode = ota_status_message.status_code;
-                ota_event.message = ota_status_message.message;
-            }
-            OtaStatus::Idle
-            | OtaStatus::Init(_)
-            | OtaStatus::NoPendingOta
-            | OtaStatus::Rebooted => {}
-        }
-        ota_event
-    }
-}
-
 impl From<&OtaError> for OtaStatusMessage {
     fn from(ota_error: &OtaError) -> Self {
         let mut ota_status_message = OtaStatusMessage {
@@ -360,11 +297,10 @@ impl<P> OtaPublisher<P> {
     where
         P: Publisher + Send + Sync,
     {
-        if ota_status.ota_request().is_none() {
+        let Some(ota_event) = ota_status.as_event() else {
             return Ok(());
-        }
+        };
 
-        let ota_event = OtaEvent::from(ota_status);
         debug!("Sending ota response {:?}", ota_event);
 
         if ota_event.requestUUID.is_empty() {
@@ -429,21 +365,14 @@ mod tests {
     #[allow(non_snake_case)]
     fn convert_ota_status_Init_to_OtaStatusMessage() {
         let uuid = uuid::Uuid::new_v4();
-        let expected_ota_event = OtaEvent {
-            requestUUID: uuid.to_string(),
-            status: "".to_string(),
-            statusProgress: 0,
-            statusCode: "".to_string(),
-            message: "".to_string(),
-        };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Init(OtaId {
+        let ota_event = OtaStatus::Init(OtaId {
             uuid,
             url: "".to_string(),
-        }));
-        assert_eq!(expected_ota_event.status, ota_event.status);
-        assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
-        assert_eq!(expected_ota_event.message, ota_event.message);
+        })
+        .as_event();
+
+        assert!(ota_event.is_none());
     }
 
     #[test]
@@ -458,7 +387,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event: OtaEvent = OtaEvent::from(&OtaStatus::Acknowledged(ota_request));
+        let ota_event: OtaEvent = OtaStatus::Acknowledged(ota_request).as_event().unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -477,7 +406,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Downloading(ota_request, 100));
+        let ota_event = OtaStatus::Downloading(ota_request, 100).as_event().unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -497,10 +426,9 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Deploying(
-            ota_request,
-            DeployProgress::default(),
-        ));
+        let ota_event = OtaStatus::Deploying(ota_request, DeployProgress::default())
+            .as_event()
+            .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -519,13 +447,15 @@ mod tests {
             message: "done".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Deploying(
+        let ota_event = OtaStatus::Deploying(
             ota_request,
             DeployProgress {
                 percentage: 100,
                 message: "done".to_string(),
             },
-        ));
+        )
+        .as_event()
+        .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -544,7 +474,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Deployed(ota_request));
+        let ota_event = OtaStatus::Deployed(ota_request).as_event().unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -563,7 +493,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Rebooting(ota_request));
+        let ota_event = OtaStatus::Rebooting(ota_request).as_event().unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -582,7 +512,7 @@ mod tests {
             message: "".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Success(ota_request));
+        let ota_event = OtaStatus::Success(ota_request).as_event().unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -601,10 +531,9 @@ mod tests {
             message: "Invalid data".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Error(
-            OtaError::Request("Invalid data"),
-            ota_request,
-        ));
+        let ota_event = OtaStatus::Error(OtaError::Request("Invalid data"), ota_request)
+            .as_event()
+            .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -623,10 +552,9 @@ mod tests {
             message: "Invalid data".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Failure(
-            OtaError::Request("Invalid data"),
-            Some(ota_request),
-        ));
+        let ota_event = OtaStatus::Failure(OtaError::Request("Invalid data"), Some(ota_request))
+            .as_event()
+            .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -645,10 +573,12 @@ mod tests {
             message: "no network".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Failure(
+        let ota_event = OtaStatus::Failure(
             OtaError::Network("no network".to_string()),
             Some(ota_request),
-        ));
+        )
+        .as_event()
+        .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -667,10 +597,10 @@ mod tests {
             message: "Invalid path".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Failure(
-            OtaError::Io("Invalid path".to_string()),
-            Some(ota_request),
-        ));
+        let ota_event =
+            OtaStatus::Failure(OtaError::Io("Invalid path".to_string()), Some(ota_request))
+                .as_event()
+                .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -689,10 +619,9 @@ mod tests {
             message: "system damage".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Failure(
-            OtaError::Internal("system damage"),
-            Some(ota_request),
-        ));
+        let ota_event = OtaStatus::Failure(OtaError::Internal("system damage"), Some(ota_request))
+            .as_event()
+            .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -711,10 +640,12 @@ mod tests {
             message: "Unable to get info from ota".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Failure(
+        let ota_event = OtaStatus::Failure(
             OtaError::InvalidBaseImage("Unable to get info from ota".to_string()),
             Some(ota_request),
-        ));
+        )
+        .as_event()
+        .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
@@ -733,10 +664,12 @@ mod tests {
             message: "Unable to switch partition".to_string(),
         };
 
-        let ota_event = OtaEvent::from(&OtaStatus::Failure(
+        let ota_event = OtaStatus::Failure(
             OtaError::SystemRollback("Unable to switch partition"),
             Some(ota_request),
-        ));
+        )
+        .as_event()
+        .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
