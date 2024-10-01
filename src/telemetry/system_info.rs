@@ -20,7 +20,7 @@ use crate::data::{publish, Publisher};
 
 use procfs::cmdline;
 use std::env;
-use tracing::error;
+use tracing::{debug, error};
 
 const INTERFACE: &str = "io.edgehog.devicemanager.SystemInfo";
 
@@ -66,10 +66,14 @@ impl SystemInfo {
     {
         if let Some(serial_number) = self.serial_number {
             publish(client, INTERFACE, "/serialNumber", serial_number).await;
+        } else {
+            debug!("missing serial number for {INTERFACE}");
         }
 
         if let Some(part_number) = self.part_number {
             publish(client, INTERFACE, "/partNumber", part_number).await;
+        } else {
+            debug!("missing part number for {INTERFACE}");
         }
     }
 }
