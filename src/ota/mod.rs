@@ -726,17 +726,9 @@ where
 
     pub async fn handle_ota_update(&mut self, cancel: CancellationToken) {
         let mut check_cancel = true;
-        loop {
+
+        while self.is_ota_in_progress() {
             self.publish_status(self.ota_status.clone()).await;
-
-            // If the status is idle there is no OTA in progress
-            if self.ota_status == OtaStatus::Idle {
-                self.flag.set_in_progress(false);
-
-                break;
-            } else {
-                self.flag.set_in_progress(true);
-            }
 
             if self.ota_status.is_cancellable() {
                 if cancel.run_until_cancelled(self.next()).await.is_none() {
@@ -758,6 +750,9 @@ where
 
             self.next().await;
         }
+
+        // Publish the final status
+        self.publish_status(self.ota_status.clone()).await;
 
         self.clear().await;
     }
@@ -786,6 +781,16 @@ where
                 self.ota_status
             )
         }
+    }
+
+    /// Check if the OTA status is in progress
+    fn is_ota_in_progress(&self) -> bool {
+        // The OTA is always considered in progress until the Idle state
+        let in_progress = self.ota_status != OtaStatus::Idle;
+
+        self.flag.set_in_progress(in_progress);
+
+        in_progress
     }
 }
 
