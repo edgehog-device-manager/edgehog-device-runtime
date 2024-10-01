@@ -181,8 +181,6 @@ async fn handle_ota_event_bundle_not_compatible() {
 
     let ota_id = OtaId { uuid, url: ota_url };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
@@ -319,8 +317,6 @@ async fn handle_ota_event_bundle_install_completed_fail() {
 
     let ota_id = OtaId { uuid, url: ota_url };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
@@ -438,8 +434,6 @@ async fn ota_event_fail_deployed() {
 
     let ota_id = OtaId { uuid, url: ota_url };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
@@ -609,8 +603,6 @@ async fn ota_event_update_success() {
 
     let ota_id = OtaId { uuid, url: ota_url };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
@@ -688,8 +680,6 @@ async fn ota_event_update_already_in_progress_same_uuid() {
     // Expect no error and the update is progressing
     let ota_id = OtaId { uuid, url: ota_url };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
@@ -758,8 +748,6 @@ async fn ota_event_update_already_in_progress_different_uuid() {
         url: ota_url.clone(),
     };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
@@ -980,8 +968,6 @@ async fn ota_event_success_after_canceled_event() {
         url: ota_url.clone(),
     };
     let exp = [
-        OtaStatus::Rebooted,
-        OtaStatus::NoPendingOta,
         OtaStatus::Idle,
         OtaStatus::Init(to_cancel_id.clone()),
         OtaStatus::Acknowledged(to_cancel_id.clone()),

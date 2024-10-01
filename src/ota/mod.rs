@@ -336,11 +336,14 @@ where
     }
 
     async fn init(&mut self) -> stable_eyre::Result<()> {
-        self.ota_status = OtaStatus::Rebooted;
+        if self.state_repository.exists().await {
+            self.ota_status = OtaStatus::Rebooted;
+        }
 
         // Not cancellable after a reboot, this is just a placeholder
         let cancel = CancellationToken::new();
 
+        // Always run the publish and cleanup
         self.handle_ota_update(cancel).await;
 
         Ok(())
