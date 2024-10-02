@@ -135,7 +135,7 @@ impl Mem {
             error!(
                 "mem total too big to be sent to astarte: {}",
                 mem_info.mem_total
-            )
+            );
         }
 
         mem

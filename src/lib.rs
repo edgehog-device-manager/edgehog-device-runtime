@@ -29,7 +29,7 @@ use crate::error::DeviceManagerError;
 pub use self::controller::Runtime;
 
 mod commands;
-pub mod controller;
+mod controller;
 pub mod data;
 mod device;
 pub mod error;

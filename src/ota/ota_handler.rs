@@ -51,9 +51,9 @@ pub struct OtaEvent {
     pub message: String,
 }
 
-pub(crate) struct OtaStatusMessage {
-    pub(crate) status_code: String,
-    pub(crate) message: String,
+pub struct OtaStatusMessage {
+    pub status_code: String,
+    pub message: String,
 }
 
 /// Message passed to the OTA thread to start the upgrade

@@ -48,16 +48,6 @@ pub enum CmdReq {
     Reboot,
 }
 
-impl CmdReq {
-    /// Returns `true` if the cmd req is [`Reboot`].
-    ///
-    /// [`Reboot`]: CmdReq::Reboot
-    #[must_use]
-    pub fn is_reboot(&self) -> bool {
-        matches!(self, Self::Reboot)
-    }
-}
-
 impl TryFrom<AstarteType> for CmdReq {
     type Error = TypeError;
 
