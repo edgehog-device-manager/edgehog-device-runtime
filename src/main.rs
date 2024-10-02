@@ -18,77 +18,91 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::convert::identity;
+
 use clap::Parser;
-#[cfg(feature = "systemd")]
-use std::panic::{self, PanicInfo};
-use std::path::Path;
+use cli::Cli;
+use stable_eyre::eyre::{OptionExt, WrapErr};
+use tracing::{info, warn};
 
 use config::read_options;
 use edgehog_device_runtime::data::connect_store;
-use edgehog_device_runtime::error::DeviceManagerError;
 use edgehog_device_runtime::AstarteLibrary;
+use tokio::task::JoinSet;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
+mod cli;
 mod config;
 
 //Error code state not recoverable
 #[allow(unused)]
 const ENOTRECOVERABLE: i32 = 131;
 
-#[derive(Debug, Parser)]
-struct Cli {
-    /// Override configuration file path
-    #[clap(short, long)]
-    configuration_file: Option<String>,
-}
+const DEFAULT_LOG_DIRECTIVE: &str = concat!(env!("CARGO_PKG_NAME"), "=info");
 
 #[tokio::main]
-async fn main() -> Result<(), DeviceManagerError> {
-    env_logger::init();
+async fn main() -> stable_eyre::Result<()> {
+    stable_eyre::install()?;
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(DEFAULT_LOG_DIRECTIVE.parse()?)
+                .from_env_lossy(),
+        )
+        .try_init()?;
+
     #[cfg(feature = "systemd")]
     {
-        let default_panic_hook = panic::take_hook();
-        panic::set_hook(Box::new(move |panic_info| {
-            default_panic_hook(panic_info);
+        let default_panic_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
             systemd_panic_hook(panic_info);
+
+            default_panic_hook(panic_info);
         }));
     }
-    let Cli {
-        configuration_file: config_file_path,
-    } = Parser::parse();
 
-    let options = read_options(config_file_path).await?;
+    let cli = Cli::parse();
 
-    if !Path::new(&options.download_directory).exists() {
+    if cli.configuration_file.is_some() {
+        warn!("the option --configuration-file is deprecated, please use --config instead")
+    }
+
+    let options = read_options(cli).await?;
+
+    if !options.download_directory.exists() {
         tokio::fs::create_dir_all(&options.download_directory)
             .await
-            .map_err(|err| {
-                DeviceManagerError::FatalError(
-                    "Unable to create OTA download directory. ".to_owned() + &err.to_string(),
-                )
-            })?;
+            .wrap_err("Unable to create OTA download directory.")?;
     }
 
-    if !Path::new(&options.store_directory).exists() {
+    if !options.store_directory.exists() {
         tokio::fs::create_dir_all(&options.store_directory)
             .await
-            .map_err(|err| {
-                DeviceManagerError::FatalError(
-                    "Unable to create store directory. ".to_owned() + &err.to_string(),
-                )
-            })?;
+            .wrap_err("Unable to create store directory")?;
     }
+
+    info!(
+        "Using {} as store directory",
+        options.store_directory.display()
+    );
 
     let store = connect_store(&options.store_directory).await?;
 
-    let (pub_sub, handle) = match &options.astarte_library {
-        AstarteLibrary::AstarteDeviceSDK => {
+    let mut tasks = JoinSet::new();
+
+    let client = match &options.astarte_library {
+        AstarteLibrary::AstarteDeviceSdk => {
             let astarte_sdk_options = options
                 .astarte_device_sdk
                 .as_ref()
-                .expect("couldn't find astarte options");
+                .ok_or_eyre("couldn't get astarte options")?;
 
             astarte_sdk_options
                 .connect(
+                    &mut tasks,
                     store,
                     &options.store_directory,
                     &options.interfaces_directory,
@@ -100,25 +114,37 @@ async fn main() -> Result<(), DeviceManagerError> {
             let astarte_message_hub_options = options
                 .astarte_message_hub
                 .as_ref()
-                .expect("Unable to find MessageHub options");
+                .ok_or_eyre("couldn't get MessageHub options")?;
 
             astarte_message_hub_options
-                .connect(store, &options.interfaces_directory)
+                .connect(&mut tasks, store, &options.interfaces_directory)
                 .await?
         }
     };
 
-    let dm = edgehog_device_runtime::DeviceManager::new(options, pub_sub, handle).await?;
+    let mut dm = edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
 
-    dm.init().await?;
+    tasks.spawn(async move {
+        dm.run()
+            .await
+            .wrap_err("the Device Runtime encontered an unrecoverable error")
+    });
 
-    dm.run().await?;
+    while let Some(res) = tasks.join_next().await {
+        // Crash if one of the tasks failed
+        res.wrap_err("failed to join tasks").and_then(identity)?;
+
+        // Otherwise abort all the tasks
+        tasks.abort_all();
+    }
 
     Ok(())
 }
 
 #[cfg(feature = "systemd")]
-fn systemd_panic_hook(panic_info: &PanicInfo) {
+// clippy warns about the deprecated type, even if the alternative is not present in the MSRV
+#[allow(deprecated)]
+fn systemd_panic_hook(panic_info: &std::panic::PanicInfo) {
     use edgehog_device_runtime::systemd_wrapper;
 
     let message = if let Some(panic_msg) = panic_info.payload().downcast_ref::<&str>() {
@@ -128,7 +154,7 @@ fn systemd_panic_hook(panic_info: &PanicInfo) {
     };
 
     let location = if let Some(location) = panic_info.location() {
-        format!("in file '{}' at line {}", location.file(), location.line(),)
+        format!("in file '{}' at line {}", location.file(), location.line())
     } else {
         "".to_string()
     };

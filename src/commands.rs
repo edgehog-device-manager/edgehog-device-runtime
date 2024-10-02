@@ -18,16 +18,81 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use log::error;
+use astarte_device_sdk::{types::TypeError, AstarteType, FromEvent};
+use tracing::error;
+
+use crate::error::DeviceManagerError;
+
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.Commands",
+    aggregation = "individual"
+)]
+pub enum Commands {
+    #[mapping(endpoint = "/request")]
+    Request(CmdReq),
+}
+
+impl Commands {
+    /// Returns `true` if the cmd req is [`Reboot`].
+    ///
+    /// [`Reboot`]: CmdReq::Reboot
+    #[must_use]
+    pub fn is_reboot(&self) -> bool {
+        matches!(self, Self::Request(CmdReq::Reboot))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CmdReq {
+    Reboot,
+}
+
+impl TryFrom<AstarteType> for CmdReq {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        match value.as_str() {
+            "Reboot" => Ok(CmdReq::Reboot),
+            _ => {
+                error!("unrecognize Commands request value {value}");
+
+                Err(TypeError::Conversion)
+            }
+        }
+    }
+}
 
 /// handle io.edgehog.devicemanager.Commands
-pub(crate) async fn execute_command(command: &str) {
-    match command {
-        "Reboot" => {
-            crate::power_management::reboot().await.unwrap();
-        }
-        _ => {
-            error!("command not recognized");
-        }
+pub(crate) async fn execute_command(cmd: Commands) -> Result<(), DeviceManagerError> {
+    match cmd {
+        Commands::Request(CmdReq::Reboot) => crate::power_management::reboot().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use astarte_device_sdk::{DeviceEvent, Value};
+
+    use crate::controller::event::RuntimeEvent;
+
+    use super::*;
+
+    #[test]
+    fn should_convert_command_from_event() {
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.Commands".to_string(),
+            path: "/request".to_string(),
+            data: Value::Individual("Reboot".into()),
+        };
+
+        let res = RuntimeEvent::from_event(event).unwrap();
+
+        assert_eq!(
+            res,
+            RuntimeEvent::Command(Commands::Request(CmdReq::Reboot))
+        );
     }
 }

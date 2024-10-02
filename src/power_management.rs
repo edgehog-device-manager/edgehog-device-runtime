@@ -20,13 +20,14 @@
 
 use std::time::Duration;
 
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 
 use crate::error::DeviceManagerError;
 
 pub async fn reboot() -> Result<(), DeviceManagerError> {
     debug!("waiting 5 secs before reboot");
 
+    // This function blocks the caller, so we can wait that other tasks finish.
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     if std::env::var("DM_NO_REBOOT").is_ok() {
@@ -42,7 +43,7 @@ pub async fn reboot() -> Result<(), DeviceManagerError> {
         .await?;
 
     if output.status.success() && output.stderr.is_empty() {
-        panic!("Reboot command was successful, bye");
+        info!("Reboot command was successful, bye");
     } else {
         error!("Reboot failed {:?}", output.stderr);
     }

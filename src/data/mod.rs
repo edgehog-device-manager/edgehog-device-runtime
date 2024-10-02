@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::properties::PropAccess;
 use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::store::{SqliteStore, StoredProp};
@@ -26,8 +27,8 @@ use astarte_device_sdk::{
     error::Error as AstarteError, AstarteAggregate, Client, DeviceClient, DeviceEvent,
 };
 use async_trait::async_trait;
-use log::{debug, info};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use tracing::{debug, error, info};
 
 pub mod astarte_device_sdk_lib;
 #[cfg(feature = "message-hub")]
@@ -43,7 +44,6 @@ pub trait Publisher {
     ) -> Result<(), AstarteError>
     where
         T: AstarteAggregate + Send + 'static;
-    //TODO add send_object_with_timestamp to this trait
     async fn send(
         &self,
         interface_name: &str,
@@ -56,7 +56,7 @@ pub trait Publisher {
 
 #[async_trait]
 pub trait Subscriber {
-    async fn recv(&self) -> Result<DeviceEvent, AstarteError>;
+    async fn recv(&self) -> Result<DeviceEvent, RecvError>;
 }
 
 #[async_trait]
@@ -93,7 +93,7 @@ impl Publisher for DeviceClient<SqliteStore> {
 
 #[async_trait]
 impl Subscriber for DeviceClient<SqliteStore> {
-    async fn recv(&self) -> Result<DeviceEvent, AstarteError> {
+    async fn recv(&self) -> Result<DeviceEvent, RecvError> {
         Client::recv(self).await
     }
 }
@@ -103,8 +103,6 @@ impl Subscriber for DeviceClient<SqliteStore> {
 pub enum StoreError {
     /// couldn't connect to Sqlite store
     Connect(#[source] SqliteError),
-    /// Path is not UTF-8, `{0}`
-    PathUtf8(PathBuf),
 }
 
 /// Connect to the store.
@@ -113,18 +111,34 @@ where
     P: AsRef<Path>,
 {
     let db_path = store_dir.as_ref().join("database.db");
-    let Some(db_path_str) = db_path.to_str() else {
-        return Err(StoreError::PathUtf8(db_path));
-    };
-    let store_path = format!("sqlite://{db_path_str}");
 
-    debug!("connecting to store {store_path}");
-    let store = SqliteStore::from_uri(&store_path)
+    debug!("connecting to store {}", db_path.display());
+    let store = SqliteStore::connect_db(&db_path)
         .await
         .map_err(StoreError::Connect)?;
 
-    info!("connected to store {store_path}");
+    info!("connected to store {}", db_path.display());
     Ok(store)
+}
+
+/// Publishes the value to Astarte and logs if an error happens.
+///
+/// This is used to send telemetry data without returning an error.
+pub(crate) async fn publish<T>(
+    client: &T,
+    interface: &str,
+    path: &str,
+    data: impl Into<AstarteType>,
+) where
+    T: Publisher,
+{
+    if let Err(err) = client.send(interface, path, data.into()).await {
+        error!(
+            "failed to send {}{path}: {}",
+            interface,
+            stable_eyre::Report::new(err)
+        )
+    }
 }
 
 #[cfg(test)]
@@ -163,7 +177,7 @@ pub mod tests {
 
         #[async_trait]
         impl Subscriber for PubSub {
-             async fn recv(&self) -> Result<DeviceEvent, AstarteError>;
+             async fn recv(&self) -> Result<DeviceEvent, RecvError>;
         }
 
         impl Clone for PubSub {

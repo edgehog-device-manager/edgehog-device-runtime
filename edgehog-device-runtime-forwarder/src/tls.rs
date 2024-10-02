@@ -31,9 +31,6 @@ pub enum Error {
     /// Read certificate
     ReadCert(#[source] std::io::Error),
 
-    /// Failed to load root certificates
-    LoadRootCert(#[source] std::io::Error),
-
     /// Couldn't load root certificate.
     RootCert(#[source] rustls::Error),
 }
@@ -44,7 +41,13 @@ pub fn device_tls_config() -> Result<Connector, Error> {
     let mut root_certs = RootCertStore::empty();
 
     // add native root certificates
-    for cert in rustls_native_certs::load_native_certs().map_err(Error::LoadRootCert)? {
+    let load_native_certs = rustls_native_certs::load_native_certs();
+
+    for err in load_native_certs.errors {
+        warn!("couldn't load a certificate: {err}");
+    }
+
+    for cert in load_native_certs.certs {
         root_certs.add(cert)?;
     }
     debug!("native root certificates added");

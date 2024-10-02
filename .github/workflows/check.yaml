@@ -93,6 +93,8 @@ jobs:
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: cargo hack
+        env:
+          RUSTFLAGS: -D warnings
         run: cargo hack --workspace --feature-powerset check
   msrv:
     runs-on: ubuntu-latest

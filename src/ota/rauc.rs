@@ -23,8 +23,8 @@ use std::task::Poll;
 use async_trait::async_trait;
 use futures::stream::FusedStream;
 use futures::{future, ready, Stream, StreamExt, TryStreamExt};
-use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, warn};
 use zbus::dbus_proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
@@ -142,35 +142,35 @@ impl SystemUpdate for OTARauc<'static> {
         self.rauc
             .last_error()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError> {
         self.rauc
             .info(bundle)
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn operation(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .operation()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn compatible(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .compatible()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn boot_slot(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .boot_slot()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn receive_completed(&self) -> Result<ProgressStream, DeviceManagerError> {
@@ -198,7 +198,7 @@ impl SystemUpdate for OTARauc<'static> {
         self.rauc
             .get_primary()
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 
     async fn mark(
@@ -209,12 +209,12 @@ impl SystemUpdate for OTARauc<'static> {
         self.rauc
             .mark(state, slot_identifier)
             .await
-            .map_err(DeviceManagerError::ZbusError)
+            .map_err(DeviceManagerError::Zbus)
     }
 }
 
 impl<'a> OTARauc<'a> {
-    pub async fn new() -> Result<OTARauc<'a>, DeviceManagerError> {
+    pub async fn connect() -> Result<OTARauc<'a>, DeviceManagerError> {
         let connection = zbus::Connection::system().await?;
 
         let proxy = RaucProxy::new(&connection).await?;

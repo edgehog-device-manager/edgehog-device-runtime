@@ -25,12 +25,11 @@ use std::fmt::{Display, Formatter};
 
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{DeviceEvent, FromEvent};
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
-use log::{debug, error, info};
 use reqwest::Url;
 use tokio::task::JoinHandle;
+use tracing::{debug, error, info};
 
 const FORWARDER_SESSION_STATE_INTERFACE: &str = "io.edgehog.devicemanager.ForwarderSessionState";
 
@@ -136,7 +135,6 @@ impl<P> Forwarder<P> {
         P: Publisher + 'static + Send + Sync,
     {
         // unset all the existing sessions
-        // TODO: the following snippet assumes that the property has been stored, which is not the case until the [issue #346](https://github.com/edgehog-device-manager/edgehog-device-runtime/issues/346) is solved
         debug!("unsetting ForwarderSessionState property");
         for prop in publisher
             .interface_props(FORWARDER_SESSION_STATE_INTERFACE)
@@ -155,20 +153,10 @@ impl<P> Forwarder<P> {
     }
 
     /// Start a device forwarder instance.
-    pub fn handle_sessions(&mut self, astarte_event: DeviceEvent)
+    pub fn handle_sessions(&mut self, sinfo: SessionInfo)
     where
         P: Publisher + Clone + 'static + Send + Sync,
     {
-        // retrieve the Url that the device must use to open a WebSocket connection with a host
-        let sinfo = match SessionInfo::from_event(astarte_event) {
-            Ok(sinfo) => sinfo,
-            // error while retrieving the connection information from the Astarte data
-            Err(err) => {
-                error!("{err}");
-                return;
-            }
-        };
-
         let edgehog_url = match Url::try_from(&sinfo) {
             Ok(url) => url,
             Err(err) => {
@@ -279,9 +267,11 @@ impl<P> Forwarder<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::data::tests::MockPubSub;
     use astarte_device_sdk::store::StoredProp;
     use astarte_device_sdk::{interface::def::Ownership, Value};
+    use astarte_device_sdk::{DeviceEvent, FromEvent};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -452,7 +442,7 @@ mod tests {
         };
 
         let astarte_event = DeviceEvent {
-            interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
+            interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/request".to_string(),
             data: Value::Object(HashMap::from([
                 (
@@ -468,7 +458,9 @@ mod tests {
             ])),
         };
 
+        let session = SessionInfo::from_event(astarte_event).unwrap();
+
         // the test is successful once handle_sessions terminates
-        f.handle_sessions(astarte_event);
+        f.handle_sessions(session);
     }
 }

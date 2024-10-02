@@ -26,8 +26,8 @@ use std::{
 
 use crate::repository::StateRepository;
 use async_trait::async_trait;
-use log::{debug, error};
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::{debug, error};
 
 #[derive(thiserror::Error, displaydoc::Display, Debug)]
 pub enum FileStateError {
@@ -55,6 +55,7 @@ pub enum FileStateError {
     },
 }
 
+#[derive(Debug, Clone)]
 pub struct FileStateRepository<T> {
     pub path: PathBuf,
     _marker: PhantomData<T>,

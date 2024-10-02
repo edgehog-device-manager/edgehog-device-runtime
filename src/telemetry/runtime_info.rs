@@ -18,30 +18,48 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::DeviceManagerError;
-use astarte_device_sdk::types::AstarteType;
-use std::collections::HashMap;
+use std::borrow::Cow;
 
-/// get structured data for `io.edgehog.devicemanager.RuntimeInfo` interface
-pub fn get_runtime_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-    let mut ret: HashMap<String, AstarteType> = HashMap::new();
+use serde::Deserialize;
 
-    if let Ok(f) = std::env::var("CARGO_PKG_NAME") {
-        ret.insert("/name".to_owned(), f.into());
+use crate::data::{publish, Publisher};
+
+const INTERFACE: &str = "io.edgehog.devicemanager.RuntimeInfo";
+
+pub const RUNTIME_INFO: RuntimeInfo<'static> = RuntimeInfo::read();
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuntimeInfo<'a> {
+    pub name: Cow<'a, str>,
+    pub url: Cow<'a, str>,
+    pub version: Cow<'a, str>,
+    pub environment: Cow<'a, str>,
+}
+
+impl RuntimeInfo<'static> {
+    /// Get structured data for `io.edgehog.devicemanager.RuntimeInfo` interface
+    pub const fn read() -> Self {
+        Self {
+            name: Cow::Borrowed(env!("CARGO_PKG_NAME")),
+            url: Cow::Borrowed(env!("CARGO_PKG_HOMEPAGE")),
+            version: Cow::Borrowed(env!("CARGO_PKG_VERSION")),
+            environment: Cow::Borrowed(env!("EDGEHOG_RUSTC_VERSION")),
+        }
     }
 
-    if let Ok(f) = std::env::var("CARGO_PKG_HOMEPAGE") {
-        ret.insert("/url".to_owned(), f.into());
+    pub async fn send<T>(self, client: &T)
+    where
+        T: Publisher,
+    {
+        let values = [
+            ("/name", self.name),
+            ("/url", self.url),
+            ("/version", self.version),
+            ("/environment", self.environment),
+        ];
+
+        for (path, data) in values {
+            publish(client, INTERFACE, path, data.as_ref()).await;
+        }
     }
-
-    if let Ok(f) = std::env::var("CARGO_PKG_VERSION") {
-        ret.insert("/version".to_owned(), f.into());
-    }
-
-    ret.insert(
-        "/environment".to_owned(),
-        format!("Rust {}", rustc_version_runtime::version()).into(),
-    );
-
-    Ok(ret)
 }

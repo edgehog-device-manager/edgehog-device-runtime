@@ -7,7 +7,7 @@
 
 use std::hash::Hash;
 
-use astarte_device_sdk::{from_event, AstarteAggregate, Error as SdkError, FromEvent};
+use astarte_device_sdk::{AstarteAggregate, Error as SdkError, FromEvent};
 use url::{ParseError, Url};
 
 /// Astarte errors.

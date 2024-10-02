@@ -18,38 +18,139 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::error::DeviceManagerError;
-use astarte_device_sdk::types::AstarteType;
+use crate::data::{publish, Publisher};
 use procfs::{CpuInfo, Meminfo, ProcResult};
-use std::collections::HashMap;
+use serde::Deserialize;
+use tracing::{debug, error};
 
-/// get structured data for `io.edgehog.devicemanager.HardwareInfo` interface
-pub fn get_hardware_info() -> Result<HashMap<String, AstarteType>, DeviceManagerError> {
-    let mut ret: HashMap<String, AstarteType> = HashMap::new();
+const INTERFACE: &str = "io.edgehog.devicemanager.HardwareInfo";
 
-    let architecture = get_machine_architecture();
-    ret.insert("/cpu/architecture".to_owned(), architecture.into());
+#[derive(Debug, Default, Deserialize)]
+pub struct HardwareInfo {
+    pub cpu: Cpu,
+    pub mem: Mem,
+}
 
-    let cpuinfo = get_cpu_info()?;
-    if let Some(f) = cpuinfo.fields.get("model") {
-        ret.insert("/cpu/model".to_owned(), f.clone().into());
+impl HardwareInfo {
+    pub async fn read() -> Self {
+        let cpu = Cpu::read().await;
+        let mem = Mem::read().await;
+
+        HardwareInfo { cpu, mem }
     }
 
-    if let Some(f) = cpuinfo.fields.get("model name") {
-        ret.insert("/cpu/modelName".to_owned(), f.clone().into());
+    /// get structured data for `io.edgehog.devicemanager.HardwareInfo` interface
+    pub async fn send<T>(self, client: &T)
+    where
+        T: Publisher,
+    {
+        self.cpu.send(client).await;
+        self.mem.send(client).await;
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cpu {
+    pub architecture: String,
+    pub model: Option<String>,
+    pub model_name: Option<String>,
+    pub vendor: Option<String>,
+}
+
+impl Cpu {
+    async fn read() -> Self {
+        let mut cpu = Cpu {
+            architecture: get_machine_architecture(),
+            ..Default::default()
+        };
+        match get_cpu_info() {
+            Ok(mut cpu_info) => {
+                cpu.model = cpu_info.fields.remove("model");
+                cpu.model_name = cpu_info.fields.remove("model name");
+                cpu.vendor = cpu_info.fields.remove("vendor_id");
+            }
+            Err(err) => {
+                error!(
+                    "couldn't get the cpu info: {}",
+                    stable_eyre::Report::new(err)
+                );
+            }
+        }
+
+        cpu
     }
 
-    if let Some(f) = cpuinfo.fields.get("vendor_id") {
-        ret.insert("/cpu/vendor".to_owned(), f.clone().into());
+    async fn send<T>(self, client: &T)
+    where
+        T: Publisher,
+    {
+        publish(client, INTERFACE, "/cpu/architecture", self.architecture).await;
+
+        if let Some(model) = self.model {
+            publish(client, INTERFACE, "/cpu/model", model).await;
+        } else {
+            debug!("missing cpu model");
+        }
+
+        if let Some(model_name) = self.model_name {
+            publish(client, INTERFACE, "/cpu/modelName", model_name).await;
+        } else {
+            debug!("missing cpu model name");
+        }
+
+        if let Some(vendor_id) = self.vendor {
+            publish(client, INTERFACE, "/cpu/vendor", vendor_id).await;
+        } else {
+            debug!("missing cpu vendor id");
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mem {
+    pub total_bytes: Option<i64>,
+}
+
+impl Mem {
+    async fn read() -> Self {
+        let mut mem = Mem::default();
+
+        let mem_info = match get_meminfo() {
+            Ok(mem_info) => mem_info,
+            Err(err) => {
+                error!(
+                    "couldn't get the memory info: {}",
+                    stable_eyre::Report::new(err)
+                );
+
+                return mem;
+            }
+        };
+
+        if let Ok(mem_total) = i64::try_from(mem_info.mem_total) {
+            mem.total_bytes = Some(mem_total);
+        } else {
+            error!(
+                "mem total too big to be sent to astarte: {}",
+                mem_info.mem_total
+            );
+        }
+
+        mem
     }
 
-    let meminfo = get_meminfo()?;
-    ret.insert(
-        "/mem/totalBytes".to_owned(),
-        (meminfo.mem_total as i64).into(),
-    );
-
-    Ok(ret)
+    async fn send<T>(self, client: &T)
+    where
+        T: Publisher,
+    {
+        if let Some(total_bytes) = self.total_bytes {
+            publish(client, INTERFACE, "/mem/totalBytes", total_bytes).await;
+        } else {
+            debug!("missing mem total bytes")
+        }
+    }
 }
 
 #[cfg(not(test))]
@@ -156,40 +257,74 @@ CmaFree:          194196 kB
 
 #[cfg(test)]
 mod tests {
-    use crate::telemetry::hardware_info::get_hardware_info;
-    use astarte_device_sdk::types::AstarteType;
+    use astarte_device_sdk::AstarteType;
+    use mockall::Sequence;
 
-    #[test]
-    fn hardware_info_test() {
-        let astarte_hardware_info = get_hardware_info().unwrap();
-        assert_eq!(
-            astarte_hardware_info
-                .get("/cpu/architecture")
-                .unwrap()
-                .to_owned(),
-            AstarteType::String("test_architecture".to_string())
-        );
-        assert_eq!(
-            astarte_hardware_info.get("/cpu/model").unwrap().to_owned(),
-            AstarteType::String("158".to_string())
-        );
-        assert_eq!(
-            astarte_hardware_info
-                .get("/cpu/modelName")
-                .unwrap()
-                .to_owned(),
-            AstarteType::String("ARMv7 Processor rev 10 (v7l)".to_string())
-        );
-        assert_eq!(
-            astarte_hardware_info.get("/cpu/vendor").unwrap().to_owned(),
-            AstarteType::String("GenuineIntel".to_string())
-        );
-        assert_eq!(
-            astarte_hardware_info
-                .get("/mem/totalBytes")
-                .unwrap()
-                .to_owned(),
-            AstarteType::LongInteger(1043820544)
-        );
+    use super::*;
+
+    use crate::data::tests::MockPubSub;
+
+    #[tokio::test]
+    async fn hardware_info_test() {
+        let mut client = MockPubSub::new();
+
+        let mut seq = Sequence::new();
+
+        client
+            .expect_send()
+            .times(1)
+            .in_sequence(&mut seq)
+            .withf(|interface, path, data| {
+                interface == "io.edgehog.devicemanager.HardwareInfo"
+                    && path == "/cpu/architecture"
+                    && *data == AstarteType::String("test_architecture".to_string())
+            })
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(1)
+            .in_sequence(&mut seq)
+            .withf(|interface, path, data| {
+                interface == "io.edgehog.devicemanager.HardwareInfo"
+                    && path == "/cpu/model"
+                    && *data == AstarteType::String("158".to_string())
+            })
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(1)
+            .in_sequence(&mut seq)
+            .withf(|interface, path, data| {
+                interface == "io.edgehog.devicemanager.HardwareInfo"
+                    && path == "/cpu/modelName"
+                    && *data == AstarteType::String("ARMv7 Processor rev 10 (v7l)".to_string())
+            })
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(1)
+            .in_sequence(&mut seq)
+            .withf(|interface, path, data| {
+                interface == "io.edgehog.devicemanager.HardwareInfo"
+                    && path == "/cpu/vendor"
+                    && *data == AstarteType::String("GenuineIntel".to_string())
+            })
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(1)
+            .in_sequence(&mut seq)
+            .withf(|interface, path, data| {
+                interface == "io.edgehog.devicemanager.HardwareInfo"
+                    && path == "/mem/totalBytes"
+                    && *data == AstarteType::LongInteger(1043820544)
+            })
+            .returning(|_, _, _| Ok(()));
+
+        HardwareInfo::read().await.send(&client).await;
     }
 }
