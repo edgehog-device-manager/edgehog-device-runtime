@@ -76,14 +76,12 @@ impl TryFrom<AstarteType> for TelemetryPeriod {
     type Error = TypeError;
 
     fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
-        let secs = i64::try_from(value).map(|i| match u64::try_from(i) {
-            Ok(secs) => secs,
-            Err(_) => {
-                warn!("Telemetry period seconds value too big {i}, capping to u64::MAX");
+        let secs = i64::try_from(value)?;
+        let secs = u64::try_from(secs).unwrap_or_else(|_| {
+            warn!("Telemetry period seconds value too big {secs}, capping to u64::MAX");
 
-                u64::MAX
-            }
-        })?;
+            u64::MAX
+        });
 
         Ok(Self(Duration::from_secs(secs)))
     }
