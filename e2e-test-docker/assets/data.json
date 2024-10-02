@@ -1,0 +1,46 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateImageRequest",
+      "path": "/image",
+      "data": {
+        "id": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "repo": "docker.io",
+        "name": "nginx",
+        "tag": "stable-alpine-slim"
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "228cba43-de03-4a32-a76f-5c42705accea",
+        "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "networkIds": [],
+        "volumeIds": [],
+        "networks": [],
+        "image": "docker.io/nginx:stable-alpine-slim",
+        "hostname": "",
+        "restartPolicy": "no",
+        "env": [],
+        "binds": [],
+        "portBindings": [],
+        "privileged": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateReleaseRequest",
+      "path": "/release",
+      "data": {
+        "id": "5ccb0c2d-a048-489e-b7e6-c1c97ee4535e",
+        "applicationId": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "containers": ["228cba43-de03-4a32-a76f-5c42705accea"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.ApplicationCommand",
+      "path": "/5ccb0c2d-a048-489e-b7e6-c1c97ee4535e/command",
+      "data": "start"
+    }
+  ]
+}

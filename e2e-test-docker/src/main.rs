@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,191 +16,100 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::env;
-
 use astarte_device_sdk::{
     builder::{DeviceBuilder, DeviceSdkBuild},
-    store::memory::MemoryStore,
+    store::SqliteStore,
     transport::mqtt::{Credential, MqttConfig},
-    types::AstarteType,
-    DeviceEvent, Value,
+    DeviceClient, EventLoop,
 };
-use color_eyre::eyre::{self, Context};
-use edgehog_docker::{service::Service, Docker};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use uuid::Uuid;
+use clap::Parser;
+use cli::AstarteConfig;
+use receive::receive;
+use tokio::task::JoinHandle;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-const DOCKER_REGISTRY: &str = "docker.io";
+use self::cli::Cli;
+use self::send::ApiClient;
 
-fn create_image(data: impl IntoIterator<Item = (impl Into<String>, AstarteType)>) -> DeviceEvent {
-    let data = data.into_iter().map(|(k, v)| (k.into(), v)).collect();
+mod cli;
+mod receive;
+mod send;
+mod simulate;
 
-    create_event(
-        "io.edgehog.devicemanager.apps.CreateImageRequest",
-        "/image",
-        Value::Object(data),
-    )
-}
-
-fn create_network(data: impl IntoIterator<Item = (impl Into<String>, AstarteType)>) -> DeviceEvent {
-    let data = data.into_iter().map(|(k, v)| (k.into(), v)).collect();
-
-    create_event(
-        "io.edgehog.devicemanager.apps.CreateNetworkRequest",
-        "/network",
-        Value::Object(data),
-    )
-}
-
-fn create_container(
-    data: impl IntoIterator<Item = (impl Into<String>, AstarteType)>,
-) -> DeviceEvent {
-    let data = data.into_iter().map(|(k, v)| (k.into(), v)).collect();
-
-    create_event(
-        "io.edgehog.devicemanager.apps.CreateContainerRequest",
-        "/container",
-        Value::Object(data),
-    )
-}
-
-fn create_event(interface: impl Into<String>, path: impl Into<String>, data: Value) -> DeviceEvent {
-    DeviceEvent {
-        interface: interface.into(),
-        path: path.into(),
-        data,
-    }
-}
-
-fn id() -> String {
-    Uuid::new_v4().to_string()
-}
-
-macro_rules! aty {
-    ($v:expr) => {{
-        let t: AstarteType = $v.into();
-
-        t
-    }};
-    ($(($k:expr, $v:expr)),+$(,)?) => {
-        [
-            $(($k, aty!($v))),+
-        ]
-    };
-}
-
-#[tokio::main]
-async fn main() -> eyre::Result<()> {
-    color_eyre::install()?;
-
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_default()
-        .add_directive("edgehog_device_runtime_docker=DEBUG".parse()?);
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(filter)
-        .try_init()?;
-
-    let realm = env::var("ASTARTE_REALM_NAME").wrap_err("coulnd't read ASTARTE_REALM_NAME")?;
-    let device_id = env::var("ASTARTE_DEVICE_ID").wrap_err("couldn't read ASTARTE_DEVICE_ID")?;
-    let credentials_secret = env::var("ASTARTE_CREDENTIALS_SECRET")
-        .wrap_err("couldn't read ASTARTE_CREDENTIALS_SECRET")?;
-    let pairing_url =
-        env::var("ASTARTE_PAIRING_URL").wrap_err("coulnd't read ASTARTE_PAIRING_URL")?;
-    let interface_dir =
-        env::var("ASTARTE_INTERFACE_DIR").wrap_err("coulnd't read ASTARTE_INTERFACE_DIR")?;
-
+async fn connect(
+    astarte: &AstarteConfig,
+) -> color_eyre::Result<(
+    DeviceClient<SqliteStore>,
+    JoinHandle<Result<(), astarte_device_sdk::Error>>,
+)> {
     let mut mqtt_config = MqttConfig::new(
-        &realm,
-        &device_id,
-        Credential::secret(credentials_secret),
-        &pairing_url,
+        &astarte.realm,
+        &astarte.device_id,
+        Credential::secret(astarte.credentials_secret.clone()),
+        &astarte.pairing_url,
     );
     mqtt_config.ignore_ssl_errors();
 
     // 3. Create the device instance
-    let (device, _rx_events) = DeviceBuilder::new()
-        .interface_directory(&interface_dir)?
-        .store(MemoryStore::new())
+    let (client, mut connection) = DeviceBuilder::new()
+        .interface_directory(&astarte.interfaces_dir)?
+        .store_dir(&astarte.store_dir)
+        .await?
         .connect(mqtt_config)
         .await?
         .build();
 
-    let client = Docker::connect()?;
+    let handle = tokio::spawn(async move { connection.handle_events().await });
 
-    let mut service = Service::new(client, device);
+    Ok((client, handle))
+}
 
-    let entry_bind = format!(
-        "{}/scripts/entrypoint.sh:/entrypoint.sh",
-        env!("CARGO_MANIFEST_DIR")
-    );
+#[tokio::main]
+async fn main() -> color_eyre::Result<()> {
+    let cli = Cli::parse();
 
-    let nginx_img_id = id();
-    let curl_img_id = id();
-    let nginx_id = id();
-    let curl_id = id();
-    let net_id = id();
+    color_eyre::install()?;
 
-    let events: &[DeviceEvent] = &[
-        create_image(aty![
-            ("id", &nginx_img_id),
-            ("repo", DOCKER_REGISTRY),
-            ("name", "nginx"),
-            ("tag", "stable-alpine-slim"),
-        ]),
-        create_image(aty![
-            ("id", &curl_img_id),
-            ("repo", DOCKER_REGISTRY),
-            ("name", "curlimages/curl"),
-            ("tag", "latest"),
-        ]),
-        create_network(aty![
-            ("id", &net_id),
-            ("driver", "bridge"),
-            ("internal", false),
-            ("checkDuplicate", true),
-            ("enableIpv6", false),
-        ]),
-        create_container(aty![
-            ("id", &nginx_id),
-            ("imageId", &nginx_img_id),
-            ("networkIds", vec![net_id.clone()]),
-            ("networks", vec![net_id.clone()]),
-            ("volumeIds", Vec::<String>::new()),
-            (
-                "image",
-                format!("{DOCKER_REGISTRY}/nginx:stable-alpine-slim")
-            ),
-            ("hostname", "nginx"),
-            ("restartPolicy", "no"),
-            ("env", Vec::<String>::new()),
-            ("binds", Vec::<String>::new()),
-            ("portBindings", Vec::<String>::new()),
-            ("privileged", false),
-        ]),
-        create_container(aty![
-            ("id", &curl_id),
-            ("hostname", "curl"),
-            ("imageId", &curl_img_id),
-            ("networkIds", vec![net_id.clone()]),
-            ("networks", vec![net_id.clone()]),
-            ("volumeIds", Vec::<String>::new()),
-            ("image", format!("{DOCKER_REGISTRY}/curlimages/curl:latest")),
-            ("restartPolicy", "no"),
-            ("env", vec!["NGINX_HOST=nginx".to_string()]),
-            ("binds", vec![entry_bind]),
-            ("portBindings", Vec::<String>::new()),
-            ("privileged", false),
-        ]),
-    ];
+    let filter = EnvFilter::builder()
+        .with_default_directive("edgehog_device_runtime_docker=DEBUG".parse()?)
+        .from_env()?;
 
-    for event in events {
-        service.on_event(event.clone()).await?;
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(filter)
+        .try_init()?;
+
+    match &cli.command {
+        cli::Command::Send {
+            token,
+            appengine_url,
+            data,
+        } => {
+            let client = ApiClient::new(&cli.astarte, token.clone(), appengine_url.clone())?;
+
+            client.read(data).await?;
+        }
+        cli::Command::Receive => {
+            let (client, connection_handle) = connect(&cli.astarte).await?;
+
+            let recv_handle = tokio::spawn(async move { receive(client).await });
+
+            tokio::signal::ctrl_c().await?;
+
+            recv_handle.abort();
+            recv_handle.await??;
+            connection_handle.abort();
+            connection_handle.await??;
+        }
+        cli::Command::Simulate => {
+            let (client, connection_handle) = connect(&cli.astarte).await?;
+
+            simulate::simulate(client.clone()).await?;
+
+            connection_handle.abort();
+            connection_handle.await??;
+        }
     }
-
-    service.start(&nginx_id).await?;
-    service.start(&curl_id).await?;
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023 SECO Mind Srl
+# Copyright 2023-2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,11 +24,15 @@ publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-# TODO: make this package part of the workspace when edgehog dependencies are updated
 [dependencies]
 astarte-device-sdk = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
 color-eyre = { workspace = true }
 edgehog-docker = { package = "edgehog-device-runtime-docker", path = "../edgehog-device-runtime-docker" }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

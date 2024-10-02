@@ -37,7 +37,7 @@ mockall = { workspace = true, optional = true }
 petgraph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 tracing = { workspace = true, features = ["log"] }
 
 [features]
