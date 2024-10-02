@@ -45,7 +45,7 @@ pub enum ReqError {
 }
 
 /// Create request from Astarte.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CreateRequests {
     /// Request to pull a [`Image`](crate::image::Image).
     Image(CreateImage),
@@ -55,6 +55,8 @@ pub enum CreateRequests {
     Network(CreateNetwork),
     /// Request to create a [`Container`]
     Container(CreateContainer),
+    /// Request to create a Release
+    Release(CreateRelease),
 }
 
 impl FromEvent for CreateRequests {
@@ -73,6 +75,9 @@ impl FromEvent for CreateRequests {
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
                 CreateContainer::from_event(value).map(CreateRequests::Container)
+            }
+            "io.edgehog.devicemanager.apps.CreateReleaseRequest" => {
+                CreateRelease::from_event(value).map(CreateRequests::Release)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
@@ -338,6 +343,25 @@ impl<'a> ParsedBind<'a> {
     }
 }
 
+/// Request to create a Release.
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.apps.CreateReleaseRequest",
+    path = "/release",
+    rename_all = "camelCase"
+)]
+pub struct CreateRelease {
+    pub(crate) id: String,
+    pub(crate) application_id: String,
+    pub(crate) containers: Vec<String>,
+}
+
+impl CreateRelease {
+    pub(crate) fn dependencies(&self) -> Vec<String> {
+        self.containers.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::{types::AstarteType, Value};
@@ -524,5 +548,40 @@ mod tests {
 
             assert_eq!(parsed, expected, "failed to parse {case}");
         }
+    }
+
+    #[test]
+    fn should_parse_release() {
+        let fields = [
+            ("id", AstarteType::String("id".to_string())),
+            (
+                "applicationId",
+                AstarteType::String("applicationId".to_string()),
+            ),
+            (
+                "containers",
+                AstarteType::StringArray(["foo", "bar"].map(Into::into).to_vec()),
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.apps.CreateReleaseRequest".to_string(),
+            path: "/release".to_string(),
+            data: Value::Object(fields),
+        };
+
+        let req = CreateRequests::from_event(event).unwrap();
+
+        assert_eq!(
+            req,
+            CreateRequests::Release(CreateRelease {
+                id: "id".to_string(),
+                application_id: "applicationId".to_string(),
+                containers: ["foo", "bar"].map(ToString::to_string).to_vec()
+            })
+        )
     }
 }

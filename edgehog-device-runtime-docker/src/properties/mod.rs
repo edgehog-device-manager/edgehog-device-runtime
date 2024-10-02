@@ -37,6 +37,7 @@ use crate::{
 pub(crate) mod container;
 pub(crate) mod image;
 pub(crate) mod network;
+pub(crate) mod release;
 pub(crate) mod volume;
 
 macro_rules! astarte_type {

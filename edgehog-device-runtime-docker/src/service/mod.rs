@@ -30,6 +30,7 @@ use astarte_device_sdk::{
     event::FromEventError, properties::PropAccess, Client, DeviceEvent, Error as AstarteError,
     FromEvent,
 };
+use itertools::Itertools;
 use petgraph::stable_graph::NodeIndex;
 use tracing::{debug, info, instrument};
 
@@ -40,10 +41,11 @@ use crate::{
     network::Network,
     properties::{
         container::AvailableContainer, image::AvailableImage, network::AvailableNetwork,
-        volume::AvailableVolume, AvailableProp, LoadProp, PropError,
+        release::AvailableRelease, volume::AvailableVolume, AvailableProp, LoadProp, PropError,
     },
     request::{
-        CreateContainer, CreateImage, CreateNetwork, CreateRequests, CreateVolume, ReqError,
+        CreateContainer, CreateImage, CreateNetwork, CreateRelease, CreateRequests, CreateVolume,
+        ReqError,
     },
     volume::Volume,
     Docker,
@@ -145,6 +147,7 @@ where
             CreateRequests::Volume(req) => self.create_volume(req).await,
             CreateRequests::Network(req) => self.create_network(req).await,
             CreateRequests::Container(req) => self.create_container(req).await,
+            CreateRequests::Release(req) => self.create_release(req).await,
         }
     }
 
@@ -254,6 +257,34 @@ where
         Ok(())
     }
 
+    /// Store the create container request
+    #[instrument(skip(self))]
+    async fn create_release(&mut self, req: CreateRelease) -> SResult<()> {
+        let id = Id::new(req.id.clone());
+
+        let device = &self.device;
+
+        let deps = req.dependencies();
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let release = Release::from(req);
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(device, release).await?;
+
+                    Ok(node)
+                },
+                deps,
+            )
+            .await?;
+
+        Ok(())
+    }
+
     /// Will start an application
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: &str) -> SResult<()> {
@@ -335,7 +366,7 @@ impl Node {
     #[instrument(skip_all)]
     async fn start<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
     where
-        D: Debug + Client,
+        D: Debug + Client + Sync,
     {
         self.inner.start(&self.id, device, client).await
     }
@@ -408,7 +439,7 @@ impl State {
     #[instrument(skip_all)]
     async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
     where
-        D: Debug + Client,
+        D: Debug + Client + Sync,
     {
         match self {
             State::Missing | State::Stored(_) => Err(ServiceError::Start(id.to_string())),
@@ -481,6 +512,7 @@ pub(crate) enum NodeType {
     Volume(Volume<String>),
     Network(Network<String>),
     Container(ContainerNode),
+    Release(Release),
 }
 
 impl NodeType {
@@ -521,6 +553,13 @@ impl NodeType {
                 .await?;
 
                 info!("stored container with id {}", id);
+            }
+            NodeType::Release(release) => {
+                AvailableRelease::with_release(id, release)
+                    .store(device)
+                    .await?;
+
+                info!("stored release with id {}", id);
             }
         }
 
@@ -567,15 +606,18 @@ impl NodeType {
                 .store(device)
                 .await?;
             }
+            NodeType::Release(_) => {
+                // TODO: update the status of the property
+            }
         }
 
         Ok(())
     }
 
     #[instrument(skip_all)]
-    async fn start<D>(&mut self, _id: &Id, _device: &D, client: &Docker) -> SResult<()>
+    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
     where
-        D: Debug + Client,
+        D: Debug + Client + Sync,
     {
         match self {
             NodeType::Image(_) | NodeType::Volume(_) | NodeType::Network(_) => {
@@ -587,6 +629,17 @@ impl NodeType {
                 container.container.start(client).await?;
 
                 info!("container started");
+
+                Ok(())
+            }
+            NodeType::Release(release) => {
+                release.started = true;
+
+                AvailableRelease::with_release(id, release)
+                    .store(device)
+                    .await?;
+
+                info!("release started");
 
                 Ok(())
             }
@@ -618,6 +671,12 @@ impl From<ContainerNode> for NodeType {
     }
 }
 
+impl From<Release> for NodeType {
+    fn from(value: Release) -> Self {
+        Self::Release(value)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ContainerNode {
     container: Container<String>,
@@ -638,6 +697,33 @@ impl ContainerNode {
             image,
             volumes,
             networks,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Release {
+    pub(crate) application_id: String,
+    pub(crate) started: bool,
+    pub(crate) containers: Vec<Id>,
+}
+
+impl Resource for Release {
+    fn dependencies(&self) -> Result<Vec<String>, ServiceError> {
+        Ok(self
+            .containers
+            .iter()
+            .map(|id| id.as_str().to_string())
+            .collect_vec())
+    }
+}
+
+impl From<CreateRelease> for Release {
+    fn from(value: CreateRelease) -> Self {
+        Self {
+            application_id: value.application_id,
+            started: false,
+            containers: value.containers.into_iter().map(Id::new).collect(),
         }
     }
 }
