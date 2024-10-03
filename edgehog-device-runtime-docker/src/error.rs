@@ -18,6 +18,10 @@
 
 //! Error returned when interacting with the docker daemon
 
+use crate::{
+    container::ContainerError, image::ImageError, network::NetworkError, volume::VolumeError,
+};
+
 /// Error returned form the docker daemon
 #[non_exhaustive]
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
@@ -26,4 +30,12 @@ pub enum DockerError {
     Connection(#[source] bollard::errors::Error),
     /// couldn't ping the docker daemon
     Ping(#[source] bollard::errors::Error),
+    /// image operation failed
+    Image(#[from] ImageError),
+    /// volume operation failed
+    Volume(#[from] VolumeError),
+    /// network operation failed
+    Network(#[from] NetworkError),
+    /// container operation failed
+    Container(#[from] ContainerError),
 }

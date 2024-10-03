@@ -14,6 +14,7 @@ rust-version = { workspace = true }
 resolver = "2"
 members = [
   "e2e-test",
+  "e2e-test-docker",
   "e2e-test-forwarder",
   "edgehog-device-runtime-docker",
   "edgehog-device-runtime-forwarder",
@@ -79,6 +80,7 @@ base64 = "0.22.1"
 bollard = "0.17.1"
 bytes = "1.7.1"
 clap = "=4.4.18"
+color-eyre = "0.6.3"
 displaydoc = "0.2.5"
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
@@ -88,6 +90,7 @@ hex = "0.4.3"
 http = "1.1.0"
 httpmock = "0.7"
 hyper = "1.4.1"
+itertools = "0.13.0"
 log = "0.4.22"
 mockall = "0.13.0"
 petgraph = "0.6.5"
@@ -101,7 +104,9 @@ serde = "1.0.209"
 serde_json = "1.0.127"
 sysinfo = "0.30.13"
 systemd = "0.10.0"
+# TODO: remove this, it's deprecated and included into tempfile
 tempdir = "0.3.7"
+tempfile = "3.13.0"
 thiserror = "1.0.63"
 tokio = "1.40.0"
 tokio-stream = "0.1.15"
@@ -109,8 +114,12 @@ tokio-tungstenite = "0.23.1"
 tokio-util = "0.7.11"
 toml = "0.8.19"
 tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
 udev = "0.9.0"
 url = "2.5.2"
 uuid = "1.10.0"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
+
+# Pinned transitive dependencies
+time = "=0.3.23"

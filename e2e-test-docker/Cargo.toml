@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023 SECO Mind Srl
+# Copyright 2023-2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,28 +17,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "edgehog-device-runtime-docker"
+name = "e2e-test-docker"
 version = "0.1.0"
-edition = { workspace = true }
-homepage = { workspace = true }
-rust-version = { workspace = true }
+edition = "2021"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { workspace = true, features = ["derive"] }
-async-trait = { workspace = true }
-bollard = { workspace = true }
-displaydoc = { workspace = true }
-futures = { workspace = true }
-hyper = { workspace = true, optional = true }
-itertools = { workspace = true }
-mockall = { workspace = true, optional = true }
-petgraph = { workspace = true }
+astarte-device-sdk = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+color-eyre = { workspace = true }
+edgehog-docker = { package = "edgehog-device-runtime-docker", path = "../edgehog-device-runtime-docker" }
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
-tracing = { workspace = true, features = ["log"] }
-
-[features]
-mock = ["dep:mockall", "dep:hyper"]
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+uuid = { workspace = true, features = ["v4", "fast-rng"] }
