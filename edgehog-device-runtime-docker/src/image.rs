@@ -25,6 +25,7 @@ use std::{
 };
 
 use bollard::{
+    errors::Error as BollardError,
     image::{CreateImageOptions, ListImagesOptions},
     models::{ImageDeleteResponseItem, ImageInspect, ImageSummary},
 };
@@ -39,15 +40,15 @@ use crate::client::*;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ImageError {
     /// couldn't pull the image
-    Pull(#[source] bollard::errors::Error),
+    Pull(#[source] BollardError),
     /// couldn't inspect the image
-    Inspect(#[source] bollard::errors::Error),
+    Inspect(#[source] BollardError),
     /// couldn't remove image
-    Remove(#[source] bollard::errors::Error),
+    Remove(#[source] BollardError),
     /// couldn't remove image in use by container
-    ImageInUse(#[source] bollard::errors::Error),
+    ImageInUse(#[source] BollardError),
     /// couldn't list the images
-    List(#[source] bollard::errors::Error),
+    List(#[source] BollardError),
     /// couldn't convert container summary
     Convert(#[from] ConversionError),
 }
@@ -210,7 +211,7 @@ impl<S> Image<S> {
         // Check if the image was not found
         let inspect = match res {
             Ok(inspect) => inspect,
-            Err(bollard::errors::Error::DockerResponseServerError {
+            Err(BollardError::DockerResponseServerError {
                 status_code: 404,
                 message,
             }) => {
@@ -247,7 +248,7 @@ impl<S> Image<S> {
 
         match res {
             Ok(delete_res) => Ok(Some(delete_res)),
-            Err(bollard::errors::Error::DockerResponseServerError {
+            Err(BollardError::DockerResponseServerError {
                 status_code: 404,
                 message,
             }) => {
@@ -255,7 +256,7 @@ impl<S> Image<S> {
 
                 Ok(None)
             }
-            Err(bollard::errors::Error::DockerResponseServerError {
+            Err(BollardError::DockerResponseServerError {
                 status_code: 409,
                 message,
             }) => {
@@ -263,7 +264,7 @@ impl<S> Image<S> {
 
                 // We need to unpack and repack the struct to access the fields
                 Err(ImageError::ImageInUse(
-                    bollard::errors::Error::DockerResponseServerError {
+                    BollardError::DockerResponseServerError {
                         status_code: 409,
                         message,
                     },
