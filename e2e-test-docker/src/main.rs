@@ -84,10 +84,15 @@ async fn main() -> color_eyre::Result<()> {
             token,
             appengine_url,
             data,
+            curl,
         } => {
             let client = ApiClient::new(&cli.astarte, token.clone(), appengine_url.clone())?;
 
-            client.read(data).await?;
+            if *curl {
+                client.print_curl(data).await?;
+            } else {
+                client.read(data).await?;
+            }
         }
         cli::Command::Receive => {
             let (client, connection_handle) = connect(&cli.astarte).await?;

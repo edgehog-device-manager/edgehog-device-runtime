@@ -39,6 +39,8 @@ pub enum Command {
         /// Token with access to app engine API to send data to Astarte.
         #[arg(long, env = "ASTARTE_API_URL")]
         appengine_url: String,
+        #[arg(long, default_value = "false")]
+        curl: bool,
         /// Path to a json file containing the data to send.
         data: PathBuf,
     },

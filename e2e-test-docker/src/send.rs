@@ -58,11 +58,7 @@ impl ApiClient {
     where
         T: Serialize + Debug,
     {
-        let mut url = self.url.clone();
-        url.path_segments_mut()
-            .map_err(|_| eyre!("couldn't get the url path {}", self.url))?
-            .push(interface)
-            .push(path.strip_prefix('/').unwrap_or(path));
+        let url = self.interface_url(interface, path)?;
 
         let res = reqwest::Client::new()
             .post(url)
@@ -81,6 +77,15 @@ impl ApiClient {
         Ok(())
     }
 
+    fn interface_url(&self, interface: &str, path: &str) -> Result<Url, color_eyre::eyre::Error> {
+        let mut url = self.url.clone();
+        url.path_segments_mut()
+            .map_err(|_| eyre!("couldn't get the url path {}", self.url))?
+            .push(interface)
+            .push(path.strip_prefix('/').unwrap_or(path));
+        Ok(url)
+    }
+
     pub async fn read(&self, path: &Path) -> color_eyre::Result<()> {
         let content = tokio::fs::read_to_string(path).await?;
 
@@ -89,6 +94,38 @@ impl ApiClient {
         for v in values.events {
             self.send(&v.interface, &v.path, v.data).await?;
         }
+
+        Ok(())
+    }
+
+    pub async fn print_curl(&self, path: &Path) -> color_eyre::Result<()> {
+        let content = tokio::fs::read_to_string(path).await?;
+
+        let values: File = serde_json::from_str(&content)?;
+
+        println!("#!/usr/bin/env bash");
+        println!();
+        println!("set -exEuo pipefail");
+        println!();
+
+        for v in values.events {
+            self.print_send(v)?;
+        }
+
+        Ok(())
+    }
+
+    fn print_send(&self, data: InterfaceData) -> color_eyre::Result<()> {
+        println!(
+            r#"curl -v -X POST -H "Accept: application/json" -H "Content-Type: application/json" \"#
+        );
+        println!(r#"    -H "Authorization: Bearer $TOKEN" \"#);
+        println!(
+            r#"    --data '{}' \"#,
+            serde_json::to_string(&Data { data: &data.data })?
+        );
+
+        println!("    '{}'", self.interface_url(&data.interface, &data.path)?);
 
         Ok(())
     }
