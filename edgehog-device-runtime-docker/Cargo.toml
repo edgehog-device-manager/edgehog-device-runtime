@@ -36,8 +36,9 @@ itertools = { workspace = true }
 mockall = { workspace = true, optional = true }
 petgraph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
 
 [features]

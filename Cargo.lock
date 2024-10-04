@@ -1172,6 +1172,7 @@ dependencies = [
  "mockall",
  "petgraph",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
