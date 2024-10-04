@@ -167,6 +167,7 @@ where
     }
 }
 
+/// A node containing the [`State`], [`Id`] of the resource and index of the dependencies.
 #[derive(Debug, Clone)]
 pub(crate) struct Node {
     id: Id,

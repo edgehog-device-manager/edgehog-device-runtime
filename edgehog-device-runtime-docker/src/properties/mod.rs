@@ -18,9 +18,8 @@
 
 //! Container properties sent from the device to Astarte.
 
-use std::num::ParseIntError;
-
-use astarte_device_sdk::{types::TypeError, Error as AstarteError};
+use astarte_device_sdk::{AstarteType, Client, Error as AstarteError};
+use async_trait::async_trait;
 
 /// Error from handling the Astarte properties.
 #[non_exhaustive]
@@ -30,24 +29,6 @@ pub enum PropError {
     MissingPrefix,
     /// endpoint missing the id
     MissingId,
-    /// couldn't convert field {field} into {exp}
-    Type {
-        field: &'static str,
-        exp: &'static str,
-        #[source]
-        backtrace: TypeError,
-    },
-    /// couldn't property into {into}, since it's missing the field {field}
-    MissingField {
-        field: &'static str,
-        into: &'static str,
-    },
-    /// couldn't convert property into {into}, unrecognized field {field}
-    InvalidField { field: String, into: &'static str },
-    /// couldn't parse option, expected key=value but got {0}
-    Option(String),
-    /// couldn't parse port binding
-    Binding(#[from] BindingError),
     /// couldn't send {path} to Astarte
     Send {
         path: String,
@@ -56,18 +37,30 @@ pub enum PropError {
     },
 }
 
-/// Error from parsing a binding
-#[non_exhaustive]
-#[derive(Debug, displaydoc::Display, thiserror::Error)]
-pub enum BindingError {
-    /// couldn't parse {binding} port {value}
-    Port {
-        /// Binding received
-        binding: &'static str,
-        /// Port of the binding
-        value: String,
-        /// Error converting the port
-        #[source]
-        source: ParseIntError,
-    },
+#[async_trait]
+pub(crate) trait AvailableProp {
+    fn interface() -> &'static str;
+
+    fn id(&self) -> &str;
+
+    async fn store<D>(&self, device: &D) -> Result<(), PropError>
+    where
+        D: Client + Sync;
+
+    async fn send<D, T>(&self, device: &D, field: &str, data: T) -> Result<(), PropError>
+    where
+        D: Client + Sync,
+        T: Into<AstarteType> + Send,
+    {
+        let interface = Self::interface();
+        let endpoint = format!("/{}/{}", self.id(), field);
+
+        device
+            .send(interface, &endpoint, data)
+            .await
+            .map_err(|err| PropError::Send {
+                path: format!("{interface}{endpoint}"),
+                backtrace: err,
+            })
+    }
 }
