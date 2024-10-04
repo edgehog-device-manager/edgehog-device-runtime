@@ -17,3 +17,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Container requests sent from Astarte.
+
+use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
+
+use crate::properties::BindingError;
+
+/// Error from handling the Astarte request.
+#[non_exhaustive]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum ReqError {
+    /// couldn't parse option, expected key=value but got {0}
+    Option(String),
+    /// couldn't parse container restart policy: {0}
+    RestartPolicy(String),
+    /// couldn't parse port binding
+    PortBinding(#[from] BindingError),
+}
+
+/// Create request from Astarte.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CreateRequests {}
+
+impl FromEvent for CreateRequests {
+    type Err = FromEventError;
+
+    fn from_event(value: DeviceEvent) -> Result<Self, Self::Err> {
+        #[allow(clippy::match_single_binding)]
+        match value.interface.as_str() {
+            _ => Err(FromEventError::Interface(value.interface.clone())),
+        }
+    }
+}
