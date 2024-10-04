@@ -1,5 +1,5 @@
 <!---
-  Copyright 2023 SECO Mind Srl
+  Copyright 2023-2024 SECO Mind Srl
 
   SPDX-License-Identifier: Apache-2.0
 -->
