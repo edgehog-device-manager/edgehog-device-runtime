@@ -198,6 +198,10 @@ impl Nodes {
     pub(crate) fn relations(&self) -> &StableDiGraph<Id, ()> {
         &self.relations
     }
+
+    pub(crate) fn nodes(&self) -> &HashMap<Id, Node> {
+        &self.nodes
+    }
 }
 
 impl Default for Nodes {

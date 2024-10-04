@@ -224,6 +224,21 @@ impl Node {
     {
         self.inner.up(&self.id, device, client).await
     }
+
+    pub(crate) fn id(&self) -> &Id {
+        &self.id
+    }
+
+    pub(crate) fn node_type(&self) -> Option<&NodeType> {
+        match &self.inner {
+            State::Missing => None,
+            State::Stored(nt) | State::Created(nt) | State::Up(nt) => Some(nt),
+        }
+    }
+
+    pub(crate) fn state(&self) -> &State {
+        &self.inner
+    }
 }
 
 /// State of the object for the request.
@@ -349,6 +364,14 @@ impl State {
     #[must_use]
     pub(crate) fn is_missing(&self) -> bool {
         matches!(self, Self::Missing)
+    }
+
+    /// Returns `true` if the state is [`Up`].
+    ///
+    /// [`Up`]: State::Up
+    #[must_use]
+    pub(crate) fn is_up(&self) -> bool {
+        matches!(self, Self::Up(..))
     }
 }
 
