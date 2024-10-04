@@ -1182,6 +1182,7 @@ version = "0.1.0"
 dependencies = [
  "astarte-device-sdk",
  "async-trait",
+ "base64 0.22.1",
  "bollard",
  "displaydoc",
  "futures",
@@ -1195,6 +1196,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
