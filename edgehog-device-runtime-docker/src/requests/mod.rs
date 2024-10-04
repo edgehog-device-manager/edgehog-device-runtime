@@ -18,9 +18,9 @@
 
 //! Container requests sent from Astarte.
 
-use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
+use std::num::ParseIntError;
 
-use crate::properties::BindingError;
+use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 
 /// Error from handling the Astarte request.
 #[non_exhaustive]
@@ -32,6 +32,22 @@ pub enum ReqError {
     RestartPolicy(String),
     /// couldn't parse port binding
     PortBinding(#[from] BindingError),
+}
+
+/// Error from parsing a binding
+#[non_exhaustive]
+#[derive(Debug, displaydoc::Display, thiserror::Error)]
+pub enum BindingError {
+    /// couldn't parse {binding} port {value}
+    Port {
+        /// Binding received
+        binding: &'static str,
+        /// Port of the binding
+        value: String,
+        /// Error converting the port
+        #[source]
+        source: ParseIntError,
+    },
 }
 
 /// Create request from Astarte.
