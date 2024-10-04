@@ -32,6 +32,7 @@ bollard = { workspace = true }
 displaydoc = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
+itertools = { workspace = true }
 mockall = { workspace = true, optional = true }
 petgraph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
