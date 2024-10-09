@@ -77,12 +77,14 @@ forwarder = ["dep:edgehog-forwarder"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.9.1"
+astarte-device-sdk-mock = "0.9.1"
 astarte-message-hub-proto = "0.7.0"
 async-trait = "0.1.83"
 backoff = "0.4.0"
 base64 = "0.22.1"
 bollard = "0.17.1"
 bytes = "1.7.2"
+cfg-if = "1.0.0"
 clap = "=4.4.18"
 color-eyre = "0.6.3"
 displaydoc = "0.2.5"
