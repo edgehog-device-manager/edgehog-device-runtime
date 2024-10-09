@@ -23,7 +23,7 @@ use tracing::instrument;
 
 use super::{Id, Result};
 
-use crate::Docker;
+use crate::{image::Image, Docker};
 
 /// A resource in the nodes struct.
 pub(crate) trait Resource: Into<NodeType> {
@@ -31,7 +31,9 @@ pub(crate) trait Resource: Into<NodeType> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum NodeType {}
+pub(crate) enum NodeType {
+    Image(Image<String>),
+}
 
 impl NodeType {
     #[instrument(skip_all)]
