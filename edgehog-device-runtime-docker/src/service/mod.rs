@@ -43,7 +43,7 @@ use self::node::Nodes;
 
 pub(crate) mod node;
 
-type SResult<T> = Result<T, ServiceError>;
+type Result<T> = std::result::Result<T, ServiceError>;
 
 /// Error from the [`Service`].
 #[non_exhaustive]
@@ -111,7 +111,7 @@ where
 
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
-    pub async fn init(client: Docker, device: D) -> SResult<Self> {
+    pub async fn init(client: Docker, device: D) -> Result<Self> {
         let services = Self::new(client, device);
 
         // TODO: load the resources
@@ -121,7 +121,7 @@ where
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
-    pub async fn on_event(&mut self, event: DeviceEvent) -> SResult<()>
+    pub async fn on_event(&mut self, event: DeviceEvent) -> Result<()>
     where
         D: Client,
     {
@@ -132,7 +132,7 @@ where
 
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn start(&mut self, id: &str) -> SResult<()> {
+    pub async fn start(&mut self, id: &str) -> Result<()> {
         let id = Id::new(id.to_string());
 
         let start_idx = self
@@ -172,7 +172,7 @@ where
 pub(crate) struct Node {
     id: Id,
     idx: NodeIndex,
-    inner: State,
+    state: State,
 }
 
 impl Node {
@@ -180,49 +180,45 @@ impl Node {
         Self {
             id,
             idx,
-            inner: State::Missing,
+            state: State::Missing,
         }
     }
 
     pub(crate) fn with_state(id: Id, idx: NodeIndex, state: State) -> Self {
-        Self {
-            id,
-            idx,
-            inner: state,
-        }
+        Self { id, idx, state }
     }
 
     #[instrument(skip_all)]
-    async fn store<D, T>(&mut self, device: &D, inner: T) -> SResult<()>
+    async fn store<D, T>(&mut self, device: &D, inner: T) -> Result<()>
     where
         D: Debug + Client + Sync,
         T: Into<NodeType> + Debug,
     {
-        self.inner.store(&self.id, device, inner).await
+        self.state.store(&self.id, device, inner).await
     }
 
     #[instrument(skip_all)]
-    async fn create<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
+    async fn create<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
-        self.inner.create(&self.id, device, client).await
+        self.state.create(&self.id, device, client).await
     }
 
     #[instrument(skip_all)]
-    async fn start<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
+    async fn start<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
-        self.inner.start(&self.id, device, client).await
+        self.state.start(&self.id, device, client).await
     }
 
     #[instrument(skip_all)]
-    async fn up<D>(&mut self, device: &D, client: &Docker) -> SResult<()>
+    async fn up<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
-        self.inner.up(&self.id, device, client).await
+        self.state.up(&self.id, device, client).await
     }
 
     pub(crate) fn id(&self) -> &Id {
@@ -230,14 +226,14 @@ impl Node {
     }
 
     pub(crate) fn node_type(&self) -> Option<&NodeType> {
-        match &self.inner {
+        match &self.state {
             State::Missing => None,
             State::Stored(nt) | State::Created(nt) | State::Up(nt) => Some(nt),
         }
     }
 
     pub(crate) fn state(&self) -> &State {
-        &self.inner
+        &self.state
     }
 }
 
@@ -253,7 +249,7 @@ pub(crate) enum State {
 
 impl State {
     #[instrument(skip_all)]
-    async fn store<D, T>(&mut self, id: &Id, device: &D, node: T) -> SResult<()>
+    async fn store<D, T>(&mut self, id: &Id, device: &D, node: T) -> Result<()>
     where
         D: Debug + Client + Sync,
         T: Into<NodeType> + Debug,
@@ -277,7 +273,7 @@ impl State {
     }
 
     #[instrument(skip_all)]
-    async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
+    async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -298,7 +294,7 @@ impl State {
     }
 
     #[instrument(skip_all)]
-    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
+    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -322,7 +318,7 @@ impl State {
     }
 
     #[instrument(skip_all)]
-    async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
+    async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -345,7 +341,7 @@ impl State {
         Ok(())
     }
 
-    fn map_into<F>(&mut self, f: F) -> SResult<()>
+    fn map_into<F>(&mut self, f: F) -> Result<()>
     where
         F: FnOnce(NodeType) -> State,
     {
@@ -380,7 +376,7 @@ pub(crate) enum NodeType {}
 
 impl NodeType {
     #[instrument(skip_all)]
-    async fn store<D>(&mut self, _id: &Id, _device: &D) -> SResult<()>
+    async fn store<D>(&mut self, _id: &Id, _device: &D) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -388,7 +384,7 @@ impl NodeType {
     }
 
     #[instrument(skip_all)]
-    async fn create<D>(&mut self, _id: &Id, _device: &D, _client: &Docker) -> SResult<()>
+    async fn create<D>(&mut self, _id: &Id, _device: &D, _client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -396,7 +392,7 @@ impl NodeType {
     }
 
     #[instrument(skip_all)]
-    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> SResult<()>
+    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -441,5 +437,5 @@ impl Display for Id {
 
 /// A resource in the nodes struct.
 pub(crate) trait Resource: Into<NodeType> {
-    fn dependencies(&self) -> Result<Vec<String>, ServiceError>;
+    fn dependencies(&self) -> Result<Vec<String>>;
 }
