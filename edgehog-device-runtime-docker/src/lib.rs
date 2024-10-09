@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#![warn(missing_docs, rustdoc::missing_crate_level_docs)]
+#![warn(
+    missing_docs,
+    rustdoc::missing_crate_level_docs,
+    clippy::dbg_macro,
+    clippy::todo
+)]
+// TODO: remove this
+#![allow(dead_code, unused_variables, unreachable_code)]
 
 //! # Edgehog Device Runtime Docker
 //!
@@ -28,6 +35,10 @@
 pub(crate) mod client;
 pub mod docker;
 pub mod error;
+mod properties;
+pub mod requests;
+pub mod service;
+pub mod store;
 
 #[cfg(feature = "mock")]
 mod mock;

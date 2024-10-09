@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023 SECO Mind Srl
+# Copyright 2023-2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,17 +26,19 @@ rust-version = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { workspace = true }
+astarte-device-sdk = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
 bollard = { workspace = true }
 displaydoc = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
+itertools = { workspace = true }
 mockall = { workspace = true, optional = true }
 petgraph = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
 
 [features]
