@@ -42,7 +42,7 @@ impl State {
         D: Debug + Client + Sync,
         T: Into<NodeType> + Debug,
     {
-        let node = node.into();
+        let mut node = node.into();
 
         match self {
             State::Missing => {
