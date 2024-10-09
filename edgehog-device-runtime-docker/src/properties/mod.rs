@@ -43,11 +43,11 @@ pub(crate) trait AvailableProp {
 
     fn id(&self) -> &str;
 
-    async fn store<D>(&self, device: &D) -> Result<(), PropError>
+    async fn send<D>(&self, device: &D) -> Result<(), PropError>
     where
         D: Client + Sync;
 
-    async fn send<D, T>(&self, device: &D, field: &str, data: T) -> Result<(), PropError>
+    async fn send_field<D, T>(&self, device: &D, field: &str, data: T) -> Result<(), PropError>
     where
         D: Client + Sync,
         T: Into<AstarteType> + Send,

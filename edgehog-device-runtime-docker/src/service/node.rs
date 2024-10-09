@@ -32,7 +32,7 @@ use tracing::{debug, error, instrument};
 
 use crate::service::ServiceError;
 
-use super::{Id, Node, SResult};
+use super::{Id, Node, Result};
 
 /// Struct used to keep the collection of nodes and the relations between them.
 ///
@@ -58,29 +58,24 @@ impl Nodes {
 
     /// Get a reference to a node
     pub(crate) fn node(&mut self, id: &Id) -> Option<&Node> {
-        self.nodes.get(id).filter(|node| !node.inner.is_missing())
+        self.nodes.get(id).filter(|node| !node.state.is_missing())
     }
     /// Get a mutable reference to anode
     pub(crate) fn node_mut(&mut self, id: &Id) -> Option<&mut Node> {
         self.nodes
             .get_mut(id)
-            .filter(|node| !node.inner.is_missing())
+            .filter(|node| !node.state.is_missing())
     }
 
-    pub(crate) fn add_node_sync<F>(
-        &mut self,
-        id: Id,
-        f: F,
-        deps: Vec<String>,
-    ) -> Result<&mut Node, ServiceError>
+    pub(crate) fn add_node_sync<F>(&mut self, id: Id, f: F, deps: Vec<String>) -> Result<&mut Node>
     where
-        F: FnOnce(Id, NodeIndex) -> SResult<Node>,
+        F: FnOnce(Id, NodeIndex) -> Result<Node>,
     {
         let deps = self.get_node_deps(deps);
 
         match self.nodes.entry(id) {
             Entry::Occupied(node) => {
-                self.relations.relate_many(node.get().idx, deps.idxs())?;
+                self.relations.relate(node.get().idx, deps.idxs())?;
 
                 Ok(node.into_mut())
             }
@@ -101,16 +96,16 @@ impl Nodes {
         id: Id,
         f: F,
         deps: Vec<String>,
-    ) -> Result<&mut Node, ServiceError>
+    ) -> Result<&mut Node>
     where
         F: FnOnce(Id, NodeIndex) -> O,
-        O: Future<Output = SResult<Node>>,
+        O: Future<Output = Result<Node>>,
     {
         let deps = self.get_node_deps(deps);
 
         let res = {
             match self.nodes.entry(id.clone()) {
-                Entry::Occupied(entry) => self.relations.relate_many(entry.get().idx, deps.idxs()),
+                Entry::Occupied(entry) => self.relations.relate(entry.get().idx, deps.idxs()),
                 Entry::Vacant(entry) => {
                     let id = id.clone();
 
@@ -233,10 +228,10 @@ impl Graph {
         Self(StableDiGraph::new())
     }
 
-    async fn add<'a, F, O, R, I>(&mut self, id: Id, deps: I, f: F) -> SResult<R>
+    async fn add<'a, F, O, R, I>(&mut self, id: Id, deps: I, f: F) -> Result<R>
     where
         F: FnOnce(NodeIndex) -> O,
-        O: Future<Output = SResult<R>>,
+        O: Future<Output = Result<R>>,
         I: IntoIterator<Item = &'a NodeIndex> + Clone,
     {
         let idx = self.add_node(id);
@@ -246,9 +241,9 @@ impl Graph {
         self.relate_ok_or_rm(res, idx, deps)
     }
 
-    fn add_sync<'a, F, O, I>(&mut self, id: Id, deps: I, f: F) -> SResult<O>
+    fn add_sync<'a, F, O, I>(&mut self, id: Id, deps: I, f: F) -> Result<O>
     where
-        F: FnOnce(NodeIndex) -> SResult<O>,
+        F: FnOnce(NodeIndex) -> Result<O>,
         I: IntoIterator<Item = &'a NodeIndex> + Clone,
     {
         let idx = self.add_node(id);
@@ -258,12 +253,12 @@ impl Graph {
         self.relate_ok_or_rm(res, idx, deps)
     }
 
-    fn relate_ok_or_rm<'a, R, I>(&mut self, res: SResult<R>, idx: NodeIndex, deps: I) -> SResult<R>
+    fn relate_ok_or_rm<'a, R, I>(&mut self, res: Result<R>, idx: NodeIndex, deps: I) -> Result<R>
     where
         I: IntoIterator<Item = &'a NodeIndex> + Clone,
     {
         let res = res.and_then(|r| {
-            self.relate_many(idx, deps)?;
+            self.relate(idx, deps)?;
 
             Ok(r)
         });
@@ -277,28 +272,8 @@ impl Graph {
         res
     }
 
-    #[instrument(skip(self))]
-    pub(crate) fn relate(&mut self, node: NodeIndex, dep: NodeIndex) -> SResult<()> {
-        // We need to check each node or it will panic if not existing
-        if !self.contains_node(node) {
-            error!("node is missing");
-
-            return Err(ServiceError::MissingRelation);
-        }
-
-        if !self.contains_node(dep) {
-            error!("dependency {} is missing", dep.index());
-
-            return Err(ServiceError::MissingRelation);
-        }
-
-        self.add_edge(node, dep, ());
-
-        Ok(())
-    }
-
     #[instrument(skip_all)]
-    pub(crate) fn relate_many<'a, I>(&mut self, node: NodeIndex, deps: I) -> SResult<()>
+    pub(crate) fn relate<'a, I>(&mut self, node: NodeIndex, deps: I) -> Result<()>
     where
         I: IntoIterator<Item = &'a NodeIndex> + Clone,
     {
