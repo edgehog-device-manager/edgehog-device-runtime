@@ -29,8 +29,7 @@ use astarte_device_sdk::{
     event::FromEventError, properties::PropAccess, Client, DeviceEvent, Error as AstarteError,
     FromEvent,
 };
-use petgraph::stable_graph::NodeIndex;
-use tracing::{debug, info, instrument};
+use tracing::instrument;
 
 use crate::{
     error::DockerError,
@@ -39,9 +38,12 @@ use crate::{
     Docker,
 };
 
-use self::node::Nodes;
+use self::collection::Nodes;
 
+pub(crate) mod collection;
 pub(crate) mod node;
+pub(crate) mod resource;
+pub(crate) mod state;
 
 type Result<T> = std::result::Result<T, ServiceError>;
 
@@ -167,239 +169,6 @@ where
     }
 }
 
-/// A node containing the [`State`], [`Id`] of the resource and index of the dependencies.
-#[derive(Debug, Clone)]
-pub(crate) struct Node {
-    id: Id,
-    idx: NodeIndex,
-    state: State,
-}
-
-impl Node {
-    pub(crate) fn new(id: Id, idx: NodeIndex) -> Self {
-        Self {
-            id,
-            idx,
-            state: State::Missing,
-        }
-    }
-
-    pub(crate) fn with_state(id: Id, idx: NodeIndex, state: State) -> Self {
-        Self { id, idx, state }
-    }
-
-    #[instrument(skip_all)]
-    async fn store<D, T>(&mut self, device: &D, inner: T) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-        T: Into<NodeType> + Debug,
-    {
-        self.state.store(&self.id, device, inner).await
-    }
-
-    #[instrument(skip_all)]
-    async fn create<D>(&mut self, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        self.state.create(&self.id, device, client).await
-    }
-
-    #[instrument(skip_all)]
-    async fn start<D>(&mut self, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        self.state.start(&self.id, device, client).await
-    }
-
-    #[instrument(skip_all)]
-    async fn up<D>(&mut self, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        self.state.up(&self.id, device, client).await
-    }
-
-    pub(crate) fn id(&self) -> &Id {
-        &self.id
-    }
-
-    pub(crate) fn node_type(&self) -> Option<&NodeType> {
-        match &self.state {
-            State::Missing => None,
-            State::Stored(nt) | State::Created(nt) | State::Up(nt) => Some(nt),
-        }
-    }
-
-    pub(crate) fn state(&self) -> &State {
-        &self.state
-    }
-}
-
-/// State of the object for the request.
-#[derive(Debug, Clone, Default)]
-pub(crate) enum State {
-    #[default]
-    Missing,
-    Stored(NodeType),
-    Created(NodeType),
-    Up(NodeType),
-}
-
-impl State {
-    #[instrument(skip_all)]
-    async fn store<D, T>(&mut self, id: &Id, device: &D, node: T) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-        T: Into<NodeType> + Debug,
-    {
-        match self {
-            State::Missing => {
-                let node = node.into();
-
-                node.store(id, device).await?;
-
-                *self = State::Stored(node);
-
-                debug!("node {id} stored");
-
-                Ok(())
-            }
-            State::Stored(_) | State::Created(_) | State::Up(_) => {
-                Err(ServiceError::Store(id.to_string()))
-            }
-        }
-    }
-
-    #[instrument(skip_all)]
-    async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        match self {
-            State::Missing => return Err(ServiceError::Create(id.to_string())),
-            State::Stored(node) => {
-                node.create(id, device, client).await?;
-
-                self.map_into(State::Created)?;
-
-                debug!("node {id} created");
-            }
-            State::Created(_) | State::Up(_) => {
-                debug!("node already created");
-            }
-        }
-        Ok(())
-    }
-
-    #[instrument(skip_all)]
-    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        match self {
-            State::Missing | State::Stored(_) => Err(ServiceError::Start(id.to_string())),
-            State::Created(node) => {
-                node.start(id, device, client).await?;
-
-                self.map_into(State::Up)?;
-
-                debug!("node {id} started");
-
-                Ok(())
-            }
-            State::Up(_) => {
-                debug!("node already up");
-
-                Ok(())
-            }
-        }
-    }
-
-    #[instrument(skip_all)]
-    async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        match &*self {
-            State::Missing => return Err(ServiceError::Missing(id.to_string())),
-            State::Stored(_) => {
-                self.create(id, device, client).await?;
-                self.start(id, device, client).await?;
-            }
-            State::Created(_) => {
-                self.start(id, device, client).await?;
-            }
-            State::Up(_) => {
-                debug!("node already up");
-            }
-        }
-
-        info!("node {id} up");
-
-        Ok(())
-    }
-
-    fn map_into<F>(&mut self, f: F) -> Result<()>
-    where
-        F: FnOnce(NodeType) -> State,
-    {
-        *self = match std::mem::take(self) {
-            // It's safe to return the error on missing since the taken one is also missing
-            State::Missing => return Err(ServiceError::BugMissing),
-            State::Stored(node) | State::Created(node) | State::Up(node) => f(node),
-        };
-
-        Ok(())
-    }
-
-    /// Returns `true` if the state is [`Missing`].
-    ///
-    /// [`Missing`]: State::Missing
-    #[must_use]
-    pub(crate) fn is_missing(&self) -> bool {
-        matches!(self, Self::Missing)
-    }
-
-    /// Returns `true` if the state is [`Up`].
-    ///
-    /// [`Up`]: State::Up
-    #[must_use]
-    pub(crate) fn is_up(&self) -> bool {
-        matches!(self, Self::Up(..))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum NodeType {}
-
-impl NodeType {
-    #[instrument(skip_all)]
-    async fn store<D>(&mut self, _id: &Id, _device: &D) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        unimplemented!()
-    }
-
-    #[instrument(skip_all)]
-    async fn create<D>(&mut self, _id: &Id, _device: &D, _client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        unimplemented!()
-    }
-
-    #[instrument(skip_all)]
-    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        unimplemented!()
-    }
-}
-
 /// Id of the nodes in the Service graph
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Id(Arc<str>);
@@ -433,9 +202,4 @@ impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
-}
-
-/// A resource in the nodes struct.
-pub(crate) trait Resource: Into<NodeType> {
-    fn dependencies(&self) -> Result<Vec<String>>;
 }

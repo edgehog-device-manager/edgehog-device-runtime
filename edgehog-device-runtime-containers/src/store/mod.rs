@@ -26,8 +26,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter};
 
-use crate::service::node::Nodes;
-use crate::service::Node;
+use crate::service::{collection::Nodes, node::Node};
 
 /// Error returned by the [`StateStore`].
 #[non_exhaustive]
@@ -100,6 +99,7 @@ impl StateStore {
                 break;
             }
 
+            // TODO: return or add it to the Nodes
             let value: Value = serde_json::from_str(&line).map_err(StateStoreError::Deserialize)?;
         }
 
