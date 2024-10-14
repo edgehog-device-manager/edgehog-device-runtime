@@ -1159,7 +1159,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "edgehog-device-runtime-docker"
+name = "edgehog-device-runtime-containers"
 version = "0.1.0"
 dependencies = [
  "astarte-device-sdk",
