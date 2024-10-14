@@ -25,11 +25,11 @@
 // TODO: remove this
 #![allow(dead_code, unused_variables, unreachable_code)]
 
-//! # Edgehog Device Runtime Docker
+//! # Edgehog Device Runtime Containers
 //!
 //! Library to manage container for the `edgehog-device-runtime`.
 //!
-//! It will handle communications with the Docker daemon and solve the requests received from
+//! It will handle communications with the container runtime and solve the requests received from
 //! Astarte.
 
 pub(crate) mod client;

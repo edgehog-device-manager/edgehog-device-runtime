@@ -86,7 +86,10 @@ where
     }
 }
 
-/// Manages the state of the Nodes
+/// Manages the state of the Nodes.
+///
+/// It handles the events received from Astarte, storing and updating the new container resources
+/// and commands that are received by the Runtime.
 #[derive(Debug, Clone)]
 pub struct Service<D>
 where

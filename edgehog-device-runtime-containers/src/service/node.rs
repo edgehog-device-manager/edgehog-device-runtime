@@ -29,6 +29,8 @@ use crate::Docker;
 use super::{resource::NodeType, state::State, Id, Result};
 
 /// A node containing the [`State`], [`Id`] of the resource and index of the dependencies.
+///
+/// Its a node in the graph of container resources, with the dependencies of other nodes as edges.
 #[derive(Debug, Clone)]
 pub(crate) struct Node {
     pub(super) id: Id,

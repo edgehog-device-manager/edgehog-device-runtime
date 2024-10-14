@@ -36,8 +36,10 @@ use super::{node::Node, Id, Result};
 
 /// Struct used to keep the collection of nodes and the relations between them.
 ///
-/// The Nodes struct is needed since on the [`Service`] we need to have mixed mutable and immutable
-/// reference to the various parts of the struct.
+/// It's a graph of the container resources as nodes and their dependencies as edges.
+///
+/// The Nodes struct is needed since on the [`Service`](super::Service) is needed to hold and access
+/// mutably the state of the resources.
 #[derive(Debug, Clone)]
 pub(crate) struct Nodes {
     nodes: HashMap<Id, Node>,
