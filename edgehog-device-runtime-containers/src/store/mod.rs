@@ -112,19 +112,14 @@ impl StateStore {
     }
 
     /// Appends the new struct to the state store
-    pub(crate) async fn append(
-        &mut self,
-        id: &Id,
-        started: bool,
-        resource: Resource,
-    ) -> Result<()> {
+    pub(crate) async fn append(&mut self, id: &Id, resource: Resource) -> Result<()> {
         // At the end
         self.file
             .seek(SeekFrom::End(0))
             .await
             .map_err(StateStoreError::Append)?;
 
-        let resource = Value::with_resource(id, started, resource);
+        let resource = Value::with_resource(id, resource);
 
         let content = serde_json::to_string(&resource).map_err(StateStoreError::Serialize)?;
 
@@ -185,31 +180,27 @@ impl StateStore {
 pub(crate) struct Value<'a> {
     // Id provided by Edgehog
     pub(crate) id: Cow<'a, str>,
-    pub(crate) started: bool,
     pub(crate) resource: Option<Resource>,
 }
 
 impl<'a> Value<'a> {
-    fn new(id: &'a Id, started: bool, resource: Option<Resource>) -> Self {
+    fn new(id: &'a Id, resource: Option<Resource>) -> Self {
         Self {
             id: Cow::Borrowed(id.as_str()),
-            started,
             resource,
         }
     }
 
-    fn with_resource(id: &'a Id, started: bool, resource: Resource) -> Self {
-        Self::new(id, started, Some(resource))
+    fn with_resource(id: &'a Id, resource: Resource) -> Self {
+        Self::new(id, Some(resource))
     }
 }
 
 impl<'a> From<&'a Node> for Value<'a> {
     fn from(value: &'a Node) -> Self {
-        let started = value.state().is_up();
-
         let resource = value.node_type().map(Resource::from);
 
-        Self::new(value.id(), started, resource)
+        Self::new(value.id(), resource)
     }
 }
 
