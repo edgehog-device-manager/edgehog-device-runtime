@@ -18,14 +18,17 @@
 
 use std::fmt::Debug;
 
-use astarte_device_sdk::Client;
-use tracing::instrument;
+use tracing::{debug, info, instrument};
 
 use super::{Id, Result};
 
-use crate::{image::Image, Docker};
+use crate::{
+    image::Image, properties::image::AvailableImage, properties::AvailableProp, properties::Client,
+    store::StateStore, Docker,
+};
 
 /// A resource in the nodes struct.
+#[allow(dead_code)]
 pub(crate) trait Resource: Into<NodeType> {
     fn dependencies(&self) -> Result<Vec<String>>;
 }
@@ -37,27 +40,56 @@ pub(crate) enum NodeType {
 
 impl NodeType {
     #[instrument(skip_all)]
-    pub(super) async fn store<D>(&mut self, _id: &Id, _device: &D) -> Result<()>
+    pub(super) async fn store<D>(
+        &mut self,
+        id: &Id,
+        store: &mut StateStore,
+        device: &D,
+    ) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Debug + Client + Sync + 'static,
     {
-        unimplemented!()
+        match &self {
+            NodeType::Image(image) => {
+                store.append(id, image.into()).await?;
+
+                AvailableImage::new(id, false).send(device).await?;
+
+                info!("stored image with id {}", id);
+            }
+        }
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn create<D>(&mut self, _id: &Id, _device: &D, _client: &Docker) -> Result<()>
+    pub(super) async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Debug + Client + Sync + 'static,
     {
-        unimplemented!()
+        match self {
+            NodeType::Image(image) => {
+                image.inspect_or_create(client).await?;
+
+                AvailableImage::new(id, true).send(device).await?;
+            }
+        }
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
+    pub(super) async fn start<D>(&mut self, _id: &Id, _device: &D, _client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
-        unimplemented!()
+        match self {
+            NodeType::Image(_) => {
+                debug!("resource is up");
+            }
+        }
+
+        Ok(())
     }
 }
 

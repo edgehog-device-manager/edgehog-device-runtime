@@ -18,6 +18,8 @@
 
 //! Error returned when interacting with the docker daemon
 
+use crate::image::ImageError;
+
 /// Error returned form the docker daemon
 #[non_exhaustive]
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
@@ -28,4 +30,6 @@ pub enum DockerError {
     Version(#[source] bollard::errors::Error),
     /// couldn't ping the docker daemon
     Ping(#[source] bollard::errors::Error),
+    /// couldn't complete image operation
+    Image(#[from] ImageError),
 }

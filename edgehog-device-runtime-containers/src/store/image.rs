@@ -46,3 +46,13 @@ where
         }
     }
 }
+
+impl<'a> From<ImageState<'a>> for Image<String> {
+    fn from(value: ImageState<'a>) -> Self {
+        Image {
+            id: value.id.map(Cow::into),
+            reference: value.reference.into(),
+            registry_auth: value.registry_auth.map(Cow::into),
+        }
+    }
+}

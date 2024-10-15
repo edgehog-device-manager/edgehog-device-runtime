@@ -581,5 +581,7 @@ mod tests {
             password: Some("passwd".to_string()),
             ..Default::default()
         };
+        let cred = image.docker_credentials().unwrap().unwrap();
+        assert_eq!(cred, exp)
     }
 }

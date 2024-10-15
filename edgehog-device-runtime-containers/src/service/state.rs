@@ -18,12 +18,11 @@
 
 use std::fmt::Debug;
 
-use astarte_device_sdk::Client;
 use tracing::{debug, error, info, instrument};
 
-use crate::Docker;
+use crate::{store::StateStore, Docker};
 
-use super::{resource::NodeType, Id, Result, ServiceError};
+use super::{resource::NodeType, Client, Id, Result, ServiceError};
 
 /// State of the object for the request.
 #[derive(Debug, Clone, Default)]
@@ -37,16 +36,22 @@ pub(crate) enum State {
 
 impl State {
     #[instrument(skip_all)]
-    pub(crate) async fn store<D, T>(&mut self, id: &Id, device: &D, node: T) -> Result<()>
+    pub(crate) async fn store<D, T>(
+        &mut self,
+        id: &Id,
+        store: &mut StateStore,
+        device: &D,
+        node: T,
+    ) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Debug + Client + Sync + 'static,
         T: Into<NodeType> + Debug,
     {
         let mut node = node.into();
 
         match self {
             State::Missing => {
-                node.store(id, device).await?;
+                node.store(id, store, device).await?;
 
                 *self = State::Stored(node);
 
@@ -66,7 +71,7 @@ impl State {
     #[instrument(skip_all)]
     async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Debug + Client + Sync + 'static,
     {
         match self {
             State::Missing => return Err(ServiceError::Create(id.to_string())),
@@ -111,7 +116,7 @@ impl State {
     #[instrument(skip_all)]
     pub(super) async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Debug + Client + Sync + 'static,
     {
         match &*self {
             State::Missing => return Err(ServiceError::Missing(id.to_string())),
@@ -151,13 +156,5 @@ impl State {
     #[must_use]
     pub(crate) fn is_missing(&self) -> bool {
         matches!(self, Self::Missing)
-    }
-
-    /// Returns `true` if the state is [`Up`].
-    ///
-    /// [`Up`]: State::Up
-    #[must_use]
-    pub(crate) fn is_up(&self) -> bool {
-        matches!(self, Self::Up(..))
     }
 }
