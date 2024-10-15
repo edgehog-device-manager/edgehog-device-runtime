@@ -1102,6 +1102,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "e2e-test-containers"
+version = "0.1.0"
+dependencies = [
+ "astarte-device-sdk",
+ "clap",
+ "color-eyre",
+ "edgehog-device-runtime-containers",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "e2e-test-forwarder"
 version = "0.1.0"
 dependencies = [
@@ -4324,6 +4342,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
 dependencies = [
  "getrandom",
+ "rand 0.8.5",
  "serde",
  "sha1_smol",
 ]

@@ -15,6 +15,7 @@ description = "Edgehog Device Runtime is a portable middleware, that enables rem
 resolver = "2"
 members = [
   "e2e-test",
+  "e2e-test-containers",
   "e2e-test-forwarder",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",

@@ -3,5 +3,10 @@ Upstream-Name: edgehog-device-runtime
 Source: https://github.com/edgehog-device-manager/edgehog-device-runtime
 
 Files: CHANGELOG.md edgehog-device-runtime-containers/CHANGELOG.md
-Copyright: 2022 SECO Mind Srl
+Copyright: 2022-2024sSECO Mind Srl
+License: CC0-1.0
+
+
+Files: CHANGELOG.md e2e-test-containers/assets/data.json
+Copyright: 2024 SECO Mind Srl
 License: CC0-1.0
