@@ -35,6 +35,7 @@ use crate::{
     error::DockerError,
     properties::PropError,
     requests::{CreateRequests, ReqError},
+    store::{StateStore, StateStoreError},
     Docker,
 };
 
@@ -71,6 +72,8 @@ pub enum ServiceError {
     Start(String),
     /// couldn't operate on missing node {0}
     Missing(String),
+    /// couldn't store the resource state
+    StateStore(#[from] StateStoreError),
     /// error from the Astarte SDK
     Astarte(#[from] AstarteError),
     /// BUG couldn't convert missing node
@@ -90,12 +93,13 @@ where
 ///
 /// It handles the events received from Astarte, storing and updating the new container resources
 /// and commands that are received by the Runtime.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Service<D>
 where
     D: Debug + Client + PropAccess,
 {
     client: Docker,
+    store: StateStore,
     device: D,
     nodes: Nodes,
 }
@@ -106,9 +110,10 @@ where
 {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, device: D) -> Self {
+    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
         Self {
             client,
+            store,
             device,
             nodes: Nodes::new(),
         }
@@ -116,8 +121,8 @@ where
 
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
-    pub async fn init(client: Docker, device: D) -> Result<Self> {
-        let services = Self::new(client, device);
+    pub async fn init(client: Docker, store: StateStore, device: D) -> Result<Self> {
+        let services = Self::new(client, store, device);
 
         // TODO: load the resources
 
@@ -138,7 +143,7 @@ where
     /// Will start an application
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: &str) -> Result<()> {
-        let id = Id::new(id.to_string());
+        let id = Id::new(id);
 
         let start_idx = self
             .nodes
@@ -178,8 +183,8 @@ pub(crate) struct Id(Arc<str>);
 
 impl Id {
     /// Create a new ID
-    pub(crate) fn new(id: String) -> Self {
-        Self(id.into())
+    pub(crate) fn new(id: &str) -> Self {
+        Self(Arc::from(id))
     }
 
     pub(crate) fn as_str(&self) -> &str {

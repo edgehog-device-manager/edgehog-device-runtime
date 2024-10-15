@@ -26,6 +26,8 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter};
 
+use crate::service::resource::NodeType;
+use crate::service::Id;
 use crate::service::{collection::Nodes, node::Node};
 
 /// Error returned by the [`StateStore`].
@@ -60,7 +62,7 @@ pub struct StateStore {
 
 impl StateStore {
     /// Opens the file to use as store.
-    pub(crate) async fn open(file: impl AsRef<Path>) -> Result<Self> {
+    pub async fn open(file: impl AsRef<Path>) -> Result<Self> {
         let path = file.as_ref();
 
         if let Some(dir) = path.parent() {
@@ -77,7 +79,7 @@ impl StateStore {
     }
 
     /// Load the state from the persistence
-    pub(crate) async fn load(&self) -> Result<()> {
+    pub(crate) async fn load(&self) -> Result<Vec<Value>> {
         // The call to read is one at the beginning, so we don't need to keep the reader around
         let file = self
             .file
@@ -89,6 +91,8 @@ impl StateStore {
         let mut reader = BufReader::new(file);
         let mut line = String::new();
 
+        let mut values = Vec::new();
+
         loop {
             let byte_read = reader
                 .read_line(&mut line)
@@ -99,25 +103,30 @@ impl StateStore {
                 break;
             }
 
-            // TODO: return or add it to the Nodes
             let value: Value = serde_json::from_str(&line).map_err(StateStoreError::Deserialize)?;
+
+            values.push(value);
         }
 
-        Ok(())
+        Ok(values)
     }
 
     /// Appends the new struct to the state store
-    pub(crate) async fn append<T>(&mut self, data: T) -> Result<()>
-    where
-        T: Serialize,
-    {
+    pub(crate) async fn append(
+        &mut self,
+        id: &Id,
+        started: bool,
+        resource: Resource,
+    ) -> Result<()> {
         // At the end
         self.file
             .seek(SeekFrom::End(0))
             .await
             .map_err(StateStoreError::Append)?;
 
-        let content = serde_json::to_string(&data).map_err(StateStoreError::Serialize)?;
+        let resource = Value::with_resource(id, started, resource);
+
+        let content = serde_json::to_string(&resource).map_err(StateStoreError::Serialize)?;
 
         self.file
             .write_all(content.as_bytes())
@@ -173,30 +182,42 @@ impl StateStore {
 
 /// State stored, includes the remote and local id of the resource
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Value<'a> {
-    edgehog_id: Cow<'a, str>,
-    local_id: Option<Cow<'a, str>>,
-    started: bool,
-    resource: Option<Resources>,
+pub(crate) struct Value<'a> {
+    // Id provided by Edgehog
+    pub(crate) id: Cow<'a, str>,
+    pub(crate) started: bool,
+    pub(crate) resource: Option<Resource>,
+}
+
+impl<'a> Value<'a> {
+    fn new(id: &'a Id, started: bool, resource: Option<Resource>) -> Self {
+        Self {
+            id: Cow::Borrowed(id.as_str()),
+            started,
+            resource,
+        }
+    }
+
+    fn with_resource(id: &'a Id, started: bool, resource: Resource) -> Self {
+        Self::new(id, started, Some(resource))
+    }
 }
 
 impl<'a> From<&'a Node> for Value<'a> {
     fn from(value: &'a Node) -> Self {
         let started = value.state().is_up();
 
-        let (local_id, resource) = match value.node_type() {
-            None => (None, None),
-            Some(node_type) => unimplemented!(),
-        };
+        let resource = value.node_type().map(Resource::from);
 
-        Self {
-            edgehog_id: Cow::Borrowed(value.id().as_str()),
-            started,
-            local_id,
-            resource,
-        }
+        Self::new(value.id(), started, resource)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum Resources {}
+pub(crate) enum Resource {}
+
+impl<'a> From<&'a NodeType> for Resource {
+    fn from(value: &'a NodeType) -> Self {
+        unimplemented!()
+    }
+}
