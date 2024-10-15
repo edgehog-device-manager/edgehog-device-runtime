@@ -60,3 +60,9 @@ impl NodeType {
         unimplemented!()
     }
 }
+
+impl From<Image<String>> for NodeType {
+    fn from(value: Image<String>) -> Self {
+        Self::Image(value)
+    }
+}
