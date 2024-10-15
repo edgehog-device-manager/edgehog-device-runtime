@@ -41,12 +41,12 @@ use super::{node::Node, Id, Result};
 /// The Nodes struct is needed since on the [`Service`](super::Service) is needed to hold and access
 /// mutably the state of the resources.
 #[derive(Debug, Clone)]
-pub(crate) struct Nodes {
+pub(crate) struct NodeGraph {
     nodes: HashMap<Id, Node>,
     relations: Graph,
 }
 
-impl Nodes {
+impl NodeGraph {
     pub(crate) fn new() -> Self {
         Self {
             nodes: HashMap::new(),
@@ -201,7 +201,7 @@ impl Nodes {
     }
 }
 
-impl Default for Nodes {
+impl Default for NodeGraph {
     fn default() -> Self {
         Self::new()
     }

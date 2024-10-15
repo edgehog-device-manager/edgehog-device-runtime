@@ -28,7 +28,7 @@ use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWrit
 
 use crate::service::resource::NodeType;
 use crate::service::Id;
-use crate::service::{collection::Nodes, node::Node};
+use crate::service::{collection::NodeGraph, node::Node};
 
 /// Error returned by the [`StateStore`].
 #[non_exhaustive]
@@ -143,7 +143,7 @@ impl StateStore {
     }
 
     /// Write all the state to the file
-    pub(crate) async fn store(&mut self, state: &Nodes) -> Result<()> {
+    pub(crate) async fn store(&mut self, state: &NodeGraph) -> Result<()> {
         // At the start and truncate
         self.file.rewind().await.map_err(StateStoreError::Store)?;
         self.file

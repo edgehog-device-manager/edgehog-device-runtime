@@ -39,7 +39,7 @@ use crate::{
     Docker,
 };
 
-use self::collection::Nodes;
+use self::collection::NodeGraph;
 
 pub(crate) mod collection;
 pub(crate) mod node;
@@ -101,7 +101,7 @@ where
     client: Docker,
     store: StateStore,
     device: D,
-    nodes: Nodes,
+    nodes: NodeGraph,
 }
 
 impl<D> Service<D>
@@ -115,7 +115,7 @@ where
             client,
             store,
             device,
-            nodes: Nodes::new(),
+            nodes: NodeGraph::new(),
         }
     }
 
