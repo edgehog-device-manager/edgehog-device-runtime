@@ -33,13 +33,14 @@ use tracing::instrument;
 
 use crate::{
     error::DockerError,
+    image::Image,
     properties::PropError,
-    requests::{CreateRequests, ReqError},
+    requests::{image::CreateImage, CreateRequests, ReqError},
     store::{StateStore, StateStoreError},
     Docker,
 };
 
-use self::collection::NodeGraph;
+use self::{collection::NodeGraph, node::Node};
 
 pub(crate) mod collection;
 pub(crate) mod node;
@@ -135,7 +136,35 @@ where
     {
         let event = CreateRequests::from_event(event)?;
 
-        match event {}
+        match event {
+            CreateRequests::Image(req) => self.create_image(req).await,
+        }
+    }
+
+    /// Store the create image request
+    #[instrument(skip_all)]
+    async fn create_image(&mut self, req: CreateImage) -> Result<()> {
+        let id = Id::new(&req.id);
+
+        let device = &self.device;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Image::from(req);
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(device, image).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
+
+        Ok(())
     }
 
     /// Will start an application
