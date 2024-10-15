@@ -26,21 +26,21 @@ use std::{
 };
 
 use astarte_device_sdk::{
-    event::FromEventError, properties::PropAccess, Client, DeviceEvent, Error as AstarteError,
-    FromEvent,
+    event::FromEventError, properties::PropAccess, DeviceEvent, Error as AstarteError, FromEvent,
 };
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{
     error::DockerError,
     image::Image,
-    properties::PropError,
+    properties::{Client, PropError},
     requests::{image::CreateImage, CreateRequests, ReqError},
+    store::Resource,
     store::{StateStore, StateStoreError},
     Docker,
 };
 
-use self::{collection::NodeGraph, node::Node};
+use self::{collection::NodeGraph, node::Node, state::State};
 
 pub(crate) mod collection;
 pub(crate) mod node;
@@ -121,32 +121,67 @@ where
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
     pub async fn init(client: Docker, store: StateStore, device: D) -> Result<Self> {
-        let services = Self::new(client, store, device);
+        let mut service = Self::new(client, store, device);
 
-        // TODO: load the resources
+        for value in service.store.load().await? {
+            let id = Id::new(&value.id);
 
-        Ok(services)
+            match value.resource {
+                Some(Resource::Image(state)) => {
+                    let image = Image::from(state);
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
+                        },
+                        &[],
+                    )?;
+                }
+                None => {
+                    debug!("addming missing resource");
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| Ok(Node::new(id, node_idx)),
+                        &[],
+                    )?;
+                }
+            }
+        }
+
+        Ok(service)
     }
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
     pub async fn on_event(&mut self, event: DeviceEvent) -> Result<()>
     where
-        D: Client,
+        D: Debug + Client + Sync + 'static,
     {
         let event = CreateRequests::from_event(event)?;
 
         match event {
-            CreateRequests::Image(req) => self.create_image(req).await,
+            CreateRequests::Image(req) => {
+                self.create_image(req).await?;
+            }
         }
+
+        self.store.store(&self.nodes).await?;
+
+        Ok(())
     }
 
     /// Store the create image request
     #[instrument(skip_all)]
-    async fn create_image(&mut self, req: CreateImage) -> Result<()> {
+    async fn create_image(&mut self, req: CreateImage) -> Result<()>
+    where
+        D: Debug + Client + Sync + 'static,
+    {
         let id = Id::new(&req.id);
 
         let device = &self.device;
+        let store = &mut self.store;
 
         self.nodes
             .add_node(
@@ -156,7 +191,7 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(device, image).await?;
+                    node.store(store, device, image).await?;
 
                     Ok(node)
                 },
@@ -169,7 +204,10 @@ where
 
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn start(&mut self, id: &str) -> Result<()> {
+    pub async fn start(&mut self, id: &str) -> Result<()>
+    where
+        D: Debug + Client + Sync + 'static,
+    {
         let id = Id::new(id);
 
         let start_idx = self
@@ -199,6 +237,8 @@ where
 
             node.up(&self.device, &self.client).await?;
         }
+
+        self.store.store(&self.nodes).await?;
 
         Ok(())
     }
@@ -230,6 +270,12 @@ impl Deref for Id {
 impl Borrow<str> for Id {
     fn borrow(&self) -> &str {
         &self.0
+    }
+}
+
+impl AsRef<str> for Id {
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 
