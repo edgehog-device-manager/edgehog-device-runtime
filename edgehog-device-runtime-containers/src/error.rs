@@ -24,6 +24,8 @@
 pub enum DockerError {
     /// couldn't connect to the docker daemon docker
     Connection(#[source] bollard::errors::Error),
+    /// couldn't negotiate a supported version with the daemon docker
+    Version(#[source] bollard::errors::Error),
     /// couldn't ping the docker daemon
     Ping(#[source] bollard::errors::Error),
 }

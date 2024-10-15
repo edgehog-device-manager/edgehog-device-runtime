@@ -35,15 +35,19 @@ pub struct Docker {
 impl Docker {
     /// Create a new Docker container manager
     #[cfg(not(feature = "mock"))]
-    pub fn connect() -> Result<Self, DockerError> {
-        let client = Client::connect_with_local_defaults().map_err(DockerError::Connection)?;
+    pub async fn connect() -> Result<Self, DockerError> {
+        let client = Client::connect_with_local_defaults()
+            .map_err(DockerError::Connection)?
+            .negotiate_version()
+            .await
+            .map_err(DockerError::Version)?;
 
         Ok(Self { client })
     }
 
     /// Create a new Docker container manager
     #[cfg(feature = "mock")]
-    pub fn connect() -> Result<Self, DockerError> {
+    pub async fn connect() -> Result<Self, DockerError> {
         let client = Client::new();
 
         Ok(Self { client })
