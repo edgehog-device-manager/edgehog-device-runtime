@@ -35,8 +35,8 @@ use crate::{
     image::Image,
     properties::{Client, PropError},
     requests::{image::CreateImage, CreateRequests, ReqError},
-    store::Resource,
-    store::{StateStore, StateStoreError},
+    store::{Resource, StateStore, StateStoreError},
+    volume::Volume,
     Docker,
 };
 
@@ -134,6 +134,17 @@ where
                         id,
                         |id, node_idx| {
                             Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
+                        },
+                        &[],
+                    )?;
+                }
+                Some(Resource::Volume(state)) => {
+                    let volume = Volume::from(state);
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
                         },
                         &[],
                     )?;

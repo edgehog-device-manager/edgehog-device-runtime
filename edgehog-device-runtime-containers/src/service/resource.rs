@@ -23,8 +23,11 @@ use tracing::{debug, info, instrument};
 use super::{Id, Result};
 
 use crate::{
-    image::Image, properties::image::AvailableImage, properties::AvailableProp, properties::Client,
-    store::StateStore, Docker,
+    image::Image,
+    properties::{image::AvailableImage, volume::AvailableVolumes, AvailableProp, Client},
+    store::StateStore,
+    volume::Volume,
+    Docker,
 };
 
 /// A resource in the nodes struct.
@@ -36,6 +39,7 @@ pub(crate) trait Resource: Into<NodeType> {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NodeType {
     Image(Image<String>),
+    Volume(Volume<String>),
 }
 
 impl NodeType {
@@ -55,7 +59,14 @@ impl NodeType {
 
                 AvailableImage::new(id, false).send(device).await?;
 
-                info!("stored image with id {}", id);
+                info!("stored image with id {id}");
+            }
+            NodeType::Volume(volume) => {
+                store.append(id, volume.into()).await?;
+
+                AvailableVolumes::new(id, false).send(device).await?;
+
+                info!("stored volume with id {id}");
             }
         }
 
@@ -73,6 +84,11 @@ impl NodeType {
 
                 AvailableImage::new(id, true).send(device).await?;
             }
+            NodeType::Volume(volume) => {
+                volume.create(client).await?;
+
+                AvailableVolumes::new(id, true).send(device).await?;
+            }
         }
 
         Ok(())
@@ -84,7 +100,7 @@ impl NodeType {
         D: Debug + Client + Sync,
     {
         match self {
-            NodeType::Image(_) => {
+            NodeType::Image(_) | NodeType::Volume(_) => {
                 debug!("resource is up");
             }
         }
@@ -96,5 +112,11 @@ impl NodeType {
 impl From<Image<String>> for NodeType {
     fn from(value: Image<String>) -> Self {
         Self::Image(value)
+    }
+}
+
+impl From<Volume<String>> for NodeType {
+    fn from(value: Volume<String>) -> Self {
+        Self::Volume(value)
     }
 }
