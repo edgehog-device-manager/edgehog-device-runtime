@@ -68,7 +68,7 @@ pub struct TelemetryInterfaceConfig<'a> {
     pub period: Option<u64>,
 }
 
-impl<'a> TelemetryInterfaceConfig<'a> {
+impl TelemetryInterfaceConfig<'_> {
     fn period_duration(&self) -> Option<Duration> {
         self.period.map(Duration::from_secs)
     }

@@ -1287,7 +1287,7 @@ async fn ensure_pending_ota_is_done_ota_success() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Success")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
