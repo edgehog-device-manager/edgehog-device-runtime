@@ -49,7 +49,7 @@ pub enum VolumeError {
 /// Docker volume struct.
 ///
 /// Persistent storage that can be attached to containers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct Volume<S> {
     /// The volume's name. If not specified (empty), Docker generates a name.
     pub name: S,
@@ -167,6 +167,28 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Volume {}/{}", self.name, self.driver)
+    }
+}
+
+impl<S1, S2> PartialEq<Volume<S2>> for Volume<S1>
+where
+    S1: PartialEq<S2>,
+{
+    fn eq(
+        &self,
+        Volume {
+            name,
+            driver,
+            driver_opts,
+        }: &Volume<S2>,
+    ) -> bool {
+        let eq_driver_opts = self.driver_opts.len() == driver_opts.len()
+            && self
+                .driver_opts
+                .iter()
+                .all(|(k, v1)| driver_opts.get(k).map_or(false, |v2| *v1 == *v2));
+
+        self.name.eq(name) && self.driver.eq(driver) && eq_driver_opts
     }
 }
 
