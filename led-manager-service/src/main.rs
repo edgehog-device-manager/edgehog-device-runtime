@@ -18,8 +18,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use tracing::{debug, info, level_filters::LevelFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use zbus::{dbus_interface, ConnectionBuilder};
 
+pub const SERVICE_NAME: &str = "io.edgehog.LedManager";
+
+#[derive(Debug)]
 struct LedManager {
     leds: Vec<String>,
 }
@@ -27,31 +32,49 @@ struct LedManager {
 #[dbus_interface(name = "io.edgehog.LedManager1")]
 impl LedManager {
     fn list(&self) -> Vec<String> {
+        debug!("listing {} leds", self.leds.len());
+
         self.leds.clone()
     }
 
     fn insert(&mut self, id: String) {
+        debug!("adding led {id}");
+
         self.leds.push(id);
     }
 
     fn set(&self, id: String, status: bool) -> bool {
-        let result = true;
-        print!("SET {} -> {}: result {}", id, status, result);
-        result
+        const RESULT: bool = true;
+
+        info!("SET {id} -> {status}: result {RESULT}");
+
+        RESULT
     }
 }
 
 #[tokio::main]
-async fn main() -> zbus::Result<()> {
+async fn main() -> stable_eyre::Result<()> {
+    stable_eyre::install()?;
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .try_init()?;
+
     let leds = LedManager { leds: Vec::new() };
 
     let _conn = ConnectionBuilder::session()?
-        .name("io.edgehog.LedManager")?
+        .name(SERVICE_NAME)?
         .serve_at("/io/edgehog/LedManager", leds)?
         .build()
         .await?;
 
-    loop {
-        std::thread::park()
-    }
+    info!("Service {SERVICE_NAME} started");
+
+    tokio::signal::ctrl_c().await?;
+
+    Ok(())
 }
