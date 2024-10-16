@@ -64,8 +64,6 @@ pub enum ServiceError {
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
-    /// couldn't store for existing node {0}
-    Store(String),
     /// couldn't create for missing node {0}
     Create(String),
     /// couldn't start for missing node {0}

@@ -30,7 +30,7 @@ pub(crate) trait Resource: Into<NodeType> {
     fn dependencies(&self) -> Result<Vec<String>>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NodeType {}
 
 impl NodeType {

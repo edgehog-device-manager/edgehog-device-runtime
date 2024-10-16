@@ -61,22 +61,6 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn create<D>(&mut self, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        self.state.create(&self.id, device, client).await
-    }
-
-    #[instrument(skip_all)]
-    pub(super) async fn start<D>(&mut self, device: &D, client: &Docker) -> Result<()>
-    where
-        D: Debug + Client + Sync,
-    {
-        self.state.start(&self.id, device, client).await
-    }
-
-    #[instrument(skip_all)]
     pub(super) async fn up<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,

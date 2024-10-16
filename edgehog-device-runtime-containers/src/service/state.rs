@@ -19,7 +19,7 @@
 use std::fmt::Debug;
 
 use astarte_device_sdk::Client;
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::Docker;
 
@@ -42,26 +42,29 @@ impl State {
         D: Debug + Client + Sync,
         T: Into<NodeType> + Debug,
     {
+        let node = node.into();
+
         match self {
             State::Missing => {
-                let node = node.into();
-
                 node.store(id, device).await?;
 
                 *self = State::Stored(node);
 
                 debug!("node {id} stored");
-
-                Ok(())
             }
-            State::Stored(_) | State::Created(_) | State::Up(_) => {
-                Err(ServiceError::Store(id.to_string()))
+            State::Stored(stored) | State::Created(stored) | State::Up(stored) => {
+                debug_assert_eq!(node, *stored);
+                if node != *stored {
+                    error!("received resource, differs from already stored one")
+                }
             }
         }
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
+    async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
@@ -82,7 +85,7 @@ impl State {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
+    async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
         D: Debug + Client + Sync,
     {
