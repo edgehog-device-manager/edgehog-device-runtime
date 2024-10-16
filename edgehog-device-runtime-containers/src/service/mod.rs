@@ -95,7 +95,7 @@ where
 #[derive(Debug)]
 pub struct Service<D>
 where
-    D: Debug + Client + PropAccess,
+    D: Client + PropAccess,
 {
     client: Docker,
     store: StateStore,
@@ -105,7 +105,7 @@ where
 
 impl<D> Service<D>
 where
-    D: Debug + Client + PropAccess + Sync,
+    D: Client + PropAccess + Sync,
 {
     /// Create a new service
     #[must_use]
@@ -157,7 +157,7 @@ where
     #[instrument(skip_all)]
     pub async fn on_event(&mut self, event: DeviceEvent) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         let event = CreateRequests::from_event(event)?;
 
@@ -176,7 +176,7 @@ where
     #[instrument(skip_all)]
     async fn create_image(&mut self, req: CreateImage) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         let id = Id::new(&req.id);
 
@@ -282,5 +282,67 @@ impl AsRef<str> for Id {
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk_mock::mockall::Sequence;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use resource::NodeType;
+    use tempfile::TempDir;
+
+    use crate::requests::image::tests::create_image_request_event;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_add_an_image() {
+        let tempdir = TempDir::new().unwrap();
+
+        let id = "5b705c7b-e6c7-4455-ba9b-a081be020c43";
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let image_path = format!("/{id}/pulled");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableImages"
+                    && path == (image_path)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let reference = "docker.io/nginx:stable-alpine-slim";
+        let create_image_req = create_image_request_event(id, reference, "");
+
+        service.on_event(create_image_req).await.unwrap();
+
+        let id = Id::new(id);
+        let node = service.nodes.node(&id).unwrap();
+
+        let State::Stored(NodeType::Image(image)) = node.state() else {
+            panic!("incorrect node {node:?}");
+        };
+
+        let exp = Image {
+            id: None,
+            reference: reference.to_string(),
+            registry_auth: None,
+        };
+
+        assert_eq!(*image, exp);
     }
 }

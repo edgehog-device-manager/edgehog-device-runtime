@@ -47,7 +47,7 @@ impl NodeType {
         device: &D,
     ) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match &self {
             NodeType::Image(image) => {

@@ -52,26 +52,14 @@ impl From<CreateImage> for Image<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use astarte_device_sdk::{DeviceEvent, Value};
 
     use super::*;
 
     #[test]
     fn create_image_request() {
-        let fields = [
-            ("id", "id"),
-            ("reference", "reference"),
-            ("registryAuth", "registry_auth"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.into()))
-        .collect();
-        let event = DeviceEvent {
-            interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
-            path: "/image".to_string(),
-            data: Value::Object(fields),
-        };
+        let event = create_image_request_event("id", "reference", "registry_auth");
 
         let request = CreateImage::from_event(event).unwrap();
 
@@ -82,5 +70,18 @@ mod tests {
         };
 
         assert_eq!(request, expect);
+    }
+
+    pub fn create_image_request_event(id: &str, reference: &str, auth: &str) -> DeviceEvent {
+        let fields = [("id", id), ("reference", reference), ("registryAuth", auth)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.into()))
+            .collect();
+
+        DeviceEvent {
+            interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
+            path: "/image".to_string(),
+            data: Value::Object(fields),
+        }
     }
 }
