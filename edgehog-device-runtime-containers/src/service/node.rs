@@ -58,7 +58,7 @@ impl Node {
         inner: T,
     ) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
         T: Into<NodeType> + Debug,
     {
         self.state.store(&self.id, store, device, inner).await

@@ -44,7 +44,7 @@ impl State {
         node: T,
     ) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
         T: Into<NodeType> + Debug,
     {
         let mut node = node.into();
