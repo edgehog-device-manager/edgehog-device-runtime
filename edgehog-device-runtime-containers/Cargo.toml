@@ -41,5 +41,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [features]
 mock = ["dep:mockall", "dep:hyper"]

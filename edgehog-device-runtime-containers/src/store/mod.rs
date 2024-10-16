@@ -219,3 +219,45 @@ impl<'a> From<&'a NodeType> for Resource {
         unimplemented!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    async fn open_tmp() -> (StateStore, TempDir) {
+        let tmpdir = TempDir::new().unwrap();
+
+        let file = tmpdir.path().join("store.json");
+        let store = StateStore::open(&file).await.unwrap();
+
+        (store, tmpdir)
+    }
+
+    #[tokio::test]
+    async fn should_open() {
+        let (_store, tmpdir) = open_tmp().await;
+
+        let exists = tokio::fs::try_exists(&tmpdir.path().join("store.json"))
+            .await
+            .unwrap();
+
+        assert!(exists);
+    }
+
+    #[tokio::test]
+    async fn should_load() {
+        let (store, _) = open_tmp().await;
+
+        store.load().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_store() {
+        let (mut store, _) = open_tmp().await;
+
+        store.store(&NodeGraph::new()).await.unwrap();
+        store.load().await.unwrap();
+    }
+}

@@ -43,7 +43,7 @@ impl Node {
         Self {
             id,
             idx,
-            state: State::Missing,
+            state: State::default(),
         }
     }
 
@@ -81,5 +81,20 @@ impl Node {
 
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_state_missing() {
+        let id = Id::new("ab081bc6-9e71-4c3a-96ed-8374df16f764");
+        let idx = NodeIndex::new(42);
+
+        let node = Node::new(id, idx);
+
+        assert!(node.state().is_missing())
     }
 }
