@@ -71,7 +71,14 @@ impl StateStore {
                 .map_err(StateStoreError::CreateDir)?;
         }
 
-        let file = File::open(file).await.map_err(StateStoreError::Open)?;
+        let file = File::options()
+            .append(true)
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(file)
+            .await
+            .map_err(StateStoreError::Open)?;
 
         Ok(Self {
             file: BufWriter::new(file),
