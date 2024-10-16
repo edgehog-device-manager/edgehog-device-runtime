@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,15 +35,19 @@ pub struct Docker {
 impl Docker {
     /// Create a new Docker container manager
     #[cfg(not(feature = "mock"))]
-    pub fn connect() -> Result<Self, DockerError> {
-        let client = Client::connect_with_local_defaults().map_err(DockerError::Connection)?;
+    pub async fn connect() -> Result<Self, DockerError> {
+        let client = Client::connect_with_local_defaults()
+            .map_err(DockerError::Connection)?
+            .negotiate_version()
+            .await
+            .map_err(DockerError::Version)?;
 
         Ok(Self { client })
     }
 
     /// Create a new Docker container manager
     #[cfg(feature = "mock")]
-    pub fn connect() -> Result<Self, DockerError> {
+    pub async fn connect() -> Result<Self, DockerError> {
         let client = Client::new();
 
         Ok(Self { client })

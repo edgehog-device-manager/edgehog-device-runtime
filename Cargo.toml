@@ -16,7 +16,7 @@ resolver = "2"
 members = [
   "e2e-test",
   "e2e-test-forwarder",
-  "edgehog-device-runtime-docker",
+  "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
   "hardware-id-service",
   "led-manager-service",
@@ -92,6 +92,7 @@ hex = "0.4.3"
 http = "1.1.0"
 httpmock = "0.7"
 hyper = "1.4.1"
+itertools = "0.13.0"
 mockall = "0.13.0"
 petgraph = "0.6.5"
 procfs = "0.16.0"
@@ -106,6 +107,7 @@ stable-eyre = "0.2.2"
 sysinfo = "0.30.13"
 systemd = "0.10.0"
 tempdir = "0.3.7"
+tempfile = "3.13.0"
 thiserror = "1.0.64"
 tokio = "1.40.0"
 tokio-stream = "0.1.16"

@@ -2,6 +2,6 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: edgehog-device-runtime
 Source: https://github.com/edgehog-device-manager/edgehog-device-runtime
 
-Files: CHANGELOG.md edgehog-device-runtime-docker/CHANGELOG.md
+Files: CHANGELOG.md edgehog-device-runtime-containers/CHANGELOG.md
 Copyright: 2022 SECO Mind Srl
 License: CC0-1.0
