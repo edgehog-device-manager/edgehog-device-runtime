@@ -37,10 +37,10 @@ pub(crate) struct CreateImage {
 
 impl From<CreateImage> for Image<String> {
     fn from(value: CreateImage) -> Self {
-        let registry_auth = if !value.registry_auth.is_empty() {
-            Some(value.registry_auth)
-        } else {
+        let registry_auth = if value.registry_auth.is_empty() {
             None
+        } else {
+            Some(value.registry_auth)
         };
 
         Image {
@@ -57,6 +57,19 @@ pub mod tests {
 
     use super::*;
 
+    pub fn create_image_request_event(id: &str, reference: &str, auth: &str) -> DeviceEvent {
+        let fields = [("id", id), ("reference", reference), ("registryAuth", auth)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.into()))
+            .collect();
+
+        DeviceEvent {
+            interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
+            path: "/image".to_string(),
+            data: Value::Object(fields),
+        }
+    }
+
     #[test]
     fn create_image_request() {
         let event = create_image_request_event("id", "reference", "registry_auth");
@@ -72,16 +85,20 @@ pub mod tests {
         assert_eq!(request, expect);
     }
 
-    pub fn create_image_request_event(id: &str, reference: &str, auth: &str) -> DeviceEvent {
-        let fields = [("id", id), ("reference", reference), ("registryAuth", auth)]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.into()))
-            .collect();
+    #[test]
+    fn should_convert_to_image() {
+        let event = create_image_request_event("id", "reference", "registry_auth");
 
-        DeviceEvent {
-            interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
-            path: "/image".to_string(),
-            data: Value::Object(fields),
-        }
+        let request = CreateImage::from_event(event).unwrap();
+
+        let exp = Image {
+            id: None,
+            reference: "reference",
+            registry_auth: Some("registry_auth"),
+        };
+
+        let img = Image::from(request);
+
+        assert_eq!(img, exp);
     }
 }

@@ -139,7 +139,7 @@ where
                     )?;
                 }
                 None => {
-                    debug!("addming missing resource");
+                    debug!("add missing resource");
 
                     service.nodes.add_node_sync(
                         id,
