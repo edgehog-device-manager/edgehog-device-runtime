@@ -76,7 +76,7 @@ jobs:
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
       - name: Run cargo-tarpaulin with xml output
-        run: cargo +stable tarpaulin --engine llvm --locked --all-features --ignore-tests --packages edgehog-device-runtime edgehog-device-runtime-docker edgehog-device-runtime-forwarder --exclude-files src/main.rs --out xml -- --test-threads 1
+        run: cargo +stable tarpaulin --engine llvm --locked --all-features --ignore-tests --packages edgehog-device-runtime edgehog-device-runtime-containers edgehog-device-runtime-forwarder --exclude-files src/main.rs --out xml -- --test-threads 1
       - name: Upload to codecov.io
         if: ${{ github.event_name == 'push' }}
         uses: codecov/codecov-action@v4

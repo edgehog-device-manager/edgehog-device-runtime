@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,6 +26,9 @@ use std::{
 use crate::client::*;
 use crate::error::DockerError;
 
+pub(crate) mod image;
+pub(crate) mod volume;
+
 /// Docker container manager
 #[derive(Debug, Clone)]
 pub struct Docker {
@@ -35,15 +38,19 @@ pub struct Docker {
 impl Docker {
     /// Create a new Docker container manager
     #[cfg(not(feature = "mock"))]
-    pub fn connect() -> Result<Self, DockerError> {
-        let client = Client::connect_with_local_defaults().map_err(DockerError::Connection)?;
+    pub async fn connect() -> Result<Self, DockerError> {
+        let client = Client::connect_with_local_defaults()
+            .map_err(DockerError::Connection)?
+            .negotiate_version()
+            .await
+            .map_err(DockerError::Version)?;
 
         Ok(Self { client })
     }
 
     /// Create a new Docker container manager
     #[cfg(feature = "mock")]
-    pub fn connect() -> Result<Self, DockerError> {
+    pub async fn connect() -> Result<Self, DockerError> {
         let client = Client::new();
 
         Ok(Self { client })
@@ -91,7 +98,9 @@ impl DerefMut for Docker {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
 
     /// Returns a [Docker] instance, or a mocked version with the expect statements if the mock
@@ -120,6 +129,23 @@ mod tests {
 
             $crate::Docker::from(client)
         }};
+    }
+
+    /// Creates a random enough name
+    pub(crate) fn random_name(name: &str) -> String {
+        let time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        format!("{name}-{time}")
+    }
+
+    #[cfg(feature = "mock")]
+    pub(crate) fn not_found_response() -> bollard::errors::Error {
+        bollard::errors::Error::DockerResponseServerError {
+            status_code: 404,
+            message: "not found".to_string(),
+        }
     }
 
     #[tokio::test]
