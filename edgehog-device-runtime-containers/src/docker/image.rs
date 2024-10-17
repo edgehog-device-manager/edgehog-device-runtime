@@ -78,7 +78,7 @@ pub enum ConversionError {
 }
 
 /// Docker image struct.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct Image<S> {
     /// Id of the crated image.
     pub id: Option<String>,
@@ -307,6 +307,28 @@ impl<S: Display> Display for Image<S> {
         }
 
         write!(f, " {}", self.reference)
+    }
+}
+
+impl<S1, S2> PartialEq<Image<S2>> for Image<S1>
+where
+    S1: PartialEq<S2>,
+{
+    fn eq(
+        &self,
+        Image {
+            id,
+            reference,
+            registry_auth,
+        }: &Image<S2>,
+    ) -> bool {
+        let eq_registry_auth = match (&self.registry_auth, registry_auth) {
+            (Some(s1), Some(s2)) => *s1 == *s2,
+            (Some(_), None) | (None, Some(_)) => false,
+            (None, None) => true,
+        };
+
+        self.id.eq(id) && self.reference.eq(reference) && eq_registry_auth
     }
 }
 
@@ -583,5 +605,76 @@ mod tests {
         };
         let cred = image.docker_credentials().unwrap().unwrap();
         assert_eq!(cred, exp)
+    }
+
+    #[tokio::test]
+    async fn inspect_or_create_hello_world() {
+        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
+            use futures::{stream, StreamExt};
+            let mut mock = Client::new();
+            let mut seq = mockall::Sequence::new();
+
+            mock.expect_remove_image()
+                .withf(|name, _, _| name == "docker.io/library/nginx:1.27.2-bookworm-perl")
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_, _, _| Err(crate::tests::not_found_response()));
+
+            mock.expect_create_image()
+                .withf(|options, _, _| {
+                    options.as_ref().map_or(false, |opt| {
+                        opt.from_image == "docker.io/library/nginx:1.27.2-bookworm-perl"
+                    })
+                })
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_, _, _| stream::empty().boxed());
+
+            mock.expect_inspect_image()
+                .withf(|name| name == "docker.io/library/nginx:1.27.2-bookworm-perl")
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| {
+                    Ok(ImageInspect {
+                        id: Some(
+                            "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
+                        ),
+                        ..Default::default()
+                    })
+                });
+
+            mock.expect_inspect_image()
+                .withf(|name| name == "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a")
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| {
+                    Ok(ImageInspect {
+                        id: Some(
+                            "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
+                        ),
+                        ..Default::default()
+                    })
+                });
+
+            mock
+        });
+
+        let mut image = Image::new("docker.io/library/nginx:1.27.2-bookworm-perl", None);
+
+        image.remove(&docker).await.unwrap();
+
+        let created = image
+            .inspect_or_create(&docker)
+            .await
+            .expect("failed to poll image");
+
+        assert!(created);
+
+        let created = image
+            .inspect_or_create(&docker)
+            .await
+            .expect("failed to poll image");
+
+        assert!(!created);
     }
 }

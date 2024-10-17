@@ -26,7 +26,7 @@ use std::{
 use crate::client::*;
 use crate::error::DockerError;
 
-pub mod image;
+pub(crate) mod image;
 
 /// Docker container manager
 #[derive(Debug, Clone)]
