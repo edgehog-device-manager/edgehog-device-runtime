@@ -12,6 +12,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Update OS requirements to specify ttyd minimum version
 - Update Astarte Device SDK to 0.8.3 release
   [#367](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/367)
+- Add support for the
+  [`CellularConnectionProperties`](https://github.com/edgehog-device-manager/edgehog-astarte-interfaces/blob/ed3b0a413a3d5586267d88d10f85c310584cb80b/io.edgehog.devicemanager.CellularConnectionProperties.json)
+  via the D-Bus service `CellularModems`
+  [#402](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/402)
 
 ## [0.8.1] - 2024-06-10
 
