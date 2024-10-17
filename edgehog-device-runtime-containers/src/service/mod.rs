@@ -33,6 +33,7 @@ use tracing::{debug, instrument};
 use crate::{
     error::DockerError,
     image::Image,
+    network::Network,
     properties::{Client, PropError},
     requests::{image::CreateImage, volume::CreateVolume, CreateRequests, ReqError},
     store::{Resource, StateStore, StateStoreError},
@@ -145,6 +146,21 @@ where
                         id,
                         |id, node_idx| {
                             Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
+                        },
+                        &[],
+                    )?;
+                }
+                Some(Resource::Network(state)) => {
+                    let network = Network::from(state);
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(
+                                id,
+                                node_idx,
+                                State::Stored(network.into()),
+                            ))
                         },
                         &[],
                     )?;
