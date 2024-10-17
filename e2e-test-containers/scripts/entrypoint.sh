@@ -1,3 +1,5 @@
+#!/bin/sh
+#
 # This file is part of Edgehog.
 #
 # Copyright 2023 SECO Mind Srl
@@ -15,7 +17,6 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
+set -ex
 
-[alias]
-e2e-test = "run -p e2e-test -- "
-e2e-test-containers = "run -p e2e-test-containers -- "
+curl "$NGINX_HOST"
