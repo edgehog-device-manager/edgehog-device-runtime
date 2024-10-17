@@ -54,7 +54,7 @@ pub enum ConversionError {
 /// Container network struct.
 ///
 /// Networks are user-defined networks that containers can be attached to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct Network<S> {
     /// Id of the container network.
     pub id: Option<String>,
@@ -250,6 +250,30 @@ where
         }
 
         write!(f, " {}/{}", self.name, self.driver)
+    }
+}
+
+impl<S1, S2> PartialEq<Network<S2>> for Network<S1>
+where
+    S1: PartialEq<S2>,
+{
+    fn eq(
+        &self,
+        Network {
+            id,
+            name,
+            driver,
+            check_duplicate,
+            internal,
+            enable_ipv6,
+        }: &Network<S2>,
+    ) -> bool {
+        self.id.eq(id)
+            && self.name.eq(name)
+            && self.driver.eq(driver)
+            && self.check_duplicate.eq(check_duplicate)
+            && self.internal.eq(internal)
+            && self.enable_ipv6.eq(enable_ipv6)
     }
 }
 
