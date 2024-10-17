@@ -20,13 +20,12 @@
 
 use std::fmt::Debug;
 
-use astarte_device_sdk::Client;
 use petgraph::stable_graph::NodeIndex;
 use tracing::instrument;
 
-use crate::Docker;
+use crate::{store::StateStore, Docker};
 
-use super::{resource::NodeType, state::State, Id, Result};
+use super::{resource::NodeType, state::State, Client, Id, Result};
 
 /// A node containing the [`State`], [`Id`] of the resource and index of the dependencies.
 ///
@@ -52,18 +51,23 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn store<D, T>(&mut self, device: &D, inner: T) -> Result<()>
+    pub(super) async fn store<D, T>(
+        &mut self,
+        store: &mut StateStore,
+        device: &D,
+        inner: T,
+    ) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Client + Sync + 'static,
         T: Into<NodeType> + Debug,
     {
-        self.state.store(&self.id, device, inner).await
+        self.state.store(&self.id, store, device, inner).await
     }
 
     #[instrument(skip_all)]
     pub(super) async fn up<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Debug + Client + Sync + 'static,
     {
         self.state.up(&self.id, device, client).await
     }

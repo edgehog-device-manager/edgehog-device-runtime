@@ -26,20 +26,21 @@ use std::{
 };
 
 use astarte_device_sdk::{
-    event::FromEventError, properties::PropAccess, Client, DeviceEvent, Error as AstarteError,
-    FromEvent,
+    event::FromEventError, properties::PropAccess, DeviceEvent, Error as AstarteError, FromEvent,
 };
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{
     error::DockerError,
-    properties::PropError,
-    requests::{CreateRequests, ReqError},
+    image::Image,
+    properties::{Client, PropError},
+    requests::{image::CreateImage, CreateRequests, ReqError},
+    store::Resource,
     store::{StateStore, StateStoreError},
     Docker,
 };
 
-use self::collection::NodeGraph;
+use self::{collection::NodeGraph, node::Node, state::State};
 
 pub(crate) mod collection;
 pub(crate) mod node;
@@ -94,7 +95,7 @@ where
 #[derive(Debug)]
 pub struct Service<D>
 where
-    D: Debug + Client + PropAccess,
+    D: Client + PropAccess,
 {
     client: Docker,
     store: StateStore,
@@ -104,7 +105,7 @@ where
 
 impl<D> Service<D>
 where
-    D: Debug + Client + PropAccess + Sync,
+    D: Client + PropAccess + Sync,
 {
     /// Create a new service
     #[must_use]
@@ -120,27 +121,93 @@ where
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
     pub async fn init(client: Docker, store: StateStore, device: D) -> Result<Self> {
-        let services = Self::new(client, store, device);
+        let mut service = Self::new(client, store, device);
 
-        // TODO: load the resources
+        for value in service.store.load().await? {
+            let id = Id::new(&value.id);
 
-        Ok(services)
+            match value.resource {
+                Some(Resource::Image(state)) => {
+                    let image = Image::from(state);
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
+                        },
+                        &[],
+                    )?;
+                }
+                None => {
+                    debug!("add missing resource");
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| Ok(Node::new(id, node_idx)),
+                        &[],
+                    )?;
+                }
+            }
+        }
+
+        Ok(service)
     }
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
     pub async fn on_event(&mut self, event: DeviceEvent) -> Result<()>
     where
-        D: Client,
+        D: Client + Sync + 'static,
     {
         let event = CreateRequests::from_event(event)?;
 
-        match event {}
+        match event {
+            CreateRequests::Image(req) => {
+                self.create_image(req).await?;
+            }
+        }
+
+        self.store.store(&self.nodes).await?;
+
+        Ok(())
+    }
+
+    /// Store the create image request
+    #[instrument(skip_all)]
+    async fn create_image(&mut self, req: CreateImage) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(&req.id);
+
+        let device = &self.device;
+        let store = &mut self.store;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Image::from(req);
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(store, device, image).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
+
+        Ok(())
     }
 
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn start(&mut self, id: &str) -> Result<()> {
+    pub async fn start(&mut self, id: &str) -> Result<()>
+    where
+        D: Debug + Client + Sync + 'static,
+    {
         let id = Id::new(id);
 
         let start_idx = self
@@ -170,6 +237,8 @@ where
 
             node.up(&self.device, &self.client).await?;
         }
+
+        self.store.store(&self.nodes).await?;
 
         Ok(())
     }
@@ -204,8 +273,76 @@ impl Borrow<str> for Id {
     }
 }
 
+impl AsRef<str> for Id {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk_mock::mockall::Sequence;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use resource::NodeType;
+    use tempfile::TempDir;
+
+    use crate::requests::image::tests::create_image_request_event;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_add_an_image() {
+        let tempdir = TempDir::new().unwrap();
+
+        let id = "5b705c7b-e6c7-4455-ba9b-a081be020c43";
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let image_path = format!("/{id}/pulled");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableImages"
+                    && path == (image_path)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let reference = "docker.io/nginx:stable-alpine-slim";
+        let create_image_req = create_image_request_event(id, reference, "");
+
+        service.on_event(create_image_req).await.unwrap();
+
+        let id = Id::new(id);
+        let node = service.nodes.node(&id).unwrap();
+
+        let State::Stored(NodeType::Image(image)) = node.state() else {
+            panic!("incorrect node {node:?}");
+        };
+
+        let exp = Image {
+            id: None,
+            reference: reference.to_string(),
+            registry_auth: None,
+        };
+
+        assert_eq!(*image, exp);
     }
 }

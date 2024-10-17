@@ -18,8 +18,18 @@
 
 //! Container properties sent from the device to Astarte.
 
-use astarte_device_sdk::{AstarteType, Client, Error as AstarteError};
+use astarte_device_sdk::{AstarteType, Error as AstarteError};
 use async_trait::async_trait;
+
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        pub use astarte_device_sdk_mock::Client;
+    } else {
+        pub use astarte_device_sdk::Client;
+    }
+}
+
+pub(crate) mod image;
 
 /// Error from handling the Astarte properties.
 #[non_exhaustive]
@@ -45,12 +55,12 @@ pub(crate) trait AvailableProp {
 
     async fn send<D>(&self, device: &D) -> Result<(), PropError>
     where
-        D: Client + Sync;
+        D: Client + Sync + 'static;
 
     async fn send_field<D, T>(&self, device: &D, field: &str, data: T) -> Result<(), PropError>
     where
-        D: Client + Sync,
-        T: Into<AstarteType> + Send,
+        D: Client + Sync + 'static,
+        T: Into<AstarteType> + Send + 'static,
     {
         let interface = Self::interface();
         let endpoint = format!("/{}/{}", self.id(), field);

@@ -321,6 +321,3 @@ impl Borrow<StableDiGraph<Id, ()>> for Graph {
         &self.0
     }
 }
-
-#[cfg(test)]
-mod tests {}

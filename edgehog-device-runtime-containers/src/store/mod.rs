@@ -22,13 +22,15 @@ use std::borrow::Cow;
 use std::io::{self, Cursor, SeekFrom};
 use std::path::Path;
 
+use image::ImageState;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter};
 
-use crate::service::resource::NodeType;
-use crate::service::Id;
-use crate::service::{collection::NodeGraph, node::Node};
+use crate::image::Image;
+use crate::service::{collection::NodeGraph, node::Node, resource::NodeType, Id};
+
+pub(crate) mod image;
 
 /// Error returned by the [`StateStore`].
 #[non_exhaustive]
@@ -119,7 +121,7 @@ impl StateStore {
     }
 
     /// Appends the new struct to the state store
-    pub(crate) async fn append(&mut self, id: &Id, resource: Resource) -> Result<()> {
+    pub(crate) async fn append(&mut self, id: &Id, resource: Resource<'_>) -> Result<()> {
         // At the end
         self.file
             .seek(SeekFrom::End(0))
@@ -187,18 +189,18 @@ impl StateStore {
 pub(crate) struct Value<'a> {
     // Id provided by Edgehog
     pub(crate) id: Cow<'a, str>,
-    pub(crate) resource: Option<Resource>,
+    pub(crate) resource: Option<Resource<'a>>,
 }
 
 impl<'a> Value<'a> {
-    fn new(id: &'a Id, resource: Option<Resource>) -> Self {
+    fn new(id: &'a Id, resource: Option<Resource<'a>>) -> Self {
         Self {
             id: Cow::Borrowed(id.as_str()),
             resource,
         }
     }
 
-    fn with_resource(id: &'a Id, resource: Resource) -> Self {
+    fn with_resource(id: &'a Id, resource: Resource<'a>) -> Self {
         Self::new(id, Some(resource))
     }
 }
@@ -212,11 +214,24 @@ impl<'a> From<&'a Node> for Value<'a> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum Resource {}
+pub(crate) enum Resource<'a> {
+    Image(ImageState<'a>),
+}
 
-impl<'a> From<&'a NodeType> for Resource {
+impl<'a, S> From<&'a Image<S>> for Resource<'a>
+where
+    S: AsRef<str>,
+{
+    fn from(value: &'a Image<S>) -> Self {
+        Resource::Image(value.into())
+    }
+}
+
+impl<'a> From<&'a NodeType> for Resource<'a> {
     fn from(value: &'a NodeType) -> Self {
-        unimplemented!()
+        match value {
+            NodeType::Image(image) => Resource::from(image),
+        }
     }
 }
 

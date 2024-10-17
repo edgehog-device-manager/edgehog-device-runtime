@@ -28,7 +28,9 @@ rust-version = { workspace = true }
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
+base64 = { workspace = true }
 bollard = { workspace = true }
+cfg-if = { workspace = true }
 displaydoc = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
@@ -43,6 +45,8 @@ tracing = { workspace = true, features = ["log"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+astarte-device-sdk-mock = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [features]
 mock = ["dep:mockall", "dep:hyper"]

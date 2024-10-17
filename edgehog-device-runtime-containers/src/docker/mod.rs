@@ -26,6 +26,8 @@ use std::{
 use crate::client::*;
 use crate::error::DockerError;
 
+pub(crate) mod image;
+
 /// Docker container manager
 #[derive(Debug, Clone)]
 pub struct Docker {
@@ -95,7 +97,9 @@ impl DerefMut for Docker {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
 
     /// Returns a [Docker] instance, or a mocked version with the expect statements if the mock
@@ -124,6 +128,23 @@ mod tests {
 
             $crate::Docker::from(client)
         }};
+    }
+
+    /// Creates a random enough name
+    pub(crate) fn random_name(name: &str) -> String {
+        let time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        format!("{name}-{time}")
+    }
+
+    #[cfg(feature = "mock")]
+    pub(crate) fn not_found_response() -> bollard::errors::Error {
+        bollard::errors::Error::DockerResponseServerError {
+            status_code: 404,
+            message: "not found".to_string(),
+        }
     }
 
     #[tokio::test]

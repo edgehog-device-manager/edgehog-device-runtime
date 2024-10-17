@@ -22,8 +22,6 @@
     clippy::dbg_macro,
     clippy::todo
 )]
-// TODO: remove this
-#![allow(dead_code, unused_variables, unreachable_code)]
 
 //! # Edgehog Device Runtime Containers
 //!
