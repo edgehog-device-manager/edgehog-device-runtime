@@ -24,7 +24,11 @@ use super::{Id, Result};
 
 use crate::{
     image::Image,
-    properties::{image::AvailableImage, volume::AvailableVolumes, AvailableProp, Client},
+    network::Network,
+    properties::{
+        image::AvailableImage, network::AvailableNetworks, volume::AvailableVolumes, AvailableProp,
+        Client,
+    },
     store::StateStore,
     volume::Volume,
     Docker,
@@ -40,6 +44,7 @@ pub(crate) trait Resource: Into<NodeType> {
 pub(crate) enum NodeType {
     Image(Image<String>),
     Volume(Volume<String>),
+    Network(Network<String>),
 }
 
 impl NodeType {
@@ -68,6 +73,13 @@ impl NodeType {
 
                 info!("stored volume with id {id}");
             }
+            NodeType::Network(network) => {
+                store.append(id, network.into()).await?;
+
+                AvailableNetworks::new(id, false).send(device).await?;
+
+                info!("stored network with id {id}");
+            }
         }
 
         Ok(())
@@ -89,6 +101,11 @@ impl NodeType {
 
                 AvailableVolumes::new(id, true).send(device).await?;
             }
+            NodeType::Network(network) => {
+                network.inspect_or_create(client).await?;
+
+                AvailableNetworks::new(id, true).send(device).await?;
+            }
         }
 
         Ok(())
@@ -100,7 +117,7 @@ impl NodeType {
         D: Debug + Client + Sync,
     {
         match self {
-            NodeType::Image(_) | NodeType::Volume(_) => {
+            NodeType::Image(_) | NodeType::Volume(_) | NodeType::Network(_) => {
                 debug!("resource is up");
             }
         }
@@ -118,5 +135,11 @@ impl From<Image<String>> for NodeType {
 impl From<Volume<String>> for NodeType {
     fn from(value: Volume<String>) -> Self {
         Self::Volume(value)
+    }
+}
+
+impl From<Network<String>> for NodeType {
+    fn from(value: Network<String>) -> Self {
+        Self::Network(value)
     }
 }
