@@ -35,7 +35,9 @@ use crate::{
     image::Image,
     network::Network,
     properties::{Client, PropError},
-    requests::{image::CreateImage, volume::CreateVolume, CreateRequests, ReqError},
+    requests::{
+        image::CreateImage, network::CreateNetwork, volume::CreateVolume, CreateRequests, ReqError,
+    },
     store::{Resource, StateStore, StateStoreError},
     volume::Volume,
     Docker,
@@ -195,6 +197,9 @@ where
             CreateRequests::Volume(req) => {
                 self.create_volume(req).await?;
             }
+            CreateRequests::Network(req) => {
+                self.create_network(req).await?;
+            }
         }
 
         self.store.store(&self.nodes).await?;
@@ -248,6 +253,36 @@ where
                 id,
                 |id, idx| async move {
                     let image = Volume::try_from(req)?;
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(store, device, image).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Store the create network request
+    #[instrument(skip_all)]
+    async fn create_network(&mut self, req: CreateNetwork) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(&req.id);
+
+        let device = &self.device;
+        let store = &mut self.store;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Network::from(req);
 
                     let mut node = Node::new(id, idx);
 
@@ -356,6 +391,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::requests::image::tests::create_image_request_event;
+    use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
 
     use super::*;
@@ -455,5 +491,56 @@ mod tests {
         };
 
         assert_eq!(*volume, exp);
+    }
+
+    #[tokio::test]
+    async fn should_add_a_network() {
+        let tempdir = TempDir::new().unwrap();
+
+        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let endpoint = format!("/{id}/created");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
+                    && path == (endpoint)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let create_image_req = create_network_request_event(id, "bridged");
+
+        service.on_event(create_image_req).await.unwrap();
+
+        let id = Id::new(id);
+        let node = service.nodes.node(&id).unwrap();
+
+        let State::Stored(NodeType::Network(network)) = node.state() else {
+            panic!("incorrect node {node:?}");
+        };
+
+        let exp = Network {
+            id: None,
+            name: id.as_str(),
+            driver: "bridged",
+            check_duplicate: false,
+            internal: false,
+            enable_ipv6: false,
+        };
+
+        assert_eq!(*network, exp);
     }
 }

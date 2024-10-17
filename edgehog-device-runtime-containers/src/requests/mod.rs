@@ -22,9 +22,10 @@ use std::{collections::HashMap, num::ParseIntError};
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 
-use self::{image::CreateImage, volume::CreateVolume};
+use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
 pub(crate) mod image;
+pub(crate) mod network;
 pub(crate) mod volume;
 
 /// Error from handling the Astarte request.
@@ -62,6 +63,8 @@ pub(crate) enum CreateRequests {
     Image(CreateImage),
     /// Request to create an [`Volume`](crate::volume::Volume).
     Volume(CreateVolume),
+    /// Request to create an [`Network`](crate::network::Network).
+    Network(CreateNetwork),
 }
 
 impl FromEvent for CreateRequests {
@@ -74,6 +77,9 @@ impl FromEvent for CreateRequests {
             }
             "io.edgehog.devicemanager.apps.CreateVolumeRequest" => {
                 CreateVolume::from_event(value).map(CreateRequests::Volume)
+            }
+            "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
+                CreateNetwork::from_event(value).map(CreateRequests::Network)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
@@ -101,6 +107,7 @@ mod tests {
     use super::*;
 
     use astarte_device_sdk::Value;
+    use network::{tests::create_network_request_event, CreateNetwork};
 
     use crate::requests::{image::CreateImage, CreateRequests};
 
@@ -146,5 +153,22 @@ mod tests {
         let err = parse_kv_map(&invalid).unwrap_err();
 
         assert!(matches!(err, ReqError::Option(opt) if opt == "nope"))
+    }
+
+    #[test]
+    fn from_event_network() {
+        let event = create_network_request_event("id", "driver");
+
+        let request = CreateRequests::from_event(event).unwrap();
+
+        let expect = CreateNetwork {
+            id: "id".to_string(),
+            driver: "driver".to_string(),
+            check_duplicate: false,
+            internal: false,
+            enable_ipv6: false,
+        };
+
+        assert_eq!(request, CreateRequests::Network(expect));
     }
 }
