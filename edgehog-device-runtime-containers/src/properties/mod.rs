@@ -30,6 +30,8 @@ cfg_if::cfg_if! {
 }
 
 pub(crate) mod image;
+pub(crate) mod network;
+pub(crate) mod volume;
 
 /// Error from handling the Astarte properties.
 #[non_exhaustive]
