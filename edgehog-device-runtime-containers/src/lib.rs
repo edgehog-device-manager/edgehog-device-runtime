@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,11 +16,33 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client to use to communicate with the Docker daemon.
+#![warn(
+    missing_docs,
+    rustdoc::missing_crate_level_docs,
+    clippy::dbg_macro,
+    clippy::todo
+)]
 
-// Mock the client, this is behind a feature flag so we can test with both the real docker daemon
-// and the mocked one.
+//! # Edgehog Device Runtime Containers
+//!
+//! Library to manage container for the `edgehog-device-runtime`.
+//!
+//! It will handle communications with the container runtime and solve the requests received from
+//! Astarte.
+
+pub(crate) mod client;
+pub mod docker;
+pub mod error;
+mod properties;
+pub mod requests;
+pub mod service;
+pub mod store;
+
 #[cfg(feature = "mock")]
-pub(crate) use crate::mock::{DockerTrait, MockDocker as Client};
-#[cfg(not(feature = "mock"))]
-pub(crate) use bollard::Docker as Client;
+mod mock;
+
+/// Re-export third parties dependencies
+pub use bollard;
+
+/// Re-export internal structs
+pub use self::docker::*;

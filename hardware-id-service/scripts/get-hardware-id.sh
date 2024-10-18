@@ -1,6 +1,7 @@
+#!/usr/bin/env bash
 # This file is part of Edgehog.
 #
-# Copyright 2023 SECO Mind Srl
+# Copyright 2024 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +17,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-[alias]
-e2e-test = "run -p e2e-test -- "
-e2e-test-containers = "run -p e2e-test-containers -- "
+set -exEuo pipefail
+
+dbus-send --print-reply --dest=io.edgehog.Device /io/edgehog/Device io.edgehog.Device1.GetHardwareId \
+    'string:f79ad91f-c638-4889-ae74-9d001a3b4cf8'

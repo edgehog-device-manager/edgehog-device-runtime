@@ -8,6 +8,7 @@
 name = "hardware-id-service"
 version = "0.1.0"
 edition = { workspace = true }
+publish = false
 rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,6 +17,9 @@ rust-version = { workspace = true }
 base64 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 procfs = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
+stable-eyre = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "fs"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v5", "v4"] }
 zbus = { workspace = true, default-features = false, features = ["tokio"] }
