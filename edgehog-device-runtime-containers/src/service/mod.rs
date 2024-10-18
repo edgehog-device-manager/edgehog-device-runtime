@@ -28,9 +28,11 @@ use std::{
 use astarte_device_sdk::{
     event::FromEventError, properties::PropAccess, DeviceEvent, Error as AstarteError, FromEvent,
 };
+use itertools::Itertools;
 use tracing::{debug, instrument};
 
 use crate::{
+    container::Container,
     error::DockerError,
     image::Image,
     network::Network,
@@ -167,6 +169,23 @@ where
                         &[],
                     )?;
                 }
+                Some(Resource::Container(state)) => {
+                    let container = Container::from(state);
+
+                    let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(
+                                id,
+                                node_idx,
+                                State::Stored(container.into()),
+                            ))
+                        },
+                        &deps,
+                    )?;
+                }
                 None => {
                     debug!("add missing resource");
 
@@ -226,7 +245,7 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image).await?;
+                    node.store(store, device, image, &[]).await?;
 
                     Ok(node)
                 },
@@ -256,7 +275,7 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image).await?;
+                    node.store(store, device, image, &[]).await?;
 
                     Ok(node)
                 },
@@ -286,7 +305,7 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, network).await?;
+                    node.store(store, device, network, &[]).await?;
 
                     Ok(node)
                 },

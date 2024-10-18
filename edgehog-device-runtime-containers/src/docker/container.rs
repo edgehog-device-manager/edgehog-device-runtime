@@ -57,7 +57,7 @@ pub enum ContainerError {
 }
 
 /// Docker container struct.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct Container<S>
 where
     S: Hash + Eq,
@@ -81,7 +81,7 @@ where
     /// See the [create container
     /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
     /// possible values.
-    pub restart_policy: Option<RestartPolicyNameEnum>,
+    pub restart_policy: RestartPolicyNameEnum,
     /// A list of environment variables to set inside the container.
     ///
     /// In the form of `NAME=VALUE`.
@@ -110,7 +110,7 @@ where
             name,
             image,
             hostname: None,
-            restart_policy: None,
+            restart_policy: RestartPolicyNameEnum::EMPTY,
             env: Vec::new(),
             binds: Vec::new(),
             networks: Vec::new(),
@@ -160,9 +160,13 @@ where
         self.port_bindings
             .iter()
             .map(|(port_proto, binds)| {
-                let bindings = binds.as_ref().map(|b| b.iter().map(Into::into).collect());
+                let bindings = if binds.is_empty() {
+                    None
+                } else {
+                    Some(binds.iter().map(PortBinding::from).collect())
+                };
 
-                (port_proto.as_ref().to_string(), bindings)
+                (port_proto.to_string(), bindings)
             })
             .collect()
     }
@@ -403,7 +407,7 @@ where
             env: Some(env),
             host_config: Some(HostConfig {
                 restart_policy: Some(RestartPolicy {
-                    name: value.restart_policy,
+                    name: Some(value.restart_policy),
                     maximum_retry_count: None,
                 }),
                 binds: Some(binds),
@@ -419,14 +423,61 @@ where
     }
 }
 
-/// Alias to make naming the inner map easier.
-type InnerPortBindingMap<S> = HashMap<S, Option<Vec<Binding<S>>>>;
+fn opt_eq<T, U>(opt1: &Option<T>, opt2: &Option<U>) -> bool
+where
+    T: PartialEq<U>,
+{
+    match (opt1, opt2) {
+        (None, None) => true,
+        (None, Some(_)) | (Some(_), None) => false,
+        (Some(v1), Some(v2)) => *v1 == *v2,
+    }
+}
+
+impl<S1, S2> PartialEq<Container<S2>> for Container<S1>
+where
+    S1: PartialEq<S2> + Eq + Hash,
+    S2: Eq + Hash,
+{
+    fn eq(
+        &self,
+        Container {
+            id,
+            name,
+            image,
+            networks,
+            hostname,
+            restart_policy,
+            env,
+            binds,
+            port_bindings,
+            privileged,
+        }: &Container<S2>,
+    ) -> bool {
+        let eq_port_bindings = self.port_bindings.len() == port_bindings.len()
+            && self
+                .port_bindings
+                .iter()
+                .all(|(k, v1)| port_bindings.get(k).map_or(false, |v2| *v1 == *v2));
+
+        self.id.eq(id)
+            && self.name.eq(name)
+            && self.image.eq(image)
+            && self.networks.eq(networks)
+            && opt_eq(&self.hostname, hostname)
+            && self.restart_policy.eq(restart_policy)
+            && self.env.eq(env)
+            && self.binds.eq(binds)
+            && eq_port_bindings
+            && self.privileged.eq(privileged)
+    }
+}
 
 /// Map of a port/protocol and an array of bindings.
 ///
 /// See [`Container::port_bindings`] for more information.
 #[derive(Debug, Clone, Default)]
-pub struct PortBindingMap<S>(pub InnerPortBindingMap<S>);
+pub struct PortBindingMap<S>(pub HashMap<String, Vec<Binding<S>>>);
 
 impl<S> PortBindingMap<S> {
     fn new() -> Self {
@@ -449,7 +500,7 @@ impl<S> Deref for PortBindingMap<S>
 where
     S: Hash + Eq,
 {
-    type Target = InnerPortBindingMap<S>;
+    type Target = HashMap<String, Vec<Binding<S>>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -465,61 +516,13 @@ where
     }
 }
 
-impl<S> From<&PortBindingMap<S>> for Vec<String>
-where
-    S: Hash + Eq + AsRef<str>,
-{
-    fn from(value: &PortBindingMap<S>) -> Self {
-        let some_binds = value
-            .iter()
-            .filter_map(|(c, b)| b.as_ref().map(|v| (c, v)))
-            .flat_map(|(container_port, binds)| {
-                binds.iter().map(move |binding| {
-                    if binding.is_some() {
-                        format!("{binding}:{}", container_port.as_ref())
-                    } else {
-                        container_port.as_ref().to_string()
-                    }
-                })
-            });
-        let none_binds = value
-            .iter()
-            .filter(|(_, b)| b.is_none())
-            .map(|(container_port, _)| container_port.as_ref().to_string());
-
-        some_binds.chain(none_binds).collect()
-    }
-}
-
-impl<'a> From<&'a PortBindingMap<String>> for PortBindingMap<&'a str> {
-    fn from(value: &'a PortBindingMap<String>) -> Self {
-        let map = value
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.as_str(),
-                    v.as_ref().map(|v| v.iter().map(Into::into).collect()),
-                )
-            })
-            .collect();
-
-        Self(map)
-    }
-}
-
 /// Represents a binding between a host IP address and a host port.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct Binding<S> {
     /// Host IP
     pub host_ip: Option<S>,
     /// Host port
     pub host_port: Option<u16>,
-}
-
-impl<S> Binding<S> {
-    fn is_some(&self) -> bool {
-        self.host_ip.is_some() || self.host_port.is_some()
-    }
 }
 
 impl<S> From<&Binding<S>> for PortBinding
@@ -563,6 +566,15 @@ where
             (None, Some(port)) => write!(f, "{port}"),
             (Some(ip), Some(port)) => write!(f, "{}:{port}", ip.as_ref()),
         }
+    }
+}
+
+impl<S1, S2> PartialEq<Binding<S2>> for Binding<S1>
+where
+    S1: PartialEq<S2>,
+{
+    fn eq(&self, Binding { host_ip, host_port }: &Binding<S2>) -> bool {
+        opt_eq(&self.host_ip, host_ip) && self.host_port.eq(host_port)
     }
 }
 
