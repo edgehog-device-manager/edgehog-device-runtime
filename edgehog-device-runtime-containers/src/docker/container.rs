@@ -38,7 +38,10 @@ use bollard::{
 };
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::client::*;
+use crate::{
+    client::*,
+    requests::{container::parse_port_binding, BindingError},
+};
 
 /// Error for the container operations.
 #[non_exhaustive]
@@ -54,6 +57,8 @@ pub enum ContainerError {
     Start(#[source] BollardError),
     /// couldn't stop container
     Stop(#[source] BollardError),
+    /// missing image reference in container definition
+    Image,
 }
 
 /// Docker container struct.
@@ -69,6 +74,8 @@ where
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
     pub name: S,
     /// The name (or reference) of the image to use.
+    ///
+    /// The id of the image is optional since it will be available only when the image is.
     pub image: S,
     /// Network to link the container with.
     pub networks: Vec<S>,
@@ -482,6 +489,28 @@ pub struct PortBindingMap<S>(pub HashMap<String, Vec<Binding<S>>>);
 impl<S> PortBindingMap<S> {
     fn new() -> Self {
         Self(HashMap::new())
+    }
+}
+
+impl TryFrom<Vec<String>> for PortBindingMap<String> {
+    type Error = BindingError;
+
+    fn try_from(value: Vec<String>) -> Result<Self, Self::Error> {
+        value
+            .iter()
+            .try_fold(
+                HashMap::<String, Vec<Binding<String>>>::new(),
+                |mut acc, s| {
+                    let bind = parse_port_binding(s)?;
+
+                    let port_binds = acc.entry(bind.id()).or_default();
+
+                    port_binds.push(bind.host.into());
+
+                    Ok(acc)
+                },
+            )
+            .map(PortBindingMap)
     }
 }
 
