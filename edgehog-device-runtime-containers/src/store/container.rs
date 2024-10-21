@@ -18,7 +18,7 @@
 
 //! Persists the state of an [`Container`](crate::docker::container::Container)
 
-use std::{borrow::Cow, collections::HashMap, hash::Hash};
+use std::{borrow::Cow, collections::HashMap, hash::Hash, str::FromStr};
 
 use bollard::secret::RestartPolicyNameEnum;
 use serde::{Deserialize, Serialize};
@@ -143,6 +143,12 @@ impl From<PortBinding<'_>> for Binding<String> {
     }
 }
 
+/// couldn't parse restart policy {value}
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
+pub struct RestartPolicyError {
+    value: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RestartPolicy {
     Empty,
@@ -150,6 +156,23 @@ pub enum RestartPolicy {
     Always,
     UnlessStopped,
     OnFailure,
+}
+
+impl FromStr for RestartPolicy {
+    type Err = RestartPolicyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Ok(RestartPolicy::Empty),
+            "no" => Ok(RestartPolicy::No),
+            "always" => Ok(RestartPolicy::Always),
+            "unless-stopped" => Ok(RestartPolicy::UnlessStopped),
+            "on-failure" => Ok(RestartPolicy::OnFailure),
+            _ => Err(RestartPolicyError {
+                value: s.to_string(),
+            }),
+        }
+    }
 }
 
 impl From<RestartPolicyNameEnum> for RestartPolicy {
@@ -221,5 +244,46 @@ mod tests {
         let back = Container::from(state);
 
         assert_eq!(back, container);
+    }
+
+    #[test]
+    fn parse_restart_policy() {
+        let cases = [
+            ("", RestartPolicy::Empty),
+            ("no", RestartPolicy::No),
+            ("unless-stopped", RestartPolicy::UnlessStopped),
+            ("on-failure", RestartPolicy::OnFailure),
+            ("on-failure", RestartPolicy::OnFailure),
+        ];
+
+        for (case, exp) in cases {
+            let policy = RestartPolicy::from_str(case).unwrap();
+
+            assert_eq!(policy, exp);
+        }
+
+        let err = RestartPolicy::from_str("bar").unwrap_err();
+        assert_eq!(
+            err,
+            RestartPolicyError {
+                value: "bar".to_string()
+            }
+        );
+
+        let err = RestartPolicy::from_str("NO").unwrap_err();
+        assert_eq!(
+            err,
+            RestartPolicyError {
+                value: "NO".to_string()
+            }
+        );
+
+        let err = RestartPolicy::from_str("on_failure").unwrap_err();
+        assert_eq!(
+            err,
+            RestartPolicyError {
+                value: "on_failure".to_string()
+            }
+        );
     }
 }

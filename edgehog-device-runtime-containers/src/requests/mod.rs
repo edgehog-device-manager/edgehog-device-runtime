@@ -21,9 +21,13 @@
 use std::{collections::HashMap, num::ParseIntError};
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
+use container::CreateContainer;
+
+use crate::store::container::RestartPolicyError;
 
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
+pub(crate) mod container;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
@@ -34,8 +38,8 @@ pub(crate) mod volume;
 pub enum ReqError {
     /// couldn't parse option, expected key=value but got {0}
     Option(String),
-    /// couldn't parse container restart policy: {0}
-    RestartPolicy(String),
+    /// couldn't parse container restart policy
+    RestartPolicy(#[from] RestartPolicyError),
     /// couldn't parse port binding
     PortBinding(#[from] BindingError),
 }
@@ -65,6 +69,8 @@ pub(crate) enum CreateRequests {
     Volume(CreateVolume),
     /// Request to create an [`Network`](crate::network::Network).
     Network(CreateNetwork),
+    /// Request to create an [`Container`](crate::container::Container).
+    Container(CreateContainer),
 }
 
 impl FromEvent for CreateRequests {
@@ -80,6 +86,9 @@ impl FromEvent for CreateRequests {
             }
             "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
                 CreateNetwork::from_event(value).map(CreateRequests::Network)
+            }
+            "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
+                CreateContainer::from_event(value).map(CreateRequests::Container)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }

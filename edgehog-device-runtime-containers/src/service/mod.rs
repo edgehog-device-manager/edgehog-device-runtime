@@ -38,7 +38,8 @@ use crate::{
     network::Network,
     properties::{Client, PropError},
     requests::{
-        image::CreateImage, network::CreateNetwork, volume::CreateVolume, CreateRequests, ReqError,
+        container::CreateContainer, image::CreateImage, network::CreateNetwork,
+        volume::CreateVolume, CreateRequests, ReqError,
     },
     store::{Resource, StateStore, StateStoreError},
     volume::Volume,
@@ -219,6 +220,9 @@ where
             CreateRequests::Network(req) => {
                 self.create_network(req).await?;
             }
+            CreateRequests::Container(req) => {
+                self.create_container(req).await?;
+            }
         }
 
         self.store.store(&self.nodes).await?;
@@ -316,6 +320,39 @@ where
         Ok(())
     }
 
+    /// Store the create container request
+    #[instrument(skip_all)]
+    async fn create_container(&mut self, req: CreateContainer) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(&req.id);
+
+        let device = &self.device;
+        let store = &mut self.store;
+
+        let deps = req.dependencies();
+        let deps = &deps;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Container::try_from(req)?;
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(store, device, image, deps).await?;
+
+                    Ok(node)
+                },
+                deps,
+            )
+            .await?;
+
+        Ok(())
+    }
+
     /// Will start an application
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: &str) -> Result<()>
@@ -350,9 +387,9 @@ where
                 .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
 
             node.up(&self.device, &self.client).await?;
-        }
 
-        self.store.store(&self.nodes).await?;
+            self.store.store(&self.nodes).await?;
+        }
 
         Ok(())
     }
