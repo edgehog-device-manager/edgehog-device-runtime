@@ -98,24 +98,24 @@ impl OtaHandler {
         let (publisher_tx, publisher_rx) = mpsc::channel(8);
         let (ota_tx, ota_rx) = mpsc::channel(MAX_OTA_OPERATION);
 
-        let system_update = OTARauc::connect().await?;
+        // let system_update = OTARauc::connect().await?;
 
-        let state_repository = FileStateRepository::new(&opts.store_directory, "state.json");
+        // let state_repository = FileStateRepository::new(&opts.store_directory, "state.json");
 
         let publisher = OtaPublisher::new(client);
 
         let flag = OtaInProgress::default();
 
-        let ota = Ota::<OTARauc, FileStateRepository<PersistentState>>::new(
-            opts,
-            publisher_tx.clone(),
-            flag.clone(),
-            system_update,
-            state_repository,
-        )?;
+        // let ota = Ota::<OTARauc, FileStateRepository<PersistentState>>::new(
+        //     opts,
+        //     publisher_tx.clone(),
+        //     flag.clone(),
+        //     system_update,
+        //     state_repository,
+        // )?;
 
         tasks.spawn(publisher.spawn(publisher_rx));
-        tasks.spawn(ota.spawn(ota_rx));
+        // tasks.spawn(ota.spawn(ota_rx));
 
         Ok(Self {
             ota_tx,

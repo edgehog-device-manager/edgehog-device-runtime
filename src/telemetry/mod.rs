@@ -45,6 +45,8 @@ use self::{
 pub(crate) mod battery_status;
 pub mod event;
 pub mod hardware_info;
+
+#[cfg(feature = "udev")]
 pub(crate) mod net_interfaces;
 pub mod os_release;
 pub mod runtime_info;
@@ -53,6 +55,8 @@ pub(crate) mod storage_usage;
 pub(crate) mod system_info;
 pub(crate) mod system_status;
 pub(crate) mod upower;
+
+#[cfg(feature = "wifiscanner")]
 pub(crate) mod wifi_scan;
 
 const TELEMETRY_PATH: &str = "telemetry.json";
@@ -285,12 +289,14 @@ impl<T> Telemetry<T> {
 
         RUNTIME_INFO.send(&self.client).await;
 
+        #[cfg(feature = "udev")]
         net_interfaces::send_network_interface_properties(&self.client).await;
 
         SystemInfo::read().send(&self.client).await;
 
         StorageUsage::read().send(&self.client).await;
 
+        #[cfg(feature = "wifiscanner")]
         wifi_scan::send_wifi_scan(&self.client).await;
     }
 

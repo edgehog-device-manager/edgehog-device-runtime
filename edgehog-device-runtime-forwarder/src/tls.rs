@@ -38,34 +38,36 @@ pub enum Error {
 /// Given the CA certificate, compute the device TLS configuration and return a Device connector.
 #[instrument(skip_all)]
 pub fn device_tls_config() -> Result<Connector, Error> {
-    let mut root_certs = RootCertStore::empty();
+    // let mut root_certs = RootCertStore::empty();
 
     // add native root certificates
-    let load_native_certs = rustls_native_certs::load_native_certs();
+    let root_certs = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
+    };
 
-    for err in load_native_certs.errors {
-        warn!("couldn't load a certificate: {err}");
-    }
-
-    for cert in load_native_certs.certs {
-        root_certs.add(cert)?;
-    }
+    // for err in load_native_certs.errors {
+    //     warn!("couldn't load a certificate: {err}");
+    // }
+    //
+    // for cert in load_native_certs.certs {
+    //     root_certs.add(cert)?;
+    // }
     debug!("native root certificates added");
 
     // add custom roots certificate if necessary
-    if let Some(ca_cert_file) = option_env!("EDGEHOG_FORWARDER_CA_PATH") {
-        // I'm using std::fs because rustls-pemfile requires a sync read call
-        info!("{ca_cert_file}");
-        let file = std::fs::File::open(ca_cert_file).map_err(Error::ReadFile)?;
-        let mut reader = BufReader::new(file);
-
-        let certs = rustls_pemfile::certs(&mut reader);
-        for cert in certs {
-            let cert = cert.map_err(Error::ReadCert)?;
-            root_certs.add(cert)?;
-            debug!("added cert to root certificates");
-        }
-    }
+    // if let Some(ca_cert_file) = option_env!("EDGEHOG_FORWARDER_CA_PATH") {
+    //     // I'm using std::fs because rustls-pemfile requires a sync read call
+    //     info!("{ca_cert_file}");
+    //     let file = std::fs::File::open(ca_cert_file).map_err(Error::ReadFile)?;
+    //     let mut reader = BufReader::new(file);
+    //
+    //     let certs = rustls_pemfile::certs(&mut reader);
+    //     for cert in certs {
+    //         let cert = cert.map_err(Error::ReadCert)?;
+    //         root_certs.add(cert)?;
+    //         debug!("added cert to root certificates");
+    //     }
+    // }
 
     let config = ClientConfig::builder()
         .with_root_certificates(root_certs)

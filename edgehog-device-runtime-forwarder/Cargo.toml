@@ -29,6 +29,7 @@ tokio = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots", "url"] }
 tracing = { workspace = true, features = ["log"] }
 url = { workspace = true }
+webpki-roots = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }
