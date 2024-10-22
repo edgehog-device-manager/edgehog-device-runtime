@@ -8,6 +8,24 @@
         "reference": "docker.io/library/nginx:stable-alpine-slim",
         "registryAuth": ""
       }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "03aba87c-1ebe-45e9-ab8c-c4eb89752af9",
+        "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "networkIds": [],
+        "volumeIds": [],
+        "image": "docker.io/library/nginx:stable-alpine-slim",
+        "hostname": "",
+        "restartPolicy": "",
+        "env": [],
+        "binds": [],
+        "networks": [],
+        "portBindings": ["80:80"],
+        "privileged": false
+      }
     }
   ]
 }
