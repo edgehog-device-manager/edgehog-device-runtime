@@ -443,9 +443,14 @@ mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use bollard::secret::RestartPolicyNameEnum;
+    use pretty_assertions::assert_eq;
     use resource::NodeType;
     use tempfile::TempDir;
 
+    use crate::container::{Binding, PortBindingMap};
+    use crate::properties::container::ContainerStatus;
+    use crate::requests::container::tests::create_container_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
@@ -598,5 +603,66 @@ mod tests {
         };
 
         assert_eq!(*network, exp);
+    }
+
+    #[tokio::test]
+    async fn should_add_a_container() {
+        let tempdir = TempDir::new().unwrap();
+
+        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let endpoint = format!("/{id}/status");
+        device
+            .expect_send::<ContainerStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
+                    && path == endpoint
+                    && *value == ContainerStatus::Received
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let create_image_req = create_container_request_event(id, "bridged");
+
+        service.on_event(create_image_req).await.unwrap();
+
+        let id = Id::new(id);
+        let node = service.nodes.node(&id).unwrap();
+
+        let State::Stored(NodeType::Container(container)) = node.state() else {
+            panic!("incorrect node {node:?}");
+        };
+
+        let exp = Container {
+            id: None,
+            name: id.as_str(),
+            image: "image",
+            networks: vec!["networks"],
+            hostname: Some("hostname"),
+            restart_policy: RestartPolicyNameEnum::NO,
+            env: vec!["env"],
+            binds: vec!["binds"],
+            port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
+                "80/tcp".to_string(),
+                vec![Binding {
+                    host_ip: None,
+                    host_port: Some(80),
+                }],
+            )])),
+            privileged: false,
+        };
+
+        assert_eq!(*container, exp);
     }
 }
