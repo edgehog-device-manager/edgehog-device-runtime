@@ -194,7 +194,11 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
 #[cfg(test)]
 pub mod tests {
 
+    use std::collections::HashMap;
+
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
+    use bollard::secret::RestartPolicyNameEnum;
+    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -212,10 +216,7 @@ pub mod tests {
             ),
             ("image", AstarteType::String("image".to_string())),
             ("hostname", AstarteType::String("hostname".to_string())),
-            (
-                "restartPolicy",
-                AstarteType::String("restart_policy".to_string()),
-            ),
+            ("restartPolicy", AstarteType::String("no".to_string())),
             ("env", AstarteType::StringArray(vec!["env".to_string()])),
             ("binds", AstarteType::StringArray(vec!["binds".to_string()])),
             (
@@ -224,7 +225,7 @@ pub mod tests {
             ),
             (
                 "portBindings",
-                AstarteType::StringArray(vec!["port_bindings".to_string()]),
+                AstarteType::StringArray(vec!["80:80".to_string()]),
             ),
             ("privileged", AstarteType::Boolean(false)),
         ]
@@ -252,15 +253,38 @@ pub mod tests {
             volume_ids: vec!["volume_ids".to_string()],
             image: "image".to_string(),
             hostname: "hostname".to_string(),
-            restart_policy: "restart_policy".to_string(),
+            restart_policy: "no".to_string(),
             env: vec!["env".to_string()],
             binds: vec!["binds".to_string()],
             networks: vec!["networks".to_string()],
-            port_bindings: vec!["port_bindings".to_string()],
+            port_bindings: vec!["80:80".to_string()],
             privileged: false,
         };
 
         assert_eq!(request, expect);
+
+        let container = Container::try_from(request).unwrap();
+
+        let exp = Container {
+            id: None,
+            name: "id",
+            image: "image",
+            networks: vec!["networks"],
+            hostname: Some("hostname"),
+            restart_policy: RestartPolicyNameEnum::NO,
+            env: vec!["env"],
+            binds: vec!["binds"],
+            port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
+                "80/tcp".to_string(),
+                vec![Binding {
+                    host_ip: None,
+                    host_port: Some(80),
+                }],
+            )])),
+            privileged: false,
+        };
+
+        assert_eq!(container, exp);
     }
 
     #[test]
