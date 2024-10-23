@@ -16,6 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::env::VarError;
+
 use astarte_device_sdk::{
     builder::{DeviceBuilder, DeviceSdkBuild},
     store::SqliteStore,
@@ -71,9 +73,13 @@ async fn main() -> color_eyre::Result<()> {
 
     color_eyre::install()?;
 
-    let filter = EnvFilter::builder()
-        .with_default_directive("edgehog_device_runtime_containers=DEBUG".parse()?)
-        .from_env()?;
+    let filter = if std::env::var("RUST_LOG").is_err_and(|err| err == VarError::NotPresent) {
+        "warn,edgehog_device_runtime_containers=debug".parse()?
+    } else {
+        EnvFilter::builder()
+            .with_default_directive("warn".parse()?)
+            .from_env_lossy()
+    };
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())

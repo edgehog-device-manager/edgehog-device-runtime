@@ -257,6 +257,8 @@ where
     {
         let id = Id::new(&req.id);
 
+        debug!("creating image with id {id}");
+
         let device = &self.device;
         let store = &mut self.store;
 
@@ -286,6 +288,8 @@ where
         D: Client + Sync + 'static,
     {
         let id = Id::new(&req.id);
+
+        debug!("creating volume with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
@@ -317,6 +321,8 @@ where
     {
         let id = Id::new(&req.id);
 
+        debug!("creating network with id {id}");
+
         let device = &self.device;
         let store = &mut self.store;
 
@@ -346,6 +352,8 @@ where
         D: Client + Sync + 'static,
     {
         let id = Id::new(&req.id);
+
+        debug!("creating container with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
@@ -380,6 +388,8 @@ where
     {
         let id = Id::new(&req.id);
 
+        debug!("creating deployment with id {id}");
+
         let device = &self.device;
         let store = &mut self.store;
 
@@ -411,6 +421,8 @@ where
         D: Client + Sync + 'static,
     {
         let id = Id::new(id);
+
+        debug!("starting {id}");
 
         let node = self
             .nodes
