@@ -242,6 +242,7 @@ pub(crate) enum Resource<'a> {
     Volume(VolumeState<'a>),
     Network(NetworkState<'a>),
     Container(ContainerState<'a>),
+    Deployment,
 }
 
 impl<'a, S> From<&'a Image<S>> for Resource<'a>
@@ -287,6 +288,7 @@ impl<'a> From<&'a NodeType> for Resource<'a> {
             NodeType::Volume(volume) => Resource::from(volume),
             NodeType::Network(network) => Resource::from(network),
             NodeType::Container(container) => Resource::from(container),
+            NodeType::Deployment => Resource::Deployment,
         }
     }
 }
