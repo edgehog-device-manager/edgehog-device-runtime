@@ -22,12 +22,14 @@ use std::{collections::HashMap, num::ParseIntError};
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 use container::CreateContainer;
+use deployment::CreateDeployment;
 
 use crate::store::container::RestartPolicyError;
 
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
 pub(crate) mod container;
+pub(crate) mod deployment;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
@@ -71,6 +73,8 @@ pub(crate) enum CreateRequests {
     Network(CreateNetwork),
     /// Request to create an [`Container`](crate::container::Container).
     Container(CreateContainer),
+    /// Request to create a deployment.
+    Deployment(CreateDeployment),
 }
 
 impl FromEvent for CreateRequests {
@@ -89,6 +93,9 @@ impl FromEvent for CreateRequests {
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
                 CreateContainer::from_event(value).map(CreateRequests::Container)
+            }
+            "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
+                CreateDeployment::from_event(value).map(CreateRequests::Deployment)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
