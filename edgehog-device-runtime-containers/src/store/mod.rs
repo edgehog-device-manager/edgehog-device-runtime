@@ -23,14 +23,20 @@ use std::io::{self, Cursor, SeekFrom};
 use std::path::Path;
 
 use image::ImageState;
+use network::NetworkState;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter};
+use volume::VolumeState;
 
 use crate::image::Image;
+use crate::network::Network;
 use crate::service::{collection::NodeGraph, node::Node, resource::NodeType, Id};
+use crate::volume::Volume;
 
 pub(crate) mod image;
+pub(crate) mod network;
+pub(crate) mod volume;
 
 /// Error returned by the [`StateStore`].
 #[non_exhaustive]
@@ -216,6 +222,8 @@ impl<'a> From<&'a Node> for Value<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum Resource<'a> {
     Image(ImageState<'a>),
+    Volume(VolumeState<'a>),
+    Network(NetworkState<'a>),
 }
 
 impl<'a, S> From<&'a Image<S>> for Resource<'a>
@@ -227,10 +235,30 @@ where
     }
 }
 
+impl<'a, S> From<&'a Volume<S>> for Resource<'a>
+where
+    S: AsRef<str>,
+{
+    fn from(value: &'a Volume<S>) -> Self {
+        Resource::Volume(value.into())
+    }
+}
+
+impl<'a, S> From<&'a Network<S>> for Resource<'a>
+where
+    S: AsRef<str>,
+{
+    fn from(value: &'a Network<S>) -> Self {
+        Resource::Network(value.into())
+    }
+}
+
 impl<'a> From<&'a NodeType> for Resource<'a> {
     fn from(value: &'a NodeType) -> Self {
         match value {
             NodeType::Image(image) => Resource::from(image),
+            NodeType::Volume(volume) => Resource::from(volume),
+            NodeType::Network(network) => Resource::from(network),
         }
     }
 }
