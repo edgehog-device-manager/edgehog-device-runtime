@@ -202,18 +202,13 @@ where
     where
         S: AsRef<str> + Display + Debug,
     {
-        if self.id.is_some() {
-            match self.inspect(client).await? {
-                Some(net) => {
-                    trace!("found container {net:?}");
+        if let Some(container) = self.inspect(client).await? {
+            trace!("found container {container:?}");
 
-                    return Ok(false);
-                }
-                None => {
-                    debug!("container not found, creating it");
-                }
-            }
+            return Ok(false);
         }
+
+        debug!("container not found, creating it");
 
         self.create(client).await?;
 
