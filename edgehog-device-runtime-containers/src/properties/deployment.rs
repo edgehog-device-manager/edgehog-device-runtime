@@ -22,6 +22,9 @@ use std::fmt::Display;
 
 use astarte_device_sdk::AstarteType;
 use async_trait::async_trait;
+use uuid::Uuid;
+
+use crate::service::Id;
 
 use super::{AvailableProp, Client, PropError};
 
@@ -29,28 +32,25 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableDeployments";
 
 /// Available deployment property.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableDeployments<S> {
-    id: S,
+pub(crate) struct AvailableDeployments<'a> {
+    id: &'a Id,
     status: DeploymentStatus,
 }
 
-impl<S> AvailableDeployments<S> {
-    pub(crate) fn new(id: S, status: DeploymentStatus) -> Self {
+impl<'a> AvailableDeployments<'a> {
+    pub(crate) fn new(id: &'a Id, status: DeploymentStatus) -> Self {
         Self { id, status }
     }
 }
 
 #[async_trait]
-impl<S> AvailableProp for AvailableDeployments<S>
-where
-    S: AsRef<str> + Sync,
-{
+impl AvailableProp for AvailableDeployments<'_> {
     fn interface() -> &'static str {
         INTERFACE
     }
 
-    fn id(&self) -> &str {
-        self.id.as_ref()
+    fn id(&self) -> &Uuid {
+        self.id.uuid()
     }
 
     async fn send<D>(&self, device: &D) -> Result<(), PropError>
@@ -88,15 +88,19 @@ impl From<DeploymentStatus> for AstarteType {
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use uuid::Uuid;
+
+    use crate::service::ResourceType;
 
     use super::*;
 
     #[tokio::test]
-    async fn should_store_image() {
-        let id = "ID";
+    async fn should_store_deployment() {
+        let uuid = Uuid::new_v4();
+        let id = Id::new(ResourceType::Deployment, uuid);
 
         let deployment = AvailableDeployments {
-            id,
+            id: &id,
             status: DeploymentStatus::Stopped,
         };
 
@@ -109,7 +113,7 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path, status: &DeploymentStatus| {
                 interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
-                    && path == format!("/{id}/status")
+                    && path == format!("/{uuid}/status")
                     && *status == DeploymentStatus::Stopped
             })
             .returning(|_, _, _| Ok(()));

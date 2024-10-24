@@ -21,14 +21,14 @@
 use std::fmt::Display;
 
 use astarte_device_sdk::{AstarteAggregate, AstarteType};
+use uuid::Uuid;
 
 use crate::properties::Client;
-use crate::service::Id;
 
 /// couldn't send {event}, with id {id}
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub struct EventError {
-    id: Id,
+    id: Uuid,
     event: DeploymentEvent,
     #[source]
     source: astarte_device_sdk::Error,
@@ -51,7 +51,7 @@ impl DeploymentEvent {
         }
     }
 
-    pub(crate) async fn send<D>(self, id: &Id, client: &D) -> Result<(), EventError>
+    pub(crate) async fn send<D>(self, id: &Uuid, client: &D) -> Result<(), EventError>
     where
         D: Client + Sync + 'static,
     {
@@ -59,7 +59,7 @@ impl DeploymentEvent {
             .send_object(INTERFACE, &format!("/{id}"), self.clone())
             .await
             .map_err(|source| EventError {
-                id: id.clone(),
+                id: *id,
                 event: self,
                 source,
             })?;

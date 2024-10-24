@@ -20,8 +20,7 @@
 
 use std::{
     fmt::{Debug, Display},
-    ops::Deref,
-    sync::Arc,
+    str::FromStr,
 };
 
 use astarte_device_sdk::{event::FromEventError, properties::PropAccess, DeviceEvent, FromEvent};
@@ -29,6 +28,7 @@ use itertools::Itertools;
 use petgraph::stable_graph::NodeIndex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, warn};
+use uuid::Uuid;
 
 use crate::{
     container::Container,
@@ -67,21 +67,29 @@ pub enum ServiceError {
     /// couldn't save the property
     Prop(#[from] PropError),
     /// node {0} is missing
-    MissingNode(String),
+    MissingNode(Id),
     /// relation is missing given the index
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
     /// couldn't create for missing node {0}
-    Create(String),
+    Create(Id),
     /// couldn't start for missing node {0}
-    Start(String),
+    Start(Id),
     /// couldn't operate on missing node {0}
-    Missing(String),
+    Missing(Id),
     /// state store operation failed
     StateStore(#[from] StateStoreError),
     /// couldn't send the event to Astarte
     Event(#[from] EventError),
+    /// couldn't parse id, it's an invalid UUID
+    Uuid {
+        /// The invalid [`Id`]
+        id: String,
+        /// Error with the reason it's invalid
+        #[source]
+        source: uuid::Error,
+    },
     /// BUG couldn't convert missing node
     BugMissing,
 }
@@ -241,7 +249,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Image, &req.id);
+        let id = Id::try_from_str(ResourceType::Image, &req.id)?;
 
         debug!("creating image with id {id}");
 
@@ -269,7 +277,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Volume, &req.id);
+        let id = Id::try_from_str(ResourceType::Volume, &req.id)?;
 
         debug!("creating volume with id {id}");
 
@@ -297,7 +305,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Network, &req.id);
+        let id = Id::try_from_str(ResourceType::Network, &req.id)?;
 
         debug!("creating network with id {id}");
 
@@ -325,14 +333,14 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Container, &req.id);
+        let id = Id::try_from_str(ResourceType::Container, &req.id)?;
 
         debug!("creating container with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
 
-        let deps = req.dependencies();
+        let deps = req.dependencies()?;
 
         self.nodes
             .add_node_with_deps(id, deps, |id, idx, deps| async move {
@@ -355,7 +363,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Deployment, &req.id);
+        let id = Id::try_from_str(ResourceType::Deployment, &req.id)?;
 
         debug!("creating deployment with id {id}");
 
@@ -365,8 +373,8 @@ where
         let deps = req
             .containers
             .iter()
-            .map(|id| Id::new(ResourceType::Container, id))
-            .collect_vec();
+            .map(|id| Id::try_from_str(ResourceType::Container, id))
+            .try_collect()?;
 
         self.nodes
             .add_node_with_deps(id, deps, |id, idx, deps| async move {
@@ -393,11 +401,11 @@ where
         let node = self
             .nodes
             .node(id)
-            .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
+            .ok_or_else(|| ServiceError::MissingNode(*id))?;
 
         if node.is_deployment() {
             DeploymentEvent::new(EventStatus::Starting, "")
-                .send(&node.id, &self.device)
+                .send(node.id.uuid(), &self.device)
                 .await?;
         } else {
             warn!("starting a {node:?} and not a deployment");
@@ -409,7 +417,7 @@ where
 
         if let Err(err) = &res {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
-                .send(id, &self.device)
+                .send(id.uuid(), &self.device)
                 .await?;
         }
 
@@ -424,11 +432,10 @@ where
 
         let mut relations = Vec::new();
         while let Some(idx) = space.next(self.nodes.relations()) {
-            let id = self
+            let id = *self
                 .nodes
                 .get_id(idx)
-                .ok_or(ServiceError::MissingRelation)?
-                .clone();
+                .ok_or(ServiceError::MissingRelation)?;
 
             relations.push(id);
         }
@@ -437,7 +444,7 @@ where
             let node = self
                 .nodes
                 .node_mut(&id)
-                .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
+                .ok_or_else(|| ServiceError::MissingNode(id))?;
 
             node.up(&self.device, &self.client).await?;
 
@@ -449,37 +456,29 @@ where
 }
 
 /// Id of the nodes in the Service graph
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Id {
     rt: ResourceType,
-    id: Arc<str>,
+    id: Uuid,
 }
 
 impl Id {
     /// Create a new ID
-    pub fn new(rt: ResourceType, id: &str) -> Self {
-        Self {
-            rt,
-            id: Arc::from(id),
-        }
+    pub fn new(rt: ResourceType, id: Uuid) -> Self {
+        Self { rt, id }
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    pub(crate) fn try_from_str(rt: ResourceType, id: &str) -> Result<Self> {
+        let id = Uuid::from_str(id).map_err(|err| ServiceError::Uuid {
+            id: id.to_string(),
+            source: err,
+        })?;
+
+        Ok(Self { rt, id })
+    }
+
+    pub(crate) fn uuid(&self) -> &Uuid {
         &self.id
-    }
-}
-
-impl Deref for Id {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.id
-    }
-}
-
-impl AsRef<str> for Id {
-    fn as_ref(&self) -> &str {
-        self.as_str()
     }
 }
 
@@ -528,6 +527,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use resource::NodeType;
     use tempfile::TempDir;
+    use uuid::uuid;
 
     use crate::container::{Binding, PortBindingMap};
     use crate::properties::container::ContainerStatus;
@@ -542,7 +542,7 @@ mod tests {
     async fn should_add_an_image() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "5b705c7b-e6c7-4455-ba9b-a081be020c43";
+        let id = uuid!("5b705c7b-e6c7-4455-ba9b-a081be020c43");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -567,7 +567,7 @@ mod tests {
         let mut service = Service::new(client, store, device);
 
         let reference = "docker.io/nginx:stable-alpine-slim";
-        let create_image_req = create_image_request_event(id, reference, "");
+        let create_image_req = create_image_request_event(id.to_string(), reference, "");
 
         service.on_event(create_image_req).await.unwrap();
 
@@ -591,7 +591,7 @@ mod tests {
     async fn should_add_a_volume() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -626,8 +626,9 @@ mod tests {
             panic!("incorrect node {node:?}");
         };
 
+        let name = id.uuid().to_string();
         let exp = Volume {
-            name: id.as_str(),
+            name: name.as_str(),
             driver: "local",
             driver_opts: HashMap::from([("foo".to_string(), "bar"), ("some".to_string(), "")]),
         };
@@ -639,7 +640,7 @@ mod tests {
     async fn should_add_a_network() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -674,6 +675,7 @@ mod tests {
             panic!("incorrect node {node:?}");
         };
 
+        let id = id.uuid().to_string();
         let exp = Network {
             id: None,
             name: id.as_str(),
@@ -690,7 +692,7 @@ mod tests {
     async fn should_add_a_container() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -714,7 +716,8 @@ mod tests {
 
         let mut service = Service::new(client, store, device);
 
-        let create_container_req = create_container_request_event(id, "bridged");
+        let image_id = Uuid::new_v4().to_string();
+        let create_container_req = create_container_request_event(id, &image_id);
 
         service.on_event(create_container_req).await.unwrap();
 
@@ -725,6 +728,7 @@ mod tests {
             panic!("incorrect node {node:?}");
         };
 
+        let id = id.uuid().to_string();
         let exp = Container {
             id: None,
             name: id.as_str(),

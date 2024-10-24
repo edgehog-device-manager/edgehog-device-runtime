@@ -26,6 +26,7 @@ use edgehog_containers::{
     Docker,
 };
 use tracing::error;
+use uuid::Uuid;
 
 pub async fn receive<D>(device: D, store: &Path) -> color_eyre::Result<()>
 where
@@ -54,7 +55,10 @@ where
                     .path
                     .strip_prefix('/')
                     .and_then(|s| s.strip_suffix("/command"))
-                    .ok_or_eyre("unrecognize endpoint for ApplicationCommand")?;
+                    .ok_or_eyre("unrecognize endpoint for ApplicationCommand")
+                    .and_then(|id| {
+                        Uuid::parse_str(id).wrap_err_with(|| format!("invalid uuid {id}"))
+                    })?;
 
                 let Value::Individual(AstarteType::String(cmd)) = event.data else {
                     bail!("Invalid interface event: {event:?}");
