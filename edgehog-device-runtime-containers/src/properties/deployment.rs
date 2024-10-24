@@ -18,6 +18,9 @@
 
 //! Available [`Image`](crate::docker::image::Image) property.
 
+use std::fmt::Display;
+
+use astarte_device_sdk::AstarteType;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -25,23 +28,23 @@ use crate::service::Id;
 
 use super::{AvailableProp, Client, PropError};
 
-const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
+const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableDeployments";
 
-/// Available
+/// Available deployment property.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableImage<'a> {
+pub(crate) struct AvailableDeployments<'a> {
     id: &'a Id,
-    pulled: bool,
+    status: DeploymentStatus,
 }
 
-impl<'a> AvailableImage<'a> {
-    pub(crate) fn new(id: &'a Id, pulled: bool) -> Self {
-        Self { id, pulled }
+impl<'a> AvailableDeployments<'a> {
+    pub(crate) fn new(id: &'a Id, status: DeploymentStatus) -> Self {
+        Self { id, status }
     }
 }
 
 #[async_trait]
-impl<'a> AvailableProp for AvailableImage<'a> {
+impl<'a> AvailableProp for AvailableDeployments<'a> {
     fn interface() -> &'static str {
         INTERFACE
     }
@@ -54,9 +57,30 @@ impl<'a> AvailableProp for AvailableImage<'a> {
     where
         D: Client + Sync + 'static,
     {
-        self.send_field(device, "pulled", self.pulled).await?;
+        self.send_field(device, "status", self.status).await?;
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeploymentStatus {
+    Stopped,
+    Started,
+}
+
+impl Display for DeploymentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeploymentStatus::Started => write!(f, "Started"),
+            DeploymentStatus::Stopped => write!(f, "Stopped"),
+        }
+    }
+}
+
+impl From<DeploymentStatus> for AstarteType {
+    fn from(value: DeploymentStatus) -> Self {
+        AstarteType::String(value.to_string())
     }
 }
 
@@ -71,13 +95,13 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn should_store_image() {
+    async fn should_store_deployment() {
         let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Image, uuid);
+        let id = Id::new(ResourceType::Deployment, uuid);
 
-        let image = AvailableImage {
+        let deployment = AvailableDeployments {
             id: &id,
-            pulled: true,
+            status: DeploymentStatus::Stopped,
         };
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
@@ -87,13 +111,13 @@ mod tests {
             .expect_send()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, pulled: &bool| {
-                interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == format!("/{uuid}/pulled")
-                    && *pulled
+            .withf(move |interface, path, status: &DeploymentStatus| {
+                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
+                    && path == format!("/{uuid}/status")
+                    && *status == DeploymentStatus::Stopped
             })
             .returning(|_, _, _| Ok(()));
 
-        image.send(&client).await.unwrap();
+        deployment.send(&client).await.unwrap();
     }
 }

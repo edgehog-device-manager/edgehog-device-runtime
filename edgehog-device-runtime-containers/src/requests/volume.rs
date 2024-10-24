@@ -59,14 +59,18 @@ impl TryFrom<CreateVolume> for Volume<String> {
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, fmt::Display};
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use itertools::Itertools;
 
     use super::*;
 
-    pub fn create_volume_request_event(id: &str, driver: &str, options: &[&str]) -> DeviceEvent {
+    pub fn create_volume_request_event(
+        id: impl Display,
+        driver: &str,
+        options: &[&str],
+    ) -> DeviceEvent {
         let options = options.iter().map(|s| s.to_string()).collect_vec();
 
         let fields = [

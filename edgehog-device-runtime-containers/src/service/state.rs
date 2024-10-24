@@ -42,16 +42,17 @@ impl State {
         store: &mut StateStore,
         device: &D,
         node: T,
+        deps: Vec<Id>,
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
-        T: Into<NodeType> + Debug,
+        NodeType: From<T>,
     {
-        let mut node = node.into();
+        let mut node = NodeType::from(node);
 
         match self {
             State::Missing => {
-                node.store(id, store, device).await?;
+                node.store(id, store, device, deps).await?;
 
                 *self = State::Stored(node);
 
@@ -71,10 +72,10 @@ impl State {
     #[instrument(skip_all)]
     async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match self {
-            State::Missing => return Err(ServiceError::Create(id.to_string())),
+            State::Missing => return Err(ServiceError::Create(*id)),
             State::Stored(node) => {
                 node.create(id, device, client).await?;
 
@@ -92,10 +93,10 @@ impl State {
     #[instrument(skip_all)]
     async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Client + Sync + 'static,
     {
         match self {
-            State::Missing | State::Stored(_) => Err(ServiceError::Start(id.to_string())),
+            State::Missing | State::Stored(_) => Err(ServiceError::Start(*id)),
             State::Created(node) => {
                 node.start(id, device, client).await?;
 
@@ -116,10 +117,10 @@ impl State {
     #[instrument(skip_all)]
     pub(super) async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match &*self {
-            State::Missing => return Err(ServiceError::Missing(id.to_string())),
+            State::Missing => return Err(ServiceError::Missing(*id)),
             State::Stored(_) => {
                 self.create(id, device, client).await?;
                 self.start(id, device, client).await?;

@@ -21,10 +21,17 @@
 use std::{collections::HashMap, num::ParseIntError};
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
+use container::CreateContainer;
+use deployment::CreateDeployment;
 
-use self::{image::CreateImage, volume::CreateVolume};
+use crate::store::container::RestartPolicyError;
 
+use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
+
+pub(crate) mod container;
+pub(crate) mod deployment;
 pub(crate) mod image;
+pub(crate) mod network;
 pub(crate) mod volume;
 
 /// Error from handling the Astarte request.
@@ -33,8 +40,8 @@ pub(crate) mod volume;
 pub enum ReqError {
     /// couldn't parse option, expected key=value but got {0}
     Option(String),
-    /// couldn't parse container restart policy: {0}
-    RestartPolicy(String),
+    /// couldn't parse container restart policy
+    RestartPolicy(#[from] RestartPolicyError),
     /// couldn't parse port binding
     PortBinding(#[from] BindingError),
 }
@@ -62,6 +69,12 @@ pub(crate) enum CreateRequests {
     Image(CreateImage),
     /// Request to create an [`Volume`](crate::volume::Volume).
     Volume(CreateVolume),
+    /// Request to create an [`Network`](crate::network::Network).
+    Network(CreateNetwork),
+    /// Request to create an [`Container`](crate::container::Container).
+    Container(CreateContainer),
+    /// Request to create a deployment.
+    Deployment(CreateDeployment),
 }
 
 impl FromEvent for CreateRequests {
@@ -74,6 +87,15 @@ impl FromEvent for CreateRequests {
             }
             "io.edgehog.devicemanager.apps.CreateVolumeRequest" => {
                 CreateVolume::from_event(value).map(CreateRequests::Volume)
+            }
+            "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
+                CreateNetwork::from_event(value).map(CreateRequests::Network)
+            }
+            "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
+                CreateContainer::from_event(value).map(CreateRequests::Container)
+            }
+            "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
+                CreateDeployment::from_event(value).map(CreateRequests::Deployment)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
@@ -101,6 +123,7 @@ mod tests {
     use super::*;
 
     use astarte_device_sdk::Value;
+    use network::{tests::create_network_request_event, CreateNetwork};
 
     use crate::requests::{image::CreateImage, CreateRequests};
 
@@ -146,5 +169,22 @@ mod tests {
         let err = parse_kv_map(&invalid).unwrap_err();
 
         assert!(matches!(err, ReqError::Option(opt) if opt == "nope"))
+    }
+
+    #[test]
+    fn from_event_network() {
+        let event = create_network_request_event("id", "driver");
+
+        let request = CreateRequests::from_event(event).unwrap();
+
+        let expect = CreateNetwork {
+            id: "id".to_string(),
+            driver: "driver".to_string(),
+            check_duplicate: false,
+            internal: false,
+            enable_ipv6: false,
+        };
+
+        assert_eq!(request, CreateRequests::Network(expect));
     }
 }

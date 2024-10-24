@@ -25,23 +25,23 @@ use crate::service::Id;
 
 use super::{AvailableProp, Client, PropError};
 
-const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
+const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableNetworks";
 
-/// Available
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableImage<'a> {
+/// Available network property.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AvailableNetworks<'a> {
     id: &'a Id,
-    pulled: bool,
+    created: bool,
 }
 
-impl<'a> AvailableImage<'a> {
-    pub(crate) fn new(id: &'a Id, pulled: bool) -> Self {
-        Self { id, pulled }
+impl<'a> AvailableNetworks<'a> {
+    pub(crate) fn new(id: &'a Id, created: bool) -> Self {
+        Self { id, created }
     }
 }
 
 #[async_trait]
-impl<'a> AvailableProp for AvailableImage<'a> {
+impl<'a> AvailableProp for AvailableNetworks<'a> {
     fn interface() -> &'static str {
         INTERFACE
     }
@@ -54,7 +54,7 @@ impl<'a> AvailableProp for AvailableImage<'a> {
     where
         D: Client + Sync + 'static,
     {
-        self.send_field(device, "pulled", self.pulled).await?;
+        self.send_field(device, "created", self.created).await?;
 
         Ok(())
     }
@@ -71,13 +71,13 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn should_store_image() {
+    async fn should_store_network() {
         let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Image, uuid);
+        let id = Id::new(ResourceType::Network, uuid);
 
-        let image = AvailableImage {
+        let network = AvailableNetworks {
             id: &id,
-            pulled: true,
+            created: true,
         };
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
@@ -88,12 +88,12 @@ mod tests {
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, pulled: &bool| {
-                interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == format!("/{uuid}/pulled")
+                interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
+                    && path == format!("/{uuid}/created")
                     && *pulled
             })
             .returning(|_, _, _| Ok(()));
 
-        image.send(&client).await.unwrap();
+        network.send(&client).await.unwrap();
     }
 }

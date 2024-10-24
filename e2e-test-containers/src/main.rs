@@ -16,6 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::env::VarError;
+
 use astarte_device_sdk::{
     builder::{DeviceBuilder, DeviceSdkBuild},
     store::SqliteStore,
@@ -24,8 +26,9 @@ use astarte_device_sdk::{
 };
 use clap::Parser;
 use cli::AstarteConfig;
+use color_eyre::eyre::Context;
 use receive::receive;
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use self::cli::Cli;
@@ -37,10 +40,8 @@ mod send;
 
 async fn connect(
     astarte: &AstarteConfig,
-) -> color_eyre::Result<(
-    DeviceClient<SqliteStore>,
-    JoinHandle<Result<(), astarte_device_sdk::Error>>,
-)> {
+    tasks: &mut JoinSet<color_eyre::Result<()>>,
+) -> color_eyre::Result<DeviceClient<SqliteStore>> {
     let mut mqtt_config = MqttConfig::new(
         &astarte.realm,
         &astarte.device_id,
@@ -58,9 +59,12 @@ async fn connect(
         .build()
         .await;
 
-    let handle = tokio::spawn(async move { connection.handle_events().await });
+    tasks.spawn(async move {
+        connection.handle_events().await?;
+        Ok(())
+    });
 
-    Ok((client, handle))
+    Ok(client)
 }
 
 #[tokio::main]
@@ -69,9 +73,13 @@ async fn main() -> color_eyre::Result<()> {
 
     color_eyre::install()?;
 
-    let filter = EnvFilter::builder()
-        .with_default_directive("edgehog_device_runtime_containers=DEBUG".parse()?)
-        .from_env()?;
+    let filter = if std::env::var("RUST_LOG").is_err_and(|err| err == VarError::NotPresent) {
+        "warn,edgehog_device_runtime_containers=debug".parse()?
+    } else {
+        EnvFilter::builder()
+            .with_default_directive("warn".parse()?)
+            .from_env_lossy()
+    };
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
@@ -94,17 +102,31 @@ async fn main() -> color_eyre::Result<()> {
             }
         }
         cli::Command::Receive => {
-            let (client, connection_handle) = connect(&cli.astarte).await?;
+            let mut tasks = JoinSet::new();
 
-            let recv_handle =
-                tokio::spawn(async move { receive(client, &cli.astarte.store_dir).await });
+            let client = connect(&cli.astarte, &mut tasks).await?;
 
-            tokio::signal::ctrl_c().await?;
+            tasks.spawn(async move { receive(client, &cli.astarte.store_dir).await });
 
-            recv_handle.abort();
-            recv_handle.await??;
-            connection_handle.abort();
-            connection_handle.await??;
+            tasks.spawn(async {
+                tokio::signal::ctrl_c().await?;
+
+                Ok(())
+            });
+
+            while let Some(res) = tasks.join_next().await {
+                match res {
+                    Err(err) if !err.is_cancelled() => {
+                        return Err(err).wrap_err("tsak failed ");
+                    }
+                    Err(_cancel) => {}
+                    Ok(res) => {
+                        return res.wrap_err("task returned an error");
+                    }
+                }
+
+                tasks.abort_all();
+            }
         }
     }
 

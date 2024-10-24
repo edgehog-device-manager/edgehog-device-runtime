@@ -18,21 +18,29 @@
 
 //! Persistent stores of the request issued by Astarte and resources created.
 
-use std::borrow::Cow;
+use std::hash::Hash;
 use std::io::{self, Cursor, SeekFrom};
 use std::path::Path;
 
+use container::ContainerState;
 use image::ImageState;
+use itertools::Itertools;
+use network::NetworkState;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter};
+use tracing::{debug, instrument};
 use volume::VolumeState;
 
+use crate::container::Container;
 use crate::image::Image;
+use crate::network::Network;
 use crate::service::{collection::NodeGraph, node::Node, resource::NodeType, Id};
 use crate::volume::Volume;
 
+pub(crate) mod container;
 pub(crate) mod image;
+pub(crate) mod network;
 pub(crate) mod volume;
 
 /// Error returned by the [`StateStore`].
@@ -118,20 +126,29 @@ impl StateStore {
             let value: Value = serde_json::from_str(&line).map_err(StateStoreError::Deserialize)?;
 
             values.push(value);
+            line.clear();
         }
 
         Ok(values)
     }
 
     /// Appends the new struct to the state store
-    pub(crate) async fn append(&mut self, id: &Id, resource: Resource<'_>) -> Result<()> {
+    #[instrument(skip(resource, deps))]
+    pub(crate) async fn append(
+        &mut self,
+        id: Id,
+        resource: Resource<'_>,
+        deps: Vec<Id>,
+    ) -> Result<()> {
+        debug!("appending resource");
+
         // At the end
         self.file
             .seek(SeekFrom::End(0))
             .await
             .map_err(StateStoreError::Append)?;
 
-        let resource = Value::with_resource(id, resource);
+        let resource = Value::with_resource(id, deps, resource);
 
         let content = serde_json::to_string(&resource).map_err(StateStoreError::Serialize)?;
 
@@ -150,7 +167,10 @@ impl StateStore {
     }
 
     /// Write all the state to the file
+    #[instrument(skip_all, fields(nodes = %state.nodes().len()))]
     pub(crate) async fn store(&mut self, state: &NodeGraph) -> Result<()> {
+        debug!("storing state");
+
         // At the start and truncate
         self.file.rewind().await.map_err(StateStoreError::Store)?;
         self.file
@@ -164,7 +184,9 @@ impl StateStore {
         let mut cursor = Cursor::new(&mut buf);
 
         for node in state.nodes().values() {
-            let value = Value::from(node);
+            let deps = state.deps(node).cloned().collect_vec();
+
+            let value = Value::from_node(node, deps);
 
             serde_json::to_writer(&mut cursor, &value).map_err(StateStoreError::Serialize)?;
 
@@ -191,28 +213,24 @@ impl StateStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Value<'a> {
     // Id provided by Edgehog
-    pub(crate) id: Cow<'a, str>,
+    pub(crate) id: Id,
+    pub(crate) deps: Vec<Id>,
     pub(crate) resource: Option<Resource<'a>>,
 }
 
 impl<'a> Value<'a> {
-    fn new(id: &'a Id, resource: Option<Resource<'a>>) -> Self {
-        Self {
-            id: Cow::Borrowed(id.as_str()),
-            resource,
-        }
+    fn new(id: Id, deps: Vec<Id>, resource: Option<Resource<'a>>) -> Self {
+        Self { id, deps, resource }
     }
 
-    fn with_resource(id: &'a Id, resource: Resource<'a>) -> Self {
-        Self::new(id, Some(resource))
+    fn with_resource(id: Id, deps: Vec<Id>, resource: Resource<'a>) -> Self {
+        Self::new(id, deps, Some(resource))
     }
-}
 
-impl<'a> From<&'a Node> for Value<'a> {
-    fn from(value: &'a Node) -> Self {
+    fn from_node(value: &'a Node, deps: Vec<Id>) -> Self {
         let resource = value.node_type().map(Resource::from);
 
-        Self::new(value.id(), resource)
+        Self::new(*value.id(), deps, resource)
     }
 }
 
@@ -220,6 +238,9 @@ impl<'a> From<&'a Node> for Value<'a> {
 pub(crate) enum Resource<'a> {
     Image(ImageState<'a>),
     Volume(VolumeState<'a>),
+    Network(NetworkState<'a>),
+    Container(ContainerState<'a>),
+    Deployment,
 }
 
 impl<'a, S> From<&'a Image<S>> for Resource<'a>
@@ -240,11 +261,32 @@ where
     }
 }
 
+impl<'a, S> From<&'a Network<S>> for Resource<'a>
+where
+    S: AsRef<str>,
+{
+    fn from(value: &'a Network<S>) -> Self {
+        Resource::Network(value.into())
+    }
+}
+
+impl<'a, S> From<&'a Container<S>> for Resource<'a>
+where
+    S: AsRef<str> + Eq + Hash,
+{
+    fn from(value: &'a Container<S>) -> Self {
+        Resource::Container(value.into())
+    }
+}
+
 impl<'a> From<&'a NodeType> for Resource<'a> {
     fn from(value: &'a NodeType) -> Self {
         match value {
             NodeType::Image(image) => Resource::from(image),
             NodeType::Volume(volume) => Resource::from(volume),
+            NodeType::Network(network) => Resource::from(network),
+            NodeType::Container(container) => Resource::from(container),
+            NodeType::Deployment => Resource::Deployment,
         }
     }
 }
