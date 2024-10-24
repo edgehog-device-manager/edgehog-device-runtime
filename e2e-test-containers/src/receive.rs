@@ -20,7 +20,11 @@ use std::{fmt::Debug, path::Path};
 
 use astarte_device_sdk::{properties::PropAccess, AstarteType, Client, Value};
 use color_eyre::eyre::{bail, Context, OptionExt};
-use edgehog_containers::{service::Service, store::StateStore, Docker};
+use edgehog_containers::{
+    service::{Id, ResourceType, Service},
+    store::StateStore,
+    Docker,
+};
 use tracing::error;
 
 pub async fn receive<D>(device: D, store: &Path) -> color_eyre::Result<()>
@@ -58,7 +62,9 @@ where
 
                 match cmd.as_str() {
                     "start" => {
-                        service.start(release_id).await?;
+                        service
+                            .start(&Id::new(ResourceType::Deployment, release_id))
+                            .await?;
                     }
                     "stop" => unimplemented!(),
                     _ => {

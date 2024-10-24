@@ -42,7 +42,7 @@ impl State {
         store: &mut StateStore,
         device: &D,
         node: T,
-        deps: &[Id],
+        deps: Vec<Id>,
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
