@@ -19,7 +19,11 @@
 use std::fmt::Debug;
 use std::path::Path;
 
-use color_eyre::eyre::{eyre, WrapErr};
+use color_eyre::{
+    eyre::{eyre, WrapErr},
+    owo_colors::OwoColorize,
+    Section, SectionExt,
+};
 use reqwest::{header, Url};
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -66,13 +70,21 @@ impl ApiClient {
             .header(header::ACCEPT, "application/json")
             .json(&Data { data: &data })
             .send()
-            .await?
-            .error_for_status()
-            .wrap_err_with(|| format!("request failed for {interface}/{path} with data: {data:?}"))?
-            .text()
             .await?;
 
-        info!("response: {res}");
+        let status = res.status();
+
+        let text = res.text().await.wrap_err("couldn't get response body")?;
+
+        if !status.is_success() {
+            let err = eyre!("HTTP status {status} for ({interface}{path})")
+                .with_section(move || format!("{:#?}", data.dimmed()).header("Request:"))
+                .with_section(move || format!("{}", text.red()).header("Response:"));
+
+            return Err(err);
+        }
+
+        info!("response: {text}");
 
         Ok(())
     }

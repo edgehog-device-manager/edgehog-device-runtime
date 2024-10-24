@@ -23,19 +23,29 @@ use tracing::{debug, info, instrument};
 use super::{Id, Result};
 
 use crate::{
-    image::Image, properties::image::AvailableImage, properties::AvailableProp, properties::Client,
-    store::StateStore, Docker,
+    container::Container,
+    image::Image,
+    network::Network,
+    properties::{
+        container::{AvailableContainers, ContainerStatus},
+        deployment::{AvailableDeployments, DeploymentStatus},
+        image::AvailableImage,
+        network::AvailableNetworks,
+        volume::AvailableVolumes,
+        AvailableProp, Client,
+    },
+    store::{Resource, StateStore},
+    volume::Volume,
+    Docker,
 };
-
-/// A resource in the nodes struct.
-#[allow(dead_code)]
-pub(crate) trait Resource: Into<NodeType> {
-    fn dependencies(&self) -> Result<Vec<String>>;
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NodeType {
     Image(Image<String>),
+    Volume(Volume<String>),
+    Network(Network<String>),
+    Container(Container<String>),
+    Deployment,
 }
 
 impl NodeType {
@@ -45,17 +55,50 @@ impl NodeType {
         id: &Id,
         store: &mut StateStore,
         device: &D,
+        deps: &[Id],
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
         match &self {
             NodeType::Image(image) => {
-                store.append(id, image.into()).await?;
+                store.append(id, image.into(), deps).await?;
 
                 AvailableImage::new(id, false).send(device).await?;
 
-                info!("stored image with id {}", id);
+                info!("stored image with id {id}");
+            }
+            NodeType::Volume(volume) => {
+                store.append(id, volume.into(), deps).await?;
+
+                AvailableVolumes::new(id, false).send(device).await?;
+
+                info!("stored volume with id {id}");
+            }
+            NodeType::Network(network) => {
+                store.append(id, network.into(), deps).await?;
+
+                AvailableNetworks::new(id, false).send(device).await?;
+
+                info!("stored network with id {id}");
+            }
+            NodeType::Container(container) => {
+                store.append(id, container.into(), deps).await?;
+
+                AvailableContainers::new(id, ContainerStatus::Received)
+                    .send(device)
+                    .await?;
+
+                info!("stored container with id {id}");
+            }
+            NodeType::Deployment => {
+                store.append(id, Resource::Deployment, deps).await?;
+
+                AvailableDeployments::new(id, DeploymentStatus::Stopped)
+                    .send(device)
+                    .await?;
+
+                info!("stored deployment with id {id}");
             }
         }
 
@@ -65,27 +108,69 @@ impl NodeType {
     #[instrument(skip_all)]
     pub(super) async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match self {
             NodeType::Image(image) => {
                 image.inspect_or_create(client).await?;
 
                 AvailableImage::new(id, true).send(device).await?;
+
+                info!("created image with id {id}");
             }
+            NodeType::Volume(volume) => {
+                volume.create(client).await?;
+
+                AvailableVolumes::new(id, true).send(device).await?;
+
+                info!("created volume with id {id}");
+            }
+            NodeType::Network(network) => {
+                network.inspect_or_create(client).await?;
+
+                AvailableNetworks::new(id, true).send(device).await?;
+
+                info!("created network with id {id}");
+            }
+            NodeType::Container(container) => {
+                container.inspect_or_create(client).await?;
+
+                AvailableContainers::new(id, ContainerStatus::Created)
+                    .send(device)
+                    .await?;
+
+                info!("created container with id {id}");
+            }
+            NodeType::Deployment => {}
         }
 
         Ok(())
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn start<D>(&mut self, _id: &Id, _device: &D, _client: &Docker) -> Result<()>
+    pub(super) async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync,
+        D: Client + Sync + 'static,
     {
         match self {
-            NodeType::Image(_) => {
+            NodeType::Image(_) | NodeType::Volume(_) | NodeType::Network(_) => {
                 debug!("resource is up");
+            }
+            NodeType::Container(container) => {
+                container.start(client).await?;
+
+                AvailableContainers::new(id, ContainerStatus::Created)
+                    .send(device)
+                    .await?;
+
+                info!("started container with id {id}");
+            }
+            NodeType::Deployment => {
+                AvailableDeployments::new(id, DeploymentStatus::Started)
+                    .send(device)
+                    .await?;
+
+                info!("deployment started with id {id}");
             }
         }
 
@@ -96,5 +181,23 @@ impl NodeType {
 impl From<Image<String>> for NodeType {
     fn from(value: Image<String>) -> Self {
         Self::Image(value)
+    }
+}
+
+impl From<Volume<String>> for NodeType {
+    fn from(value: Volume<String>) -> Self {
+        Self::Volume(value)
+    }
+}
+
+impl From<Network<String>> for NodeType {
+    fn from(value: Network<String>) -> Self {
+        Self::Network(value)
+    }
+}
+
+impl From<Container<String>> for NodeType {
+    fn from(value: Container<String>) -> Self {
+        Self::Container(value)
     }
 }

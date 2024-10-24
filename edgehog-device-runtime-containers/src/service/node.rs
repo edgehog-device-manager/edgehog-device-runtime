@@ -56,18 +56,19 @@ impl Node {
         store: &mut StateStore,
         device: &D,
         inner: T,
+        deps: &[Id],
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
-        T: Into<NodeType> + Debug,
+        NodeType: From<T>,
     {
-        self.state.store(&self.id, store, device, inner).await
+        self.state.store(&self.id, store, device, inner, deps).await
     }
 
     #[instrument(skip_all)]
     pub(super) async fn up<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         self.state.up(&self.id, device, client).await
     }
@@ -85,6 +86,17 @@ impl Node {
 
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+
+    pub(crate) fn is_deployment(&self) -> bool {
+        debug_assert!(!self.state.is_missing());
+
+        matches!(
+            self.state,
+            State::Stored(NodeType::Deployment)
+                | State::Created(NodeType::Deployment)
+                | State::Up(NodeType::Deployment)
+        )
     }
 }
 
