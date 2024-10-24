@@ -56,12 +56,13 @@ impl Node {
         store: &mut StateStore,
         device: &D,
         inner: T,
+        deps: &[Id],
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
-        T: Into<NodeType> + Debug,
+        NodeType: From<T>,
     {
-        self.state.store(&self.id, store, device, inner).await
+        self.state.store(&self.id, store, device, inner, deps).await
     }
 
     #[instrument(skip_all)]
