@@ -34,9 +34,9 @@ use crate::{
     error::DockerError,
     image::Image,
     properties::{Client, PropError},
-    requests::{image::CreateImage, CreateRequests, ReqError},
-    store::Resource,
-    store::{StateStore, StateStoreError},
+    requests::{image::CreateImage, volume::CreateVolume, CreateRequests, ReqError},
+    store::{Resource, StateStore, StateStoreError},
+    volume::Volume,
     Docker,
 };
 
@@ -138,6 +138,17 @@ where
                         &[],
                     )?;
                 }
+                Some(Resource::Volume(state)) => {
+                    let volume = Volume::from(state);
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
+                        },
+                        &[],
+                    )?;
+                }
                 None => {
                     debug!("add missing resource");
 
@@ -165,6 +176,9 @@ where
             CreateRequests::Image(req) => {
                 self.create_image(req).await?;
             }
+            CreateRequests::Volume(req) => {
+                self.create_volume(req).await?;
+            }
         }
 
         self.store.store(&self.nodes).await?;
@@ -188,6 +202,36 @@ where
                 id,
                 |id, idx| async move {
                     let image = Image::from(req);
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(store, device, image).await?;
+
+                    Ok(node)
+                },
+                &[],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Store the create volume request
+    #[instrument(skip_all)]
+    async fn create_volume(&mut self, req: CreateVolume) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(&req.id);
+
+        let device = &self.device;
+        let store = &mut self.store;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Volume::try_from(req)?;
 
                     let mut node = Node::new(id, idx);
 
@@ -287,6 +331,8 @@ impl Display for Id {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -294,6 +340,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::requests::image::tests::create_image_request_event;
+    use crate::requests::volume::tests::create_volume_request_event;
 
     use super::*;
 
@@ -344,5 +391,53 @@ mod tests {
         };
 
         assert_eq!(*image, exp);
+    }
+
+    #[tokio::test]
+    async fn should_add_a_volume() {
+        let tempdir = TempDir::new().unwrap();
+
+        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let endpoint = format!("/{id}/created");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
+                    && path == (endpoint)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let create_image_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
+
+        service.on_event(create_image_req).await.unwrap();
+
+        let id = Id::new(id);
+        let node = service.nodes.node(&id).unwrap();
+
+        let State::Stored(NodeType::Volume(volume)) = node.state() else {
+            panic!("incorrect node {node:?}");
+        };
+
+        let exp = Volume {
+            name: id.as_str(),
+            driver: "local",
+            driver_opts: HashMap::from([("foo".to_string(), "bar"), ("some".to_string(), "")]),
+        };
+
+        assert_eq!(*volume, exp);
     }
 }

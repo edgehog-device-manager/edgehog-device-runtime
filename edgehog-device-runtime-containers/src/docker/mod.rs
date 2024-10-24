@@ -27,6 +27,7 @@ use crate::client::*;
 use crate::error::DockerError;
 
 pub(crate) mod image;
+pub(crate) mod volume;
 
 /// Docker container manager
 #[derive(Debug, Clone)]
