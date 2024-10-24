@@ -230,7 +230,7 @@ impl<'a> Value<'a> {
     fn from_node(value: &'a Node, deps: Vec<Id>) -> Self {
         let resource = value.node_type().map(Resource::from);
 
-        Self::new(value.id().clone(), deps, resource)
+        Self::new(*value.id(), deps, resource)
     }
 }
 

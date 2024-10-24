@@ -59,7 +59,7 @@ impl DeploymentEvent {
             .send_object(INTERFACE, &format!("/{id}"), self.clone())
             .await
             .map_err(|source| EventError {
-                id: id.clone(),
+                id: *id,
                 event: self,
                 source,
             })?;

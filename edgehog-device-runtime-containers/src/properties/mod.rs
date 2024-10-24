@@ -20,6 +20,7 @@
 
 use astarte_device_sdk::{AstarteType, Error as AstarteError};
 use async_trait::async_trait;
+use uuid::Uuid;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
@@ -55,7 +56,7 @@ pub enum PropError {
 pub(crate) trait AvailableProp {
     fn interface() -> &'static str;
 
-    fn id(&self) -> &str;
+    fn id(&self) -> &Uuid;
 
     async fn send<D>(&self, device: &D) -> Result<(), PropError>
     where

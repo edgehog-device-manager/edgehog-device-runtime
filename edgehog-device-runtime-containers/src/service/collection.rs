@@ -92,14 +92,13 @@ impl NodeGraph {
                 Ok(node.into_mut())
             }
             Entry::Vacant(entry) => {
-                let id = entry.key().clone();
+                let id = *entry.key();
 
-                self.relations
-                    .add_sync(id.clone(), node_deps.idxs(), |idx| {
-                        let node = (f)(id, idx)?;
+                self.relations.add_sync(id, node_deps.idxs(), |idx| {
+                    let node = (f)(id, idx)?;
 
-                        Ok(entry.insert(node))
-                    })
+                    Ok(entry.insert(node))
+                })
             }
         }
     }
@@ -126,13 +125,11 @@ impl NodeGraph {
         let node_deps = self.create_node_deps(&deps);
 
         let res = {
-            match self.nodes.entry(id.clone()) {
+            match self.nodes.entry(id) {
                 Entry::Occupied(entry) => self.relations.relate(entry.get().idx, node_deps.idxs()),
                 Entry::Vacant(entry) => {
-                    let id = id.clone();
-
                     self.relations
-                        .add(id.clone(), node_deps.idxs(), |idx| async move {
+                        .add(id, node_deps.idxs(), |idx| async move {
                             let node = (f)(id, idx, deps).await?;
 
                             entry.insert(node);
@@ -174,7 +171,7 @@ impl NodeGraph {
     fn create_node_deps(&mut self, deps: &[Id]) -> NodeDeps {
         let present = deps
             .iter()
-            .filter_map(|id| self.nodes.get(id).map(|node| (node.id.clone(), node.idx)))
+            .filter_map(|id| self.nodes.get(id).map(|node| (node.id, node.idx)))
             .collect();
 
         let missing = deps
@@ -191,10 +188,10 @@ impl NodeGraph {
             return None;
         }
 
-        let idx = self.relations.add_node(id.clone());
-        self.nodes.insert(id.clone(), Node::new(id.clone(), idx));
+        let idx = self.relations.add_node(*id);
+        self.nodes.insert(*id, Node::new(*id, idx));
 
-        Some((id.clone(), idx))
+        Some((*id, idx))
     }
 
     /// Removes a node and all the relations.
