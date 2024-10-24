@@ -32,7 +32,7 @@ where
         .await
         .wrap_err("couldn't open the state store")?;
 
-    let mut service = Service::new(client, store, device.clone());
+    let mut service = Service::init(client, store, device.clone()).await?;
 
     loop {
         let event = device.recv().await?;
