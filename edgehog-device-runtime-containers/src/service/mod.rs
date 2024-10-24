@@ -78,7 +78,7 @@ pub enum ServiceError {
     Start(String),
     /// couldn't operate on missing node {0}
     Missing(String),
-    /// couldn't store the resource state
+    /// state store operation failed
     StateStore(#[from] StateStoreError),
     /// couldn't send the event to Astarte
     Event(#[from] EventError),
@@ -116,7 +116,7 @@ where
 {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
+    pub(crate) fn new(client: Docker, store: StateStore, device: D) -> Self {
         Self {
             client,
             store,
@@ -130,11 +130,17 @@ where
     pub async fn init(client: Docker, store: StateStore, device: D) -> Result<Self> {
         let mut service = Self::new(client, store, device);
 
-        for value in service.store.load().await? {
+        let stored = service.store.load().await?;
+
+        debug!("loaded {} resources from state store", stored.len());
+
+        for value in stored {
             let id = Id::new(&value.id);
 
             match value.resource {
                 Some(Resource::Image(state)) => {
+                    debug!("adding stored image with id {id}");
+
                     let image = Image::from(state);
 
                     service.nodes.add_node_sync(
@@ -146,6 +152,8 @@ where
                     )?;
                 }
                 Some(Resource::Volume(state)) => {
+                    debug!("adding stored volume with id {id}");
+
                     let volume = Volume::from(state);
 
                     service.nodes.add_node_sync(
@@ -157,6 +165,8 @@ where
                     )?;
                 }
                 Some(Resource::Network(state)) => {
+                    debug!("adding stored network with id {id}");
+
                     let network = Network::from(state);
 
                     service.nodes.add_node_sync(
@@ -172,6 +182,8 @@ where
                     )?;
                 }
                 Some(Resource::Container(state)) => {
+                    debug!("adding stored container with id {id}");
+
                     let container = Container::from(state);
 
                     let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
@@ -189,6 +201,8 @@ where
                     )?;
                 }
                 Some(Resource::Deployment) => {
+                    debug!("adding stored deployment with id {id}");
+
                     let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
 
                     service.nodes.add_node_sync(
