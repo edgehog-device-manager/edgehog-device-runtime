@@ -105,6 +105,11 @@ impl Node {
                 | State::Up(NodeType::Deployment)
         )
     }
+
+    /// Check if the state of the node is [`State::Up`]
+    pub(crate) fn is_up(&self) -> bool {
+        matches!(self.state, State::Up(_))
+    }
 }
 
 #[cfg(test)]

@@ -495,10 +495,33 @@ where
         let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
 
         let mut relations = Vec::new();
-        while let Some(idx) = space.next(self.nodes.relations()) {
+        let graph = self.nodes.relations();
+        while let Some(idx) = space.next(graph) {
             if idx == start_idx {
                 // The deployment stopped should be the last event.
                 debug!("skipping the starting node");
+                continue;
+            }
+
+            // filter the dependents deployment, and check that are not started
+            let running_deployments = self
+                .nodes
+                .dependent(idx)
+                .filter_map(|id| {
+                    if id.is_deployment() {
+                        self.nodes.node(id)
+                    } else {
+                        None
+                    }
+                })
+                .any(|deployment| deployment.is_up());
+
+            if running_deployments {
+                debug!(
+                    "skipping {:?} which has another running deployment ",
+                    self.nodes.get_id(idx)
+                );
+
                 continue;
             }
 
@@ -556,6 +579,13 @@ impl Id {
 
     pub(crate) fn uuid(&self) -> &Uuid {
         &self.id
+    }
+
+    /// Returns `true` if the [`ResourceType`] is a [`Deployment`]
+    ///
+    /// [`Deployment`]: ResourceType::Deployment
+    fn is_deployment(&self) -> bool {
+        matches!(self.rt, ResourceType::Deployment)
     }
 }
 
