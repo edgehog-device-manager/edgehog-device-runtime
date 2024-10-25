@@ -18,7 +18,7 @@
 
 use std::fmt::Debug;
 
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, trace};
 
 use super::{Id, Result};
 
@@ -159,7 +159,7 @@ impl NodeType {
             NodeType::Container(container) => {
                 container.start(client).await?;
 
-                AvailableContainers::new(id, ContainerStatus::Created)
+                AvailableContainers::new(id, ContainerStatus::Running)
                     .send(device)
                     .await?;
 
@@ -173,6 +173,37 @@ impl NodeType {
                 info!("deployment started with id {id}");
             }
         }
+
+        info!("resource {id} started");
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub(super) async fn stop<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        match self {
+            NodeType::Image(_) | NodeType::Volume(_) | NodeType::Network(_) => {
+                trace!("nothing to do for {id}");
+            }
+            NodeType::Container(container) => {
+                let exists = container.stop(client).await?;
+                debug_assert!(exists.is_some());
+
+                AvailableContainers::new(id, ContainerStatus::Stopped)
+                    .send(device)
+                    .await?;
+            }
+            NodeType::Deployment => {
+                AvailableDeployments::new(id, DeploymentStatus::Stopped)
+                    .send(device)
+                    .await?;
+            }
+        }
+
+        info!("resource {id} stopped");
 
         Ok(())
     }
