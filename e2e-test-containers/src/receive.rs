@@ -70,7 +70,11 @@ where
                             .start(&Id::new(ResourceType::Deployment, release_id))
                             .await?;
                     }
-                    "stop" => unimplemented!(),
+                    "stop" => {
+                        service
+                            .stop(&Id::new(ResourceType::Deployment, release_id))
+                            .await?;
+                    }
                     _ => {
                         bail!("unrecognize ApplicationCommand {cmd}");
                     }

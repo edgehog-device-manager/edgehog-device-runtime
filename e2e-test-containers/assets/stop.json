@@ -1,0 +1,9 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/6a9b6d3c-4894-4fd0-af1d-44b326282c19/command",
+      "data": "stop"
+    }
+  ]
+}

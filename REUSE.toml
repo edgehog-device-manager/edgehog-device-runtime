@@ -27,7 +27,7 @@ SPDX-FileCopyrightText = "2022-2024 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["e2e-test-containers/assets/data.json"]
+path = ["e2e-test-containers/assets/*.json"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"
