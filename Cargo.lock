@@ -1189,6 +1189,7 @@ dependencies = [
  "astarte-message-hub-proto",
  "async-trait",
  "bytes",
+ "cfg-if",
  "clap",
  "displaydoc",
  "edgehog-device-runtime-forwarder",

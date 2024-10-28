@@ -24,26 +24,25 @@ use data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use serde::Deserialize;
 use telemetry::TelemetryInterfaceConfig;
 
-use crate::error::DeviceManagerError;
-
 pub use self::controller::Runtime;
 
 mod commands;
 mod controller;
 pub mod data;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 mod device;
 pub mod error;
 #[cfg(feature = "forwarder")]
 mod forwarder;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 mod ota;
 mod power_management;
 pub mod repository;
 #[cfg(feature = "systemd")]
 pub mod systemd_wrapper;
 pub mod telemetry;
-
-const MAX_OTA_OPERATION: usize = 2;
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum AstarteLibrary {

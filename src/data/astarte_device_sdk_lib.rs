@@ -30,7 +30,6 @@ use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 
-use crate::device::DeviceProxy;
 use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
 
@@ -40,6 +39,7 @@ pub enum DeviceSdkError {
     /// missing device ID
     MissingDeviceId,
     /// couldn't get the hardware id from DBus
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
     Zbus(#[from] zbus::Error),
     /// couldn't pair device to Astarte
     Pairing(#[from] PairingError),
@@ -72,9 +72,15 @@ impl AstarteDeviceSdkConfigOptions {
             return Ok(id.clone());
         }
 
-        hardware_id_from_dbus()
-            .await?
-            .ok_or(DeviceSdkError::MissingDeviceId)
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "zbus", target_os = "linux"))] {
+                hardware_id_from_dbus()
+                    .await?
+                    .ok_or(DeviceSdkError::MissingDeviceId)
+            } else {
+                Err(DeviceSdkError::MissingDeviceId)
+            }
+        }
     }
 
     async fn credentials_secret(
@@ -149,9 +155,10 @@ impl AstarteDeviceSdkConfigOptions {
     }
 }
 
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 pub async fn hardware_id_from_dbus() -> Result<Option<String>, DeviceSdkError> {
     let connection = zbus::Connection::system().await?;
-    let proxy = DeviceProxy::new(&connection).await?;
+    let proxy = crate::device::DeviceProxy::new(&connection).await?;
     let hardware_id: String = proxy.get_hardware_id("").await?;
 
     if hardware_id.is_empty() {

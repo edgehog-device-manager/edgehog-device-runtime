@@ -37,6 +37,7 @@ impl Commands {
     /// Returns `true` if the cmd req is [`Reboot`].
     ///
     /// [`Reboot`]: CmdReq::Reboot
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
     #[must_use]
     pub fn is_reboot(&self) -> bool {
         matches!(self, Self::Request(CmdReq::Reboot))

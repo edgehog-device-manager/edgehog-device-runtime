@@ -26,11 +26,14 @@ use crate::{
     commands::execute_command,
     data::{Publisher, Subscriber},
     error::DeviceManagerError,
-    led_behavior::{LedBlink, LedEvent},
-    ota::ota_handler::OtaHandler,
     telemetry::{event::TelemetryEvent, Telemetry},
     DeviceManagerOptions,
 };
+
+#[cfg(all(feature = "zbus", target_os = "linux"))]
+use crate::led_behavior::{LedBlink, LedEvent};
+#[cfg(all(feature = "zbus", target_os = "linux"))]
+use crate::ota::ota_handler::OtaHandler;
 
 use self::event::RuntimeEvent;
 
@@ -40,12 +43,14 @@ pub mod event;
 #[derive(Debug)]
 pub struct Runtime<T> {
     client: T,
-    ota_handler: OtaHandler,
-    led_tx: mpsc::Sender<LedEvent>,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
 
     #[cfg(feature = "forwarder")]
     forwarder: crate::forwarder::Forwarder<T>,
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    led_tx: mpsc::Sender<LedEvent>,
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    ota_handler: OtaHandler,
 }
 
 impl<T> Runtime<T> {
@@ -62,10 +67,15 @@ impl<T> Runtime<T> {
 
         info!("Initializing");
 
+        #[cfg(all(feature = "zbus", target_os = "linux"))]
         let ota_handler = OtaHandler::start(tasks, client.clone(), &opts).await?;
 
-        let (led_tx, led_rx) = mpsc::channel(8);
-        tasks.spawn(LedBlink.spawn(led_rx));
+        #[cfg(all(feature = "zbus", target_os = "linux"))]
+        let led_tx = {
+            let (led_tx, led_rx) = mpsc::channel(8);
+            tasks.spawn(LedBlink.spawn(led_rx));
+            led_tx
+        };
 
         let (telemetry_tx, telemetry_rx) = mpsc::channel(8);
 
@@ -84,11 +94,13 @@ impl<T> Runtime<T> {
 
         Ok(Self {
             client,
-            ota_handler,
-            led_tx,
             telemetry_tx,
             #[cfg(feature = "forwarder")]
             forwarder,
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            led_tx,
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            ota_handler,
         })
     }
 
@@ -125,15 +137,8 @@ impl<T> Runtime<T> {
         T: Publisher + Clone + Send + Sync + 'static,
     {
         match event {
-            RuntimeEvent::Ota(ota) => {
-                if let Err(err) = self.ota_handler.handle_event(ota).await {
-                    error!(
-                        "error while processing ota envent {}",
-                        stable_eyre::Report::new(err)
-                    );
-                }
-            }
             RuntimeEvent::Command(cmd) => {
+                #[cfg(all(feature = "zbus", target_os = "linux"))]
                 if cmd.is_reboot() && self.ota_handler.in_progress() {
                     error!("cannot reboot during OTA update");
 
@@ -152,14 +157,24 @@ impl<T> Runtime<T> {
                     error!("couldn't send the telemetry event");
                 }
             }
+            #[cfg(feature = "forwarder")]
+            RuntimeEvent::Session(event) => {
+                self.forwarder.handle_sessions(event);
+            }
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
             RuntimeEvent::Led(event) => {
                 if self.led_tx.send(event).await.is_err() {
                     error!("couldn't send the led event");
                 }
             }
-            #[cfg(feature = "forwarder")]
-            RuntimeEvent::Session(event) => {
-                self.forwarder.handle_sessions(event);
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            RuntimeEvent::Ota(ota) => {
+                if let Err(err) = self.ota_handler.handle_event(ota).await {
+                    error!(
+                        "error while processing ota envent {}",
+                        stable_eyre::Report::new(err)
+                    );
+                }
             }
         }
     }

@@ -25,7 +25,7 @@ use tracing::{debug, info};
 
 use crate::data::Publisher;
 
-use super::{battery_status, storage_usage::StorageUsage, system_status::SystemStatus};
+use super::{storage_usage::StorageUsage, system_status::SystemStatus};
 
 #[derive(Debug, thiserror::Error)]
 #[error("unsupported telemetry interface: {interface}")]
@@ -94,7 +94,13 @@ impl<T> Task<T> {
                 StorageUsage::read().send(&self.client).await;
             }
             TelemetryInterface::BatteryStatus => {
-                battery_status::send_battery_status(&self.client).await;
+                cfg_if::cfg_if! {
+                    if #[cfg(all(feature = "zbus", target_os = "linux"))] {
+                        super::battery_status::send_battery_status(&self.client).await;
+                    } else {
+                        tracing::warn!("The battery status telemetry interface is not supported because the zbus feature is missing")
+                    }
+                }
             }
         }
     }

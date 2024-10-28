@@ -26,6 +26,7 @@ use async_trait::async_trait;
 use event::OtaRequest;
 use futures::stream::BoxStream;
 use futures::TryStreamExt;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 use ota_handler::{OtaEvent, OtaInProgress, OtaMessage, OtaStatusMessage};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -43,6 +44,7 @@ use crate::repository::StateRepository;
 use crate::DeviceManagerOptions;
 
 pub mod event;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod ota_handler;
 #[cfg(test)]
 mod ota_handler_test;

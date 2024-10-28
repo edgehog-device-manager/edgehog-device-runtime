@@ -18,17 +18,16 @@
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 
-use crate::{
-    commands::Commands, led_behavior::LedEvent, ota::event::OtaRequest,
-    telemetry::event::TelemetryEvent,
-};
+use crate::{commands::Commands, telemetry::event::TelemetryEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEvent {
-    Ota(OtaRequest),
     Command(Commands),
     Telemetry(TelemetryEvent),
-    Led(LedEvent),
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    Ota(crate::ota::event::OtaRequest),
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    Led(crate::led_behavior::LedEvent),
     #[cfg(feature = "forwarder")]
     Session(edgehog_forwarder::astarte::SessionInfo),
 }
@@ -38,17 +37,19 @@ impl FromEvent for RuntimeEvent {
 
     fn from_event(event: DeviceEvent) -> Result<Self, Self::Err> {
         match event.interface.as_str() {
-            "io.edgehog.devicemanager.OTARequest" => {
-                OtaRequest::from_event(event).map(RuntimeEvent::Ota)
-            }
             "io.edgehog.devicemanager.Commands" => {
                 Commands::from_event(event).map(RuntimeEvent::Command)
             }
             "io.edgehog.devicemanager.config.Telemetry" => {
                 TelemetryEvent::from_event(event).map(RuntimeEvent::Telemetry)
             }
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
             "io.edgehog.devicemanager.LedBehavior" => {
-                LedEvent::from_event(event).map(RuntimeEvent::Led)
+                crate::led_behavior::LedEvent::from_event(event).map(RuntimeEvent::Led)
+            }
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            "io.edgehog.devicemanager.OTARequest" => {
+                crate::ota::event::OtaRequest::from_event(event).map(RuntimeEvent::Ota)
             }
             #[cfg(feature = "forwarder")]
             "io.edgehog.devicemanager.ForwarderSessionRequest" => {

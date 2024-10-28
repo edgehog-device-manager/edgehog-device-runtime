@@ -36,10 +36,11 @@ use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
 use crate::ota::{Ota, OtaId, OtaStatus};
 use crate::repository::file_state_repository::FileStateRepository;
-use crate::MAX_OTA_OPERATION;
 
 use super::event::{OtaOperation, OtaRequest};
 use super::PersistentState;
+
+const MAX_OTA_OPERATION: usize = 2;
 
 #[derive(AstarteAggregate, Debug)]
 #[allow(non_snake_case)]
