@@ -22,7 +22,7 @@ use std::convert::identity;
 
 use clap::Parser;
 use cli::Cli;
-use stable_eyre::eyre::{OptionExt, WrapErr};
+use stable_eyre::eyre::{format_err, OptionExt, WrapErr};
 use tracing::{info, warn};
 
 use config::read_options;
@@ -53,6 +53,11 @@ async fn main() -> stable_eyre::Result<()> {
                 .from_env_lossy(),
         )
         .try_init()?;
+
+    // Use ring as default crypto provider
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|_| format_err!("Failed to install rustls crypto provider"))?;
 
     #[cfg(feature = "systemd")]
     {

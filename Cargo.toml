@@ -42,6 +42,7 @@ edgehog-forwarder = { workspace = true, optional = true }
 futures = { workspace = true }
 procfs = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
+rustls = { workspace = true, features = ["ring","logging","std","tls12"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 stable-eyre = { workspace = true }
@@ -102,7 +103,7 @@ petgraph = "0.6.5"
 procfs = "0.16.0"
 reqwest = "0.12.9"
 rustc_version = "0.4.1"
-rustls = "0.23.16"
+rustls = { version = "0.23.16", default-features = false }
 rustls-native-certs = "0.8.0"
 rustls-pemfile = "2.2.0"
 serde = "1.0.214"
