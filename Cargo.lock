@@ -1111,6 +1111,7 @@ dependencies = [
  "cfg-if",
  "clap",
  "displaydoc",
+ "edgehog-device-runtime-containers",
  "edgehog-device-runtime-forwarder",
  "futures",
  "httpmock",

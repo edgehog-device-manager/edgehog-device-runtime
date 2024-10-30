@@ -31,7 +31,7 @@ use super::{parse_kv_map, ReqError};
     path = "/volume",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateVolume {
+pub struct CreateVolume {
     pub(crate) id: String,
     pub(crate) driver: String,
     pub(crate) options: Vec<String>,

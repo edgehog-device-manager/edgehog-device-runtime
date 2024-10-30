@@ -29,7 +29,7 @@ use crate::image::Image;
     path = "/image",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateImage {
+pub struct CreateImage {
     pub(crate) id: String,
     pub(crate) reference: String,
     pub(crate) registry_auth: String,

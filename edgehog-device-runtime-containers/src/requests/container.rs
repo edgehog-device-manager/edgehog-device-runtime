@@ -39,7 +39,7 @@ use super::ReqError;
     path = "/container",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateContainer {
+pub struct CreateContainer {
     pub(crate) id: String,
     pub(crate) image_id: String,
     pub(crate) network_ids: Vec<String>,

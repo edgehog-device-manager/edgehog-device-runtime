@@ -20,7 +20,7 @@ use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 
 use crate::{commands::Commands, telemetry::event::TelemetryEvent};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeEvent {
     Command(Commands),
     Telemetry(TelemetryEvent),
@@ -28,6 +28,8 @@ pub enum RuntimeEvent {
     Ota(crate::ota::event::OtaRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     Led(crate::led_behavior::LedEvent),
+    #[cfg(all(feature = "containers", target_os = "linux"))]
+    Container(Box<edgehog_containers::requests::ContainerRequest>),
     #[cfg(feature = "forwarder")]
     Session(edgehog_forwarder::astarte::SessionInfo),
 }
@@ -50,6 +52,11 @@ impl FromEvent for RuntimeEvent {
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             "io.edgehog.devicemanager.OTARequest" => {
                 crate::ota::event::OtaRequest::from_event(event).map(RuntimeEvent::Ota)
+            }
+            #[cfg(all(feature = "containers", target_os = "linux"))]
+            interface if interface.starts_with("io.edgehog.devicemanager.apps") => {
+                edgehog_containers::requests::ContainerRequest::from_event(event)
+                    .map(|event| RuntimeEvent::Container(Box::new(event)))
             }
             #[cfg(feature = "forwarder")]
             "io.edgehog.devicemanager.ForwarderSessionRequest" => {

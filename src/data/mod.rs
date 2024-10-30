@@ -185,6 +185,72 @@ pub mod tests {
         }
     }
 
+    // HACK: this is to make the mocks compatible with the Client
+    #[async_trait]
+    impl Client for MockPubSub {
+        async fn send_object_with_timestamp<D>(
+            &self,
+            _interface_name: &str,
+            _interface_path: &str,
+            _data: D,
+            _timestamp: astarte_device_sdk::chrono::DateTime<astarte_device_sdk::chrono::Utc>,
+        ) -> Result<(), AstarteError>
+        where
+            D: AstarteAggregate + Send,
+        {
+            unimplemented!()
+        }
+
+        async fn send_object<D>(
+            &self,
+            _interface_name: &str,
+            _interface_path: &str,
+            _data: D,
+        ) -> Result<(), astarte_device_sdk::Error>
+        where
+            D: AstarteAggregate + Send,
+        {
+            unimplemented!()
+        }
+
+        async fn send_with_timestamp<D>(
+            &self,
+            _interface_name: &str,
+            _interface_path: &str,
+            _data: D,
+            _timestamp: astarte_device_sdk::chrono::DateTime<astarte_device_sdk::chrono::Utc>,
+        ) -> Result<(), AstarteError>
+        where
+            D: TryInto<AstarteType> + Send,
+        {
+            unimplemented!()
+        }
+
+        async fn send<D>(
+            &self,
+            _interface_name: &str,
+            _interface_path: &str,
+            _data: D,
+        ) -> Result<(), AstarteError>
+        where
+            D: TryInto<AstarteType> + Send,
+        {
+            unimplemented!()
+        }
+
+        async fn unset(
+            &self,
+            _interface_name: &str,
+            _interface_path: &str,
+        ) -> Result<(), astarte_device_sdk::Error> {
+            unimplemented!()
+        }
+
+        async fn recv(&self) -> Result<DeviceEvent, RecvError> {
+            unimplemented!()
+        }
+    }
+
     /// Create tmp store and store dir.
     pub async fn create_tmp_store() -> (SqliteStore, TempDir) {
         let tmp_dir = TempDir::new("edgehog-tmp-store").expect("failed to create tmp store dir");

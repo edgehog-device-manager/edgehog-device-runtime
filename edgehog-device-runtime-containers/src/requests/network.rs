@@ -29,7 +29,7 @@ use crate::network::Network;
     path = "/network",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateNetwork {
+pub struct CreateNetwork {
     pub(crate) id: String,
     pub(crate) driver: String,
     pub(crate) check_duplicate: bool,

@@ -23,7 +23,7 @@ use std::{
     str::FromStr,
 };
 
-use astarte_device_sdk::{event::FromEventError, properties::PropAccess, DeviceEvent, FromEvent};
+use astarte_device_sdk::event::FromEventError;
 use itertools::Itertools;
 use petgraph::stable_graph::NodeIndex;
 use serde::{Deserialize, Serialize};
@@ -38,8 +38,12 @@ use crate::{
     network::Network,
     properties::{Client, PropError},
     requests::{
-        container::CreateContainer, deployment::CreateDeployment, image::CreateImage,
-        network::CreateNetwork, volume::CreateVolume, CreateRequests, ReqError,
+        container::CreateContainer,
+        deployment::{CommandValue, CreateDeployment, DeploymentCommand},
+        image::CreateImage,
+        network::CreateNetwork,
+        volume::CreateVolume,
+        ContainerRequest, ReqError,
     },
     service::resource::NodeType,
     store::{Resource, StateStore, StateStoreError},
@@ -108,23 +112,17 @@ where
 /// It handles the events received from Astarte, storing and updating the new container resources
 /// and commands that are received by the Runtime.
 #[derive(Debug)]
-pub struct Service<D>
-where
-    D: Client + PropAccess,
-{
+pub struct Service<D> {
     client: Docker,
     store: StateStore,
     device: D,
     nodes: NodeGraph,
 }
 
-impl<D> Service<D>
-where
-    D: Client + PropAccess + Sync,
-{
+impl<D> Service<D> {
     /// Create a new service
     #[must_use]
-    pub(crate) fn new(client: Docker, store: StateStore, device: D) -> Self {
+    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
         Self {
             client,
             store,
@@ -135,10 +133,8 @@ where
 
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
-    pub async fn init(client: Docker, store: StateStore, device: D) -> Result<Self> {
-        let mut service = Self::new(client, store, device);
-
-        let stored = service.store.load().await?;
+    pub async fn init(&mut self) -> Result<()> {
+        let stored = self.store.load().await?;
 
         debug!("loaded {} resources from state store", stored.len());
 
@@ -151,21 +147,21 @@ where
                 Some(Resource::Image(state)) => {
                     let image = Image::from(state);
 
-                    service.nodes.add_node_sync(id, &[], |id, node_idx| {
+                    self.nodes.add_node_sync(id, &[], |id, node_idx| {
                         Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
                     })?;
                 }
                 Some(Resource::Volume(state)) => {
                     let volume = Volume::from(state);
 
-                    service.nodes.add_node_sync(id, &[], |id, node_idx| {
+                    self.nodes.add_node_sync(id, &[], |id, node_idx| {
                         Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
                     })?;
                 }
                 Some(Resource::Network(state)) => {
                     let network = Network::from(state);
 
-                    service.nodes.add_node_sync(id, &[], |id, node_idx| {
+                    self.nodes.add_node_sync(id, &[], |id, node_idx| {
                         Ok(Node::with_state(
                             id,
                             node_idx,
@@ -176,65 +172,73 @@ where
                 Some(Resource::Container(state)) => {
                     let container = Container::from(state);
 
-                    service
-                        .nodes
-                        .add_node_sync(id, &value.deps, |id, node_idx| {
-                            Ok(Node::with_state(
-                                id,
-                                node_idx,
-                                State::Stored(container.into()),
-                            ))
-                        })?;
+                    self.nodes.add_node_sync(id, &value.deps, |id, node_idx| {
+                        Ok(Node::with_state(
+                            id,
+                            node_idx,
+                            State::Stored(container.into()),
+                        ))
+                    })?;
                 }
                 Some(Resource::Deployment) => {
-                    service
-                        .nodes
-                        .add_node_sync(id, &value.deps, |id, node_idx| {
-                            Ok(Node::with_state(
-                                id,
-                                node_idx,
-                                State::Stored(NodeType::Deployment),
-                            ))
-                        })?;
+                    self.nodes.add_node_sync(id, &value.deps, |id, node_idx| {
+                        Ok(Node::with_state(
+                            id,
+                            node_idx,
+                            State::Stored(NodeType::Deployment),
+                        ))
+                    })?;
                 }
                 None => {
                     debug!("adding missing resource");
 
-                    service
-                        .nodes
-                        .add_node_sync(id, &value.deps, |id, node_idx| {
-                            Ok(Node::new(id, node_idx))
-                        })?;
+                    self.nodes.add_node_sync(id, &value.deps, |id, node_idx| {
+                        Ok(Node::new(id, node_idx))
+                    })?;
                 }
             }
         }
 
-        Ok(service)
+        Ok(())
     }
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
-    pub async fn on_event(&mut self, event: DeviceEvent) -> Result<()>
+    pub async fn on_event(&mut self, event: ContainerRequest) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let event = CreateRequests::from_event(event)?;
-
         match event {
-            CreateRequests::Image(req) => {
+            ContainerRequest::Image(req) => {
                 self.create_image(req).await?;
             }
-            CreateRequests::Volume(req) => {
+            ContainerRequest::Volume(req) => {
                 self.create_volume(req).await?;
             }
-            CreateRequests::Network(req) => {
+            ContainerRequest::Network(req) => {
                 self.create_network(req).await?;
             }
-            CreateRequests::Container(req) => {
+            ContainerRequest::Container(req) => {
                 self.create_container(req).await?;
             }
-            CreateRequests::Deployment(req) => {
+            ContainerRequest::Deployment(req) => {
                 self.create_deployment(req).await?;
+            }
+            ContainerRequest::DeploymentCommand(DeploymentCommand {
+                id,
+                command: CommandValue::Start,
+            }) => {
+                let id = Id::new(ResourceType::Deployment, id);
+
+                self.start(&id).await?;
+            }
+            ContainerRequest::DeploymentCommand(DeploymentCommand {
+                id,
+                command: CommandValue::Stop,
+            }) => {
+                let id = Id::new(ResourceType::Deployment, id);
+
+                self.stop(&id).await?;
             }
         }
 
@@ -628,6 +632,7 @@ mod tests {
     use std::collections::HashMap;
 
     use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::FromEvent;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
     use bollard::secret::RestartPolicyNameEnum;
@@ -676,7 +681,9 @@ mod tests {
         let reference = "docker.io/nginx:stable-alpine-slim";
         let create_image_req = create_image_request_event(id.to_string(), reference, "");
 
-        service.on_event(create_image_req).await.unwrap();
+        let req = ContainerRequest::from_event(create_image_req).unwrap();
+
+        service.on_event(req).await.unwrap();
 
         let id = Id::new(ResourceType::Image, id);
         let node = service.nodes.node(&id).unwrap();
@@ -724,7 +731,9 @@ mod tests {
 
         let create_volume_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
 
-        service.on_event(create_volume_req).await.unwrap();
+        let req = ContainerRequest::from_event(create_volume_req).unwrap();
+
+        service.on_event(req).await.unwrap();
 
         let id = Id::new(ResourceType::Volume, id);
         let node = service.nodes.node(&id).unwrap();
@@ -773,7 +782,9 @@ mod tests {
 
         let create_network_req = create_network_request_event(id, "bridged");
 
-        service.on_event(create_network_req).await.unwrap();
+        let req = ContainerRequest::from_event(create_network_req).unwrap();
+
+        service.on_event(req).await.unwrap();
 
         let id = Id::new(ResourceType::Network, id);
         let node = service.nodes.node(&id).unwrap();
@@ -826,7 +837,9 @@ mod tests {
         let image_id = Uuid::new_v4().to_string();
         let create_container_req = create_container_request_event(id, &image_id);
 
-        service.on_event(create_container_req).await.unwrap();
+        let req = ContainerRequest::from_event(create_container_req).unwrap();
+
+        service.on_event(req).await.unwrap();
 
         let id = Id::new(ResourceType::Container, id);
         let node = service.nodes.node(&id).unwrap();

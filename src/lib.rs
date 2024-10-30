@@ -27,6 +27,8 @@ use telemetry::TelemetryInterfaceConfig;
 pub use self::controller::Runtime;
 
 mod commands;
+#[cfg(feature = "containers")]
+mod containers;
 mod controller;
 pub mod data;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -69,6 +71,7 @@ pub struct DeviceManagerOptions {
 mod tests {
     use std::path::PathBuf;
 
+    use tempdir::TempDir;
     use tokio::task::JoinSet;
     use url::Url;
 
@@ -141,6 +144,8 @@ mod tests {
 
     #[tokio::test]
     async fn device_manager_new_success() {
+        let tempdir = TempDir::new("device-manager-new").unwrap();
+
         let options = DeviceManagerOptions {
             astarte_library: AstarteLibrary::AstarteDeviceSdk,
             astarte_device_sdk: Some(AstarteDeviceSdkConfigOptions {
@@ -154,18 +159,19 @@ mod tests {
             #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
             interfaces_directory: PathBuf::new(),
-            store_directory: PathBuf::new(),
+            store_directory: tempdir.path().to_owned(),
             download_directory: PathBuf::new(),
             telemetry_config: Some(vec![]),
         };
 
         let mut pub_sub = MockPubSub::new();
 
-        pub_sub.expect_clone().times(2).returning(MockPubSub::new);
+        pub_sub.expect_clone().times(3).returning(MockPubSub::new);
 
         #[cfg(feature = "forwarder")]
         mock_forwarder(&mut pub_sub);
 
+        // TODO: the tasks are never joined so the error is never checked ¯\_(ツ)_/¯
         let mut tasks = JoinSet::new();
 
         let dm = Runtime::new(&mut tasks, options, pub_sub).await;

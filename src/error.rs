@@ -73,6 +73,10 @@ pub enum DeviceManagerError {
     #[error("couldn't convert device event")]
     FromEvent(#[from] FromEventError),
 
+    #[cfg(feature = "containers")]
+    #[error("container operation failed")]
+    Containers(#[from] edgehog_containers::service::ServiceError),
+
     #[cfg(feature = "forwarder")]
     #[error("forwarder error")]
     Forwarder(#[from] crate::forwarder::ForwarderError),
