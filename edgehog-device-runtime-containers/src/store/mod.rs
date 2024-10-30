@@ -229,9 +229,12 @@ impl<'a> Value<'a> {
     }
 
     fn from_node(value: &'a Node, deps: Vec<Id>) -> Self {
-        let resource = value.node_type().map(Resource::from);
+        let resource = value
+            .resource
+            .as_ref()
+            .map(|node| Resource::from(&node.value));
 
-        Self::new(*value.id(), deps, resource)
+        Self::new(value.id, deps, resource)
     }
 }
 
@@ -288,6 +291,18 @@ impl<'a> From<&'a NodeType> for Resource<'a> {
             NodeType::Network(network) => Resource::from(network),
             NodeType::Container(container) => Resource::from(container),
             NodeType::Deployment => Resource::Deployment,
+        }
+    }
+}
+
+impl From<Resource<'_>> for NodeType {
+    fn from(value: Resource<'_>) -> Self {
+        match value {
+            Resource::Image(image) => Image::from(image).into(),
+            Resource::Volume(volume) => Volume::from(volume).into(),
+            Resource::Network(network) => Network::from(network).into(),
+            Resource::Container(container) => Container::from(container).into(),
+            Resource::Deployment => NodeType::Deployment,
         }
     }
 }
