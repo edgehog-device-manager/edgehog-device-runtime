@@ -99,6 +99,7 @@ impl StateStore {
     }
 
     /// Load the state from the persistence
+    #[instrument(skip_all)]
     pub(crate) async fn load(&self) -> Result<Vec<Value>> {
         // The call to read is one at the beginning, so we don't need to keep the reader around
         let file = self
@@ -133,7 +134,7 @@ impl StateStore {
     }
 
     /// Appends the new struct to the state store
-    #[instrument(skip(resource, deps))]
+    #[instrument(skip(self, resource, deps))]
     pub(crate) async fn append(
         &mut self,
         id: Id,
