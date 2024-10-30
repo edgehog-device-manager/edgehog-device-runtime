@@ -21,7 +21,7 @@ hex = { workspace = true }
 http = { workspace = true }
 httpmock = { workspace = true, optional = true }
 reqwest = { workspace = true }
-rustls = { workspace = true }
+rustls = { workspace = true , features = ["ring","logging","std","tls12"]}
 rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
 thiserror = { workspace = true }
