@@ -28,7 +28,7 @@ where
     D: Debug + Client + Clone + PropAccess + Sync + 'static,
 {
     let client = Docker::connect().await?;
-    let store = StateStore::open(store.join("state.json"))
+    let store = StateStore::open(store.join("containers/state.json"))
         .await
         .wrap_err("couldn't open the state store")?;
 

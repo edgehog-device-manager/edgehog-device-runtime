@@ -37,7 +37,7 @@ pub(crate) struct ContainerService<D> {
 impl<D> ContainerService<D> {
     pub(crate) async fn new(store_dir: &Path, device: D) -> Result<Self, ServiceError> {
         let client = Docker::connect().await?;
-        let store = StateStore::open(store_dir.join("state.json")).await?;
+        let store = StateStore::open(store_dir.join("containers/state.json")).await?;
 
         let service = Service::new(client, store, device);
 

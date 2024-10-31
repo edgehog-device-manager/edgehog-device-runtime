@@ -672,7 +672,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let store = StateStore::open(tempdir.path().join("state.json"))
+        let store = StateStore::open(tempdir.path().join("containers/state.json"))
             .await
             .unwrap();
 
