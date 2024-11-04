@@ -60,8 +60,7 @@ pub struct Network<S> {
     pub id: Option<String>,
     /// The network's name.
     pub name: S,
-    /// The network's name.
-    /// Name of the network driver plugin to use.
+    /// Network driver plugin to use.
     ///
     /// Defaults to "bridge"
     pub driver: S,
@@ -134,16 +133,13 @@ impl<S> Network<S> {
         S: AsRef<str> + Display + Debug,
     {
         if self.id.is_some() {
-            match self.inspect(client).await? {
-                Some(net) => {
-                    trace!("found network {net:?}");
+            if let Some(net) = self.inspect(client).await? {
+                trace!("found network {net:?}");
 
-                    return Ok(false);
-                }
-                None => {
-                    debug!("network not found, creating it");
-                }
+                return Ok(false);
             }
+
+            debug!("network not found, creating it");
         }
 
         self.create(client).await?;

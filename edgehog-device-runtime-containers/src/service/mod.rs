@@ -282,11 +282,11 @@ where
             .add_node(
                 id,
                 |id, idx| async move {
-                    let image = Network::from(req);
+                    let network = Network::from(req);
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image).await?;
+                    node.store(store, device, network).await?;
 
                     Ok(node)
                 },
