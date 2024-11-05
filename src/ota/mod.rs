@@ -235,10 +235,8 @@ impl OtaStatus {
                 ota_event.requestUUID = ota_request.uuid.to_string();
                 ota_event.status = "Success".to_string();
             }
-            OtaStatus::Failure(ota_error, ota_request) => {
-                if let Some(ota_request) = ota_request {
-                    ota_event.requestUUID = ota_request.uuid.to_string();
-                }
+            OtaStatus::Failure(ota_error, Some(ota_request)) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
                 ota_event.status = "Failure".to_string();
                 let ota_status_message = OtaStatusMessage::from(ota_error);
                 ota_event.statusCode = ota_status_message.status_code;
@@ -254,10 +252,16 @@ impl OtaStatus {
             OtaStatus::Idle
             | OtaStatus::Init(_)
             | OtaStatus::NoPendingOta
-            | OtaStatus::Rebooted => return None,
+            | OtaStatus::Rebooted
+            | OtaStatus::Failure(_, None) => return None,
         }
 
-        Some(ota_event)
+        if ota_event.requestUUID.is_empty() {
+            error!("Unable to convert ota_event: request_uuid is empty");
+            None
+        } else {
+            Some(ota_event)
+        }
     }
 }
 
