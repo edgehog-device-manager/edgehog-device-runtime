@@ -28,8 +28,8 @@ use tracing::{debug, info, warn};
 use zbus::dbus_proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
+use crate::error::DeviceManagerError;
 use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
-use crate::DeviceManagerError;
 
 use super::ProgressStream;
 

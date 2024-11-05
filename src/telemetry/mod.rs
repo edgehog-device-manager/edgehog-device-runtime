@@ -19,6 +19,7 @@
 use std::{borrow::Cow, collections::HashMap, ops::Deref, path::PathBuf, str::FromStr};
 
 use async_trait::async_trait;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 use cellular_properties::CellularConnection;
 use event::{TelemetryConfig, TelemetryEvent};
 use serde::{Deserialize, Serialize};
@@ -41,10 +42,13 @@ use self::{
     storage_usage::StorageUsage,
 };
 
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod battery_status;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod cellular_properties;
 pub mod event;
 pub mod hardware_info;
+#[cfg(feature = "udev")]
 pub(crate) mod net_interfaces;
 pub mod os_release;
 pub mod runtime_info;
@@ -52,7 +56,9 @@ pub mod sender;
 pub(crate) mod storage_usage;
 pub(crate) mod system_info;
 pub(crate) mod system_status;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod upower;
+#[cfg(feature = "wifiscanner")]
 pub(crate) mod wifi_scan;
 
 const TELEMETRY_PATH: &str = "telemetry.json";
@@ -285,14 +291,17 @@ impl<T> Telemetry<T> {
 
         RUNTIME_INFO.send(&self.client).await;
 
+        #[cfg(feature = "udev")]
         net_interfaces::send_network_interface_properties(&self.client).await;
 
         SystemInfo::read().send(&self.client).await;
 
         StorageUsage::read().send(&self.client).await;
 
+        #[cfg(feature = "wifiscanner")]
         wifi_scan::send_wifi_scan(&self.client).await;
 
+        #[cfg(all(feature = "zbus", target_os = "linux"))]
         CellularConnection::read().await.send(&self.client).await;
     }
 

@@ -36,6 +36,7 @@ rust-version = "1.72.0"
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+cfg-if = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 displaydoc = { workspace = true }
 edgehog-forwarder = { workspace = true, optional = true }
@@ -55,11 +56,11 @@ tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-udev = { workspace = true }
+udev = { workspace = true, optional = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
-wifiscanner = { workspace = true }
-zbus = { workspace = true, default-features = false, features = ["tokio"] }
+wifiscanner = { workspace = true, optional = true }
+zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
 [build-dependencies]
 rustc_version = { workspace = true }
@@ -73,9 +74,13 @@ tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = { workspace = true, features = ["net"] }
 
 [features]
+default = ["udev", "wifiscanner", "zbus"]
 message-hub = ["astarte-device-sdk/message-hub"]
 systemd = ["dep:systemd"]
 forwarder = ["dep:edgehog-forwarder"]
+udev = ["dep:udev"]
+wifiscanner = ["dep:wifiscanner"]
+zbus = ["dep:zbus"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.9.1"

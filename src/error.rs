@@ -34,6 +34,7 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
     #[error(transparent)]
     Zbus(#[from] zbus::Error),
 
@@ -46,6 +47,7 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
     #[error(transparent)]
     Ota(#[from] crate::ota::OtaError),
 
