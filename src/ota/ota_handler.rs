@@ -279,6 +279,9 @@ impl From<&OtaError> for OtaStatusMessage {
                 ota_status_message.message = message.to_string()
             }
             OtaError::Canceled => ota_status_message.status_code = "Canceled".to_string(),
+            OtaError::InconsistentState => {
+                ota_status_message.status_code = "InternalError".to_string()
+            }
         }
 
         ota_status_message

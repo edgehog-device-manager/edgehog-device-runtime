@@ -121,6 +121,9 @@ pub enum OtaError {
     /// OTA update aborted by Edgehog half way during the procedure
     #[error("Canceled")]
     Canceled,
+    /// Attempted to start OTA operation while ota status is different from Idle
+    #[error("Inconsistent ota state")]
+    InconsistentState,
 }
 
 impl Default for DeployStatus {
@@ -359,11 +362,10 @@ where
         if self.ota_status != OtaStatus::Idle {
             error!("ota request already in progress");
 
-            return Err(OtaError::UpdateAlreadyInProgress.into());
+            return Err(OtaError::InconsistentState.into());
         }
 
         self.ota_status = OtaStatus::Init(msg.ota_id);
-
         self.handle_ota_update(msg.cancel).await;
 
         Ok(())
