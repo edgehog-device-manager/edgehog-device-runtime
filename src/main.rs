@@ -132,7 +132,7 @@ async fn main() -> stable_eyre::Result<()> {
     tasks.spawn(async move {
         dm.run()
             .await
-            .wrap_err("the Device Runtime encontered an unrecoverable error")
+            .wrap_err("the Device Runtime encountered an unrecoverable error")
     });
 
     while let Some(res) = tasks.join_next().await {
