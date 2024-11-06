@@ -44,6 +44,9 @@ tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
 uuid = { workspace = true }
 
+# Transitive dependencies
+hyperlocal = { workspace = true }
+
 [dev-dependencies]
 astarte-device-sdk-mock = { workspace = true }
 pretty_assertions = { workspace = true }
