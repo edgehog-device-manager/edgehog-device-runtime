@@ -68,16 +68,19 @@ where
     S: Hash + Eq,
 {
     /// Id of the docker container.
+    ///
+    /// The id of the image is optional since it will be available only when the image is created.
     pub id: Option<String>,
     /// Assign the specified name to the container.
     ///
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
     pub name: S,
     /// The name (or reference) of the image to use.
-    ///
-    /// The id of the image is optional since it will be available only when the image is.
     pub image: S,
     /// Network to link the container with.
+    ///
+    /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
+    /// square brackets optional.
     pub networks: Vec<S>,
     /// The hostname to use for the container.
     ///
@@ -408,23 +411,29 @@ where
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
 
+        let restart_policy = RestartPolicy {
+            name: Some(value.restart_policy),
+            maximum_retry_count: None,
+        };
+
+        let host_config = HostConfig {
+            restart_policy: Some(restart_policy),
+            binds: Some(binds),
+            port_bindings: Some(port_bindings),
+            privileged: Some(value.privileged),
+            ..Default::default()
+        };
+
+        let networking_config = NetworkingConfig {
+            endpoints_config: networks,
+        };
+
         Config {
             hostname,
             image: Some(value.image.as_ref()),
             env: Some(env),
-            host_config: Some(HostConfig {
-                restart_policy: Some(RestartPolicy {
-                    name: Some(value.restart_policy),
-                    maximum_retry_count: None,
-                }),
-                binds: Some(binds),
-                port_bindings: Some(port_bindings),
-                privileged: Some(value.privileged),
-                ..Default::default()
-            }),
-            networking_config: Some(NetworkingConfig {
-                endpoints_config: networks,
-            }),
+            host_config: Some(host_config),
+            networking_config: Some(networking_config),
             ..Default::default()
         }
     }

@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Persists the state of an [`Container`](crate::docker::container::Container)
+//! Persists the state of a [`Container`](crate::docker::container::Container)
 
 use std::{borrow::Cow, collections::HashMap, hash::Hash, str::FromStr};
 
