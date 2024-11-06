@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023 SECO Mind Srl
+// Copyright 2023-2024 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -206,15 +206,10 @@ where
         S: AsRef<str> + Display + Debug,
     {
         if self.id.is_some() {
-            match self.inspect(client).await? {
-                Some(net) => {
-                    trace!("found container {net:?}");
+            if let Some(container) = self.inspect(client).await? {
+                trace!("found container {container:?}");
 
-                    return Ok(false);
-                }
-                None => {
-                    debug!("container not found, creating it");
-                }
+                return Ok(false);
             }
         }
 
