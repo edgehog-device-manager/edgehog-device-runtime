@@ -98,7 +98,7 @@ impl TryFrom<AstarteType> for CommandValue {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use pretty_assertions::assert_eq;

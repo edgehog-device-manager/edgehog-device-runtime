@@ -52,7 +52,7 @@ impl From<CreateImage> for Image<String> {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use std::fmt::Display;
 
     use astarte_device_sdk::{DeviceEvent, Value};

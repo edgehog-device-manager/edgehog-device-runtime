@@ -51,7 +51,7 @@ impl From<CreateNetwork> for Network<String> {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
 
     use std::fmt::Display;
 

@@ -199,7 +199,7 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
 
     use std::{collections::HashMap, fmt::Display};
 
