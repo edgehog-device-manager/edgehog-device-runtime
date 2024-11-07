@@ -27,7 +27,10 @@ use std::{
 };
 
 use itertools::Itertools;
-use petgraph::stable_graph::{NodeIndex, StableDiGraph};
+use petgraph::{
+    stable_graph::{NodeIndex, StableDiGraph},
+    Direction,
+};
 use tracing::{debug, error, instrument};
 
 use crate::service::ServiceError;
@@ -58,6 +61,13 @@ impl NodeGraph {
         self.relations.node_weight(idx)
     }
 
+    /// Get the dependencies of a node
+    pub(crate) fn deps(&self, node: &Node) -> impl Iterator<Item = &Id> {
+        self.relations
+            .neighbors_directed(node.idx, Direction::Outgoing)
+            .filter_map(|dep| self.get_id(dep))
+    }
+
     /// Get a reference to a node
     pub(crate) fn node(&mut self, id: &Id) -> Option<&Node> {
         self.nodes.get(id).filter(|node| !node.state().is_missing())
@@ -69,11 +79,11 @@ impl NodeGraph {
             .filter(|node| !node.state().is_missing())
     }
 
-    pub(crate) fn add_node_sync<F>(&mut self, id: Id, f: F, deps: &[String]) -> Result<&mut Node>
+    pub(crate) fn add_node_sync<F>(&mut self, id: Id, f: F, deps: &[Id]) -> Result<&mut Node>
     where
         F: FnOnce(Id, NodeIndex) -> Result<Node>,
     {
-        let deps = self.get_node_deps(deps);
+        let deps = self.create_node_deps(deps);
 
         match self.nodes.entry(id) {
             Entry::Occupied(node) => {
@@ -93,17 +103,12 @@ impl NodeGraph {
         }
     }
 
-    pub(crate) async fn add_node<F, O>(
-        &mut self,
-        id: Id,
-        f: F,
-        deps: &[String],
-    ) -> Result<&mut Node>
+    pub(crate) async fn add_node<F, O>(&mut self, id: Id, f: F, deps: &[Id]) -> Result<&mut Node>
     where
         F: FnOnce(Id, NodeIndex) -> O,
         O: Future<Output = Result<Node>>,
     {
-        let deps = self.get_node_deps(deps);
+        let deps = self.create_node_deps(deps);
 
         let res = {
             match self.nodes.entry(id.clone()) {
@@ -151,12 +156,12 @@ impl NodeGraph {
     }
 
     /// Get or add as missing the node dependencies
-    fn get_node_deps(&mut self, deps: &[String]) -> NodeDeps {
+    fn create_node_deps(&mut self, deps: &[Id]) -> NodeDeps {
         let present = deps
             .iter()
             .filter_map(|id| {
                 self.nodes
-                    .get(id.as_str())
+                    .get(id.as_ref())
                     .map(|node| (node.id.clone(), node.idx))
             })
             .collect();
@@ -170,17 +175,15 @@ impl NodeGraph {
     }
 
     /// Add a missing node
-    fn add_missing(&mut self, id: &str) -> Option<(Id, NodeIndex)> {
+    fn add_missing(&mut self, id: &Id) -> Option<(Id, NodeIndex)> {
         if self.nodes.contains_key(id) {
             return None;
         }
 
-        let id = Id::new(id);
-
         let idx = self.relations.add_node(id.clone());
         self.nodes.insert(id.clone(), Node::new(id.clone(), idx));
 
-        Some((id, idx))
+        Some((id.clone(), idx))
     }
 
     /// Removes a node and all the relations.

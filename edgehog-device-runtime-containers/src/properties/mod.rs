@@ -29,6 +29,7 @@ cfg_if::cfg_if! {
     }
 }
 
+pub(crate) mod container;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;

@@ -28,15 +28,18 @@ use std::{
 use astarte_device_sdk::{
     event::FromEventError, properties::PropAccess, DeviceEvent, Error as AstarteError, FromEvent,
 };
+use itertools::Itertools;
 use tracing::{debug, instrument};
 
 use crate::{
+    container::Container,
     error::DockerError,
     image::Image,
     network::Network,
     properties::{Client, PropError},
     requests::{
-        image::CreateImage, network::CreateNetwork, volume::CreateVolume, CreateRequests, ReqError,
+        container::CreateContainer, image::CreateImage, network::CreateNetwork,
+        volume::CreateVolume, CreateRequests, ReqError,
     },
     store::{Resource, StateStore, StateStoreError},
     volume::Volume,
@@ -167,6 +170,23 @@ where
                         &[],
                     )?;
                 }
+                Some(Resource::Container(state)) => {
+                    let container = Container::from(state);
+
+                    let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(
+                                id,
+                                node_idx,
+                                State::Stored(container.into()),
+                            ))
+                        },
+                        &deps,
+                    )?;
+                }
                 None => {
                     debug!("add missing resource");
 
@@ -200,6 +220,9 @@ where
             CreateRequests::Network(req) => {
                 self.create_network(req).await?;
             }
+            CreateRequests::Container(req) => {
+                self.create_container(req).await?;
+            }
         }
 
         self.store.store(&self.nodes).await?;
@@ -226,7 +249,7 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image).await?;
+                    node.store(store, device, image, &[]).await?;
 
                     Ok(node)
                 },
@@ -256,7 +279,7 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image).await?;
+                    node.store(store, device, image, &[]).await?;
 
                     Ok(node)
                 },
@@ -286,11 +309,44 @@ where
 
                     let mut node = Node::new(id, idx);
 
-                    node.store(store, device, network).await?;
+                    node.store(store, device, network, &[]).await?;
 
                     Ok(node)
                 },
                 &[],
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Store the create container request
+    #[instrument(skip_all)]
+    async fn create_container(&mut self, req: CreateContainer) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(&req.id);
+
+        let device = &self.device;
+        let store = &mut self.store;
+
+        let deps = req.dependencies();
+        let deps = &deps;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let image = Container::try_from(req)?;
+
+                    let mut node = Node::new(id, idx);
+
+                    node.store(store, device, image, deps).await?;
+
+                    Ok(node)
+                },
+                deps,
             )
             .await?;
 
@@ -331,9 +387,9 @@ where
                 .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
 
             node.up(&self.device, &self.client).await?;
-        }
 
-        self.store.store(&self.nodes).await?;
+            self.store.store(&self.nodes).await?;
+        }
 
         Ok(())
     }
@@ -387,9 +443,14 @@ mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use bollard::secret::RestartPolicyNameEnum;
+    use pretty_assertions::assert_eq;
     use resource::NodeType;
     use tempfile::TempDir;
 
+    use crate::container::{Binding, PortBindingMap};
+    use crate::properties::container::ContainerStatus;
+    use crate::requests::container::tests::create_container_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
@@ -542,5 +603,66 @@ mod tests {
         };
 
         assert_eq!(*network, exp);
+    }
+
+    #[tokio::test]
+    async fn should_add_a_container() {
+        let tempdir = TempDir::new().unwrap();
+
+        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let endpoint = format!("/{id}/status");
+        device
+            .expect_send::<ContainerStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
+                    && path == endpoint
+                    && *value == ContainerStatus::Received
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let create_image_req = create_container_request_event(id, "bridged");
+
+        service.on_event(create_image_req).await.unwrap();
+
+        let id = Id::new(id);
+        let node = service.nodes.node(&id).unwrap();
+
+        let State::Stored(NodeType::Container(container)) = node.state() else {
+            panic!("incorrect node {node:?}");
+        };
+
+        let exp = Container {
+            id: None,
+            name: id.as_str(),
+            image: "image",
+            networks: vec!["networks"],
+            hostname: Some("hostname"),
+            restart_policy: RestartPolicyNameEnum::NO,
+            env: vec!["env"],
+            binds: vec!["binds"],
+            port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
+                "80/tcp".to_string(),
+                vec![Binding {
+                    host_ip: None,
+                    host_port: Some(80),
+                }],
+            )])),
+            privileged: false,
+        };
+
+        assert_eq!(*container, exp);
     }
 }
