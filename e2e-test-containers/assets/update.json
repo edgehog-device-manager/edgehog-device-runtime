@@ -1,0 +1,47 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateImageRequest",
+      "path": "/image",
+      "data": {
+        "id": "fb28e4ff-006d-4688-947a-eb792d750484",
+        "reference": "docker.io/library/httpd:alpine",
+        "registryAuth": ""
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "88d85d32-f2c0-4210-b0c9-f8f27700be5a",
+        "imageId": "fb28e4ff-006d-4688-947a-eb792d750484",
+        "networkIds": [],
+        "volumeIds": [],
+        "image": "docker.io/library/httpd:alpine",
+        "hostname": "",
+        "restartPolicy": "",
+        "env": [],
+        "binds": [],
+        "networks": [],
+        "portBindings": ["9000:80"],
+        "privileged": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
+      "path": "/deployment",
+      "data": {
+        "id": "b25dcb96-bafd-41a3-8a4b-4712eb3da81e",
+        "containers": ["88d85d32-f2c0-4210-b0c9-f8f27700be5a"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentUpdate",
+      "path": "/deployment",
+      "data": {
+        "from": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "to": "b25dcb96-bafd-41a3-8a4b-4712eb3da81e"
+      }
+    }
+  ]
+}

@@ -130,7 +130,7 @@ where
     }
 
     /// Get the container id or name if it's missing.
-    #[instrument]
+    #[instrument(skip_all)]
     pub fn container(&self) -> &str
     where
         S: AsRef<str> + Debug,
@@ -150,7 +150,7 @@ where
     }
 
     /// Set the id from docker.
-    #[instrument]
+    #[instrument(skip_all)]
     fn update_id(&mut self, id: String)
     where
         S: Display + Debug,
@@ -222,7 +222,7 @@ where
     /// Create a new docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError>
     where
         S: Debug + Display + AsRef<str>,
@@ -246,7 +246,7 @@ where
     /// Inspect a docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerInspect)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn inspect(
         &mut self,
         client: &Client,
@@ -285,7 +285,7 @@ where
     /// Remove a docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerDelete)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError>
     where
         S: Debug + Display + AsRef<str>,
@@ -317,7 +317,7 @@ where
     /// Start a docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError>
     where
         S: AsRef<str> + Display + Debug,
@@ -345,7 +345,7 @@ where
     /// Stop a docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError>
     where
         S: AsRef<str> + Display + Debug,
