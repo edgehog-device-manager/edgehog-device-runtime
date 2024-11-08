@@ -40,7 +40,7 @@ use crate::{
     properties::Client,
     requests::{
         container::CreateContainer,
-        deployment::{CommandValue, CreateDeployment, DeploymentCommand},
+        deployment::{CommandValue, CreateDeployment, DeploymentCommand, DeploymentUpdate},
         image::CreateImage,
         network::CreateNetwork,
         volume::CreateVolume,
@@ -196,6 +196,9 @@ impl<D> Service<D> {
                 let id = Id::new(ResourceType::Deployment, id);
 
                 self.stop(&id).await?;
+            }
+            ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
+                self.update(from, to).await?;
             }
         }
 
