@@ -72,7 +72,7 @@ impl State {
     #[instrument(skip_all)]
     async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match self {
             State::Missing => return Err(ServiceError::Create(id.to_string())),
@@ -93,7 +93,7 @@ impl State {
     #[instrument(skip_all)]
     async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match self {
             State::Missing | State::Stored(_) => Err(ServiceError::Start(id.to_string())),
@@ -117,7 +117,7 @@ impl State {
     #[instrument(skip_all)]
     pub(super) async fn up<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match &*self {
             State::Missing => return Err(ServiceError::Missing(id.to_string())),

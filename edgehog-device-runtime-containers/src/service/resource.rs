@@ -28,21 +28,16 @@ use crate::{
     network::Network,
     properties::{
         container::{AvailableContainers, ContainerStatus},
+        deployment::{AvailableDeployments, DeploymentStatus},
         image::AvailableImage,
         network::AvailableNetworks,
         volume::AvailableVolumes,
         AvailableProp, Client,
     },
-    store::StateStore,
+    store::{Resource, StateStore},
     volume::Volume,
     Docker,
 };
-
-/// A resource in the nodes struct.
-#[allow(dead_code)]
-pub(crate) trait Resource: Into<NodeType> {
-    fn dependencies(&self) -> Result<Vec<String>>;
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NodeType {
@@ -50,6 +45,7 @@ pub(crate) enum NodeType {
     Volume(Volume<String>),
     Network(Network<String>),
     Container(Container<String>),
+    Deployment,
 }
 
 impl NodeType {
@@ -95,6 +91,15 @@ impl NodeType {
 
                 info!("stored container with id {id}");
             }
+            NodeType::Deployment => {
+                store.append(id, Resource::Deployment, deps).await?;
+
+                AvailableDeployments::new(id, DeploymentStatus::Stopped)
+                    .send(device)
+                    .await?;
+
+                info!("stored deployment with id {id}");
+            }
         }
 
         Ok(())
@@ -103,7 +108,7 @@ impl NodeType {
     #[instrument(skip_all)]
     pub(super) async fn create<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match self {
             NodeType::Image(image) => {
@@ -136,6 +141,7 @@ impl NodeType {
 
                 info!("created container with id {id}");
             }
+            NodeType::Deployment => {}
         }
 
         Ok(())
@@ -144,7 +150,7 @@ impl NodeType {
     #[instrument(skip_all)]
     pub(super) async fn start<D>(&mut self, id: &Id, device: &D, client: &Docker) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         match self {
             NodeType::Image(_) | NodeType::Volume(_) | NodeType::Network(_) => {
@@ -157,7 +163,14 @@ impl NodeType {
                     .send(device)
                     .await?;
 
-                info!("created container with id {id}");
+                info!("started container with id {id}");
+            }
+            NodeType::Deployment => {
+                AvailableDeployments::new(id, DeploymentStatus::Started)
+                    .send(device)
+                    .await?;
+
+                info!("deployment started with id {id}");
             }
         }
 

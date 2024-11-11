@@ -30,6 +30,7 @@ use network::NetworkState;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter};
+use tracing::{debug, instrument};
 use volume::VolumeState;
 
 use crate::container::Container;
@@ -126,18 +127,22 @@ impl StateStore {
             let value: Value = serde_json::from_str(&line).map_err(StateStoreError::Deserialize)?;
 
             values.push(value);
+            line.clear();
         }
 
         Ok(values)
     }
 
     /// Appends the new struct to the state store
+    #[instrument(skip(resource, deps))]
     pub(crate) async fn append(
         &mut self,
         id: &Id,
         resource: Resource<'_>,
         deps: &[Id],
     ) -> Result<()> {
+        debug!("appending resource");
+
         // At the end
         self.file
             .seek(SeekFrom::End(0))
@@ -165,7 +170,10 @@ impl StateStore {
     }
 
     /// Write all the state to the file
+    #[instrument(skip_all, fields(nodes = %state.nodes().len()))]
     pub(crate) async fn store(&mut self, state: &NodeGraph) -> Result<()> {
+        debug!("storing state");
+
         // At the start and truncate
         self.file.rewind().await.map_err(StateStoreError::Store)?;
         self.file
@@ -242,6 +250,7 @@ pub(crate) enum Resource<'a> {
     Volume(VolumeState<'a>),
     Network(NetworkState<'a>),
     Container(ContainerState<'a>),
+    Deployment,
 }
 
 impl<'a, S> From<&'a Image<S>> for Resource<'a>
@@ -287,6 +296,7 @@ impl<'a> From<&'a NodeType> for Resource<'a> {
             NodeType::Volume(volume) => Resource::from(volume),
             NodeType::Network(network) => Resource::from(network),
             NodeType::Container(container) => Resource::from(container),
+            NodeType::Deployment => Resource::Deployment,
         }
     }
 }

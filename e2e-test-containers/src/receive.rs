@@ -32,7 +32,7 @@ where
         .await
         .wrap_err("couldn't open the state store")?;
 
-    let mut service = Service::new(client, store, device.clone());
+    let mut service = Service::init(client, store, device.clone()).await?;
 
     loop {
         let event = device.recv().await?;
@@ -42,7 +42,7 @@ where
             | "io.edgehog.devicemanager.apps.CreateVolumeRequest"
             | "io.edgehog.devicemanager.apps.CreateNetworkRequest"
             | "io.edgehog.devicemanager.apps.CreateContainerRequest"
-            | "io.edgehog.devicemanager.apps.CreateReleaseRequest" => {
+            | "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
                 service.on_event(event).await?;
             }
             "io.edgehog.devicemanager.apps.DeploymentCommand" => {

@@ -23,9 +23,22 @@
         "env": [],
         "binds": [],
         "networks": [],
-        "portBindings": ["80:80"],
+        "portBindings": ["9000:80"],
         "privileged": false
       }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
+      "path": "/deployment",
+      "data": {
+        "id": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "containers": ["03aba87c-1ebe-45e9-ab8c-c4eb89752af9"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/6a9b6d3c-4894-4fd0-af1d-44b326282c19/command",
+      "data": "start"
     }
   ]
 }

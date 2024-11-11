@@ -25,22 +25,23 @@ use std::{
     sync::Arc,
 };
 
-use astarte_device_sdk::{
-    event::FromEventError, properties::PropAccess, DeviceEvent, Error as AstarteError, FromEvent,
-};
+use astarte_device_sdk::{event::FromEventError, properties::PropAccess, DeviceEvent, FromEvent};
 use itertools::Itertools;
-use tracing::{debug, instrument};
+use petgraph::stable_graph::NodeIndex;
+use tracing::{debug, instrument, warn};
 
 use crate::{
     container::Container,
     error::DockerError,
+    events::{DeploymentEvent, EventError, EventStatus},
     image::Image,
     network::Network,
     properties::{Client, PropError},
     requests::{
-        container::CreateContainer, image::CreateImage, network::CreateNetwork,
-        volume::CreateVolume, CreateRequests, ReqError,
+        container::CreateContainer, deployment::CreateDeployment, image::CreateImage,
+        network::CreateNetwork, volume::CreateVolume, CreateRequests, ReqError,
     },
+    service::resource::NodeType,
     store::{Resource, StateStore, StateStoreError},
     volume::Volume,
     Docker,
@@ -77,10 +78,10 @@ pub enum ServiceError {
     Start(String),
     /// couldn't operate on missing node {0}
     Missing(String),
-    /// couldn't store the resource state
+    /// state store operation failed
     StateStore(#[from] StateStoreError),
-    /// error from the Astarte SDK
-    Astarte(#[from] AstarteError),
+    /// couldn't send the event to Astarte
+    Event(#[from] EventError),
     /// BUG couldn't convert missing node
     BugMissing,
 }
@@ -115,7 +116,7 @@ where
 {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
+    pub(crate) fn new(client: Docker, store: StateStore, device: D) -> Self {
         Self {
             client,
             store,
@@ -129,11 +130,17 @@ where
     pub async fn init(client: Docker, store: StateStore, device: D) -> Result<Self> {
         let mut service = Self::new(client, store, device);
 
-        for value in service.store.load().await? {
+        let stored = service.store.load().await?;
+
+        debug!("loaded {} resources from state store", stored.len());
+
+        for value in stored {
             let id = Id::new(&value.id);
 
             match value.resource {
                 Some(Resource::Image(state)) => {
+                    debug!("adding stored image with id {id}");
+
                     let image = Image::from(state);
 
                     service.nodes.add_node_sync(
@@ -145,6 +152,8 @@ where
                     )?;
                 }
                 Some(Resource::Volume(state)) => {
+                    debug!("adding stored volume with id {id}");
+
                     let volume = Volume::from(state);
 
                     service.nodes.add_node_sync(
@@ -156,6 +165,8 @@ where
                     )?;
                 }
                 Some(Resource::Network(state)) => {
+                    debug!("adding stored network with id {id}");
+
                     let network = Network::from(state);
 
                     service.nodes.add_node_sync(
@@ -171,6 +182,8 @@ where
                     )?;
                 }
                 Some(Resource::Container(state)) => {
+                    debug!("adding stored container with id {id}");
+
                     let container = Container::from(state);
 
                     let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
@@ -187,8 +200,25 @@ where
                         &deps,
                     )?;
                 }
+                Some(Resource::Deployment) => {
+                    debug!("adding stored deployment with id {id}");
+
+                    let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
+
+                    service.nodes.add_node_sync(
+                        id,
+                        |id, node_idx| {
+                            Ok(Node::with_state(
+                                id,
+                                node_idx,
+                                State::Stored(NodeType::Deployment),
+                            ))
+                        },
+                        &deps,
+                    )?;
+                }
                 None => {
-                    debug!("add missing resource");
+                    debug!("adding missing resource");
 
                     service.nodes.add_node_sync(
                         id,
@@ -223,6 +253,9 @@ where
             CreateRequests::Container(req) => {
                 self.create_container(req).await?;
             }
+            CreateRequests::Deployment(req) => {
+                self.create_deployment(req).await?;
+            }
         }
 
         self.store.store(&self.nodes).await?;
@@ -237,6 +270,8 @@ where
         D: Client + Sync + 'static,
     {
         let id = Id::new(&req.id);
+
+        debug!("creating image with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
@@ -268,6 +303,8 @@ where
     {
         let id = Id::new(&req.id);
 
+        debug!("creating volume with id {id}");
+
         let device = &self.device;
         let store = &mut self.store;
 
@@ -297,6 +334,8 @@ where
         D: Client + Sync + 'static,
     {
         let id = Id::new(&req.id);
+
+        debug!("creating network with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
@@ -328,6 +367,8 @@ where
     {
         let id = Id::new(&req.id);
 
+        debug!("creating container with id {id}");
+
         let device = &self.device;
         let store = &mut self.store;
 
@@ -353,21 +394,81 @@ where
         Ok(())
     }
 
+    /// Store the create deployment request
+    #[instrument(skip_all)]
+    async fn create_deployment(&mut self, req: CreateDeployment) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(&req.id);
+
+        debug!("creating deployment with id {id}");
+
+        let device = &self.device;
+        let store = &mut self.store;
+
+        let deps = req.containers.iter().map(|id| Id::new(id)).collect_vec();
+        let deps = &deps;
+
+        self.nodes
+            .add_node(
+                id,
+                |id, idx| async move {
+                    let mut node = Node::new(id, idx);
+
+                    node.store(store, device, NodeType::Deployment, deps)
+                        .await?;
+
+                    Ok(node)
+                },
+                deps,
+            )
+            .await?;
+
+        Ok(())
+    }
+
     /// Will start an application
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: &str) -> Result<()>
     where
-        D: Debug + Client + Sync + 'static,
+        D: Client + Sync + 'static,
     {
         let id = Id::new(id);
 
-        let start_idx = self
+        debug!("starting {id}");
+
+        let node = self
             .nodes
             .node(&id)
-            .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?
-            .idx;
+            .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
 
-        let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
+        if node.is_deployment() {
+            DeploymentEvent::new(EventStatus::Starting, "")
+                .send(&node.id, &self.device)
+                .await?;
+        } else {
+            warn!("starting a {node:?} and not a deployment");
+        }
+
+        let idx = node.idx;
+
+        let res = self.start_node(idx).await;
+
+        if let Err(err) = &res {
+            DeploymentEvent::new(EventStatus::Error, err.to_string())
+                .send(&id, &self.device)
+                .await?;
+        }
+
+        res
+    }
+
+    async fn start_node(&mut self, idx: NodeIndex) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), idx);
 
         let mut relations = Vec::new();
         while let Some(idx) = space.next(self.nodes.relations()) {
