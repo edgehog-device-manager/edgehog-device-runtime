@@ -42,7 +42,7 @@ impl State {
         store: &mut StateStore,
         device: &D,
         node: T,
-        deps: &[Id],
+        deps: Vec<Id>,
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
@@ -75,7 +75,7 @@ impl State {
         D: Client + Sync + 'static,
     {
         match self {
-            State::Missing => return Err(ServiceError::Create(id.to_string())),
+            State::Missing => return Err(ServiceError::Create(*id)),
             State::Stored(node) => {
                 node.create(id, device, client).await?;
 
@@ -96,7 +96,7 @@ impl State {
         D: Client + Sync + 'static,
     {
         match self {
-            State::Missing | State::Stored(_) => Err(ServiceError::Start(id.to_string())),
+            State::Missing | State::Stored(_) => Err(ServiceError::Start(*id)),
             State::Created(node) => {
                 node.start(id, device, client).await?;
 
@@ -120,7 +120,7 @@ impl State {
         D: Client + Sync + 'static,
     {
         match &*self {
-            State::Missing => return Err(ServiceError::Missing(id.to_string())),
+            State::Missing => return Err(ServiceError::Missing(*id)),
             State::Stored(_) => {
                 self.create(id, device, client).await?;
                 self.start(id, device, client).await?;

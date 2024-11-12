@@ -19,16 +19,16 @@
 //! Service to receive and handle the Astarte events.
 
 use std::{
-    borrow::Borrow,
     fmt::{Debug, Display},
-    ops::Deref,
-    sync::Arc,
+    str::FromStr,
 };
 
 use astarte_device_sdk::{event::FromEventError, properties::PropAccess, DeviceEvent, FromEvent};
 use itertools::Itertools;
 use petgraph::stable_graph::NodeIndex;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, warn};
+use uuid::Uuid;
 
 use crate::{
     container::Container,
@@ -67,21 +67,29 @@ pub enum ServiceError {
     /// couldn't save the property
     Prop(#[from] PropError),
     /// node {0} is missing
-    MissingNode(String),
+    MissingNode(Id),
     /// relation is missing given the index
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
     /// couldn't create for missing node {0}
-    Create(String),
+    Create(Id),
     /// couldn't start for missing node {0}
-    Start(String),
+    Start(Id),
     /// couldn't operate on missing node {0}
-    Missing(String),
+    Missing(Id),
     /// state store operation failed
     StateStore(#[from] StateStoreError),
     /// couldn't send the event to Astarte
     Event(#[from] EventError),
+    /// couldn't parse id, it's an invalid UUID
+    Uuid {
+        /// The invalid [`Id`]
+        id: String,
+        /// Error with the reason it's invalid
+        #[source]
+        source: uuid::Error,
+    },
     /// BUG couldn't convert missing node
     BugMissing,
 }
@@ -135,96 +143,68 @@ where
         debug!("loaded {} resources from state store", stored.len());
 
         for value in stored {
-            let id = Id::new(&value.id);
+            let id = value.id;
+
+            debug!("adding stored {id}");
 
             match value.resource {
                 Some(Resource::Image(state)) => {
-                    debug!("adding stored image with id {id}");
-
                     let image = Image::from(state);
 
-                    service.nodes.add_node_sync(
-                        id,
-                        |id, node_idx| {
-                            Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
-                        },
-                        &[],
-                    )?;
+                    service.nodes.add_node_sync(id, &[], |id, node_idx| {
+                        Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
+                    })?;
                 }
                 Some(Resource::Volume(state)) => {
-                    debug!("adding stored volume with id {id}");
-
                     let volume = Volume::from(state);
 
-                    service.nodes.add_node_sync(
-                        id,
-                        |id, node_idx| {
-                            Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
-                        },
-                        &[],
-                    )?;
+                    service.nodes.add_node_sync(id, &[], |id, node_idx| {
+                        Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
+                    })?;
                 }
                 Some(Resource::Network(state)) => {
-                    debug!("adding stored network with id {id}");
-
                     let network = Network::from(state);
 
-                    service.nodes.add_node_sync(
-                        id,
-                        |id, node_idx| {
-                            Ok(Node::with_state(
-                                id,
-                                node_idx,
-                                State::Stored(network.into()),
-                            ))
-                        },
-                        &[],
-                    )?;
+                    service.nodes.add_node_sync(id, &[], |id, node_idx| {
+                        Ok(Node::with_state(
+                            id,
+                            node_idx,
+                            State::Stored(network.into()),
+                        ))
+                    })?;
                 }
                 Some(Resource::Container(state)) => {
-                    debug!("adding stored container with id {id}");
-
                     let container = Container::from(state);
 
-                    let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
-
-                    service.nodes.add_node_sync(
-                        id,
-                        |id, node_idx| {
+                    service
+                        .nodes
+                        .add_node_sync(id, &value.deps, |id, node_idx| {
                             Ok(Node::with_state(
                                 id,
                                 node_idx,
                                 State::Stored(container.into()),
                             ))
-                        },
-                        &deps,
-                    )?;
+                        })?;
                 }
                 Some(Resource::Deployment) => {
-                    debug!("adding stored deployment with id {id}");
-
-                    let deps = value.deps.into_iter().map(|id| Id::new(&id)).collect_vec();
-
-                    service.nodes.add_node_sync(
-                        id,
-                        |id, node_idx| {
+                    service
+                        .nodes
+                        .add_node_sync(id, &value.deps, |id, node_idx| {
                             Ok(Node::with_state(
                                 id,
                                 node_idx,
                                 State::Stored(NodeType::Deployment),
                             ))
-                        },
-                        &deps,
-                    )?;
+                        })?;
                 }
                 None => {
                     debug!("adding missing resource");
 
-                    service.nodes.add_node_sync(
-                        id,
-                        |id, node_idx| Ok(Node::new(id, node_idx)),
-                        &[],
-                    )?;
+                    service
+                        .nodes
+                        .add_node_sync(id, &value.deps, |id, node_idx| {
+                            Ok(Node::new(id, node_idx))
+                        })?;
                 }
             }
         }
@@ -269,7 +249,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(&req.id);
+        let id = Id::try_from_str(ResourceType::Image, &req.id)?;
 
         debug!("creating image with id {id}");
 
@@ -277,19 +257,15 @@ where
         let store = &mut self.store;
 
         self.nodes
-            .add_node(
-                id,
-                |id, idx| async move {
-                    let image = Image::from(req);
+            .add_node(id, |id, idx| async move {
+                let image = Image::from(req);
 
-                    let mut node = Node::new(id, idx);
+                let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image, &[]).await?;
+                node.store(store, device, image, Vec::new()).await?;
 
-                    Ok(node)
-                },
-                &[],
-            )
+                Ok(node)
+            })
             .await?;
 
         Ok(())
@@ -301,7 +277,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(&req.id);
+        let id = Id::try_from_str(ResourceType::Volume, &req.id)?;
 
         debug!("creating volume with id {id}");
 
@@ -309,19 +285,15 @@ where
         let store = &mut self.store;
 
         self.nodes
-            .add_node(
-                id,
-                |id, idx| async move {
-                    let image = Volume::try_from(req)?;
+            .add_node(id, |id, idx| async move {
+                let image = Volume::try_from(req)?;
 
-                    let mut node = Node::new(id, idx);
+                let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image, &[]).await?;
+                node.store(store, device, image, Vec::new()).await?;
 
-                    Ok(node)
-                },
-                &[],
-            )
+                Ok(node)
+            })
             .await?;
 
         Ok(())
@@ -333,7 +305,7 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(&req.id);
+        let id = Id::try_from_str(ResourceType::Network, &req.id)?;
 
         debug!("creating network with id {id}");
 
@@ -341,19 +313,15 @@ where
         let store = &mut self.store;
 
         self.nodes
-            .add_node(
-                id,
-                |id, idx| async move {
-                    let network = Network::from(req);
+            .add_node(id, |id, idx| async move {
+                let network = Network::from(req);
 
-                    let mut node = Node::new(id, idx);
+                let mut node = Node::new(id, idx);
 
-                    node.store(store, device, network, &[]).await?;
+                node.store(store, device, network, Vec::new()).await?;
 
-                    Ok(node)
-                },
-                &[],
-            )
+                Ok(node)
+            })
             .await?;
 
         Ok(())
@@ -365,30 +333,25 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(&req.id);
+        let id = Id::try_from_str(ResourceType::Container, &req.id)?;
 
         debug!("creating container with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
 
-        let deps = req.dependencies();
-        let deps = &deps;
+        let deps = req.dependencies()?;
 
         self.nodes
-            .add_node(
-                id,
-                |id, idx| async move {
-                    let image = Container::try_from(req)?;
+            .add_node_with_deps(id, deps, |id, idx, deps| async move {
+                let image = Container::try_from(req)?;
 
-                    let mut node = Node::new(id, idx);
+                let mut node = Node::new(id, idx);
 
-                    node.store(store, device, image, deps).await?;
+                node.store(store, device, image, deps).await?;
 
-                    Ok(node)
-                },
-                deps,
-            )
+                Ok(node)
+            })
             .await?;
 
         Ok(())
@@ -400,29 +363,28 @@ where
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(&req.id);
+        let id = Id::try_from_str(ResourceType::Deployment, &req.id)?;
 
         debug!("creating deployment with id {id}");
 
         let device = &self.device;
         let store = &mut self.store;
 
-        let deps = req.containers.iter().map(|id| Id::new(id)).collect_vec();
-        let deps = &deps;
+        let deps = req
+            .containers
+            .iter()
+            .map(|id| Id::try_from_str(ResourceType::Container, id))
+            .try_collect()?;
 
         self.nodes
-            .add_node(
-                id,
-                |id, idx| async move {
-                    let mut node = Node::new(id, idx);
+            .add_node_with_deps(id, deps, |id, idx, deps| async move {
+                let mut node = Node::new(id, idx);
 
-                    node.store(store, device, NodeType::Deployment, deps)
-                        .await?;
+                node.store(store, device, NodeType::Deployment, deps)
+                    .await?;
 
-                    Ok(node)
-                },
-                deps,
-            )
+                Ok(node)
+            })
             .await?;
 
         Ok(())
@@ -430,22 +392,20 @@ where
 
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn start(&mut self, id: &str) -> Result<()>
+    pub async fn start(&mut self, id: &Id) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(id);
-
         debug!("starting {id}");
 
         let node = self
             .nodes
-            .node(&id)
-            .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
+            .node(id)
+            .ok_or_else(|| ServiceError::MissingNode(*id))?;
 
         if node.is_deployment() {
             DeploymentEvent::new(EventStatus::Starting, "")
-                .send(&node.id, &self.device)
+                .send(node.id.uuid(), &self.device)
                 .await?;
         } else {
             warn!("starting a {node:?} and not a deployment");
@@ -457,7 +417,7 @@ where
 
         if let Err(err) = &res {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
-                .send(&id, &self.device)
+                .send(id.uuid(), &self.device)
                 .await?;
         }
 
@@ -472,11 +432,10 @@ where
 
         let mut relations = Vec::new();
         while let Some(idx) = space.next(self.nodes.relations()) {
-            let id = self
+            let id = *self
                 .nodes
                 .get_id(idx)
-                .ok_or(ServiceError::MissingRelation)?
-                .clone();
+                .ok_or(ServiceError::MissingRelation)?;
 
             relations.push(id);
         }
@@ -485,7 +444,7 @@ where
             let node = self
                 .nodes
                 .node_mut(&id)
-                .ok_or_else(|| ServiceError::MissingNode(id.to_string()))?;
+                .ok_or_else(|| ServiceError::MissingNode(id))?;
 
             node.up(&self.device, &self.client).await?;
 
@@ -497,43 +456,63 @@ where
 }
 
 /// Id of the nodes in the Service graph
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Id(Arc<str>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct Id {
+    rt: ResourceType,
+    id: Uuid,
+}
 
 impl Id {
     /// Create a new ID
-    pub(crate) fn new(id: &str) -> Self {
-        Self(Arc::from(id))
+    pub fn new(rt: ResourceType, id: Uuid) -> Self {
+        Self { rt, id }
     }
 
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
+    pub(crate) fn try_from_str(rt: ResourceType, id: &str) -> Result<Self> {
+        let id = Uuid::from_str(id).map_err(|err| ServiceError::Uuid {
+            id: id.to_string(),
+            source: err,
+        })?;
+
+        Ok(Self { rt, id })
     }
-}
 
-impl Deref for Id {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Borrow<str> for Id {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
-}
-
-impl AsRef<str> for Id {
-    fn as_ref(&self) -> &str {
-        self.as_str()
+    pub(crate) fn uuid(&self) -> &Uuid {
+        &self.id
     }
 }
 
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{} ({})", self.rt, self.id)
+    }
+}
+
+/// Type of the container resource [`Id`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ResourceType {
+    /// Image resource.
+    Image = 0,
+    /// Volume resource.
+    Volume = 1,
+    /// Network resource.
+    Network = 2,
+    /// Container resource.
+    Container = 3,
+    /// Deployment resource.
+    Deployment = 4,
+}
+
+impl Display for ResourceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResourceType::Image => write!(f, "Image"),
+            ResourceType::Volume => write!(f, "Volume"),
+            ResourceType::Network => write!(f, "Network"),
+            ResourceType::Container => write!(f, "Container"),
+            ResourceType::Deployment => write!(f, "Deployment"),
+        }
     }
 }
 
@@ -548,6 +527,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use resource::NodeType;
     use tempfile::TempDir;
+    use uuid::uuid;
 
     use crate::container::{Binding, PortBindingMap};
     use crate::properties::container::ContainerStatus;
@@ -562,7 +542,7 @@ mod tests {
     async fn should_add_an_image() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "5b705c7b-e6c7-4455-ba9b-a081be020c43";
+        let id = uuid!("5b705c7b-e6c7-4455-ba9b-a081be020c43");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -587,11 +567,11 @@ mod tests {
         let mut service = Service::new(client, store, device);
 
         let reference = "docker.io/nginx:stable-alpine-slim";
-        let create_image_req = create_image_request_event(id, reference, "");
+        let create_image_req = create_image_request_event(id.to_string(), reference, "");
 
         service.on_event(create_image_req).await.unwrap();
 
-        let id = Id::new(id);
+        let id = Id::new(ResourceType::Image, id);
         let node = service.nodes.node(&id).unwrap();
 
         let State::Stored(NodeType::Image(image)) = node.state() else {
@@ -611,7 +591,7 @@ mod tests {
     async fn should_add_a_volume() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -635,19 +615,20 @@ mod tests {
 
         let mut service = Service::new(client, store, device);
 
-        let create_image_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
+        let create_volume_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
 
-        service.on_event(create_image_req).await.unwrap();
+        service.on_event(create_volume_req).await.unwrap();
 
-        let id = Id::new(id);
+        let id = Id::new(ResourceType::Volume, id);
         let node = service.nodes.node(&id).unwrap();
 
         let State::Stored(NodeType::Volume(volume)) = node.state() else {
             panic!("incorrect node {node:?}");
         };
 
+        let name = id.uuid().to_string();
         let exp = Volume {
-            name: id.as_str(),
+            name: name.as_str(),
             driver: "local",
             driver_opts: HashMap::from([("foo".to_string(), "bar"), ("some".to_string(), "")]),
         };
@@ -659,7 +640,7 @@ mod tests {
     async fn should_add_a_network() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -683,17 +664,18 @@ mod tests {
 
         let mut service = Service::new(client, store, device);
 
-        let create_image_req = create_network_request_event(id, "bridged");
+        let create_network_req = create_network_request_event(id, "bridged");
 
-        service.on_event(create_image_req).await.unwrap();
+        service.on_event(create_network_req).await.unwrap();
 
-        let id = Id::new(id);
+        let id = Id::new(ResourceType::Network, id);
         let node = service.nodes.node(&id).unwrap();
 
         let State::Stored(NodeType::Network(network)) = node.state() else {
             panic!("incorrect node {node:?}");
         };
 
+        let id = id.uuid().to_string();
         let exp = Network {
             id: None,
             name: id.as_str(),
@@ -710,7 +692,7 @@ mod tests {
     async fn should_add_a_container() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = "e605c1bf-a168-4878-a7cb-41a57847bbca";
+        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -734,17 +716,19 @@ mod tests {
 
         let mut service = Service::new(client, store, device);
 
-        let create_image_req = create_container_request_event(id, "bridged");
+        let image_id = Uuid::new_v4().to_string();
+        let create_container_req = create_container_request_event(id, &image_id);
 
-        service.on_event(create_image_req).await.unwrap();
+        service.on_event(create_container_req).await.unwrap();
 
-        let id = Id::new(id);
+        let id = Id::new(ResourceType::Container, id);
         let node = service.nodes.node(&id).unwrap();
 
         let State::Stored(NodeType::Container(container)) = node.state() else {
             panic!("incorrect node {node:?}");
         };
 
+        let id = id.uuid().to_string();
         let exp = Container {
             id: None,
             name: id.as_str(),

@@ -37,11 +37,12 @@ hyper = { workspace = true, optional = true }
 itertools = { workspace = true }
 mockall = { workspace = true, optional = true }
 petgraph = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
+uuid = { workspace = true }
 
 [dev-dependencies]
 astarte-device-sdk-mock = { workspace = true }

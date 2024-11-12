@@ -53,11 +53,13 @@ impl From<CreateNetwork> for Network<String> {
 #[cfg(test)]
 pub mod tests {
 
+    use std::fmt::Display;
+
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
 
     use super::*;
 
-    pub fn create_network_request_event(id: &str, driver: &str) -> DeviceEvent {
+    pub fn create_network_request_event(id: impl Display, driver: &str) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
             ("driver", AstarteType::String(driver.to_string())),

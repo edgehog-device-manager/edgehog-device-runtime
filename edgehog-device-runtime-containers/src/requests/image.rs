@@ -53,15 +53,25 @@ impl From<CreateImage> for Image<String> {
 
 #[cfg(test)]
 pub mod tests {
+    use std::fmt::Display;
+
     use astarte_device_sdk::{DeviceEvent, Value};
 
     use super::*;
 
-    pub fn create_image_request_event(id: &str, reference: &str, auth: &str) -> DeviceEvent {
-        let fields = [("id", id), ("reference", reference), ("registryAuth", auth)]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.into()))
-            .collect();
+    pub fn create_image_request_event(
+        id: impl Display,
+        reference: &str,
+        auth: &str,
+    ) -> DeviceEvent {
+        let fields = [
+            ("id", id.to_string()),
+            ("reference", reference.to_string()),
+            ("registryAuth", auth.to_string()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.into()))
+        .collect();
 
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),

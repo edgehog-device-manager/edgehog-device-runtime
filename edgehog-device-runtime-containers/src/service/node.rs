@@ -56,7 +56,7 @@ impl Node {
         store: &mut StateStore,
         device: &D,
         inner: T,
-        deps: &[Id],
+        deps: Vec<Id>,
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
@@ -102,11 +102,18 @@ impl Node {
 
 #[cfg(test)]
 mod tests {
+    use uuid::uuid;
+
+    use crate::service::ResourceType;
+
     use super::*;
 
     #[test]
     fn default_state_missing() {
-        let id = Id::new("ab081bc6-9e71-4c3a-96ed-8374df16f764");
+        let id = Id::new(
+            ResourceType::Image,
+            uuid!("ab081bc6-9e71-4c3a-96ed-8374df16f764"),
+        );
         let idx = NodeIndex::new(42);
 
         let node = Node::new(id, idx);

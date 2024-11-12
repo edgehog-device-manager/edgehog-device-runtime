@@ -22,6 +22,9 @@ use std::fmt::Display;
 
 use astarte_device_sdk::AstarteType;
 use async_trait::async_trait;
+use uuid::Uuid;
+
+use crate::service::Id;
 
 use super::{AvailableProp, Client, PropError};
 
@@ -29,28 +32,25 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableContainers";
 
 /// Available
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableContainers<S> {
-    id: S,
+pub(crate) struct AvailableContainers<'a> {
+    id: &'a Id,
     status: ContainerStatus,
 }
 
-impl<S> AvailableContainers<S> {
-    pub(crate) fn new(id: S, status: ContainerStatus) -> Self {
+impl<'a> AvailableContainers<'a> {
+    pub(crate) fn new(id: &'a Id, status: ContainerStatus) -> Self {
         Self { id, status }
     }
 }
 
 #[async_trait]
-impl<S> AvailableProp for AvailableContainers<S>
-where
-    S: AsRef<str> + Sync,
-{
+impl AvailableProp for AvailableContainers<'_> {
     fn interface() -> &'static str {
         INTERFACE
     }
 
-    fn id(&self) -> &str {
-        self.id.as_ref()
+    fn id(&self) -> &Uuid {
+        self.id.uuid()
     }
 
     async fn send<D>(&self, device: &D) -> Result<(), PropError>
@@ -97,12 +97,16 @@ impl From<ContainerStatus> for AstarteType {
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use uuid::Uuid;
+
+    use crate::service::ResourceType;
 
     use super::*;
 
     #[tokio::test]
     async fn should_store_container() {
-        let id = "ID";
+        let uuid = Uuid::new_v4();
+        let id = Id::new(ResourceType::Container, uuid);
 
         let statuses = [
             ContainerStatus::Received,
@@ -111,7 +115,7 @@ mod tests {
             ContainerStatus::_Stopped,
         ];
         for status in statuses {
-            let container = AvailableContainers { id, status };
+            let container = AvailableContainers { id: &id, status };
 
             let mut client = MockDeviceClient::<SqliteStore>::new();
             let mut seq = Sequence::new();
@@ -122,7 +126,7 @@ mod tests {
                 .in_sequence(&mut seq)
                 .withf(move |interface, path, value: &ContainerStatus| {
                     interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                        && path == format!("/{id}/status")
+                        && path == format!("/{uuid}/status")
                         && *value == status
                 })
                 .returning(|_, _, _| Ok(()));

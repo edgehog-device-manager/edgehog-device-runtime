@@ -26,7 +26,7 @@ use tracing::{instrument, trace};
 use crate::{
     container::{Binding, Container, PortBindingMap},
     requests::BindingError,
-    service::Id,
+    service::{Id, ResourceType, ServiceError},
     store::container::RestartPolicy,
 };
 
@@ -56,11 +56,18 @@ pub(crate) struct CreateContainer {
 }
 
 impl CreateContainer {
-    pub(crate) fn dependencies(&self) -> Vec<Id> {
-        std::iter::once(&self.image_id)
-            .chain(&self.network_ids)
-            .chain(&self.volume_ids)
-            .map(|s| Id::new(s))
+    pub(crate) fn dependencies(&self) -> Result<Vec<Id>, ServiceError> {
+        std::iter::once(Id::try_from_str(ResourceType::Image, &self.image_id))
+            .chain(
+                self.network_ids
+                    .iter()
+                    .map(|id| Id::try_from_str(ResourceType::Network, id)),
+            )
+            .chain(
+                self.volume_ids
+                    .iter()
+                    .map(|id| Id::try_from_str(ResourceType::Volume, id)),
+            )
             .collect()
     }
 }
@@ -194,7 +201,7 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
 #[cfg(test)]
 pub mod tests {
 
-    use std::collections::HashMap;
+    use std::{collections::HashMap, fmt::Display};
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use bollard::secret::RestartPolicyNameEnum;
@@ -202,18 +209,12 @@ pub mod tests {
 
     use super::*;
 
-    pub fn create_container_request_event(id: &str, image_id: &str) -> DeviceEvent {
+    pub fn create_container_request_event(id: impl Display, image_id: &str) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
             ("imageId", AstarteType::String(image_id.to_string())),
-            (
-                "networkIds",
-                AstarteType::StringArray(vec!["network_ids".to_string()]),
-            ),
-            (
-                "volumeIds",
-                AstarteType::StringArray(vec!["volume_ids".to_string()]),
-            ),
+            ("networkIds", AstarteType::StringArray(vec![])),
+            ("volumeIds", AstarteType::StringArray(vec![])),
             ("image", AstarteType::String("image".to_string())),
             ("hostname", AstarteType::String("hostname".to_string())),
             ("restartPolicy", AstarteType::String("no".to_string())),
@@ -249,8 +250,8 @@ pub mod tests {
         let expect = CreateContainer {
             id: "id".to_string(),
             image_id: "image_id".to_string(),
-            network_ids: vec!["network_ids".to_string()],
-            volume_ids: vec!["volume_ids".to_string()],
+            network_ids: vec![],
+            volume_ids: vec![],
             image: "image".to_string(),
             hostname: "hostname".to_string(),
             restart_policy: "no".to_string(),

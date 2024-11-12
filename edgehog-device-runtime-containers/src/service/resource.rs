@@ -55,35 +55,35 @@ impl NodeType {
         id: &Id,
         store: &mut StateStore,
         device: &D,
-        deps: &[Id],
+        deps: Vec<Id>,
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
         match &self {
             NodeType::Image(image) => {
-                store.append(id, image.into(), deps).await?;
+                store.append(*id, image.into(), deps).await?;
 
                 AvailableImage::new(id, false).send(device).await?;
 
                 info!("stored image with id {id}");
             }
             NodeType::Volume(volume) => {
-                store.append(id, volume.into(), deps).await?;
+                store.append(*id, volume.into(), deps).await?;
 
                 AvailableVolumes::new(id, false).send(device).await?;
 
                 info!("stored volume with id {id}");
             }
             NodeType::Network(network) => {
-                store.append(id, network.into(), deps).await?;
+                store.append(*id, network.into(), deps).await?;
 
                 AvailableNetworks::new(id, false).send(device).await?;
 
                 info!("stored network with id {id}");
             }
             NodeType::Container(container) => {
-                store.append(id, container.into(), deps).await?;
+                store.append(*id, container.into(), deps).await?;
 
                 AvailableContainers::new(id, ContainerStatus::Received)
                     .send(device)
@@ -92,7 +92,7 @@ impl NodeType {
                 info!("stored container with id {id}");
             }
             NodeType::Deployment => {
-                store.append(id, Resource::Deployment, deps).await?;
+                store.append(*id, Resource::Deployment, deps).await?;
 
                 AvailableDeployments::new(id, DeploymentStatus::Stopped)
                     .send(device)

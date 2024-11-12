@@ -79,22 +79,22 @@ impl NodeGraph {
             .filter(|node| !node.state().is_missing())
     }
 
-    pub(crate) fn add_node_sync<F>(&mut self, id: Id, f: F, deps: &[Id]) -> Result<&mut Node>
+    pub(crate) fn add_node_sync<F>(&mut self, id: Id, deps: &[Id], f: F) -> Result<&mut Node>
     where
         F: FnOnce(Id, NodeIndex) -> Result<Node>,
     {
-        let deps = self.create_node_deps(deps);
+        let node_deps = self.create_node_deps(deps);
 
         match self.nodes.entry(id) {
             Entry::Occupied(node) => {
-                self.relations.relate(node.get().idx, deps.idxs())?;
+                self.relations.relate(node.get().idx, node_deps.idxs())?;
 
                 Ok(node.into_mut())
             }
             Entry::Vacant(entry) => {
-                let id = entry.key().clone();
+                let id = *entry.key();
 
-                self.relations.add_sync(id.clone(), deps.idxs(), |idx| {
+                self.relations.add_sync(id, node_deps.idxs(), |idx| {
                     let node = (f)(id, idx)?;
 
                     Ok(entry.insert(node))
@@ -103,22 +103,34 @@ impl NodeGraph {
         }
     }
 
-    pub(crate) async fn add_node<F, O>(&mut self, id: Id, f: F, deps: &[Id]) -> Result<&mut Node>
+    pub(crate) async fn add_node<F, O>(&mut self, id: Id, f: F) -> Result<&mut Node>
     where
         F: FnOnce(Id, NodeIndex) -> O,
         O: Future<Output = Result<Node>>,
     {
-        let deps = self.create_node_deps(deps);
+        self.add_node_with_deps(id, Vec::new(), |id, node_idx, _deps| (f)(id, node_idx))
+            .await
+    }
+
+    pub(crate) async fn add_node_with_deps<F, O>(
+        &mut self,
+        id: Id,
+        deps: Vec<Id>,
+        f: F,
+    ) -> Result<&mut Node>
+    where
+        F: FnOnce(Id, NodeIndex, Vec<Id>) -> O,
+        O: Future<Output = Result<Node>>,
+    {
+        let node_deps = self.create_node_deps(&deps);
 
         let res = {
-            match self.nodes.entry(id.clone()) {
-                Entry::Occupied(entry) => self.relations.relate(entry.get().idx, deps.idxs()),
+            match self.nodes.entry(id) {
+                Entry::Occupied(entry) => self.relations.relate(entry.get().idx, node_deps.idxs()),
                 Entry::Vacant(entry) => {
-                    let id = id.clone();
-
                     self.relations
-                        .add(id.clone(), deps.idxs(), |idx| async move {
-                            let node = (f)(id, idx).await?;
+                        .add(id, node_deps.idxs(), |idx| async move {
+                            let node = (f)(id, idx, deps).await?;
 
                             entry.insert(node);
 
@@ -140,7 +152,7 @@ impl NodeGraph {
                 Ok(node)
             }
             Err(err) => {
-                self.cleanup_add_node(&id, &deps);
+                self.cleanup_add_node(&id, &node_deps);
 
                 Err(err)
             }
@@ -159,11 +171,7 @@ impl NodeGraph {
     fn create_node_deps(&mut self, deps: &[Id]) -> NodeDeps {
         let present = deps
             .iter()
-            .filter_map(|id| {
-                self.nodes
-                    .get(id.as_ref())
-                    .map(|node| (node.id.clone(), node.idx))
-            })
+            .filter_map(|id| self.nodes.get(id).map(|node| (node.id, node.idx)))
             .collect();
 
         let missing = deps
@@ -180,10 +188,10 @@ impl NodeGraph {
             return None;
         }
 
-        let idx = self.relations.add_node(id.clone());
-        self.nodes.insert(id.clone(), Node::new(id.clone(), idx));
+        let idx = self.relations.add_node(*id);
+        self.nodes.insert(*id, Node::new(*id, idx));
 
-        Some((id.clone(), idx))
+        Some((*id, idx))
     }
 
     /// Removes a node and all the relations.

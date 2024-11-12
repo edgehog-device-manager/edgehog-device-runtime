@@ -18,7 +18,6 @@
 
 //! Persistent stores of the request issued by Astarte and resources created.
 
-use std::borrow::Cow;
 use std::hash::Hash;
 use std::io::{self, Cursor, SeekFrom};
 use std::path::Path;
@@ -137,9 +136,9 @@ impl StateStore {
     #[instrument(skip(resource, deps))]
     pub(crate) async fn append(
         &mut self,
-        id: &Id,
+        id: Id,
         resource: Resource<'_>,
-        deps: &[Id],
+        deps: Vec<Id>,
     ) -> Result<()> {
         debug!("appending resource");
 
@@ -148,8 +147,6 @@ impl StateStore {
             .seek(SeekFrom::End(0))
             .await
             .map_err(StateStoreError::Append)?;
-
-        let deps = deps.iter().map(|i| Cow::Borrowed(i.as_str())).collect();
 
         let resource = Value::with_resource(id, deps, resource);
 
@@ -187,10 +184,7 @@ impl StateStore {
         let mut cursor = Cursor::new(&mut buf);
 
         for node in state.nodes().values() {
-            let deps = state
-                .deps(node)
-                .map(|i| Cow::Borrowed(i.as_str()))
-                .collect_vec();
+            let deps = state.deps(node).cloned().collect_vec();
 
             let value = Value::from_node(node, deps);
 
@@ -219,28 +213,24 @@ impl StateStore {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Value<'a> {
     // Id provided by Edgehog
-    pub(crate) id: Cow<'a, str>,
-    pub(crate) deps: Vec<Cow<'a, str>>,
+    pub(crate) id: Id,
+    pub(crate) deps: Vec<Id>,
     pub(crate) resource: Option<Resource<'a>>,
 }
 
 impl<'a> Value<'a> {
-    fn new(id: &'a Id, deps: Vec<Cow<'a, str>>, resource: Option<Resource<'a>>) -> Self {
-        Self {
-            id: Cow::Borrowed(id.as_str()),
-            deps,
-            resource,
-        }
+    fn new(id: Id, deps: Vec<Id>, resource: Option<Resource<'a>>) -> Self {
+        Self { id, deps, resource }
     }
 
-    fn with_resource(id: &'a Id, deps: Vec<Cow<'a, str>>, resource: Resource<'a>) -> Self {
+    fn with_resource(id: Id, deps: Vec<Id>, resource: Resource<'a>) -> Self {
         Self::new(id, deps, Some(resource))
     }
 
-    fn from_node(value: &'a Node, deps: Vec<Cow<'a, str>>) -> Self {
+    fn from_node(value: &'a Node, deps: Vec<Id>) -> Self {
         let resource = value.node_type().map(Resource::from);
 
-        Self::new(value.id(), deps, resource)
+        Self::new(*value.id(), deps, resource)
     }
 }
 
