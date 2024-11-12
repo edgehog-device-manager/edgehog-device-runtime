@@ -18,7 +18,10 @@
 
 //! Handles the container networks.
 
-use std::fmt::{Debug, Display};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
 
 use bollard::{
     errors::Error as BollardError,
@@ -70,6 +73,8 @@ pub struct Network<S> {
     pub internal: bool,
     /// Enable IPv6 on the network.
     pub enable_ipv6: bool,
+    /// Network specific options to be used by the drivers.
+    pub driver_opts: HashMap<String, S>,
 }
 
 impl<S> Network<S> {
@@ -80,6 +85,7 @@ impl<S> Network<S> {
         check_duplicate: bool,
         internal: bool,
         enable_ipv6: bool,
+        driver_options: HashMap<String, S>,
     ) -> Self {
         Self {
             id,
@@ -88,6 +94,7 @@ impl<S> Network<S> {
             check_duplicate,
             internal,
             enable_ipv6,
+            driver_opts: driver_options,
         }
     }
 
@@ -262,14 +269,22 @@ where
             check_duplicate,
             internal,
             enable_ipv6,
+            driver_opts,
         }: &Network<S2>,
     ) -> bool {
+        let eq_driver_opts = self.driver_opts.len() == driver_opts.len()
+            && self
+                .driver_opts
+                .iter()
+                .all(|(k, v1)| driver_opts.get(k).map_or(false, |v2| *v1 == *v2));
+
         self.id.eq(id)
             && self.name.eq(name)
             && self.driver.eq(driver)
             && self.check_duplicate.eq(check_duplicate)
             && self.internal.eq(internal)
             && self.enable_ipv6.eq(enable_ipv6)
+            && eq_driver_opts
     }
 }
 
@@ -284,6 +299,11 @@ where
             check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
+            options: value
+                .driver_opts
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_ref()))
+                .collect(),
             ..Default::default()
         }
     }
@@ -296,7 +316,7 @@ mod tests {
     use super::*;
 
     fn new_network(name: &str) -> Network<&str> {
-        Network::new(None, name, "bridge", false, false, false)
+        Network::new(None, name, "bridge", false, false, false, HashMap::new())
     }
 
     #[tokio::test]
