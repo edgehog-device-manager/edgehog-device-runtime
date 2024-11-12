@@ -18,7 +18,7 @@
 
 use std::fmt::Debug;
 
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{store::StateStore, Docker};
 
@@ -134,6 +134,33 @@ impl State {
         }
 
         info!("node {id} up");
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) async fn stop<D>(
+        &mut self,
+        id: &Id,
+        device: &D,
+        client: &Docker,
+    ) -> std::result::Result<(), ServiceError>
+    where
+        D: Client + Sync + 'static,
+    {
+        match self {
+            State::Missing => return Err(ServiceError::Missing(*id)),
+            State::Stored(_) => {
+                warn!("resource {id} was never created, skipping")
+            }
+            State::Created(node) | State::Up(node) => {
+                node.stop(id, device, client).await?;
+
+                self.map_into(State::Created)?;
+            }
+        };
+
+        info!("resource {id} stopped");
 
         Ok(())
     }

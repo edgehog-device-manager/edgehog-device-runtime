@@ -68,8 +68,15 @@ impl NodeGraph {
             .filter_map(|dep| self.get_id(dep))
     }
 
+    /// Get the ids of a node depending on the one provided
+    pub(crate) fn dependent(&self, idx: NodeIndex) -> impl Iterator<Item = &Id> {
+        self.relations
+            .neighbors_directed(idx, Direction::Outgoing)
+            .filter_map(|dep| self.get_id(dep))
+    }
+
     /// Get a reference to a node
-    pub(crate) fn node(&mut self, id: &Id) -> Option<&Node> {
+    pub(crate) fn node(&self, id: &Id) -> Option<&Node> {
         self.nodes.get(id).filter(|node| !node.state().is_missing())
     }
     /// Get a mutable reference to anode

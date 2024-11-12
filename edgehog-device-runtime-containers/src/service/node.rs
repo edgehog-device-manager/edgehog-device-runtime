@@ -73,6 +73,13 @@ impl Node {
         self.state.up(&self.id, device, client).await
     }
 
+    pub(crate) async fn stop<D>(&mut self, device: &D, client: &Docker) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        self.state.stop(&self.id, device, client).await
+    }
+
     pub(crate) fn id(&self) -> &Id {
         &self.id
     }
@@ -97,6 +104,11 @@ impl Node {
                 | State::Created(NodeType::Deployment)
                 | State::Up(NodeType::Deployment)
         )
+    }
+
+    /// Check if the state of the node is [`State::Up`]
+    pub(crate) fn is_up(&self) -> bool {
+        matches!(self.state, State::Up(_))
     }
 }
 

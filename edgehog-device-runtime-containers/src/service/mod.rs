@@ -453,6 +453,106 @@ where
 
         Ok(())
     }
+
+    /// Will stop an application
+    #[instrument(skip(self))]
+    pub async fn stop(&mut self, id: &Id) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        debug!("stopping {id}");
+
+        let node = self
+            .nodes
+            .node(id)
+            .ok_or_else(|| ServiceError::MissingNode(*id))?;
+
+        if node.is_deployment() {
+            DeploymentEvent::new(EventStatus::Stopping, "")
+                .send(id.uuid(), &self.device)
+                .await?;
+        } else {
+            warn!("stopping a {node:?} and not a deployment");
+        }
+
+        let idx = node.idx;
+
+        let res = self.stop_node(idx).await;
+
+        if let Err(err) = &res {
+            DeploymentEvent::new(EventStatus::Error, err.to_string())
+                .send(id.uuid(), &self.device)
+                .await?;
+        }
+
+        res
+    }
+
+    async fn stop_node(&mut self, start_idx: NodeIndex) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
+
+        let mut relations = Vec::new();
+        let graph = self.nodes.relations();
+        while let Some(idx) = space.next(graph) {
+            if idx == start_idx {
+                // The deployment stopped should be the last event.
+                debug!("skipping the starting node");
+                continue;
+            }
+
+            // filter the dependents deployment, and check that are not started
+            let running_deployments = self
+                .nodes
+                .dependent(idx)
+                .filter_map(|id| {
+                    if id.is_deployment() {
+                        self.nodes.node(id)
+                    } else {
+                        None
+                    }
+                })
+                .any(|deployment| deployment.is_up());
+
+            if running_deployments {
+                debug!(
+                    "skipping {:?} which has another running deployment ",
+                    self.nodes.get_id(idx)
+                );
+
+                continue;
+            }
+
+            let id = *self
+                .nodes
+                .get_id(idx)
+                .ok_or(ServiceError::MissingRelation)?;
+
+            relations.push(id);
+        }
+
+        let start_id = *self
+            .nodes
+            .get_id(start_idx)
+            .ok_or(ServiceError::MissingRelation)?;
+        // Push the deployment last
+        relations.push(start_id);
+
+        for id in relations {
+            let node = self
+                .nodes
+                .node_mut(&id)
+                .ok_or_else(|| ServiceError::MissingNode(id))?;
+
+            node.stop(&self.device, &self.client).await?;
+
+            self.store.store(&self.nodes).await?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Id of the nodes in the Service graph
@@ -479,6 +579,13 @@ impl Id {
 
     pub(crate) fn uuid(&self) -> &Uuid {
         &self.id
+    }
+
+    /// Returns `true` if the [`ResourceType`] is a [`Deployment`]
+    ///
+    /// [`Deployment`]: ResourceType::Deployment
+    fn is_deployment(&self) -> bool {
+        matches!(self.rt, ResourceType::Deployment)
     }
 }
 

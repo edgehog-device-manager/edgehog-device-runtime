@@ -357,6 +357,14 @@ where
         match res {
             Ok(()) => Ok(Some(())),
             Err(BollardError::DockerResponseServerError {
+                status_code: 304,
+                message,
+            }) => {
+                debug!("container already stopped: {message}");
+
+                Ok(Some(()))
+            }
+            Err(BollardError::DockerResponseServerError {
                 status_code: 404,
                 message,
             }) => {

@@ -71,9 +71,9 @@ pub(crate) enum ContainerStatus {
     /// The [`Container`](crate::container::Container) has been created.
     Created,
     /// The [`Container`](crate::container::Container) is running.
-    _Running,
+    Running,
     /// The [`Container`](crate::container::Container) was stopped or crashed.
-    _Stopped,
+    Stopped,
 }
 
 impl Display for ContainerStatus {
@@ -81,8 +81,8 @@ impl Display for ContainerStatus {
         match self {
             ContainerStatus::Received => write!(f, "Received"),
             ContainerStatus::Created => write!(f, "Created"),
-            ContainerStatus::_Running => write!(f, "Running"),
-            ContainerStatus::_Stopped => write!(f, "Stopped"),
+            ContainerStatus::Running => write!(f, "Running"),
+            ContainerStatus::Stopped => write!(f, "Stopped"),
         }
     }
 }
@@ -111,8 +111,8 @@ mod tests {
         let statuses = [
             ContainerStatus::Received,
             ContainerStatus::Created,
-            ContainerStatus::_Running,
-            ContainerStatus::_Stopped,
+            ContainerStatus::Running,
+            ContainerStatus::Stopped,
         ];
         for status in statuses {
             let container = AvailableContainers { id: &id, status };

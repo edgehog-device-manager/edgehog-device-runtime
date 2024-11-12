@@ -78,10 +78,10 @@ impl Display for DeploymentEvent {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EventStatus {
     Starting,
-    _Stopping,
+    Stopping,
     Error,
 }
 
@@ -89,7 +89,7 @@ impl Display for EventStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EventStatus::Starting => write!(f, "Starting"),
-            EventStatus::_Stopping => write!(f, "Stopping"),
+            EventStatus::Stopping => write!(f, "Stopping"),
             EventStatus::Error => write!(f, "Error"),
         }
     }
@@ -98,5 +98,39 @@ impl Display for EventStatus {
 impl From<EventStatus> for AstarteType {
     fn from(value: EventStatus) -> Self {
         AstarteType::String(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk_mock::mockall::Sequence;
+    use astarte_device_sdk_mock::MockDeviceClient;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_send_event() {
+        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let id = Uuid::new_v4();
+
+        let exp_p = format!("/{id}");
+        client
+            .expect_send_object::<DeploymentEvent>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, data| {
+                interface == "io.edgehog.devicemanager.apps.DeploymentEvent"
+                    && path == exp_p
+                    && data.status == EventStatus::Starting
+                    && data.message.is_empty()
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let event = DeploymentEvent::new(EventStatus::Starting, "");
+
+        event.send(&id, &client).await.unwrap();
     }
 }
