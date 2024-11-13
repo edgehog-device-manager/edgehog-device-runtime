@@ -34,7 +34,7 @@
         "restartPolicy": "",
         "env": [],
         "binds": [],
-        "networks": ["78549b2b-3888-4976-8bfe-236afab0f91e"],
+        "networkMode": "bridge",
         "portBindings": ["9000:80"],
         "privileged": false
       }
