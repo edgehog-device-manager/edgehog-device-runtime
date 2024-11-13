@@ -34,7 +34,6 @@ use super::{parse_kv_map, ReqError};
 pub struct CreateNetwork {
     pub(crate) id: String,
     pub(crate) driver: String,
-    pub(crate) check_duplicate: bool,
     pub(crate) internal: bool,
     pub(crate) enable_ipv6: bool,
     pub(crate) options: Vec<String>,
@@ -50,7 +49,6 @@ impl TryFrom<CreateNetwork> for Network<String> {
             id: None,
             name: value.id,
             driver: value.driver,
-            check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
             driver_opts,
@@ -103,7 +101,6 @@ pub(crate) mod tests {
         let expect = CreateNetwork {
             id: "id".to_string(),
             driver: "driver".to_string(),
-            check_duplicate: false,
             internal: false,
             enable_ipv6: false,
             options: ["foo=bar", "some="].map(str::to_string).to_vec(),

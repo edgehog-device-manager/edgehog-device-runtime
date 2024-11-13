@@ -29,7 +29,6 @@ pub(crate) struct NetworkState<'a> {
     id: Option<Cow<'a, str>>,
     name: Cow<'a, str>,
     driver: Cow<'a, str>,
-    check_duplicate: bool,
     internal: bool,
     enable_ipv6: bool,
     driver_opts: HashMap<Cow<'a, str>, Cow<'a, str>>,
@@ -44,7 +43,6 @@ where
             id: value.id.as_deref().map(Cow::Borrowed),
             name: Cow::Borrowed(value.name.as_ref()),
             driver: Cow::Borrowed(value.driver.as_ref()),
-            check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
             driver_opts: value
@@ -62,7 +60,6 @@ impl<'a> From<NetworkState<'a>> for Network<String> {
             id: value.id.map(Cow::into),
             name: value.name.into(),
             driver: value.driver.into(),
-            check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
             driver_opts: value
@@ -86,7 +83,6 @@ mod tests {
             id: Some("id".to_string()),
             name: "name",
             driver: "driver",
-            check_duplicate: true,
             internal: false,
             enable_ipv6: true,
             driver_opts: HashMap::from([("name".to_string(), "value")]),
@@ -97,7 +93,6 @@ mod tests {
         assert_eq!(state.id.as_ref().unwrap(), net.id.as_ref().unwrap());
         assert_eq!(state.name, net.name);
         assert_eq!(state.driver, net.driver);
-        assert_eq!(state.check_duplicate, net.check_duplicate);
         assert_eq!(state.internal, net.internal);
         assert_eq!(state.enable_ipv6, net.enable_ipv6);
 

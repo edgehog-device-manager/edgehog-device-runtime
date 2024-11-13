@@ -74,7 +74,7 @@ impl Node {
 
         if resource.state != State::Received {
             warn!(
-                "tring to store a node {} with state {}",
+                "trying to store a node {} with state {}",
                 resource.state, self.id
             );
 

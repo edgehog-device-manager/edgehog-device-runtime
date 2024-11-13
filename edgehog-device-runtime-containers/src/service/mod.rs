@@ -837,7 +837,6 @@ mod tests {
             id: None,
             name: id.as_str(),
             driver: "bridged",
-            check_duplicate: false,
             internal: false,
             enable_ipv6: false,
             driver_opts: HashMap::new(),

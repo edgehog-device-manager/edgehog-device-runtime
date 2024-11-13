@@ -190,7 +190,6 @@ mod tests {
         let expect = CreateNetwork {
             id: "id".to_string(),
             driver: "driver".to_string(),
-            check_duplicate: false,
             internal: false,
             enable_ipv6: false,
             options: Vec::new(),
