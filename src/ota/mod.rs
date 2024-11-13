@@ -133,6 +133,7 @@ impl Default for DeployStatus {
 }
 
 const DOWNLOAD_PERC_ROUNDING_STEP: f64 = 10.0;
+const DEPLOY_PERC_ROUNDING_STEP: i32 = 10;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PersistentState {
@@ -560,34 +561,45 @@ where
         };
 
         let signal = stream
-            .try_fold(None, |_, status| {
-                let ota_request_cl = ota_request.clone();
+            .try_fold(
+                DeployStatus::Progress(DeployProgress::default()),
+                |prev_status, status| {
+                    let ota_request_cl = ota_request.clone();
+                    let status_cl = status.clone();
 
-                async move {
-                    let progress = match status {
-                        DeployStatus::Progress(progress) => progress,
-                        DeployStatus::Completed { signal } => {
-                            return Ok(Some(signal));
+                    async move {
+                        let progress = match status {
+                            DeployStatus::Completed { .. } => {
+                                return Ok(status);
+                            }
+                            DeployStatus::Progress(progress) => progress,
+                        };
+
+                        let last_progress_sent = match &prev_status {
+                            DeployStatus::Progress(last_progress) => last_progress.percentage,
+                            _ => progress.percentage,
+                        };
+
+                        if (progress.percentage - last_progress_sent) >= DEPLOY_PERC_ROUNDING_STEP {
+                            let res = self
+                                .publisher_tx
+                                .send(OtaStatus::Deploying(ota_request_cl, progress))
+                                .await;
+
+                            if let Err(err) = res {
+                                error!("couldn't send progress update: {err}")
+                            }
+                            return Ok(status_cl);
                         }
-                    };
-
-                    let res = self
-                        .publisher_tx
-                        .send(OtaStatus::Deploying(ota_request_cl, progress))
-                        .await;
-
-                    if let Err(err) = res {
-                        error!("couldn't send progress update: {err}")
+                        Ok(prev_status)
                     }
-
-                    Ok(None)
-                }
-            })
+                },
+            )
             .await;
 
         let signal = match signal {
-            Ok(Some(signal)) => signal,
-            Ok(None) => {
+            Ok(DeployStatus::Completed { signal }) => signal,
+            Ok(DeployStatus::Progress(_)) => {
                 let message = "No progress completion event received";
                 error!("{message}");
                 return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request));
