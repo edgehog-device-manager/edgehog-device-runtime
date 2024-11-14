@@ -18,8 +18,9 @@
 
 //! Container properties sent from the device to Astarte.
 
-use astarte_device_sdk::{AstarteType, Error as AstarteError};
+use astarte_device_sdk::AstarteType;
 use async_trait::async_trait;
+use tracing::error;
 use uuid::Uuid;
 
 cfg_if::cfg_if! {
@@ -36,33 +37,17 @@ pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
 
-/// Error from handling the Astarte properties.
-#[non_exhaustive]
-#[derive(Debug, displaydoc::Display, thiserror::Error)]
-pub enum PropError {
-    /// endpoint missing prefix
-    MissingPrefix,
-    /// endpoint missing the id
-    MissingId,
-    /// couldn't send {path} to Astarte
-    Send {
-        path: String,
-        #[source]
-        backtrace: AstarteError,
-    },
-}
-
 #[async_trait]
 pub(crate) trait AvailableProp {
     fn interface() -> &'static str;
 
     fn id(&self) -> &Uuid;
 
-    async fn send<D>(&self, device: &D) -> Result<(), PropError>
+    async fn send<D>(&self, device: &D)
     where
         D: Client + Sync + 'static;
 
-    async fn send_field<D, T>(&self, device: &D, field: &str, data: T) -> Result<(), PropError>
+    async fn send_field<D, T>(&self, device: &D, field: &str, data: T)
     where
         D: Client + Sync + 'static,
         T: Into<AstarteType> + Send + 'static,
@@ -70,12 +55,10 @@ pub(crate) trait AvailableProp {
         let interface = Self::interface();
         let endpoint = format!("/{}/{}", self.id(), field);
 
-        device
-            .send(interface, &endpoint, data)
-            .await
-            .map_err(|err| PropError::Send {
-                path: format!("{interface}{endpoint}"),
-                backtrace: err,
-            })
+        let res = device.send(interface, &endpoint, data).await;
+
+        if let Err(err) = res {
+            error!("couldn't send data for {interface}{endpoint}: {err}");
+        }
     }
 }

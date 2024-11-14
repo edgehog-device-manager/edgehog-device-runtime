@@ -21,18 +21,10 @@
 use std::fmt::Display;
 
 use astarte_device_sdk::{AstarteAggregate, AstarteType};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::properties::Client;
-
-/// couldn't send {event}, with id {id}
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub struct EventError {
-    id: Uuid,
-    event: DeploymentEvent,
-    #[source]
-    source: astarte_device_sdk::Error,
-}
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.DeploymentEvent";
 
@@ -51,20 +43,17 @@ impl DeploymentEvent {
         }
     }
 
-    pub(crate) async fn send<D>(self, id: &Uuid, client: &D) -> Result<(), EventError>
+    pub(crate) async fn send<D>(self, id: &Uuid, client: &D)
     where
         D: Client + Sync + 'static,
     {
-        client
+        let res = client
             .send_object(INTERFACE, &format!("/{id}"), self.clone())
-            .await
-            .map_err(|source| EventError {
-                id: *id,
-                event: self,
-                source,
-            })?;
+            .await;
 
-        Ok(())
+        if let Err(err) = res {
+            error!(error = %err, "couldn't send {self}, with id {id}")
+        }
     }
 }
 
@@ -131,6 +120,6 @@ mod tests {
 
         let event = DeploymentEvent::new(EventStatus::Starting, "");
 
-        event.send(&id, &client).await.unwrap();
+        event.send(&id, &client).await;
     }
 }

@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::service::Id;
 
-use super::{AvailableProp, Client, PropError};
+use super::{AvailableProp, Client};
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableDeployments";
 
@@ -53,13 +53,11 @@ impl AvailableProp for AvailableDeployments<'_> {
         self.id.uuid()
     }
 
-    async fn send<D>(&self, device: &D) -> Result<(), PropError>
+    async fn send<D>(&self, device: &D)
     where
         D: Client + Sync + 'static,
     {
-        self.send_field(device, "status", self.status).await?;
-
-        Ok(())
+        self.send_field(device, "status", self.status).await;
     }
 }
 
@@ -118,6 +116,6 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        deployment.send(&client).await.unwrap();
+        deployment.send(&client).await;
     }
 }

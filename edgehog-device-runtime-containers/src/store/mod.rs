@@ -99,6 +99,7 @@ impl StateStore {
     }
 
     /// Load the state from the persistence
+    #[instrument(skip_all)]
     pub(crate) async fn load(&self) -> Result<Vec<Value>> {
         // The call to read is one at the beginning, so we don't need to keep the reader around
         let file = self
@@ -133,7 +134,7 @@ impl StateStore {
     }
 
     /// Appends the new struct to the state store
-    #[instrument(skip(resource, deps))]
+    #[instrument(skip(self, resource, deps))]
     pub(crate) async fn append(
         &mut self,
         id: Id,
@@ -228,9 +229,12 @@ impl<'a> Value<'a> {
     }
 
     fn from_node(value: &'a Node, deps: Vec<Id>) -> Self {
-        let resource = value.node_type().map(Resource::from);
+        let resource = value
+            .resource
+            .as_ref()
+            .map(|node| Resource::from(&node.value));
 
-        Self::new(*value.id(), deps, resource)
+        Self::new(value.id, deps, resource)
     }
 }
 
@@ -287,6 +291,18 @@ impl<'a> From<&'a NodeType> for Resource<'a> {
             NodeType::Network(network) => Resource::from(network),
             NodeType::Container(container) => Resource::from(container),
             NodeType::Deployment => Resource::Deployment,
+        }
+    }
+}
+
+impl From<Resource<'_>> for NodeType {
+    fn from(value: Resource<'_>) -> Self {
+        match value {
+            Resource::Image(image) => Image::from(image).into(),
+            Resource::Volume(volume) => Volume::from(volume).into(),
+            Resource::Network(network) => Network::from(network).into(),
+            Resource::Container(container) => Container::from(container).into(),
+            Resource::Deployment => NodeType::Deployment,
         }
     }
 }

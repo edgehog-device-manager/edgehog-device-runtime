@@ -25,7 +25,7 @@ use std::{
 
 use astarte_device_sdk::event::FromEventError;
 use itertools::Itertools;
-use petgraph::stable_graph::NodeIndex;
+use petgraph::{stable_graph::NodeIndex, visit::Walker};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, warn};
 use uuid::Uuid;
@@ -33,10 +33,10 @@ use uuid::Uuid;
 use crate::{
     container::Container,
     error::DockerError,
-    events::{DeploymentEvent, EventError, EventStatus},
+    events::{DeploymentEvent, EventStatus},
     image::Image,
     network::Network,
-    properties::{Client, PropError},
+    properties::Client,
     requests::{
         container::CreateContainer,
         deployment::{CommandValue, CreateDeployment, DeploymentCommand},
@@ -46,17 +46,17 @@ use crate::{
         ContainerRequest, ReqError,
     },
     service::resource::NodeType,
-    store::{Resource, StateStore, StateStoreError},
+    store::{StateStore, StateStoreError},
     volume::Volume,
     Docker,
 };
 
-use self::{collection::NodeGraph, node::Node, state::State};
+use self::collection::NodeGraph;
+use self::resource::NodeResource;
 
 pub(crate) mod collection;
 pub(crate) mod node;
 pub(crate) mod resource;
-pub(crate) mod state;
 
 type Result<T> = std::result::Result<T, ServiceError>;
 
@@ -68,24 +68,19 @@ pub enum ServiceError {
     FromEvent(#[from] FromEventError),
     /// docker operation failed
     Docker(#[source] DockerError),
-    /// couldn't save the property
-    Prop(#[from] PropError),
-    /// node {0} is missing
-    MissingNode(Id),
+    /// couldn't {ctx} resource {id}, because it's missing
+    Missing {
+        /// Operation where the error originated
+        ctx: &'static str,
+        /// Id of the resource that is missing
+        id: Id,
+    },
     /// relation is missing given the index
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
-    /// couldn't create for missing node {0}
-    Create(Id),
-    /// couldn't start for missing node {0}
-    Start(Id),
-    /// couldn't operate on missing node {0}
-    Missing(Id),
     /// state store operation failed
     StateStore(#[from] StateStoreError),
-    /// couldn't send the event to Astarte
-    Event(#[from] EventError),
     /// couldn't parse id, it's an invalid UUID
     Uuid {
         /// The invalid [`Id`]
@@ -144,57 +139,18 @@ impl<D> Service<D> {
             debug!("adding stored {id}");
 
             match value.resource {
-                Some(Resource::Image(state)) => {
-                    let image = Image::from(state);
+                Some(resource) => {
+                    let node = NodeType::from(resource);
 
-                    self.nodes.add_node_sync(id, &[], |id, node_idx| {
-                        Ok(Node::with_state(id, node_idx, State::Stored(image.into())))
-                    })?;
-                }
-                Some(Resource::Volume(state)) => {
-                    let volume = Volume::from(state);
-
-                    self.nodes.add_node_sync(id, &[], |id, node_idx| {
-                        Ok(Node::with_state(id, node_idx, State::Stored(volume.into())))
-                    })?;
-                }
-                Some(Resource::Network(state)) => {
-                    let network = Network::from(state);
-
-                    self.nodes.add_node_sync(id, &[], |id, node_idx| {
-                        Ok(Node::with_state(
-                            id,
-                            node_idx,
-                            State::Stored(network.into()),
-                        ))
-                    })?;
-                }
-                Some(Resource::Container(state)) => {
-                    let container = Container::from(state);
-
-                    self.nodes.add_node_sync(id, &value.deps, |id, node_idx| {
-                        Ok(Node::with_state(
-                            id,
-                            node_idx,
-                            State::Stored(container.into()),
-                        ))
-                    })?;
-                }
-                Some(Resource::Deployment) => {
-                    self.nodes.add_node_sync(id, &value.deps, |id, node_idx| {
-                        Ok(Node::with_state(
-                            id,
-                            node_idx,
-                            State::Stored(NodeType::Deployment),
-                        ))
-                    })?;
+                    self.nodes
+                        .get_or_insert(id, NodeResource::stored(node), &value.deps);
                 }
                 None => {
                     debug!("adding missing resource");
 
-                    self.nodes.add_node_sync(id, &value.deps, |id, node_idx| {
-                        Ok(Node::new(id, node_idx))
-                    })?;
+                    debug_assert!(value.deps.is_empty());
+
+                    self.nodes.get_or_add_missing(id);
                 }
             }
         }
@@ -260,17 +216,13 @@ impl<D> Service<D> {
         let device = &self.device;
         let store = &mut self.store;
 
-        self.nodes
-            .add_node(id, |id, idx| async move {
-                let image = Image::from(req);
+        let image = Image::from(req);
 
-                let mut node = Node::new(id, idx);
+        let node = self
+            .nodes
+            .get_or_insert(id, NodeResource::with_default(image.into()), &[]);
 
-                node.store(store, device, image, Vec::new()).await?;
-
-                Ok(node)
-            })
-            .await?;
+        node.store(store, device, Vec::new()).await?;
 
         Ok(())
     }
@@ -288,17 +240,12 @@ impl<D> Service<D> {
         let device = &self.device;
         let store = &mut self.store;
 
-        self.nodes
-            .add_node(id, |id, idx| async move {
-                let image = Volume::try_from(req)?;
+        let volume = Volume::try_from(req)?;
+        let node = self
+            .nodes
+            .get_or_insert(id, NodeResource::with_default(volume.into()), &[]);
 
-                let mut node = Node::new(id, idx);
-
-                node.store(store, device, image, Vec::new()).await?;
-
-                Ok(node)
-            })
-            .await?;
+        node.store(store, device, Vec::new()).await?;
 
         Ok(())
     }
@@ -316,17 +263,12 @@ impl<D> Service<D> {
         let device = &self.device;
         let store = &mut self.store;
 
-        self.nodes
-            .add_node(id, |id, idx| async move {
-                let network = Network::from(req);
+        let network = Network::from(req);
+        let node = self
+            .nodes
+            .get_or_insert(id, NodeResource::with_default(network.into()), &[]);
 
-                let mut node = Node::new(id, idx);
-
-                node.store(store, device, network, Vec::new()).await?;
-
-                Ok(node)
-            })
-            .await?;
+        node.store(store, device, Vec::new()).await?;
 
         Ok(())
     }
@@ -346,17 +288,12 @@ impl<D> Service<D> {
 
         let deps = req.dependencies()?;
 
-        self.nodes
-            .add_node_with_deps(id, deps, |id, idx, deps| async move {
-                let image = Container::try_from(req)?;
+        let container = Container::try_from(req)?;
+        let node =
+            self.nodes
+                .get_or_insert(id, NodeResource::with_default(container.into()), &deps);
 
-                let mut node = Node::new(id, idx);
-
-                node.store(store, device, image, deps).await?;
-
-                Ok(node)
-            })
-            .await?;
+        node.store(store, device, deps).await?;
 
         Ok(())
     }
@@ -374,22 +311,17 @@ impl<D> Service<D> {
         let device = &self.device;
         let store = &mut self.store;
 
-        let deps = req
+        let deps: Vec<Id> = req
             .containers
             .iter()
             .map(|id| Id::try_from_str(ResourceType::Container, id))
             .try_collect()?;
 
-        self.nodes
-            .add_node_with_deps(id, deps, |id, idx, deps| async move {
-                let mut node = Node::new(id, idx);
+        let node =
+            self.nodes
+                .get_or_insert(id, NodeResource::with_default(NodeType::Deployment), &deps);
 
-                node.store(store, device, NodeType::Deployment, deps)
-                    .await?;
-
-                Ok(node)
-            })
-            .await?;
+        node.store(store, device, deps).await?;
 
         Ok(())
     }
@@ -402,15 +334,15 @@ impl<D> Service<D> {
     {
         debug!("starting {id}");
 
-        let node = self
-            .nodes
-            .node(id)
-            .ok_or_else(|| ServiceError::MissingNode(*id))?;
+        let node = self.nodes.node(id).ok_or_else(|| ServiceError::Missing {
+            id: *id,
+            ctx: "start",
+        })?;
 
-        if node.is_deployment() {
+        if id.is_deployment() {
             DeploymentEvent::new(EventStatus::Starting, "")
                 .send(node.id.uuid(), &self.device)
-                .await?;
+                .await;
         } else {
             warn!("starting a {node:?} and not a deployment");
         }
@@ -422,7 +354,7 @@ impl<D> Service<D> {
         if let Err(err) = &res {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
-                .await?;
+                .await;
         }
 
         res
@@ -432,23 +364,26 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), idx);
+        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), idx);
 
-        let mut relations = Vec::new();
-        while let Some(idx) = space.next(self.nodes.relations()) {
-            let id = *self
-                .nodes
-                .get_id(idx)
-                .ok_or(ServiceError::MissingRelation)?;
-
-            relations.push(id);
-        }
+        let relations = space
+            .iter(self.nodes.relations())
+            .map(|idx| {
+                self.nodes
+                    .get_id(idx)
+                    .copied()
+                    .ok_or(ServiceError::MissingRelation)
+            })
+            .collect::<Result<Vec<Id>>>()?;
 
         for id in relations {
             let node = self
                 .nodes
                 .node_mut(&id)
-                .ok_or_else(|| ServiceError::MissingNode(id))?;
+                .ok_or_else(|| ServiceError::Missing {
+                    id,
+                    ctx: "start node",
+                })?;
 
             node.up(&self.device, &self.client).await?;
 
@@ -466,89 +401,81 @@ impl<D> Service<D> {
     {
         debug!("stopping {id}");
 
-        let node = self
-            .nodes
-            .node(id)
-            .ok_or_else(|| ServiceError::MissingNode(*id))?;
+        let node = self.nodes.node(id).ok_or_else(|| ServiceError::Missing {
+            id: *id,
+            ctx: "stop",
+        })?;
 
-        if node.is_deployment() {
+        if id.is_deployment() {
             DeploymentEvent::new(EventStatus::Stopping, "")
                 .send(id.uuid(), &self.device)
-                .await?;
+                .await;
         } else {
             warn!("stopping a {node:?} and not a deployment");
         }
 
         let idx = node.idx;
 
-        let res = self.stop_node(idx).await;
+        let res = self.stop_node(node.id, idx).await;
 
         if let Err(err) = &res {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
-                .await?;
+                .await;
         }
 
         res
     }
 
-    async fn stop_node(&mut self, start_idx: NodeIndex) -> Result<()>
+    async fn stop_node(&mut self, id: Id, start_idx: NodeIndex) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let mut space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
+        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
 
-        let mut relations = Vec::new();
-        let graph = self.nodes.relations();
-        while let Some(idx) = space.next(graph) {
-            if idx == start_idx {
-                // The deployment stopped should be the last event.
-                debug!("skipping the starting node");
-                continue;
-            }
+        let relations = space
+            .iter(self.nodes.relations())
+            .filter(|idx| {
+                // Current deployment
+                let current = id.is_deployment().then_some(id);
 
-            // filter the dependents deployment, and check that are not started
-            let running_deployments = self
-                .nodes
-                .dependent(idx)
-                .filter_map(|id| {
-                    if id.is_deployment() {
-                        self.nodes.node(id)
-                    } else {
-                        None
-                    }
-                })
-                .any(|deployment| deployment.is_up());
+                // filter the dependents deployment, and check that are not started
+                let other_deployment = self.nodes.has_dependant_deployments(*idx, current);
 
-            if running_deployments {
-                debug!(
-                    "skipping {:?} which has another running deployment ",
-                    self.nodes.get_id(idx)
-                );
+                if other_deployment {
+                    debug!(
+                        "skipping {:?} which has another running deployment ",
+                        self.nodes.get_id(*idx)
+                    );
+                }
 
-                continue;
-            }
+                other_deployment
+            })
+            .map(|idx| {
+                self.nodes
+                    .get_id(idx)
+                    .copied()
+                    .ok_or(ServiceError::MissingRelation)
+            })
+            .collect::<Result<Vec<Id>>>()?;
 
-            let id = *self
-                .nodes
-                .get_id(idx)
-                .ok_or(ServiceError::MissingRelation)?;
-
-            relations.push(id);
-        }
-
-        let start_id = *self
-            .nodes
-            .get_id(start_idx)
-            .ok_or(ServiceError::MissingRelation)?;
-        // Push the deployment last
-        relations.push(start_id);
+        debug_assert_eq!(
+            relations
+                .last()
+                .and_then(|id| self.nodes.node(id))
+                .expect("there should be at least the starting node")
+                .idx,
+            start_idx
+        );
 
         for id in relations {
             let node = self
                 .nodes
                 .node_mut(&id)
-                .ok_or_else(|| ServiceError::MissingNode(id))?;
+                .ok_or_else(|| ServiceError::Missing {
+                    id,
+                    ctx: "stop node",
+                })?;
 
             node.stop(&self.device, &self.client).await?;
 
@@ -688,7 +615,11 @@ mod tests {
         let id = Id::new(ResourceType::Image, id);
         let node = service.nodes.node(&id).unwrap();
 
-        let State::Stored(NodeType::Image(image)) = node.state() else {
+        let Some(NodeResource {
+            value: NodeType::Image(image),
+            ..
+        }) = &node.resource
+        else {
             panic!("incorrect node {node:?}");
         };
 
@@ -738,7 +669,11 @@ mod tests {
         let id = Id::new(ResourceType::Volume, id);
         let node = service.nodes.node(&id).unwrap();
 
-        let State::Stored(NodeType::Volume(volume)) = node.state() else {
+        let Some(NodeResource {
+            value: NodeType::Volume(volume),
+            ..
+        }) = &node.resource
+        else {
             panic!("incorrect node {node:?}");
         };
 
@@ -789,7 +724,11 @@ mod tests {
         let id = Id::new(ResourceType::Network, id);
         let node = service.nodes.node(&id).unwrap();
 
-        let State::Stored(NodeType::Network(network)) = node.state() else {
+        let Some(NodeResource {
+            value: NodeType::Network(network),
+            ..
+        }) = &node.resource
+        else {
             panic!("incorrect node {node:?}");
         };
 
@@ -844,7 +783,11 @@ mod tests {
         let id = Id::new(ResourceType::Container, id);
         let node = service.nodes.node(&id).unwrap();
 
-        let State::Stored(NodeType::Container(container)) = node.state() else {
+        let Some(NodeResource {
+            value: NodeType::Container(container),
+            ..
+        }) = &node.resource
+        else {
             panic!("incorrect node {node:?}");
         };
 

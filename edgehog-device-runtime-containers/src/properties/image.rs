@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::service::Id;
 
-use super::{AvailableProp, Client, PropError};
+use super::{AvailableProp, Client};
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
 
@@ -50,13 +50,11 @@ impl AvailableProp for AvailableImage<'_> {
         self.id.uuid()
     }
 
-    async fn send<D>(&self, device: &D) -> Result<(), PropError>
+    async fn send<D>(&self, device: &D)
     where
         D: Client + Sync + 'static,
     {
-        self.send_field(device, "pulled", self.pulled).await?;
-
-        Ok(())
+        self.send_field(device, "pulled", self.pulled).await;
     }
 }
 
@@ -94,6 +92,6 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        image.send(&client).await.unwrap();
+        image.send(&client).await;
     }
 }
