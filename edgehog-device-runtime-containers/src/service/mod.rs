@@ -193,6 +193,12 @@ impl<D> Service<D> {
             }) => {
                 self.stop(id).await;
             }
+            ContainerRequest::DeploymentCommand(DeploymentCommand {
+                id,
+                command: CommandValue::Delete,
+            }) => {
+                self.delete(id).await;
+            }
             ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
                 self.update(from, to).await;
             }
@@ -454,6 +460,76 @@ impl<D> Service<D> {
                 })?;
 
             node.stop(&self.device, &self.client).await?;
+
+            self.store.store(&self.nodes).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Will delete an application
+    #[instrument(skip(self))]
+    pub async fn delete(&mut self, id: Uuid)
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(ResourceType::Deployment, id);
+        debug!("deleting {id}");
+
+        let Some(node) = self.nodes.node(&id) else {
+            error!("{id} not found");
+
+            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                .send(id.uuid(), &self.device)
+                .await;
+
+            return;
+        };
+
+        if id.is_deployment() {
+            DeploymentEvent::new(EventStatus::Deleteing, "")
+                .send(id.uuid(), &self.device)
+                .await;
+        } else {
+            warn!("deleting a {node:?} and not a deployment");
+        }
+
+        let idx = node.idx;
+
+        if let Err(err) = self.delete_node(node.id, idx).await {
+            DeploymentEvent::new(EventStatus::Error, err.to_string())
+                .send(id.uuid(), &self.device)
+                .await;
+        }
+    }
+
+    async fn delete_node(&mut self, current: Id, start_idx: NodeIndex) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let relations = self.nodes.nodes_only_in_deployment(current, start_idx)?;
+
+        debug_assert_eq!(
+            relations
+                .last()
+                .and_then(|id| self.nodes.node(id))
+                .expect("there should be at least the starting node")
+                .idx,
+            start_idx
+        );
+
+        for id in relations {
+            let node = self
+                .nodes
+                .node_mut(&id)
+                .ok_or_else(|| ServiceError::Missing {
+                    id,
+                    ctx: "delete node",
+                })?;
+
+            node.delete(&self.device, &self.client).await?;
+
+            self.nodes.remove(id);
 
             self.store.store(&self.nodes).await?;
         }

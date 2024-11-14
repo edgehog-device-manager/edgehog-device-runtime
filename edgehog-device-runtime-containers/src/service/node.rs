@@ -202,6 +202,50 @@ impl Node {
     }
 
     #[instrument(skip_all)]
+    async fn remove<D>(&mut self, device: &D, client: &Docker) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = &self.id;
+        let resource = self.resource.as_mut().ok_or(ServiceError::Missing {
+            id: self.id,
+            ctx: "start",
+        })?;
+
+        match &resource.value {
+            NodeType::Image(image) => {
+                image.remove(client).await?;
+
+                AvailableImage::new(id).unset(device).await;
+            }
+            NodeType::Volume(volume) => {
+                volume.remove(client).await?;
+
+                AvailableVolumes::new(id).unset(device).await;
+            }
+            NodeType::Network(network) => {
+                network.remove(client).await?;
+
+                AvailableNetworks::new(id).unset(device).await;
+            }
+            NodeType::Container(container) => {
+                container.remove(client).await?;
+
+                AvailableContainers::new(id).unset(device).await;
+            }
+            NodeType::Deployment => {
+                AvailableDeployments::new(id).unset(device).await;
+            }
+        }
+
+        self.resource = None;
+
+        info!("resource {id} removed");
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
     pub(crate) async fn stop<D>(&mut self, device: &D, client: &Docker) -> Result<()>
     where
         D: Client + Sync + 'static,
@@ -277,6 +321,28 @@ impl Node {
         }
 
         info!("resource {} up", self.id);
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) async fn delete<D>(&mut self, device: &D, client: &Docker) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let resource = self.resource.as_ref().ok_or(ServiceError::Missing {
+            id: self.id,
+            ctx: "up",
+        })?;
+
+        if resource.state == State::Received {
+            warn!("removind resource {} which is not stored", self.id);
+        }
+
+        self.stop(device, client).await?;
+        self.remove(device, client).await?;
+
+        info!("resource {} deleted", self.id);
 
         Ok(())
     }

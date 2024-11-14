@@ -200,6 +200,16 @@ impl NodeGraph {
             })
             .any(|deployment| deployment.is_up())
     }
+
+    /// Remove a resource
+    pub(crate) fn remove(&mut self, id: Id) -> Option<NodeResource> {
+        let node = self.nodes.remove(&id)?;
+
+        let weight = self.relations.remove_node(node.idx);
+        debug_assert_eq!(Some(id), weight);
+
+        node.resource
+    }
 }
 
 impl Default for NodeGraph {

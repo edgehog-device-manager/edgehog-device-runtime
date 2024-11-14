@@ -77,6 +77,7 @@ enum DeploymentCommandEvent {
 pub(crate) enum CommandValue {
     Start,
     Stop,
+    Delete,
 }
 
 impl TryFrom<AstarteType> for CommandValue {
@@ -88,6 +89,7 @@ impl TryFrom<AstarteType> for CommandValue {
         match value.as_str() {
             "Start" => Ok(Self::Start),
             "Stop" => Ok(Self::Stop),
+            "Delete" => Ok(Self::Delete),
             _ => {
                 error!("unrecognize DeploymentCommand command value {value}");
 
