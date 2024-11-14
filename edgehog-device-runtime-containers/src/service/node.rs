@@ -336,7 +336,7 @@ impl Node {
         })?;
 
         if resource.state == State::Received {
-            warn!("removind resource {} which is not stored", self.id);
+            warn!("removing resource {} which is not stored", self.id);
         }
 
         self.stop(device, client).await?;

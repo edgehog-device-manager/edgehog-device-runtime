@@ -439,7 +439,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let relations = self.nodes.nodes_only_in_deployment(current, start_idx)?;
+        let relations = self.nodes.nodes_to_stop(current, start_idx)?;
 
         debug_assert_eq!(
             relations
@@ -487,7 +487,7 @@ impl<D> Service<D> {
         };
 
         if id.is_deployment() {
-            DeploymentEvent::new(EventStatus::Deleteing, "")
+            DeploymentEvent::new(EventStatus::Deleting, "")
                 .send(id.uuid(), &self.device)
                 .await;
         } else {
@@ -507,7 +507,12 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let relations = self.nodes.nodes_only_in_deployment(current, start_idx)?;
+        // TODO: find a better way to not delete only the containers
+        let relations = self
+            .nodes
+            .nodes_to_delete(current, start_idx)?
+            .into_iter()
+            .collect_vec();
 
         debug_assert_eq!(
             relations
