@@ -17,7 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use actor::Actor;
-use astarte_device_sdk::{client::RecvError, FromEvent};
+use astarte_device_sdk::{client::RecvError, Client, FromEvent};
 use stable_eyre::eyre::Error;
 use tokio::{sync::mpsc, task::JoinSet};
 use tracing::{error, info};
@@ -44,7 +44,8 @@ pub mod event;
 pub struct Runtime<T> {
     client: T,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
-
+    #[cfg(feature = "containers")]
+    containers_tx: mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>,
     #[cfg(feature = "forwarder")]
     forwarder: crate::forwarder::Forwarder<T>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -60,7 +61,7 @@ impl<T> Runtime<T> {
         client: T,
     ) -> Result<Self, DeviceManagerError>
     where
-        T: Publisher + Send + Sync + Clone + 'static,
+        T: Client + Publisher + Send + Sync + Clone + 'static,
     {
         #[cfg(feature = "systemd")]
         crate::systemd_wrapper::systemd_notify_status("Initializing");
@@ -88,6 +89,10 @@ impl<T> Runtime<T> {
 
         tasks.spawn(telemetry.spawn(telemetry_rx));
 
+        #[cfg(feature = "containers")]
+        let containers_tx =
+            Self::setup_containers(&opts.store_directory, client.clone(), tasks).await?;
+
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
         let forwarder = crate::forwarder::Forwarder::init(client.clone()).await?;
@@ -95,6 +100,8 @@ impl<T> Runtime<T> {
         Ok(Self {
             client,
             telemetry_tx,
+            #[cfg(feature = "containers")]
+            containers_tx,
             #[cfg(feature = "forwarder")]
             forwarder,
             #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -102,6 +109,24 @@ impl<T> Runtime<T> {
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             ota_handler,
         })
+    }
+
+    #[cfg(feature = "containers")]
+    async fn setup_containers(
+        store_dir: &std::path::Path,
+        client: T,
+        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+    ) -> Result<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>, DeviceManagerError>
+    where
+        T: Client + Send + Sync + 'static,
+    {
+        let (container_tx, container_rx) = mpsc::channel(8);
+
+        let containers = crate::containers::ContainerService::new(store_dir, client).await?;
+
+        tasks.spawn(async move { containers.spawn(container_rx).await });
+
+        Ok(container_tx)
     }
 
     pub async fn run(&mut self) -> Result<(), DeviceManagerError>
@@ -157,10 +182,6 @@ impl<T> Runtime<T> {
                     error!("couldn't send the telemetry event");
                 }
             }
-            #[cfg(feature = "forwarder")]
-            RuntimeEvent::Session(event) => {
-                self.forwarder.handle_sessions(event);
-            }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             RuntimeEvent::Led(event) => {
                 if self.led_tx.send(event).await.is_err() {
@@ -175,6 +196,16 @@ impl<T> Runtime<T> {
                         stable_eyre::Report::new(err)
                     );
                 }
+            }
+            #[cfg(all(feature = "containers", target_os = "linux"))]
+            RuntimeEvent::Container(event) => {
+                if self.containers_tx.send(event).await.is_err() {
+                    error!("couldn't send the container event")
+                }
+            }
+            #[cfg(all(feature = "forwarder", target_os = "linux"))]
+            RuntimeEvent::Session(event) => {
+                self.forwarder.handle_sessions(event);
             }
         }
     }

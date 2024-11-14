@@ -39,7 +39,7 @@ use super::ReqError;
     path = "/container",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateContainer {
+pub struct CreateContainer {
     pub(crate) id: String,
     pub(crate) image_id: String,
     pub(crate) network_ids: Vec<String>,
@@ -199,7 +199,7 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
 
     use std::{collections::HashMap, fmt::Display};
 

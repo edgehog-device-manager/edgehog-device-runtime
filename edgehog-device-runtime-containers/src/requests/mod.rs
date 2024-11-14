@@ -22,17 +22,17 @@ use std::{collections::HashMap, num::ParseIntError};
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 use container::CreateContainer;
-use deployment::CreateDeployment;
+use deployment::{CreateDeployment, DeploymentCommand};
 
 use crate::store::container::RestartPolicyError;
 
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
-pub(crate) mod container;
-pub(crate) mod deployment;
-pub(crate) mod image;
-pub(crate) mod network;
-pub(crate) mod volume;
+pub mod container;
+pub mod deployment;
+pub mod image;
+pub mod network;
+pub mod volume;
 
 /// Error from handling the Astarte request.
 #[non_exhaustive]
@@ -64,38 +64,43 @@ pub enum BindingError {
 
 /// Create request from Astarte.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum CreateRequests {
-    /// Request to create an [`Image`](crate::image::Image).
+pub enum ContainerRequest {
+    /// Request to create an image.
     Image(CreateImage),
-    /// Request to create an [`Volume`](crate::volume::Volume).
+    /// Request to create a volume.
     Volume(CreateVolume),
-    /// Request to create an [`Network`](crate::network::Network).
+    /// Request to create a network.
     Network(CreateNetwork),
-    /// Request to create an [`Container`](crate::container::Container).
+    /// Request to create a container.
     Container(CreateContainer),
     /// Request to create a deployment.
     Deployment(CreateDeployment),
+    /// Command for a deployment
+    DeploymentCommand(DeploymentCommand),
 }
 
-impl FromEvent for CreateRequests {
+impl FromEvent for ContainerRequest {
     type Err = FromEventError;
 
     fn from_event(value: DeviceEvent) -> Result<Self, Self::Err> {
         match value.interface.as_str() {
             "io.edgehog.devicemanager.apps.CreateImageRequest" => {
-                CreateImage::from_event(value).map(CreateRequests::Image)
+                CreateImage::from_event(value).map(ContainerRequest::Image)
             }
             "io.edgehog.devicemanager.apps.CreateVolumeRequest" => {
-                CreateVolume::from_event(value).map(CreateRequests::Volume)
+                CreateVolume::from_event(value).map(ContainerRequest::Volume)
             }
             "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
-                CreateNetwork::from_event(value).map(CreateRequests::Network)
+                CreateNetwork::from_event(value).map(ContainerRequest::Network)
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
-                CreateContainer::from_event(value).map(CreateRequests::Container)
+                CreateContainer::from_event(value).map(ContainerRequest::Container)
             }
             "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
-                CreateDeployment::from_event(value).map(CreateRequests::Deployment)
+                CreateDeployment::from_event(value).map(ContainerRequest::Deployment)
+            }
+            "io.edgehog.devicemanager.apps.DeploymentCommand" => {
+                DeploymentCommand::from_event(value).map(ContainerRequest::DeploymentCommand)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }
@@ -125,7 +130,7 @@ mod tests {
     use astarte_device_sdk::Value;
     use network::{tests::create_network_request_event, CreateNetwork};
 
-    use crate::requests::{image::CreateImage, CreateRequests};
+    use crate::requests::{image::CreateImage, ContainerRequest};
 
     #[test]
     fn from_event_image() {
@@ -143,9 +148,9 @@ mod tests {
             data: Value::Object(fields),
         };
 
-        let request = CreateRequests::from_event(event).unwrap();
+        let request = ContainerRequest::from_event(event).unwrap();
 
-        let expect = CreateRequests::Image(CreateImage {
+        let expect = ContainerRequest::Image(CreateImage {
             id: "id".to_string(),
             reference: "reference".to_string(),
             registry_auth: "registry_auth".to_string(),
@@ -175,7 +180,7 @@ mod tests {
     fn from_event_network() {
         let event = create_network_request_event("id", "driver");
 
-        let request = CreateRequests::from_event(event).unwrap();
+        let request = ContainerRequest::from_event(event).unwrap();
 
         let expect = CreateNetwork {
             id: "id".to_string(),
@@ -185,6 +190,6 @@ mod tests {
             enable_ipv6: false,
         };
 
-        assert_eq!(request, CreateRequests::Network(expect));
+        assert_eq!(request, ContainerRequest::Network(expect));
     }
 }

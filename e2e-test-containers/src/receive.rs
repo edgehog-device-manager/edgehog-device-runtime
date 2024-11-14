@@ -18,70 +18,32 @@
 
 use std::{fmt::Debug, path::Path};
 
-use astarte_device_sdk::{properties::PropAccess, AstarteType, Client, Value};
-use color_eyre::eyre::{bail, Context, OptionExt};
-use edgehog_containers::{
-    service::{Id, ResourceType, Service},
-    store::StateStore,
-    Docker,
-};
+use astarte_device_sdk::{properties::PropAccess, Client, FromEvent};
+use color_eyre::eyre::Context;
+use edgehog_containers::{requests::ContainerRequest, service::Service, store::StateStore, Docker};
 use tracing::error;
-use uuid::Uuid;
 
 pub async fn receive<D>(device: D, store: &Path) -> color_eyre::Result<()>
 where
     D: Debug + Client + Clone + PropAccess + Sync + 'static,
 {
     let client = Docker::connect().await?;
-    let store = StateStore::open(store.join("state.json"))
+    let store = StateStore::open(store.join("containers/state.json"))
         .await
         .wrap_err("couldn't open the state store")?;
 
-    let mut service = Service::init(client, store, device.clone()).await?;
+    let mut service = Service::new(client, store, device.clone());
+    service.init().await?;
 
     loop {
         let event = device.recv().await?;
 
-        match event.interface.as_str() {
-            "io.edgehog.devicemanager.apps.CreateImageRequest"
-            | "io.edgehog.devicemanager.apps.CreateVolumeRequest"
-            | "io.edgehog.devicemanager.apps.CreateNetworkRequest"
-            | "io.edgehog.devicemanager.apps.CreateContainerRequest"
-            | "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
-                service.on_event(event).await?;
+        match ContainerRequest::from_event(event) {
+            Ok(req) => {
+                service.on_event(req).await?;
             }
-            "io.edgehog.devicemanager.apps.DeploymentCommand" => {
-                let release_id = event
-                    .path
-                    .strip_prefix('/')
-                    .and_then(|s| s.strip_suffix("/command"))
-                    .ok_or_eyre("unrecognize endpoint for ApplicationCommand")
-                    .and_then(|id| {
-                        Uuid::parse_str(id).wrap_err_with(|| format!("invalid uuid {id}"))
-                    })?;
-
-                let Value::Individual(AstarteType::String(cmd)) = event.data else {
-                    bail!("Invalid interface event: {event:?}");
-                };
-
-                match cmd.as_str() {
-                    "start" => {
-                        service
-                            .start(&Id::new(ResourceType::Deployment, release_id))
-                            .await?;
-                    }
-                    "stop" => {
-                        service
-                            .stop(&Id::new(ResourceType::Deployment, release_id))
-                            .await?;
-                    }
-                    _ => {
-                        bail!("unrecognize ApplicationCommand {cmd}");
-                    }
-                }
-            }
-            _ => {
-                error!("unrecognize interface {}", event.interface);
+            Err(err) => {
+                error!(error = %color_eyre::Report::new(err),"couldn't parse the event");
             }
         }
     }

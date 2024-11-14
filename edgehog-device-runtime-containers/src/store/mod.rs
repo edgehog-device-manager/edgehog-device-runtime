@@ -300,7 +300,7 @@ mod tests {
     async fn open_tmp() -> (StateStore, TempDir) {
         let tmpdir = TempDir::new().unwrap();
 
-        let file = tmpdir.path().join("store.json");
+        let file = tmpdir.path().join("containers/store.json");
         let store = StateStore::open(&file).await.unwrap();
 
         (store, tmpdir)
@@ -310,7 +310,7 @@ mod tests {
     async fn should_open() {
         let (_store, tmpdir) = open_tmp().await;
 
-        let exists = tokio::fs::try_exists(&tmpdir.path().join("store.json"))
+        let exists = tokio::fs::try_exists(&tmpdir.path().join("containers/store.json"))
             .await
             .unwrap();
 

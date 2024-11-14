@@ -31,7 +31,7 @@ use super::{parse_kv_map, ReqError};
     path = "/volume",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateVolume {
+pub struct CreateVolume {
     pub(crate) id: String,
     pub(crate) driver: String,
     pub(crate) options: Vec<String>,
@@ -58,7 +58,7 @@ impl TryFrom<CreateVolume> for Volume<String> {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use std::{collections::HashMap, fmt::Display};
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};

@@ -29,7 +29,7 @@ use crate::image::Image;
     path = "/image",
     rename_all = "camelCase"
 )]
-pub(crate) struct CreateImage {
+pub struct CreateImage {
     pub(crate) id: String,
     pub(crate) reference: String,
     pub(crate) registry_auth: String,
@@ -52,7 +52,7 @@ impl From<CreateImage> for Image<String> {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use std::fmt::Display;
 
     use astarte_device_sdk::{DeviceEvent, Value};

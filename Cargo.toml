@@ -39,6 +39,7 @@ bytes = { workspace = true }
 cfg-if = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 displaydoc = { workspace = true }
+edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 futures = { workspace = true }
 procfs = { workspace = true }
@@ -75,9 +76,10 @@ tokio-stream = { workspace = true, features = ["net"] }
 
 [features]
 default = ["udev", "wifiscanner", "zbus"]
+containers = ["dep:edgehog-containers"]
+forwarder = ["dep:edgehog-forwarder"]
 message-hub = ["astarte-device-sdk/message-hub"]
 systemd = ["dep:systemd"]
-forwarder = ["dep:edgehog-forwarder"]
 udev = ["dep:udev"]
 wifiscanner = ["dep:wifiscanner"]
 zbus = ["dep:zbus"]
@@ -95,6 +97,7 @@ cfg-if = "1.0.0"
 clap = "=4.4.18"
 color-eyre = "0.6.3"
 displaydoc = "0.2.5"
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.1.0" }
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
 futures = "0.3.31"
@@ -132,3 +135,6 @@ url = "2.5.3"
 uuid = "1.11.0"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
+
+# Transitive dependencies
+hyperlocal = "=0.9.0"
