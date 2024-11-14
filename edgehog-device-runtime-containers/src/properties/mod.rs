@@ -39,13 +39,20 @@ pub(crate) mod volume;
 
 #[async_trait]
 pub(crate) trait AvailableProp {
+    type Data: Into<AstarteType> + Send + 'static;
+
     fn interface() -> &'static str;
+
+    fn field() -> &'static str;
 
     fn id(&self) -> &Uuid;
 
-    async fn send<D>(&self, device: &D)
+    async fn send<D>(&self, device: &D, data: Self::Data)
     where
-        D: Client + Sync + 'static;
+        D: Client + Sync + 'static,
+    {
+        self.send_field(device, Self::field(), data).await;
+    }
 
     async fn send_field<D, T>(&self, device: &D, field: &str, data: T)
     where
@@ -56,6 +63,21 @@ pub(crate) trait AvailableProp {
         let endpoint = format!("/{}/{}", self.id(), field);
 
         let res = device.send(interface, &endpoint, data).await;
+
+        if let Err(err) = res {
+            error!("couldn't send data for {interface}{endpoint}: {err}");
+        }
+    }
+
+    async fn unset<D>(&self, device: &D)
+    where
+        D: Client + Sync + 'static,
+    {
+        let interface = Self::interface();
+        let field = Self::field();
+        let endpoint = format!("/{}/{}", self.id(), field);
+
+        let res = device.unset(interface, &endpoint).await;
 
         if let Err(err) = res {
             error!("couldn't send data for {interface}{endpoint}: {err}");

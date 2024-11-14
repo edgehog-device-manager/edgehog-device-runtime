@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::service::Id;
 
-use super::{AvailableProp, Client};
+use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableContainers";
 
@@ -34,17 +34,18 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableContainers";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AvailableContainers<'a> {
     id: &'a Id,
-    status: ContainerStatus,
 }
 
 impl<'a> AvailableContainers<'a> {
-    pub(crate) fn new(id: &'a Id, status: ContainerStatus) -> Self {
-        Self { id, status }
+    pub(crate) fn new(id: &'a Id) -> Self {
+        Self { id }
     }
 }
 
 #[async_trait]
 impl AvailableProp for AvailableContainers<'_> {
+    type Data = ContainerStatus;
+
     fn interface() -> &'static str {
         INTERFACE
     }
@@ -53,11 +54,8 @@ impl AvailableProp for AvailableContainers<'_> {
         self.id.uuid()
     }
 
-    async fn send<D>(&self, device: &D)
-    where
-        D: Client + Sync + 'static,
-    {
-        self.send_field(device, "status", self.status).await;
+    fn field() -> &'static str {
+        "status"
     }
 }
 
@@ -113,7 +111,7 @@ mod tests {
             ContainerStatus::Stopped,
         ];
         for status in statuses {
-            let container = AvailableContainers { id: &id, status };
+            let container = AvailableContainers::new(&id);
 
             let mut client = MockDeviceClient::<SqliteStore>::new();
             let mut seq = Sequence::new();
@@ -129,7 +127,30 @@ mod tests {
                 })
                 .returning(|_, _, _| Ok(()));
 
-            container.send(&client).await;
+            container.send(&client, status).await;
         }
+    }
+
+    #[tokio::test]
+    async fn should_unset_container() {
+        let uuid = Uuid::new_v4();
+        let id = Id::new(ResourceType::Container, uuid);
+
+        let container = AvailableContainers::new(&id);
+
+        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        client
+            .expect_unset()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path| {
+                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
+                    && path == format!("/{uuid}/status")
+            })
+            .returning(|_, _| Ok(()));
+
+        container.unset(&client).await;
     }
 }

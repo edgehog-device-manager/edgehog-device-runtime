@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::service::Id;
 
-use super::{AvailableProp, Client};
+use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
 
@@ -31,30 +31,28 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AvailableImage<'a> {
     id: &'a Id,
-    pulled: bool,
 }
 
 impl<'a> AvailableImage<'a> {
-    pub(crate) fn new(id: &'a Id, pulled: bool) -> Self {
-        Self { id, pulled }
+    pub(crate) fn new(id: &'a Id) -> Self {
+        Self { id }
     }
 }
 
 #[async_trait]
 impl AvailableProp for AvailableImage<'_> {
+    type Data = bool;
+
     fn interface() -> &'static str {
         INTERFACE
     }
 
-    fn id(&self) -> &Uuid {
-        self.id.uuid()
+    fn field() -> &'static str {
+        "pulled"
     }
 
-    async fn send<D>(&self, device: &D)
-    where
-        D: Client + Sync + 'static,
-    {
-        self.send_field(device, "pulled", self.pulled).await;
+    fn id(&self) -> &Uuid {
+        self.id.uuid()
     }
 }
 
@@ -73,10 +71,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let id = Id::new(ResourceType::Image, uuid);
 
-        let image = AvailableImage {
-            id: &id,
-            pulled: true,
-        };
+        let image = AvailableImage::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -92,6 +87,29 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        image.send(&client).await;
+        image.send(&client, true).await;
+    }
+
+    #[tokio::test]
+    async fn should_unset_image() {
+        let uuid = Uuid::new_v4();
+        let id = Id::new(ResourceType::Image, uuid);
+
+        let image = AvailableImage::new(&id);
+
+        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        client
+            .expect_unset()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path| {
+                interface == "io.edgehog.devicemanager.apps.AvailableImages"
+                    && path == format!("/{uuid}/pulled")
+            })
+            .returning(|_, _| Ok(()));
+
+        image.unset(&client).await;
     }
 }

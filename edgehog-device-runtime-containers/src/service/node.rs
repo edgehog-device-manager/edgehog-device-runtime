@@ -85,30 +85,30 @@ impl Node {
             NodeType::Image(image) => {
                 store.append(self.id, image.into(), deps).await?;
 
-                AvailableImage::new(&self.id, false).send(device).await;
+                AvailableImage::new(&self.id).send(device, false).await;
             }
             NodeType::Volume(volume) => {
                 store.append(self.id, volume.into(), deps).await?;
 
-                AvailableVolumes::new(&self.id, false).send(device).await
+                AvailableVolumes::new(&self.id).send(device, false).await
             }
             NodeType::Network(network) => {
                 store.append(self.id, network.into(), deps).await?;
 
-                AvailableNetworks::new(&self.id, false).send(device).await;
+                AvailableNetworks::new(&self.id).send(device, false).await;
             }
             NodeType::Container(container) => {
                 store.append(self.id, container.into(), deps).await?;
 
-                AvailableContainers::new(&self.id, ContainerStatus::Received)
-                    .send(device)
+                AvailableContainers::new(&self.id)
+                    .send(device, ContainerStatus::Received)
                     .await;
             }
             NodeType::Deployment => {
                 store.append(self.id, Resource::Deployment, deps).await?;
 
-                AvailableDeployments::new(&self.id, DeploymentStatus::Stopped)
-                    .send(device)
+                AvailableDeployments::new(&self.id)
+                    .send(device, DeploymentStatus::Stopped)
                     .await;
             }
         }
@@ -135,23 +135,23 @@ impl Node {
             NodeType::Image(image) => {
                 image.inspect_or_create(client).await?;
 
-                AvailableImage::new(&self.id, true).send(device).await;
+                AvailableImage::new(&self.id).send(device, true).await;
             }
             NodeType::Volume(volume) => {
                 volume.inspect_or_create(client).await?;
 
-                AvailableVolumes::new(&self.id, true).send(device).await;
+                AvailableVolumes::new(&self.id).send(device, true).await;
             }
             NodeType::Network(network) => {
                 network.inspect_or_create(client).await?;
 
-                AvailableNetworks::new(&self.id, true).send(device).await;
+                AvailableNetworks::new(&self.id).send(device, true).await;
             }
             NodeType::Container(container) => {
                 container.inspect_or_create(client).await?;
 
-                AvailableContainers::new(&self.id, ContainerStatus::Created)
-                    .send(device)
+                AvailableContainers::new(&self.id)
+                    .send(device, ContainerStatus::Created)
                     .await;
             }
             NodeType::Deployment => {}
@@ -183,13 +183,13 @@ impl Node {
             NodeType::Container(container) => {
                 container.start(client).await?;
 
-                AvailableContainers::new(id, ContainerStatus::Running)
-                    .send(device)
+                AvailableContainers::new(id)
+                    .send(device, ContainerStatus::Running)
                     .await;
             }
             NodeType::Deployment => {
-                AvailableDeployments::new(id, DeploymentStatus::Started)
-                    .send(device)
+                AvailableDeployments::new(id)
+                    .send(device, DeploymentStatus::Started)
                     .await;
             }
         }
@@ -231,13 +231,13 @@ impl Node {
                 let exists = container.stop(client).await?;
                 debug_assert!(exists.is_some());
 
-                AvailableContainers::new(id, ContainerStatus::Stopped)
-                    .send(device)
+                AvailableContainers::new(id)
+                    .send(device, ContainerStatus::Stopped)
                     .await;
             }
             NodeType::Deployment => {
-                AvailableDeployments::new(id, DeploymentStatus::Stopped)
-                    .send(device)
+                AvailableDeployments::new(id)
+                    .send(device, DeploymentStatus::Stopped)
                     .await;
             }
         }

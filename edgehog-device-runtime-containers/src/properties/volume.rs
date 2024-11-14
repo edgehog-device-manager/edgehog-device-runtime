@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::service::Id;
 
-use super::{AvailableProp, Client};
+use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableVolumes";
 
@@ -31,17 +31,18 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableVolumes";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AvailableVolumes<'a> {
     id: &'a Id,
-    created: bool,
 }
 
 impl<'a> AvailableVolumes<'a> {
-    pub(crate) fn new(id: &'a Id, created: bool) -> Self {
-        Self { id, created }
+    pub(crate) fn new(id: &'a Id) -> Self {
+        Self { id }
     }
 }
 
 #[async_trait]
 impl AvailableProp for AvailableVolumes<'_> {
+    type Data = bool;
+
     fn interface() -> &'static str {
         INTERFACE
     }
@@ -50,11 +51,8 @@ impl AvailableProp for AvailableVolumes<'_> {
         self.id.uuid()
     }
 
-    async fn send<D>(&self, device: &D)
-    where
-        D: Client + Sync + 'static,
-    {
-        self.send_field(device, "created", self.created).await;
+    fn field() -> &'static str {
+        "created"
     }
 }
 
@@ -73,10 +71,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let id = Id::new(ResourceType::Image, uuid);
 
-        let volume = AvailableVolumes {
-            id: &id,
-            created: true,
-        };
+        let volume = AvailableVolumes::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -92,6 +87,29 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        volume.send(&client).await;
+        volume.send(&client, true).await;
+    }
+
+    #[tokio::test]
+    async fn should_unset_volume() {
+        let uuid = Uuid::new_v4();
+        let id = Id::new(ResourceType::Image, uuid);
+
+        let volume = AvailableVolumes::new(&id);
+
+        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        client
+            .expect_unset()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path| {
+                interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
+                    && path == format!("/{uuid}/created")
+            })
+            .returning(|_, _| Ok(()));
+
+        volume.unset(&client).await;
     }
 }
