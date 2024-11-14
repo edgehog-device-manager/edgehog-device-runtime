@@ -22,11 +22,12 @@ use std::{collections::HashMap, fmt::Debug};
 
 use petgraph::{
     stable_graph::{NodeIndex, StableDiGraph},
+    visit::Walker,
     Direction,
 };
 use tracing::debug;
 
-use super::{node::Node, resource::NodeResource, Id};
+use super::{node::Node, resource::NodeResource, Id, ServiceError};
 
 type Graph = StableDiGraph<Id, ()>;
 
@@ -148,12 +149,46 @@ impl NodeGraph {
         }
     }
 
+    /// Returns a [`Vec`] of nodes that are only in the specified graph.
+    ///
+    /// It will filter the one that are related to another running deployment.
+    pub(crate) fn nodes_only_in_deployment(
+        &self,
+        current: Id,
+        start_idx: NodeIndex,
+    ) -> Result<Vec<Id>, ServiceError> {
+        debug_assert!(current.is_deployment());
+        debug_assert_eq!(Some(current), self.get_id(start_idx).copied());
+
+        petgraph::visit::DfsPostOrder::new(&self.relations, start_idx)
+            .iter(&self.relations)
+            .filter(|idx| {
+                // filter the dependents deployment, and check that are not started
+                let other_deployment = self.has_dependant_deployments(*idx, current);
+
+                if other_deployment {
+                    debug!(
+                        "skipping {:?} which has another running deployment ",
+                        self.get_id(*idx)
+                    );
+                }
+
+                other_deployment
+            })
+            .map(|idx| {
+                self.get_id(idx)
+                    .copied()
+                    .ok_or(ServiceError::MissingRelation)
+            })
+            .collect()
+    }
+
     /// Check if the node is required by a running deployment other than the current one.
-    pub(crate) fn has_dependant_deployments(&self, idx: NodeIndex, current: Option<Id>) -> bool {
-        debug_assert!(current.is_some_and(|id| id.is_deployment()));
+    fn has_dependant_deployments(&self, idx: NodeIndex, current: Id) -> bool {
+        debug_assert!(current.is_deployment());
         self.dependent(idx)
             .filter_map(|id| {
-                if current.is_some_and(|current| current == *id) {
+                if current == *id {
                     None
                 } else if id.is_deployment() {
                     let node = self.node(id);
