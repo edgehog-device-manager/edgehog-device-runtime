@@ -87,6 +87,7 @@ impl NodeGraph {
         //       a mutable reference to the node while we mutate the map
         // check if missing to add relations
         let idx = match self.node(&id) {
+            // Node exists and resource is not None
             Some(node) => node.idx,
             None => {
                 // wee need to add the deps if we don't have the node or the resource is missing
@@ -98,9 +99,18 @@ impl NodeGraph {
             }
         };
 
-        self.nodes
+        let node = self
+            .nodes
             .entry(id)
-            .or_insert_with(|| Node::new(id, idx, resource))
+            .or_insert_with(|| Node::new(id, idx, None));
+
+        if node.resource.is_none() {
+            debug!("setting resource");
+
+            node.resource = resource;
+        }
+
+        node
     }
 
     pub(crate) fn get_or_insert(
