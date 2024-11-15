@@ -183,7 +183,7 @@ impl<S> Image<S> {
         client
             .create_image(Some(options), None, auth)
             .try_for_each(|create_info| {
-                debug!("creating image: {:?}", create_info);
+                trace!("creating image: {:?}", create_info);
 
                 if let Some(err) = create_info.error {
                     error!("create {self} returned an error: {err}");
