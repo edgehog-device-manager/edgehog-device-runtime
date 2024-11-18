@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "PR_NUMBER=$(cat ./pr_number)" >> "$GITHUB_ENV"
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           codecov_yml_path: master/.github/codecov.yaml
           token: ${{secrets.CODECOV_TOKEN}}
