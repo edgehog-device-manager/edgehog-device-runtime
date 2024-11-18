@@ -67,8 +67,6 @@ pub struct Network<S> {
     ///
     /// Defaults to "bridge"
     pub driver: S,
-    /// Check for networks with duplicate names.
-    pub check_duplicate: bool,
     /// Restrict external access to the network.
     pub internal: bool,
     /// Enable IPv6 on the network.
@@ -82,7 +80,6 @@ impl<S> Network<S> {
         id: Option<String>,
         name: S,
         driver: S,
-        check_duplicate: bool,
         internal: bool,
         enable_ipv6: bool,
         driver_options: HashMap<String, S>,
@@ -91,7 +88,6 @@ impl<S> Network<S> {
             id,
             name,
             driver,
-            check_duplicate,
             internal,
             enable_ipv6,
             driver_opts: driver_options,
@@ -139,15 +135,13 @@ impl<S> Network<S> {
     where
         S: AsRef<str> + Display + Debug,
     {
-        if self.id.is_some() {
-            if let Some(net) = self.inspect(client).await? {
-                trace!("found network {net:?}");
+        if let Some(net) = self.inspect(client).await? {
+            trace!("found network {net:?}");
 
-                return Ok(false);
-            }
-
-            debug!("network not found, creating it");
+            return Ok(false);
         }
+
+        debug!("network not found, creating it");
 
         self.create(client).await?;
 
@@ -266,7 +260,6 @@ where
             id,
             name,
             driver,
-            check_duplicate,
             internal,
             enable_ipv6,
             driver_opts,
@@ -281,7 +274,6 @@ where
         self.id.eq(id)
             && self.name.eq(name)
             && self.driver.eq(driver)
-            && self.check_duplicate.eq(check_duplicate)
             && self.internal.eq(internal)
             && self.enable_ipv6.eq(enable_ipv6)
             && eq_driver_opts
@@ -296,7 +288,6 @@ where
         CreateNetworkOptions {
             name: value.name.as_ref(),
             driver: value.driver.as_ref(),
-            check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
             options: value
@@ -311,12 +302,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{docker_mock, tests::random_name};
+    use crate::{
+        docker_mock,
+        tests::{not_found_response, random_name},
+    };
 
     use super::*;
 
     fn new_network(name: &str) -> Network<&str> {
-        Network::new(None, name, "bridge", false, false, false, HashMap::new())
+        Network::new(None, name, "bridge", false, false, HashMap::new())
     }
 
     #[tokio::test]
@@ -350,6 +344,7 @@ mod tests {
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
+            let mut seq = mockall::Sequence::new();
 
             let network = bollard::models::Network {
                 name: Some(name.clone()),
@@ -367,11 +362,13 @@ mod tests {
             mock.expect_create_network()
                 .withf(move |option| option.name == name_cl && option.driver == "bridge")
                 .once()
+                .in_sequence(&mut seq)
                 .returning(move |_| Ok(resp.clone()));
 
             mock.expect_inspect_network()
                 .withf(|name, _| name == "id")
                 .once()
+                .in_sequence(&mut seq)
                 .returning(move |_, _| Ok(network.clone()));
 
             mock
@@ -469,6 +466,13 @@ mod tests {
                 id: Some("id".to_string()),
                 warning: None,
             };
+
+            let name_cl = name.clone();
+            mock.expect_inspect_network()
+                .withf(move |name, _| name == name_cl)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(move |_, _| Err(not_found_response()));
 
             let name_cl = name.clone();
             mock.expect_create_network()

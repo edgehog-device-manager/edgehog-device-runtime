@@ -76,11 +76,13 @@ where
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
     pub name: S,
     /// The name (or reference) of the image to use.
-    pub image: S,
-    /// Network to link the container with.
     ///
     /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
     /// square brackets optional.
+    pub image: S,
+    /// Network mode to use for this container.
+    pub network_mode: S,
+    /// Network to connect the container to.
     pub networks: Vec<S>,
     /// The hostname to use for the container.
     ///
@@ -113,22 +115,6 @@ impl<S> Container<S>
 where
     S: Hash + Eq,
 {
-    /// Create a new container.
-    pub fn new(name: S, image: S) -> Self {
-        Self {
-            id: None,
-            name,
-            image,
-            hostname: None,
-            restart_policy: RestartPolicyNameEnum::EMPTY,
-            env: Vec::new(),
-            binds: Vec::new(),
-            networks: Vec::new(),
-            port_bindings: PortBindingMap::new(),
-            privileged: false,
-        }
-    }
-
     /// Get the container id or name if it's missing.
     #[instrument(skip_all)]
     pub fn container(&self) -> &str
@@ -465,6 +451,7 @@ where
             id,
             name,
             image,
+            network_mode,
             networks,
             hostname,
             restart_policy,
@@ -483,6 +470,7 @@ where
         self.id.eq(id)
             && self.name.eq(name)
             && self.image.eq(image)
+            && self.network_mode.eq(network_mode)
             && self.networks.eq(networks)
             && opt_eq(&self.hostname, hostname)
             && self.restart_policy.eq(restart_policy)
@@ -498,12 +486,6 @@ where
 /// See [`Container::port_bindings`] for more information.
 #[derive(Debug, Clone, Default)]
 pub struct PortBindingMap<S>(pub HashMap<String, Vec<Binding<S>>>);
-
-impl<S> PortBindingMap<S> {
-    fn new() -> Self {
-        Self(HashMap::new())
-    }
-}
 
 impl TryFrom<Vec<String>> for PortBindingMap<String> {
     type Error = BindingError;
@@ -625,6 +607,24 @@ mod tests {
     use crate::{docker_mock, image::Image, tests::random_name};
 
     use super::*;
+
+    impl Container<String> {
+        fn new(name: impl Into<String>, image: impl Into<String>) -> Self {
+            Self {
+                id: None,
+                name: name.into(),
+                image: image.into(),
+                hostname: None,
+                restart_policy: RestartPolicyNameEnum::EMPTY,
+                env: Vec::new(),
+                binds: Vec::new(),
+                network_mode: "bridge".to_string(),
+                networks: Vec::new(),
+                port_bindings: PortBindingMap::default(),
+                privileged: false,
+            }
+        }
+    }
 
     #[tokio::test]
     async fn should_create() {

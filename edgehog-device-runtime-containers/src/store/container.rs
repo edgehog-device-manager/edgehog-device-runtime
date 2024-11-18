@@ -30,6 +30,7 @@ pub(crate) struct ContainerState<'a> {
     id: Option<Cow<'a, str>>,
     name: Cow<'a, str>,
     image: Cow<'a, str>,
+    network_mode: Cow<'a, str>,
     networks: Vec<Cow<'a, str>>,
     hostname: Option<Cow<'a, str>>,
     restart_policy: RestartPolicy,
@@ -76,6 +77,7 @@ where
             id: value.id.as_deref().map(Cow::Borrowed),
             name: Cow::Borrowed(value.name.as_ref()),
             image: Cow::Borrowed(value.image.as_ref()),
+            network_mode: Cow::Borrowed(value.network_mode.as_ref()),
             networks,
             hostname: value.hostname.as_ref().map(|s| Cow::Borrowed(s.as_ref())),
             restart_policy: value.restart_policy.into(),
@@ -103,6 +105,7 @@ impl<'a> From<ContainerState<'a>> for Container<String> {
             id: value.id.map(Cow::into),
             name: value.name.into(),
             image: value.image.into(),
+            network_mode: value.network_mode.into(),
             networks: value.networks.into_iter().map(Cow::into).collect(),
             hostname: value.hostname.map(Cow::into),
             restart_policy: value.restart_policy.into(),
@@ -209,6 +212,7 @@ mod tests {
             id: Some("id".to_string()),
             name: "name",
             image: "image",
+            network_mode: "bridge",
             networks: vec!["network1", "network2"],
             hostname: Some("hostname"),
             restart_policy: RestartPolicyNameEnum::ON_FAILURE,
@@ -228,6 +232,7 @@ mod tests {
 
         assert_eq!(state.id.as_ref().unwrap(), container.id.as_ref().unwrap());
         assert_eq!(state.name, container.name);
+        assert_eq!(state.network_mode, container.network_mode);
         assert_eq!(state.networks, container.networks);
         assert_eq!(state.hostname.as_deref(), container.hostname);
         assert_eq!(state.restart_policy, RestartPolicy::OnFailure);

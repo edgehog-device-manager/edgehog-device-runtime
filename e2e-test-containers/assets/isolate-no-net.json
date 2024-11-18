@@ -1,0 +1,56 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateImageRequest",
+      "path": "/image",
+      "data": {
+        "id": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "reference": "docker.io/library/nginx:stable-alpine-slim",
+        "registryAuth": ""
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateNetworkRequest",
+      "path": "/network",
+      "data": {
+        "id": "78549b2b-3888-4976-8bfe-236afab0f91e",
+        "driver": "bridge",
+        "checkDuplicate": false,
+        "internal": true,
+        "enableIpv6": false,
+        "options": ["isolate=true"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "03aba87c-1ebe-45e9-ab8c-c4eb89752af9",
+        "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "networkIds": ["78549b2b-3888-4976-8bfe-236afab0f91e"],
+        "volumeIds": [],
+        "image": "docker.io/library/nginx:stable-alpine-slim",
+        "hostname": "",
+        "restartPolicy": "",
+        "env": [],
+        "binds": [],
+        "networkMode": "bridge",
+        "portBindings": ["9000:80"],
+        "privileged": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
+      "path": "/deployment",
+      "data": {
+        "id": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "containers": ["03aba87c-1ebe-45e9-ab8c-c4eb89752af9"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/6a9b6d3c-4894-4fd0-af1d-44b326282c19/command",
+      "data": "Start"
+    }
+  ]
+}
