@@ -26,7 +26,7 @@ use petgraph::{
     visit::Walker,
     Direction,
 };
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use super::{node::Node, resource::NodeResource, Id, ServiceError};
 
@@ -71,8 +71,17 @@ impl NodeGraph {
     }
 
     /// Get a reference to a node
+    #[instrument(skip_all, fields(id = %id))]
     pub(crate) fn node(&self, id: &Id) -> Option<&Node> {
-        self.nodes.get(id).filter(|node| node.resource.is_some())
+        self.nodes.get(id).filter(|node| {
+            let is_some = node.resource.is_some();
+
+            if !is_some {
+                debug!("resource is missing");
+            }
+
+            is_some
+        })
     }
 
     /// Get a mutable reference to anode
@@ -90,7 +99,7 @@ impl NodeGraph {
             // Node exists and resource is not None
             Some(node) => node.idx,
             None => {
-                // wee need to add the deps if we don't have the node or the resource is missing
+                // we need to add the deps if we don't have the node or the resource is missing
                 let idx = self.relations.add_node(id);
 
                 self.add_relations(idx, deps);
@@ -186,7 +195,7 @@ impl NodeGraph {
                     );
                 }
 
-                other_deployment
+                !other_deployment
             })
             .map(|idx| {
                 self.get_id(idx)
@@ -236,6 +245,7 @@ impl NodeGraph {
         debug_assert!(current.is_deployment());
         self.dependent(idx)
             .filter_map(|id| {
+                // get deployments that are not the current
                 if current == *id {
                     None
                 } else if id.is_deployment() {
@@ -246,6 +256,7 @@ impl NodeGraph {
                     None
                 }
             })
+            // Check if any other is up
             .any(|deployment| deployment.is_up())
     }
 
