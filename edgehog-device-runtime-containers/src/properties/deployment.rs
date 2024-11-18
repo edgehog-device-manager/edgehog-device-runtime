@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::service::Id;
 
-use super::{AvailableProp, Client};
+use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableDeployments";
 
@@ -34,30 +34,28 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableDeployments";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AvailableDeployments<'a> {
     id: &'a Id,
-    status: DeploymentStatus,
 }
 
 impl<'a> AvailableDeployments<'a> {
-    pub(crate) fn new(id: &'a Id, status: DeploymentStatus) -> Self {
-        Self { id, status }
+    pub(crate) fn new(id: &'a Id) -> Self {
+        Self { id }
     }
 }
 
 #[async_trait]
 impl AvailableProp for AvailableDeployments<'_> {
+    type Data = DeploymentStatus;
+
     fn interface() -> &'static str {
         INTERFACE
     }
 
-    fn id(&self) -> &Uuid {
-        self.id.uuid()
+    fn field() -> &'static str {
+        "status"
     }
 
-    async fn send<D>(&self, device: &D)
-    where
-        D: Client + Sync + 'static,
-    {
-        self.send_field(device, "status", self.status).await;
+    fn id(&self) -> &Uuid {
+        self.id.uuid()
     }
 }
 
@@ -97,10 +95,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let id = Id::new(ResourceType::Deployment, uuid);
 
-        let deployment = AvailableDeployments {
-            id: &id,
-            status: DeploymentStatus::Stopped,
-        };
+        let deployment = AvailableDeployments { id: &id };
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -116,6 +111,29 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        deployment.send(&client).await;
+        deployment.send(&client, DeploymentStatus::Stopped).await;
+    }
+
+    #[tokio::test]
+    async fn should_unset_deployment() {
+        let uuid = Uuid::new_v4();
+        let id = Id::new(ResourceType::Deployment, uuid);
+
+        let deployment = AvailableDeployments { id: &id };
+
+        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        client
+            .expect_unset()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path| {
+                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
+                    && path == format!("/{uuid}/status")
+            })
+            .returning(|_, _| Ok(()));
+
+        deployment.unset(&client).await;
     }
 }

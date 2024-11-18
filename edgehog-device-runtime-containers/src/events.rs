@@ -72,6 +72,7 @@ pub(crate) enum EventStatus {
     Starting,
     Stopping,
     Updating,
+    Deleting,
     Error,
 }
 
@@ -81,6 +82,7 @@ impl Display for EventStatus {
             EventStatus::Starting => write!(f, "Starting"),
             EventStatus::Stopping => write!(f, "Stopping"),
             EventStatus::Updating => write!(f, "Updating"),
+            EventStatus::Deleting => write!(f, "Deleting"),
             EventStatus::Error => write!(f, "Error"),
         }
     }

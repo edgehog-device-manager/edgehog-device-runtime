@@ -28,7 +28,7 @@ use astarte_device_sdk::event::FromEventError;
 use itertools::Itertools;
 use petgraph::{stable_graph::NodeIndex, visit::Walker};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -185,20 +185,22 @@ impl<D> Service<D> {
                 id,
                 command: CommandValue::Start,
             }) => {
-                let id = Id::new(ResourceType::Deployment, id);
-
-                self.start(&id).await?;
+                self.start(id).await;
             }
             ContainerRequest::DeploymentCommand(DeploymentCommand {
                 id,
                 command: CommandValue::Stop,
             }) => {
-                let id = Id::new(ResourceType::Deployment, id);
-
-                self.stop(&id).await?;
+                self.stop(id).await;
+            }
+            ContainerRequest::DeploymentCommand(DeploymentCommand {
+                id,
+                command: CommandValue::Delete,
+            }) => {
+                self.delete(id).await;
             }
             ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
-                self.update(from, to).await?;
+                self.update(from, to).await;
             }
         }
 
@@ -332,16 +334,22 @@ impl<D> Service<D> {
 
     /// Will start an application
     #[instrument(skip(self))]
-    pub async fn start(&mut self, id: &Id) -> Result<()>
+    pub async fn start(&mut self, id: Uuid)
     where
         D: Client + Sync + 'static,
     {
+        let id = Id::new(ResourceType::Deployment, id);
         debug!("starting {id}");
 
-        let node = self.nodes.node(id).ok_or_else(|| ServiceError::Missing {
-            id: *id,
-            ctx: "start",
-        })?;
+        let Some(node) = self.nodes.node(&id) else {
+            error!("{id} not found");
+
+            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                .send(id.uuid(), &self.device)
+                .await;
+
+            return;
+        };
 
         if id.is_deployment() {
             DeploymentEvent::new(EventStatus::Starting, "")
@@ -353,15 +361,11 @@ impl<D> Service<D> {
 
         let idx = node.idx;
 
-        let res = self.start_node(idx).await;
-
-        if let Err(err) = &res {
+        if let Err(err) = self.start_node(idx).await {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
                 .await;
         }
-
-        res
     }
 
     async fn start_node(&mut self, idx: NodeIndex) -> Result<()>
@@ -399,16 +403,22 @@ impl<D> Service<D> {
 
     /// Will stop an application
     #[instrument(skip(self))]
-    pub async fn stop(&mut self, id: &Id) -> Result<()>
+    pub async fn stop(&mut self, id: Uuid)
     where
         D: Client + Sync + 'static,
     {
+        let id = Id::new(ResourceType::Deployment, id);
         debug!("stopping {id}");
 
-        let node = self.nodes.node(id).ok_or_else(|| ServiceError::Missing {
-            id: *id,
-            ctx: "stop",
-        })?;
+        let Some(node) = self.nodes.node(&id) else {
+            error!("{id} not found");
+
+            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                .send(id.uuid(), &self.device)
+                .await;
+
+            return;
+        };
 
         if id.is_deployment() {
             DeploymentEvent::new(EventStatus::Stopping, "")
@@ -418,50 +428,18 @@ impl<D> Service<D> {
             warn!("stopping a {node:?} and not a deployment");
         }
 
-        let idx = node.idx;
-
-        let res = self.stop_node(node.id, idx).await;
-
-        if let Err(err) = &res {
+        if let Err(err) = self.stop_node(node.id, node.idx).await {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
                 .await;
         }
-
-        res
     }
 
-    async fn stop_node(&mut self, id: Id, start_idx: NodeIndex) -> Result<()>
+    async fn stop_node(&mut self, current: Id, start_idx: NodeIndex) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), start_idx);
-
-        let relations = space
-            .iter(self.nodes.relations())
-            .filter(|idx| {
-                // Current deployment
-                let current = id.is_deployment().then_some(id);
-
-                // filter the dependents deployment, and check that are not started
-                let other_deployment = self.nodes.has_dependant_deployments(*idx, current);
-
-                if other_deployment {
-                    debug!(
-                        "skipping {:?} which has another running deployment ",
-                        self.nodes.get_id(*idx)
-                    );
-                }
-
-                other_deployment
-            })
-            .map(|idx| {
-                self.nodes
-                    .get_id(idx)
-                    .copied()
-                    .ok_or(ServiceError::MissingRelation)
-            })
-            .collect::<Result<Vec<Id>>>()?;
+        let relations = self.nodes.nodes_to_stop(current, start_idx)?;
 
         debug_assert_eq!(
             relations
@@ -489,9 +467,84 @@ impl<D> Service<D> {
         Ok(())
     }
 
+    /// Will delete an application
+    #[instrument(skip(self))]
+    pub async fn delete(&mut self, id: Uuid)
+    where
+        D: Client + Sync + 'static,
+    {
+        let id = Id::new(ResourceType::Deployment, id);
+        debug!("deleting {id}");
+
+        let Some(node) = self.nodes.node(&id) else {
+            error!("{id} not found");
+
+            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                .send(id.uuid(), &self.device)
+                .await;
+
+            return;
+        };
+
+        if id.is_deployment() {
+            DeploymentEvent::new(EventStatus::Deleting, "")
+                .send(id.uuid(), &self.device)
+                .await;
+        } else {
+            warn!("deleting a {node:?} and not a deployment");
+        }
+
+        let idx = node.idx;
+
+        if let Err(err) = self.delete_node(node.id, idx).await {
+            DeploymentEvent::new(EventStatus::Error, err.to_string())
+                .send(id.uuid(), &self.device)
+                .await;
+        }
+    }
+
+    async fn delete_node(&mut self, current: Id, start_idx: NodeIndex) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        // TODO: find a better way to not delete only the containers
+        let relations = self
+            .nodes
+            .nodes_to_delete(current, start_idx)?
+            .into_iter()
+            .collect_vec();
+
+        debug_assert_eq!(
+            relations
+                .last()
+                .and_then(|id| self.nodes.node(id))
+                .expect("there should be at least the starting node")
+                .idx,
+            start_idx
+        );
+
+        for id in relations {
+            let node = self
+                .nodes
+                .node_mut(&id)
+                .ok_or_else(|| ServiceError::Missing {
+                    id,
+                    ctx: "delete node",
+                })?;
+
+            node.delete(&self.device, &self.client).await?;
+
+            self.nodes.remove(id);
+
+            self.store.store(&self.nodes).await?;
+        }
+
+        Ok(())
+    }
+
     /// Will update an application between deployments
     #[instrument(skip(self))]
-    pub async fn update(&mut self, from: Uuid, to: Uuid) -> Result<()>
+    pub async fn update(&mut self, from: Uuid, to: Uuid)
     where
         D: Client + Sync + 'static,
     {
@@ -502,16 +555,12 @@ impl<D> Service<D> {
             .send(from.uuid(), &self.device)
             .await;
 
-        let res = self.update_deployment(from, to).await;
-
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
-        if let Err(err) = &res {
+        if let Err(err) = self.update_deployment(from, to).await {
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(from.uuid(), &self.device)
                 .await;
         }
-
-        res
     }
 
     async fn update_deployment(&mut self, from: Id, to: Id) -> Result<()>

@@ -34,6 +34,7 @@ cfg-if = { workspace = true }
 displaydoc = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
+indexmap = { workspace = true }
 itertools = { workspace = true }
 mockall = { workspace = true, optional = true }
 petgraph = { workspace = true }

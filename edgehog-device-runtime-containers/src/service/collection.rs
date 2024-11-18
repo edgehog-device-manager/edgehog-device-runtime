@@ -20,13 +20,15 @@
 
 use std::{collections::HashMap, fmt::Debug};
 
+use indexmap::IndexMap;
 use petgraph::{
     stable_graph::{NodeIndex, StableDiGraph},
+    visit::Walker,
     Direction,
 };
 use tracing::debug;
 
-use super::{node::Node, resource::NodeResource, Id};
+use super::{node::Node, resource::NodeResource, Id, ServiceError};
 
 type Graph = StableDiGraph<Id, ()>;
 
@@ -148,12 +150,83 @@ impl NodeGraph {
         }
     }
 
+    /// Returns a [`Vec`] of nodes that are only in the deployment.
+    ///
+    /// It will filter the one that are related to another running deployment.
+    ///
+    /// This works because only the container can be actually stopped.
+    pub(crate) fn nodes_to_stop(
+        &self,
+        current: Id,
+        start_idx: NodeIndex,
+    ) -> Result<Vec<Id>, ServiceError> {
+        debug_assert!(current.is_deployment());
+        debug_assert_eq!(Some(current), self.get_id(start_idx).copied());
+
+        petgraph::visit::DfsPostOrder::new(&self.relations, start_idx)
+            .iter(&self.relations)
+            .filter(|idx| {
+                // filter the dependents deployment, and check that are not started
+                let other_deployment = self.has_dependant_deployments(*idx, current);
+
+                if other_deployment {
+                    debug!(
+                        "skipping {:?} which has another running deployment ",
+                        self.get_id(*idx)
+                    );
+                }
+
+                other_deployment
+            })
+            .map(|idx| {
+                self.get_id(idx)
+                    .copied()
+                    .ok_or(ServiceError::MissingRelation)
+            })
+            .collect()
+    }
+
+    /// Returns a [`Vec`] of nodes that are only in the specified graph.
+    ///
+    /// It will filter the one that are related to another nodes not present in list of nodes that
+    /// are returned.
+    pub(crate) fn nodes_to_delete(
+        &self,
+        current: Id,
+        start_idx: NodeIndex,
+    ) -> Result<Vec<Id>, ServiceError> {
+        debug_assert!(current.is_deployment());
+        debug_assert_eq!(Some(current), self.get_id(start_idx).copied());
+
+        let present = petgraph::visit::DfsPostOrder::new(&self.relations, start_idx)
+            .iter(&self.relations)
+            .map(|idx| {
+                self.get_id(idx)
+                    .copied()
+                    .map(|id| (id, idx))
+                    .ok_or(ServiceError::MissingRelation)
+            })
+            .collect::<Result<IndexMap<Id, NodeIndex>, ServiceError>>()?;
+
+        let nodes = present
+            .iter()
+            .filter_map(|(id, idx)| {
+                // All the dependant nodes should be in the present map
+                self.dependent(*idx)
+                    .all(|id| present.contains_key(id))
+                    .then_some(*id)
+            })
+            .collect();
+
+        Ok(nodes)
+    }
+
     /// Check if the node is required by a running deployment other than the current one.
-    pub(crate) fn has_dependant_deployments(&self, idx: NodeIndex, current: Option<Id>) -> bool {
-        debug_assert!(current.is_some_and(|id| id.is_deployment()));
+    fn has_dependant_deployments(&self, idx: NodeIndex, current: Id) -> bool {
+        debug_assert!(current.is_deployment());
         self.dependent(idx)
             .filter_map(|id| {
-                if current.is_some_and(|current| current == *id) {
+                if current == *id {
                     None
                 } else if id.is_deployment() {
                     let node = self.node(id);
@@ -164,6 +237,16 @@ impl NodeGraph {
                 }
             })
             .any(|deployment| deployment.is_up())
+    }
+
+    /// Remove a resource
+    pub(crate) fn remove(&mut self, id: Id) -> Option<NodeResource> {
+        let node = self.nodes.remove(&id)?;
+
+        let weight = self.relations.remove_node(node.idx);
+        debug_assert_eq!(Some(id), weight);
+
+        node.resource
     }
 }
 
