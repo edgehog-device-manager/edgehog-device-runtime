@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use astarte_device_sdk::AstarteAggregate;
 use async_trait::async_trait;
+use stable_eyre::Report;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -278,6 +279,9 @@ impl From<&OtaError> for OtaStatusMessage {
                 ota_status_message.message = message.to_string()
             }
             OtaError::Canceled => ota_status_message.status_code = "Canceled".to_string(),
+            OtaError::InconsistentState => {
+                ota_status_message.status_code = "InternalError".to_string()
+            }
         }
 
         ota_status_message
@@ -303,12 +307,6 @@ impl<P> OtaPublisher<P> {
         };
 
         debug!("Sending ota response {:?}", ota_event);
-
-        if ota_event.requestUUID.is_empty() {
-            return Err(OtaError::Internal(
-                "Unable to publish ota_event: request_uuid is empty",
-            ));
-        }
 
         self.client
             .send_object("io.edgehog.devicemanager.OTAEvent", "/event", ota_event)
@@ -339,7 +337,9 @@ where
     }
 
     async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
-        self.send_ota_event(&msg).await?;
+        if let Err(err) = self.send_ota_event(&msg).await {
+            error!(error = %Report::new(err), "couldn't send ota event");
+        }
 
         Ok(())
     }

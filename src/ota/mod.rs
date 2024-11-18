@@ -121,6 +121,9 @@ pub enum OtaError {
     /// OTA update aborted by Edgehog half way during the procedure
     #[error("Canceled")]
     Canceled,
+    /// Attempted to start OTA operation while ota status is different from Idle
+    #[error("Inconsistent ota state")]
+    InconsistentState,
 }
 
 impl Default for DeployStatus {
@@ -130,6 +133,7 @@ impl Default for DeployStatus {
 }
 
 const DOWNLOAD_PERC_ROUNDING_STEP: f64 = 10.0;
+const DEPLOY_PERC_ROUNDING_STEP: i32 = 10;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PersistentState {
@@ -235,10 +239,8 @@ impl OtaStatus {
                 ota_event.requestUUID = ota_request.uuid.to_string();
                 ota_event.status = "Success".to_string();
             }
-            OtaStatus::Failure(ota_error, ota_request) => {
-                if let Some(ota_request) = ota_request {
-                    ota_event.requestUUID = ota_request.uuid.to_string();
-                }
+            OtaStatus::Failure(ota_error, Some(ota_request)) => {
+                ota_event.requestUUID = ota_request.uuid.to_string();
                 ota_event.status = "Failure".to_string();
                 let ota_status_message = OtaStatusMessage::from(ota_error);
                 ota_event.statusCode = ota_status_message.status_code;
@@ -254,10 +256,16 @@ impl OtaStatus {
             OtaStatus::Idle
             | OtaStatus::Init(_)
             | OtaStatus::NoPendingOta
-            | OtaStatus::Rebooted => return None,
+            | OtaStatus::Rebooted
+            | OtaStatus::Failure(_, None) => return None,
         }
 
-        Some(ota_event)
+        if ota_event.requestUUID.is_empty() {
+            error!("Unable to convert ota_event: request_uuid is empty");
+            None
+        } else {
+            Some(ota_event)
+        }
     }
 }
 
@@ -355,11 +363,10 @@ where
         if self.ota_status != OtaStatus::Idle {
             error!("ota request already in progress");
 
-            return Err(OtaError::UpdateAlreadyInProgress.into());
+            return Err(OtaError::InconsistentState.into());
         }
 
         self.ota_status = OtaStatus::Init(msg.ota_id);
-
         self.handle_ota_update(msg.cancel).await;
 
         Ok(())
@@ -554,34 +561,45 @@ where
         };
 
         let signal = stream
-            .try_fold(None, |_, status| {
-                let ota_request_cl = ota_request.clone();
+            .try_fold(
+                DeployStatus::Progress(DeployProgress::default()),
+                |prev_status, status| {
+                    let ota_request_cl = ota_request.clone();
+                    let status_cl = status.clone();
 
-                async move {
-                    let progress = match status {
-                        DeployStatus::Progress(progress) => progress,
-                        DeployStatus::Completed { signal } => {
-                            return Ok(Some(signal));
+                    async move {
+                        let progress = match status {
+                            DeployStatus::Completed { .. } => {
+                                return Ok(status);
+                            }
+                            DeployStatus::Progress(progress) => progress,
+                        };
+
+                        let last_progress_sent = match &prev_status {
+                            DeployStatus::Progress(last_progress) => last_progress.percentage,
+                            _ => progress.percentage,
+                        };
+
+                        if (progress.percentage - last_progress_sent) >= DEPLOY_PERC_ROUNDING_STEP {
+                            let res = self
+                                .publisher_tx
+                                .send(OtaStatus::Deploying(ota_request_cl, progress))
+                                .await;
+
+                            if let Err(err) = res {
+                                error!("couldn't send progress update: {err}")
+                            }
+                            return Ok(status_cl);
                         }
-                    };
-
-                    let res = self
-                        .publisher_tx
-                        .send(OtaStatus::Deploying(ota_request_cl, progress))
-                        .await;
-
-                    if let Err(err) = res {
-                        error!("couldn't send progress update: {err}")
+                        Ok(prev_status)
                     }
-
-                    Ok(None)
-                }
-            })
+                },
+            )
             .await;
 
         let signal = match signal {
-            Ok(Some(signal)) => signal,
-            Ok(None) => {
+            Ok(DeployStatus::Completed { signal }) => signal,
+            Ok(DeployStatus::Progress(_)) => {
                 let message = "No progress completion event received";
                 error!("{message}");
                 return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request));

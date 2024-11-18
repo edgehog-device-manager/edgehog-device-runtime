@@ -51,6 +51,8 @@ pub enum DeviceSdkError {
     MissingCredentialSecret,
     /// couldn't add interfaces directory
     Interfaces(#[source] AddInterfaceError),
+    /// couldn't build Astarte device
+    Builder(#[source] astarte_device_sdk::builder::BuilderError),
     /// couldn't connect to Astarte
     Connect(#[source] astarte_device_sdk::Error),
 }
@@ -126,7 +128,7 @@ impl AstarteDeviceSdkConfigOptions {
     {
         let device_id = self.device_id_or_from_dbus().await?;
 
-        let credentials_secret = self.credentials_secret(&device_id, store_dir).await?;
+        let credentials_secret = self.credentials_secret(&device_id, &store_dir).await?;
 
         let mut mqtt_cfg = MqttConfig::new(
             &self.realm,
@@ -143,6 +145,8 @@ impl AstarteDeviceSdkConfigOptions {
             .store(store)
             .interface_directory(interface_dir)
             .map_err(DeviceSdkError::Interfaces)?
+            .writable_dir(&store_dir)
+            .map_err(DeviceSdkError::Builder)?
             .connect(mqtt_cfg)
             .await
             .map_err(DeviceSdkError::Connect)?
