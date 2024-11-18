@@ -22,7 +22,7 @@ use std::{collections::HashMap, num::ParseIntError};
 
 use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
 use container::CreateContainer;
-use deployment::{CreateDeployment, DeploymentCommand};
+use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 
 use crate::store::container::RestartPolicyError;
 
@@ -77,6 +77,8 @@ pub enum ContainerRequest {
     Deployment(CreateDeployment),
     /// Command for a deployment
     DeploymentCommand(DeploymentCommand),
+    /// Update between two deployments
+    DeploymentUpdate(DeploymentUpdate),
 }
 
 impl FromEvent for ContainerRequest {
@@ -101,6 +103,9 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.DeploymentCommand" => {
                 DeploymentCommand::from_event(value).map(ContainerRequest::DeploymentCommand)
+            }
+            "io.edgehog.devicemanager.apps.DeploymentUpdate" => {
+                DeploymentUpdate::from_event(value).map(ContainerRequest::DeploymentUpdate)
             }
             _ => Err(FromEventError::Interface(value.interface.clone())),
         }

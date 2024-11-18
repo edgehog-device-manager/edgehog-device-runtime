@@ -97,8 +97,48 @@ impl TryFrom<AstarteType> for CommandValue {
     }
 }
 
+/// Request to update between two deployments.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DeploymentUpdate {
+    pub(crate) from: Uuid,
+    pub(crate) to: Uuid,
+}
+
+impl FromEvent for DeploymentUpdate {
+    type Err = FromEventError;
+
+    fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
+        let event = DeploymentUpdateEvent::from_event(event)?;
+
+        let from = Uuid::parse_str(&event.from).map_err(|err| {
+            error!(error = %err, from = event.from, "invalid deployment update 'from' uuid");
+            FromEventError::Conversion(TypeError::Conversion)
+        })?;
+
+        let to = Uuid::parse_str(&event.to).map_err(|err| {
+            error!(error = %err, to = event.to, "invalid deployment update 'to' uuid");
+            FromEventError::Conversion(TypeError::Conversion)
+        })?;
+
+        Ok(Self { from, to })
+    }
+}
+
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.apps.DeploymentUpdate",
+    path = "/deployment",
+    rename_all = "camelCase"
+)]
+struct DeploymentUpdateEvent {
+    from: String,
+    to: String,
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
+
+    use std::collections::HashMap;
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
@@ -168,6 +208,26 @@ pub(crate) mod tests {
         };
 
         let cmd = DeploymentCommand::from_event(event).unwrap();
+        assert_eq!(cmd, exp);
+    }
+
+    #[test]
+    fn deployment_update() {
+        let from = Uuid::new_v4();
+        let to = Uuid::new_v4();
+
+        let event = DeviceEvent {
+            interface: "io.edgehog.devicemanager.apps.DeploymentUpdate".to_string(),
+            path: "/deployment".to_string(),
+            data: Value::Object(HashMap::from([
+                ("from".to_string(), AstarteType::String(from.to_string())),
+                ("to".to_string(), AstarteType::String(to.to_string())),
+            ])),
+        };
+
+        let exp = DeploymentUpdate { from, to };
+
+        let cmd = DeploymentUpdate::from_event(event).unwrap();
         assert_eq!(cmd, exp);
     }
 }

@@ -19,6 +19,7 @@
 //! Service to receive and handle the Astarte events.
 
 use std::{
+    collections::HashSet,
     fmt::{Debug, Display},
     str::FromStr,
 };
@@ -27,7 +28,7 @@ use astarte_device_sdk::event::FromEventError;
 use itertools::Itertools;
 use petgraph::{stable_graph::NodeIndex, visit::Walker};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, instrument, warn};
+use tracing::{debug, instrument, trace, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -39,7 +40,7 @@ use crate::{
     properties::Client,
     requests::{
         container::CreateContainer,
-        deployment::{CommandValue, CreateDeployment, DeploymentCommand},
+        deployment::{CommandValue, CreateDeployment, DeploymentCommand, DeploymentUpdate},
         image::CreateImage,
         network::CreateNetwork,
         volume::CreateVolume,
@@ -195,6 +196,9 @@ impl<D> Service<D> {
                 let id = Id::new(ResourceType::Deployment, id);
 
                 self.stop(&id).await?;
+            }
+            ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
+                self.update(from, to).await?;
             }
         }
 
@@ -478,6 +482,102 @@ impl<D> Service<D> {
                 })?;
 
             node.stop(&self.device, &self.client).await?;
+
+            self.store.store(&self.nodes).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Will update an application between deployments
+    #[instrument(skip(self))]
+    pub async fn update(&mut self, from: Uuid, to: Uuid) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let from = Id::new(ResourceType::Deployment, from);
+        let to = Id::new(ResourceType::Deployment, to);
+
+        DeploymentEvent::new(EventStatus::Updating, "")
+            .send(from.uuid(), &self.device)
+            .await;
+
+        let res = self.update_deployment(from, to).await;
+
+        // TODO: consider if it's necessary re-start the `from` containers or a retry logic
+        if let Err(err) = &res {
+            DeploymentEvent::new(EventStatus::Error, err.to_string())
+                .send(from.uuid(), &self.device)
+                .await;
+        }
+
+        res
+    }
+
+    async fn update_deployment(&mut self, from: Id, to: Id) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        let to_deployment = self.nodes.node(&to).ok_or(ServiceError::Missing {
+            ctx: "update",
+            id: to,
+        })?;
+
+        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), to_deployment.idx);
+        let to_start_ids = space
+            .iter(self.nodes.relations())
+            .map(|idx| {
+                self.nodes
+                    .get_id(idx)
+                    .copied()
+                    .ok_or(ServiceError::MissingRelation)
+            })
+            .collect::<Result<HashSet<Id>>>()?;
+
+        let from_deployment = self.nodes.node(&from).ok_or(ServiceError::Missing {
+            ctx: "update",
+            id: to,
+        })?;
+
+        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), from_deployment.idx);
+        let to_stop_ids = space
+            .iter(self.nodes.relations())
+            .filter_map(|idx| {
+                let Some(id) = self.nodes.get_id(idx) else {
+                    return Some(Err(ServiceError::MissingRelation));
+                };
+
+                // Skip container in the start set
+                if to_start_ids.contains(id) {
+                    trace!("{id} present in the update");
+
+                    return None;
+                }
+
+                Some(Ok(*id))
+            })
+            .collect::<Result<Vec<Id>>>()?;
+
+        debug!("stopping {} containers", to_stop_ids.len());
+
+        for id in to_stop_ids {
+            let node = self
+                .nodes
+                .node_mut(&id)
+                .ok_or_else(|| ServiceError::Missing { id, ctx: "update" })?;
+
+            node.stop(&self.device, &self.client).await?;
+
+            self.store.store(&self.nodes).await?;
+        }
+
+        for id in to_start_ids {
+            let node = self
+                .nodes
+                .node_mut(&id)
+                .ok_or_else(|| ServiceError::Missing { id, ctx: "update" })?;
+
+            node.up(&self.device, &self.client).await?;
 
             self.store.store(&self.nodes).await?;
         }

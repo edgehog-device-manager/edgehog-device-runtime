@@ -26,6 +26,7 @@ use edgehog_containers::{
     store::StateStore,
     Docker,
 };
+use tracing::error;
 
 use crate::controller::actor::Actor;
 
@@ -63,7 +64,9 @@ where
     }
 
     async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
-        self.service.on_event(*msg).await?;
+        if let Err(err) = self.service.on_event(*msg).await {
+            error!(error = %stable_eyre::Report::new(err), "couldn't handle container event");
+        }
 
         Ok(())
     }

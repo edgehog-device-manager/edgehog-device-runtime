@@ -71,6 +71,7 @@ impl Display for DeploymentEvent {
 pub(crate) enum EventStatus {
     Starting,
     Stopping,
+    Updating,
     Error,
 }
 
@@ -79,6 +80,7 @@ impl Display for EventStatus {
         match self {
             EventStatus::Starting => write!(f, "Starting"),
             EventStatus::Stopping => write!(f, "Stopping"),
+            EventStatus::Updating => write!(f, "Updating"),
             EventStatus::Error => write!(f, "Error"),
         }
     }
