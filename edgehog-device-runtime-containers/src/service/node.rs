@@ -138,7 +138,7 @@ impl Node {
                 AvailableImage::new(&self.id, true).send(device).await;
             }
             NodeType::Volume(volume) => {
-                volume.create(client).await?;
+                volume.inspect_or_create(client).await?;
 
                 AvailableVolumes::new(&self.id, true).send(device).await;
             }
