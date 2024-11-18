@@ -18,7 +18,7 @@
 
 //! Persists the state of an [`Network`](crate::docker::network::Network)
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,7 @@ pub(crate) struct NetworkState<'a> {
     check_duplicate: bool,
     internal: bool,
     enable_ipv6: bool,
+    driver_opts: HashMap<Cow<'a, str>, Cow<'a, str>>,
 }
 
 impl<'a, S> From<&'a Network<S>> for NetworkState<'a>
@@ -46,6 +47,11 @@ where
             check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
+            driver_opts: value
+                .driver_opts
+                .iter()
+                .map(|(k, v)| (Cow::Borrowed(k.as_str()), Cow::Borrowed(v.as_ref())))
+                .collect(),
         }
     }
 }
@@ -59,12 +65,19 @@ impl<'a> From<NetworkState<'a>> for Network<String> {
             check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
+            driver_opts: value
+                .driver_opts
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
+
     use super::*;
 
     #[test]
@@ -76,6 +89,7 @@ mod tests {
             check_duplicate: true,
             internal: false,
             enable_ipv6: true,
+            driver_opts: HashMap::from([("name".to_string(), "value")]),
         };
 
         let state = NetworkState::from(&net);
@@ -86,6 +100,14 @@ mod tests {
         assert_eq!(state.check_duplicate, net.check_duplicate);
         assert_eq!(state.internal, net.internal);
         assert_eq!(state.enable_ipv6, net.enable_ipv6);
+
+        let hm: HashMap<String, &str> = state
+            .driver_opts
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.as_ref()))
+            .collect();
+
+        assert_eq!(hm, net.driver_opts);
 
         let back = Network::from(state);
 

@@ -267,7 +267,7 @@ impl<D> Service<D> {
         let device = &self.device;
         let store = &mut self.store;
 
-        let network = Network::from(req);
+        let network = Network::try_from(req)?;
         let node = self
             .nodes
             .get_or_insert(id, NodeResource::with_default(network.into()), &[]);
@@ -815,7 +815,7 @@ mod tests {
 
         let mut service = Service::new(client, store, device);
 
-        let create_network_req = create_network_request_event(id, "bridged");
+        let create_network_req = create_network_request_event(id, "bridged", &[]);
 
         let req = ContainerRequest::from_event(create_network_req).unwrap();
 
@@ -840,6 +840,7 @@ mod tests {
             check_duplicate: false,
             internal: false,
             enable_ipv6: false,
+            driver_opts: HashMap::new(),
         };
 
         assert_eq!(*network, exp);

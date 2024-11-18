@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn from_event_network() {
-        let event = create_network_request_event("id", "driver");
+        let event = create_network_request_event("id", "driver", &[]);
 
         let request = ContainerRequest::from_event(event).unwrap();
 
@@ -193,6 +193,7 @@ mod tests {
             check_duplicate: false,
             internal: false,
             enable_ipv6: false,
+            options: Vec::new(),
         };
 
         assert_eq!(request, ContainerRequest::Network(expect));

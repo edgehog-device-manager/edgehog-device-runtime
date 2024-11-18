@@ -22,6 +22,8 @@ use astarte_device_sdk::FromEvent;
 
 use crate::network::Network;
 
+use super::{parse_kv_map, ReqError};
+
 /// Request to pull a Docker Network.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
 #[from_event(
@@ -35,18 +37,24 @@ pub struct CreateNetwork {
     pub(crate) check_duplicate: bool,
     pub(crate) internal: bool,
     pub(crate) enable_ipv6: bool,
+    pub(crate) options: Vec<String>,
 }
 
-impl From<CreateNetwork> for Network<String> {
-    fn from(value: CreateNetwork) -> Self {
-        Network {
+impl TryFrom<CreateNetwork> for Network<String> {
+    type Error = ReqError;
+
+    fn try_from(value: CreateNetwork) -> Result<Self, Self::Error> {
+        let driver_opts = parse_kv_map(&value.options)?;
+
+        Ok(Network {
             id: None,
             name: value.id,
             driver: value.driver,
             check_duplicate: value.check_duplicate,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
-        }
+            driver_opts,
+        })
     }
 }
 
@@ -56,16 +64,24 @@ pub(crate) mod tests {
     use std::fmt::Display;
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
+    use itertools::Itertools;
 
     use super::*;
 
-    pub fn create_network_request_event(id: impl Display, driver: &str) -> DeviceEvent {
+    pub fn create_network_request_event(
+        id: impl Display,
+        driver: &str,
+        options: &[&str],
+    ) -> DeviceEvent {
+        let options = options.iter().map(|s| s.to_string()).collect_vec();
+
         let fields = [
             ("id", AstarteType::String(id.to_string())),
             ("driver", AstarteType::String(driver.to_string())),
             ("checkDuplicate", AstarteType::Boolean(false)),
             ("internal", AstarteType::Boolean(false)),
             ("enableIpv6", AstarteType::Boolean(false)),
+            ("options", AstarteType::StringArray(options)),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -80,7 +96,7 @@ pub(crate) mod tests {
 
     #[test]
     fn create_network_request() {
-        let event = create_network_request_event("id", "driver");
+        let event = create_network_request_event("id", "driver", &["foo=bar", "some="]);
 
         let request = CreateNetwork::from_event(event).unwrap();
 
@@ -90,6 +106,7 @@ pub(crate) mod tests {
             check_duplicate: false,
             internal: false,
             enable_ipv6: false,
+            options: ["foo=bar", "some="].map(str::to_string).to_vec(),
         };
 
         assert_eq!(request, expect);
