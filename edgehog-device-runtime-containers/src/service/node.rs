@@ -259,8 +259,6 @@ impl Node {
         match resource.state {
             State::Received | State::Stored => {
                 warn!("stopping resource {id}, but was never created");
-
-                return Ok(());
             }
             State::Created | State::Up => {
                 trace!("stopping ");

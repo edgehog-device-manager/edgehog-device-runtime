@@ -28,7 +28,7 @@ use astarte_device_sdk::event::FromEventError;
 use itertools::Itertools;
 use petgraph::{stable_graph::NodeIndex, visit::Walker};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 
 use crate::{
@@ -351,17 +351,15 @@ impl<D> Service<D> {
             return;
         };
 
-        if id.is_deployment() {
-            DeploymentEvent::new(EventStatus::Starting, "")
-                .send(node.id.uuid(), &self.device)
-                .await;
-        } else {
-            warn!("starting a {node:?} and not a deployment");
-        }
+        DeploymentEvent::new(EventStatus::Starting, "")
+            .send(node.id.uuid(), &self.device)
+            .await;
 
         let idx = node.idx;
 
         if let Err(err) = self.start_node(idx).await {
+            error!("couldn't start deployment: {err}");
+
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
                 .await;
@@ -420,15 +418,13 @@ impl<D> Service<D> {
             return;
         };
 
-        if id.is_deployment() {
-            DeploymentEvent::new(EventStatus::Stopping, "")
-                .send(id.uuid(), &self.device)
-                .await;
-        } else {
-            warn!("stopping a {node:?} and not a deployment");
-        }
+        DeploymentEvent::new(EventStatus::Stopping, "")
+            .send(id.uuid(), &self.device)
+            .await;
 
         if let Err(err) = self.stop_node(node.id, node.idx).await {
+            error!("couldn't stop deployment: {err}");
+
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
                 .await;
@@ -486,17 +482,15 @@ impl<D> Service<D> {
             return;
         };
 
-        if id.is_deployment() {
-            DeploymentEvent::new(EventStatus::Deleting, "")
-                .send(id.uuid(), &self.device)
-                .await;
-        } else {
-            warn!("deleting a {node:?} and not a deployment");
-        }
+        DeploymentEvent::new(EventStatus::Deleting, "")
+            .send(id.uuid(), &self.device)
+            .await;
 
         let idx = node.idx;
 
         if let Err(err) = self.delete_node(node.id, idx).await {
+            error!("couldn't delete deployment: {err}");
+
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
                 .await;
@@ -557,6 +551,8 @@ impl<D> Service<D> {
 
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
         if let Err(err) = self.update_deployment(from, to).await {
+            error!("couldn't update deployment: {err}");
+
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(from.uuid(), &self.device)
                 .await;
