@@ -211,12 +211,17 @@ pub(crate) mod tests {
 
     use super::*;
 
-    pub fn create_container_request_event(id: impl Display, image_id: &str) -> DeviceEvent {
+    pub fn create_container_request_event(
+        id: impl Display,
+        image_id: &str,
+        image: &str,
+        network_ids: &[&str],
+    ) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
             ("imageId", AstarteType::String(image_id.to_string())),
             ("volumeIds", AstarteType::StringArray(vec![])),
-            ("image", AstarteType::String("image".to_string())),
+            ("image", AstarteType::String(image.to_string())),
             ("hostname", AstarteType::String("hostname".to_string())),
             ("restartPolicy", AstarteType::String("no".to_string())),
             ("env", AstarteType::StringArray(vec!["env".to_string()])),
@@ -224,7 +229,7 @@ pub(crate) mod tests {
             ("networkMode", AstarteType::String("bridge".to_string())),
             (
                 "networkIds",
-                AstarteType::StringArray(vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196".to_string()]),
+                AstarteType::StringArray(network_ids.iter().map(|s| s.to_string()).collect()),
             ),
             (
                 "portBindings",
@@ -245,7 +250,12 @@ pub(crate) mod tests {
 
     #[test]
     fn create_container_request() {
-        let event = create_container_request_event("id", "image_id");
+        let event = create_container_request_event(
+            "id",
+            "image_id",
+            "image",
+            &["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
+        );
 
         let request = CreateContainer::from_event(event).unwrap();
 

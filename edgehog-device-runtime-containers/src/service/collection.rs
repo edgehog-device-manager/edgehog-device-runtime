@@ -26,7 +26,7 @@ use petgraph::{
     visit::Walker,
     Direction,
 };
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 
 use super::{node::Node, resource::NodeResource, Id, ServiceError};
 
@@ -209,6 +209,8 @@ impl NodeGraph {
     ///
     /// It will filter the one that are related to another nodes not present in list of nodes that
     /// are returned.
+    ///
+    /// The returned vec should have the dependencies reversed
     pub(crate) fn nodes_to_delete(
         &self,
         current: Id,
@@ -227,15 +229,26 @@ impl NodeGraph {
             })
             .collect::<Result<IndexMap<Id, NodeIndex>, ServiceError>>()?;
 
-        let nodes = present
+        let mut nodes = present
             .iter()
+            // Reverse the dependencies
+            .rev()
             .filter_map(|(id, idx)| {
+                // insert the deployment last
+                if *id == current {
+                    trace!("visit {current} as last");
+
+                    return None;
+                }
+
                 // All the dependant nodes should be in the present map
                 self.dependent(*idx)
                     .all(|id| present.contains_key(id))
                     .then_some(*id)
             })
-            .collect();
+            .collect::<Vec<Id>>();
+
+        nodes.push(current);
 
         Ok(nodes)
     }
