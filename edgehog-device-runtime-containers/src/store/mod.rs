@@ -35,6 +35,7 @@ use volume::VolumeState;
 use crate::container::Container;
 use crate::image::Image;
 use crate::network::Network;
+use crate::service::resource::State;
 use crate::service::{collection::NodeGraph, node::Node, resource::NodeType, Id};
 use crate::volume::Volume;
 
@@ -149,7 +150,7 @@ impl StateStore {
             .await
             .map_err(StateStoreError::Append)?;
 
-        let resource = Value::with_resource(id, deps, resource);
+        let resource = Value::with_resource(id, deps, StoredState::Received, resource);
 
         let content = serde_json::to_string(&resource).map_err(StateStoreError::Serialize)?;
 
@@ -216,16 +217,31 @@ pub(crate) struct Value<'a> {
     // Id provided by Edgehog
     pub(crate) id: Id,
     pub(crate) deps: Vec<Id>,
+    pub(crate) state: Option<StoredState>,
     pub(crate) resource: Option<Resource<'a>>,
 }
 
 impl<'a> Value<'a> {
-    fn new(id: Id, deps: Vec<Id>, resource: Option<Resource<'a>>) -> Self {
-        Self { id, deps, resource }
+    fn new(
+        id: Id,
+        deps: Vec<Id>,
+        state: Option<StoredState>,
+        resource: Option<Resource<'a>>,
+    ) -> Self {
+        Self {
+            id,
+            state,
+            deps,
+            resource,
+        }
     }
 
-    fn with_resource(id: Id, deps: Vec<Id>, resource: Resource<'a>) -> Self {
-        Self::new(id, deps, Some(resource))
+    pub(crate) fn state(&self) -> State {
+        self.state.map(State::from).unwrap_or_default()
+    }
+
+    fn with_resource(id: Id, deps: Vec<Id>, state: StoredState, resource: Resource<'a>) -> Self {
+        Self::new(id, deps, Some(state), Some(resource))
     }
 
     fn from_node(value: &'a Node, deps: Vec<Id>) -> Self {
@@ -234,7 +250,43 @@ impl<'a> Value<'a> {
             .as_ref()
             .map(|node| Resource::from(&node.value));
 
-        Self::new(value.id, deps, resource)
+        let state = value
+            .resource
+            .as_ref()
+            .map(|node| StoredState::from(node.state));
+
+        Self::new(value.id, deps, state, resource)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[repr(u8)]
+pub(crate) enum StoredState {
+    Received = 0,
+    Published = 1,
+    Created = 2,
+    Up = 3,
+}
+
+impl From<State> for StoredState {
+    fn from(value: State) -> Self {
+        match value {
+            State::Received => StoredState::Received,
+            State::Published => StoredState::Published,
+            State::Created => StoredState::Created,
+            State::Up => StoredState::Up,
+        }
+    }
+}
+
+impl From<StoredState> for State {
+    fn from(value: StoredState) -> Self {
+        match value {
+            StoredState::Received => State::Received,
+            StoredState::Published => State::Published,
+            StoredState::Created => State::Created,
+            StoredState::Up => State::Up,
+        }
     }
 }
 

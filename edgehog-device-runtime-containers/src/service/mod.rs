@@ -136,15 +136,16 @@ impl<D> Service<D> {
 
         for value in stored {
             let id = value.id;
+            let state = value.state();
 
-            debug!("adding stored {id}");
+            debug!("adding {id} with state");
 
             match value.resource {
                 Some(resource) => {
                     let node = NodeType::from(resource);
 
                     self.nodes
-                        .get_or_insert(id, NodeResource::stored(node), &value.deps);
+                        .get_or_insert(id, NodeResource::new(state, node), &value.deps);
                 }
                 None => {
                     debug!("adding missing resource");
