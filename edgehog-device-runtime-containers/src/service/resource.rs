@@ -38,6 +38,11 @@ impl NodeResource {
     pub(crate) fn with_default(resource: NodeType) -> Self {
         Self::new(State::default(), resource)
     }
+
+    // Check if the state is up
+    pub(crate) fn is_up(&self) -> bool {
+        matches!(self.state, State::Up)
+    }
 }
 
 /// State of the object for the request.

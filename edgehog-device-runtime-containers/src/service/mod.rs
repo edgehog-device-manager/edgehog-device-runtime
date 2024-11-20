@@ -129,7 +129,10 @@ impl<D> Service<D> {
 
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
-    pub async fn init(&mut self) -> Result<()> {
+    pub async fn init(&mut self) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
         let stored = self.store.load().await?;
 
         debug!("loaded {} resources from state store", stored.len());
@@ -155,6 +158,10 @@ impl<D> Service<D> {
                     self.nodes.get_or_add_missing(id);
                 }
             }
+        }
+
+        for deployment_id in self.nodes.running_deployments() {
+            self.start(*deployment_id.uuid()).await;
         }
 
         Ok(())
