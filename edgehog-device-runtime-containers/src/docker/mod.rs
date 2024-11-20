@@ -23,7 +23,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::client::*;
+pub(crate) use crate::client::*;
 use crate::error::DockerError;
 
 pub(crate) mod container;

@@ -138,7 +138,7 @@ impl<D> Service<D> {
             let id = value.id;
             let state = value.state();
 
-            debug!("adding {id} with state");
+            debug!("adding {id} with state {state}");
 
             match value.resource {
                 Some(resource) => {
@@ -705,10 +705,13 @@ mod tests {
 
     use crate::container::{Binding, PortBindingMap};
     use crate::properties::container::ContainerStatus;
+    use crate::properties::deployment::DeploymentStatus;
     use crate::requests::container::tests::create_container_request_event;
+    use crate::requests::deployment::tests::create_deployment_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
+    use crate::{docker, docker_mock};
 
     use super::*;
 
@@ -909,7 +912,12 @@ mod tests {
         let mut service = Service::new(client, store, device);
 
         let image_id = Uuid::new_v4().to_string();
-        let create_container_req = create_container_request_event(id, &image_id);
+        let create_container_req = create_container_request_event(
+            id,
+            &image_id,
+            "image",
+            &["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
+        );
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
@@ -948,5 +956,206 @@ mod tests {
         };
 
         assert_eq!(*container, exp);
+    }
+
+    #[tokio::test]
+    async fn should_start_deployment() {
+        let tempdir = TempDir::new().unwrap();
+
+        let image_id = Uuid::new_v4();
+        let container_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+
+        let reference = "docker.io/nginx:stable-alpine-slim";
+
+        let client = docker_mock!(docker::Client::connect_with_local_defaults().unwrap(), {
+            use futures::StreamExt;
+
+            let mut mock = docker::Client::new();
+            let mut seq = mockall::Sequence::new();
+
+            mock.expect_create_image()
+                .withf(move |option, _, _| {
+                    option
+                        .as_ref()
+                        .map_or(false, |opt| opt.from_image == reference)
+                })
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_, _, _| futures::stream::empty().boxed());
+
+            mock.expect_inspect_image()
+                .withf(move |name| name ==reference)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| {
+                    Ok(bollard::models::ImageInspect {
+                    id: Some(
+                        "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
+                    ),
+                    ..Default::default()
+                })
+                });
+
+            let container_name = container_id.to_string();
+            mock.expect_inspect_container()
+                .withf(move |name, _option| name == container_name)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_, _| Err(docker::tests::not_found_response()));
+
+            let name = container_id.to_string();
+            mock.expect_create_container()
+                .withf(move |option, config| {
+                    option.as_ref().map_or(false, |opt| opt.name == name)
+                        && config.image == Some(reference)
+                })
+                .once()
+                .in_sequence(&mut seq)
+                .returning(move |_, _| {
+                    Ok(bollard::models::ContainerCreateResponse {
+                        id: "container_id".to_string(),
+                        warnings: Vec::new(),
+                    })
+                });
+
+            mock.expect_start_container()
+                .withf(move |id, _| id == "container_id")
+                .once()
+                .in_sequence(&mut seq)
+                .returning(move |_, _| Ok(()));
+
+            mock
+        });
+        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut seq = Sequence::new();
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableImages"
+                    && path == (image_path)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{container_id}/status");
+        device
+            .expect_send::<ContainerStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
+                    && path == endpoint
+                    && *value == ContainerStatus::Received
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{deployment_id}/status");
+        device
+            .expect_send::<DeploymentStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
+                    && path == endpoint
+                    && *value == DeploymentStatus::Stopped
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{deployment_id}");
+        device
+            .expect_send_object::<DeploymentEvent>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.DeploymentEvent"
+                    && path == endpoint
+                    && value.status == EventStatus::Starting
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableImages"
+                    && path == (image_path)
+                    && *value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{container_id}/status");
+        device
+            .expect_send::<ContainerStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
+                    && path == endpoint
+                    && *value == ContainerStatus::Created
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{container_id}/status");
+        device
+            .expect_send::<ContainerStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
+                    && path == endpoint
+                    && *value == ContainerStatus::Running
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{deployment_id}/status");
+        device
+            .expect_send::<DeploymentStatus>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
+                    && path == endpoint
+                    && *value == DeploymentStatus::Started
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let store = StateStore::open(tempdir.path().join("containers/state.json"))
+            .await
+            .unwrap();
+
+        let mut service = Service::new(client, store, device);
+
+        let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
+
+        let image_req = ContainerRequest::from_event(create_image_req).unwrap();
+
+        let create_container_req =
+            create_container_request_event(container_id, &image_id.to_string(), reference, &[]);
+
+        let container_req = ContainerRequest::from_event(create_container_req).unwrap();
+
+        let create_deployment_req = create_deployment_request_event(
+            &deployment_id.to_string(),
+            &[&container_id.to_string()],
+        );
+
+        let deployment_req = ContainerRequest::from_event(create_deployment_req).unwrap();
+
+        let start = ContainerRequest::DeploymentCommand(DeploymentCommand {
+            id: deployment_id,
+            command: CommandValue::Start,
+        });
+
+        service.on_event(image_req).await.unwrap();
+        service.on_event(container_req).await.unwrap();
+        service.on_event(deployment_req).await.unwrap();
+        service.on_event(start).await.unwrap();
     }
 }

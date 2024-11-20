@@ -31,8 +31,8 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.DeploymentEvent";
 /// Deployment status event
 #[derive(Debug, Clone, AstarteAggregate)]
 pub(crate) struct DeploymentEvent {
-    status: EventStatus,
-    message: String,
+    pub(crate) status: EventStatus,
+    pub(crate) message: String,
 }
 
 impl DeploymentEvent {
