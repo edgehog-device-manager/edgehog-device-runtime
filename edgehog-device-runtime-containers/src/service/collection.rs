@@ -143,6 +143,22 @@ impl NodeGraph {
         &self.nodes
     }
 
+    // Returns a list of running deployments
+    pub(crate) fn running_deployments(&self) -> Vec<Id> {
+        self.nodes
+            .iter()
+            .filter_map(|(id, node)| {
+                let is_up_deployment = id.is_deployment()
+                    && node
+                        .resource
+                        .as_ref()
+                        .map_or(false, |resource| resource.is_up());
+
+                is_up_deployment.then_some(*id)
+            })
+            .collect()
+    }
+
     fn add_relations(&mut self, idx: NodeIndex, deps: &[Id]) {
         debug_assert!(self.relations.contains_node(idx));
 
