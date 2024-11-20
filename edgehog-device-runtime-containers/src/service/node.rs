@@ -33,7 +33,6 @@ use crate::{
         AvailableProp,
     },
     service::{resource::State, ServiceError},
-    store::{Resource, StateStore},
     Docker,
 };
 
@@ -58,62 +57,45 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub(crate) async fn store<D>(
-        &mut self,
-        store: &mut StateStore,
-        device: &D,
-        deps: Vec<Id>,
-    ) -> Result<()>
+    pub(crate) async fn publish<D>(&mut self, device: &D) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
         let resource = self.resource.as_mut().ok_or(ServiceError::Missing {
             id: self.id,
-            ctx: "store",
+            ctx: "publish",
         })?;
 
         if resource.state != State::Received {
             warn!(
-                "trying to store a node {} with state {}",
-                resource.state, self.id
+                "trying to publish resource {} with state {}",
+                self.id, resource.state
             );
 
             return Ok(());
         }
 
-        match &resource.value {
-            NodeType::Image(image) => {
-                store.append(self.id, image.into(), deps).await?;
-
+        match resource.value {
+            NodeType::Image(_) => {
                 AvailableImage::new(&self.id).send(device, false).await;
             }
-            NodeType::Volume(volume) => {
-                store.append(self.id, volume.into(), deps).await?;
-
-                AvailableVolumes::new(&self.id).send(device, false).await
-            }
-            NodeType::Network(network) => {
-                store.append(self.id, network.into(), deps).await?;
-
+            NodeType::Volume(_) => AvailableVolumes::new(&self.id).send(device, false).await,
+            NodeType::Network(_) => {
                 AvailableNetworks::new(&self.id).send(device, false).await;
             }
-            NodeType::Container(container) => {
-                store.append(self.id, container.into(), deps).await?;
-
+            NodeType::Container(_) => {
                 AvailableContainers::new(&self.id)
                     .send(device, ContainerStatus::Received)
                     .await;
             }
             NodeType::Deployment => {
-                store.append(self.id, Resource::Deployment, deps).await?;
-
                 AvailableDeployments::new(&self.id)
                     .send(device, DeploymentStatus::Stopped)
                     .await;
             }
         }
 
-        resource.state = State::Stored;
+        resource.state = State::Published;
 
         info!("resource {} stored", self.id);
 
@@ -257,7 +239,7 @@ impl Node {
         })?;
 
         match resource.state {
-            State::Received | State::Stored => {
+            State::Received | State::Published => {
                 warn!("stopping resource {id}, but was never created");
             }
             State::Created | State::Up => {
@@ -302,7 +284,7 @@ impl Node {
         })?;
 
         match &resource.state {
-            State::Received | State::Stored => {
+            State::Received | State::Published => {
                 if resource.state == State::Received {
                     warn!("starting resource {} which is not stored", self.id);
                 }

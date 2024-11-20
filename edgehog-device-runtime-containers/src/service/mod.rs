@@ -47,7 +47,7 @@ use crate::{
         ContainerRequest, ReqError,
     },
     service::resource::NodeType,
-    store::{StateStore, StateStoreError},
+    store::{Resource, StateStore, StateStoreError},
     volume::Volume,
     Docker,
 };
@@ -136,15 +136,16 @@ impl<D> Service<D> {
 
         for value in stored {
             let id = value.id;
+            let state = value.state();
 
-            debug!("adding stored {id}");
+            debug!("adding {id} with state");
 
             match value.resource {
                 Some(resource) => {
                     let node = NodeType::from(resource);
 
                     self.nodes
-                        .get_or_insert(id, NodeResource::stored(node), &value.deps);
+                        .get_or_insert(id, NodeResource::new(state, node), &value.deps);
                 }
                 None => {
                     debug!("adding missing resource");
@@ -219,16 +220,9 @@ impl<D> Service<D> {
 
         debug!("creating image with id {id}");
 
-        let device = &self.device;
-        let store = &mut self.store;
-
         let image = Image::from(req);
 
-        let node = self
-            .nodes
-            .get_or_insert(id, NodeResource::with_default(image.into()), &[]);
-
-        node.store(store, device, Vec::new()).await?;
+        self.create(id, Vec::new(), image).await?;
 
         Ok(())
     }
@@ -243,15 +237,9 @@ impl<D> Service<D> {
 
         debug!("creating volume with id {id}");
 
-        let device = &self.device;
-        let store = &mut self.store;
-
         let volume = Volume::try_from(req)?;
-        let node = self
-            .nodes
-            .get_or_insert(id, NodeResource::with_default(volume.into()), &[]);
 
-        node.store(store, device, Vec::new()).await?;
+        self.create(id, Vec::new(), volume).await?;
 
         Ok(())
     }
@@ -266,15 +254,9 @@ impl<D> Service<D> {
 
         debug!("creating network with id {id}");
 
-        let device = &self.device;
-        let store = &mut self.store;
-
         let network = Network::try_from(req)?;
-        let node = self
-            .nodes
-            .get_or_insert(id, NodeResource::with_default(network.into()), &[]);
 
-        node.store(store, device, Vec::new()).await?;
+        self.create(id, Vec::new(), network).await?;
 
         Ok(())
     }
@@ -289,17 +271,11 @@ impl<D> Service<D> {
 
         debug!("creating container with id {id}");
 
-        let device = &self.device;
-        let store = &mut self.store;
-
         let deps = req.dependencies()?;
 
         let container = Container::try_from(req)?;
-        let node =
-            self.nodes
-                .get_or_insert(id, NodeResource::with_default(container.into()), &deps);
 
-        node.store(store, device, deps).await?;
+        self.create(id, deps, container).await?;
 
         Ok(())
     }
@@ -314,20 +290,34 @@ impl<D> Service<D> {
 
         debug!("creating deployment with id {id}");
 
-        let device = &self.device;
-        let store = &mut self.store;
-
         let deps: Vec<Id> = req
             .containers
             .iter()
             .map(|id| Id::try_from_str(ResourceType::Container, id))
             .try_collect()?;
 
-        let node =
-            self.nodes
-                .get_or_insert(id, NodeResource::with_default(NodeType::Deployment), &deps);
+        self.create(id, deps, NodeType::Deployment).await?;
 
-        node.store(store, device, deps).await?;
+        Ok(())
+    }
+
+    async fn create<T>(&mut self, id: Id, deps: Vec<Id>, resource: T) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+        NodeType: From<T>,
+        for<'a> Resource<'a>: From<&'a T>,
+    {
+        self.store
+            .append(id, Resource::from(&resource), deps.clone())
+            .await?;
+
+        let node = self.nodes.get_or_insert(
+            id,
+            NodeResource::with_default(NodeType::from(resource)),
+            &deps,
+        );
+
+        node.publish(&self.device).await?;
 
         Ok(())
     }

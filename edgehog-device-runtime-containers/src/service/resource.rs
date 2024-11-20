@@ -38,22 +38,19 @@ impl NodeResource {
     pub(crate) fn with_default(resource: NodeType) -> Self {
         Self::new(State::default(), resource)
     }
-
-    pub(crate) fn stored(resource: NodeType) -> Self {
-        Self {
-            state: State::Stored,
-            value: resource,
-        }
-    }
 }
 
 /// State of the object for the request.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum State {
+    // The resource was received but was not published
     #[default]
     Received,
-    Stored,
+    // The resource was published and saved to the state file
+    Published,
+    // The resource was created
     Created,
+    // The resource was started
     Up,
 }
 
@@ -61,7 +58,7 @@ impl Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state = match self {
             State::Received => "Missing",
-            State::Stored => "Stored",
+            State::Published => "Published",
             State::Created => "Created",
             State::Up => "Up",
         };
