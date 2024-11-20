@@ -19,6 +19,7 @@
  */
 
 use std::convert::identity;
+use std::io::IsTerminal;
 
 use clap::Parser;
 use cli::Cli;
@@ -45,8 +46,9 @@ const DEFAULT_LOG_DIRECTIVE: &str = concat!(env!("CARGO_PKG_NAME"), "=info");
 #[tokio::main]
 async fn main() -> stable_eyre::Result<()> {
     stable_eyre::install()?;
+
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(std::io::stdout().is_terminal()))
         .with(
             EnvFilter::builder()
                 .with_default_directive(DEFAULT_LOG_DIRECTIVE.parse()?)
