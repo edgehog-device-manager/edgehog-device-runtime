@@ -230,7 +230,7 @@ impl<S> Image<S> {
                 status_code: 404,
                 message,
             }) => {
-                debug!("image not found: {message}");
+                trace!("image not found: {message}");
 
                 return Ok(None);
             }

@@ -1157,6 +1157,7 @@ dependencies = [
  "bollard",
  "cfg-if",
  "displaydoc",
+ "eyre",
  "futures",
  "hyper 1.5.0",
  "hyperlocal",

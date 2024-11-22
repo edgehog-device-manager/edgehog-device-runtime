@@ -96,7 +96,7 @@ impl<S> Volume<S> {
     /// Create a new docker volume.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn create(&self, client: &Client) -> Result<(), VolumeError>
     where
         S: Debug + Display + AsRef<str>,
@@ -114,7 +114,7 @@ impl<S> Volume<S> {
     /// Inspect a docker volume.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeInspect)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn inspect(&self, client: &Client) -> Result<Option<DockerVolume>, VolumeError>
     where
         S: Debug + Display + AsRef<str>,
@@ -144,7 +144,7 @@ impl<S> Volume<S> {
     /// Remove a docker volume.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeDelete)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn remove(&self, client: &Client) -> Result<Option<()>, VolumeError>
     where
         S: Debug + Display + AsRef<str>,
