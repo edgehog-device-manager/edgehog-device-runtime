@@ -56,6 +56,74 @@ impl Node {
         Self { id, idx, resource }
     }
 
+    #[instrument(skip_all, fields(%self.id))]
+    pub(crate) async fn fetch(&mut self, client: &Docker) -> Result<()> {
+        if self.id.is_deployment() {
+            debug!("skip deployment");
+
+            return Ok(());
+        }
+
+        let Some(resource) = &mut self.resource else {
+            debug!("skip missing");
+
+            return Ok(());
+        };
+
+        match resource.state {
+            State::Received | State::Published => {
+                debug!("skip resource not created yet");
+            }
+            State::Created | State::Up => {
+                trace!("inspecting state {}", resource.state);
+            }
+        }
+
+        match &mut resource.value {
+            NodeType::Image(image) => {
+                if image.inspect(client).await?.is_none() {
+                    debug!("missing resource");
+
+                    resource.state = State::Published;
+                }
+            }
+            NodeType::Volume(volume) => {
+                if volume.inspect(client).await?.is_none() {
+                    debug!("missing resource");
+
+                    resource.state = State::Published;
+                }
+            }
+            NodeType::Network(network) => {
+                if network.inspect(client).await?.is_none() {
+                    debug!("missing resource");
+
+                    resource.state = State::Published;
+                }
+            }
+            NodeType::Container(container) => match container.inspect(client).await? {
+                Some(container) => {
+                    let is_running = container
+                        .state
+                        .and_then(|state| state.running)
+                        .unwrap_or(false);
+
+                    if is_running {
+                        resource.state = State::Up;
+                    } else {
+                        resource.state = State::Created;
+                    }
+                }
+                None => {
+                    resource.state = State::Published;
+                }
+            },
+            NodeType::Deployment => {}
+        }
+
+        Ok(())
+    }
+
     #[instrument(skip_all)]
     pub(crate) async fn publish<D>(&mut self, device: &D) -> Result<()>
     where
@@ -154,7 +222,7 @@ impl Node {
     {
         let id = &self.id;
         let resource = self.resource.as_mut().ok_or(ServiceError::Missing {
-            id: self.id,
+            id: *id,
             ctx: "start",
         })?;
 

@@ -160,6 +160,12 @@ impl<D> Service<D> {
             }
         }
 
+        for node in self.nodes.nodes_mut() {
+            if let Err(err) = node.fetch(&self.client).await {
+                error!("couldn't fetch node {}: {err}", node.id);
+            }
+        }
+
         for deployment_id in self.nodes.running_deployments() {
             self.start(*deployment_id.uuid()).await;
         }

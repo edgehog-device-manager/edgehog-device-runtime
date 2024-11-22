@@ -18,7 +18,10 @@
 
 //! Map of nodes and the relations between each other.
 
-use std::{collections::HashMap, fmt::Debug};
+use std::{
+    collections::{hash_map::ValuesMut, HashMap},
+    fmt::Debug,
+};
 
 use indexmap::IndexMap;
 use petgraph::{
@@ -141,6 +144,10 @@ impl NodeGraph {
 
     pub(crate) fn nodes(&self) -> &HashMap<Id, Node> {
         &self.nodes
+    }
+
+    pub(crate) fn nodes_mut(&mut self) -> ValuesMut<Id, Node> {
+        self.nodes.values_mut()
     }
 
     // Returns a list of running deployments
