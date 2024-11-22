@@ -69,7 +69,7 @@ impl NodeGraph {
     /// Get the ids of nodes depending on the one provided
     pub(crate) fn dependent(&self, idx: NodeIndex) -> impl Iterator<Item = &Id> {
         self.relations
-            .neighbors_directed(idx, Direction::Outgoing)
+            .neighbors_directed(idx, Direction::Incoming)
             .filter_map(|dep| self.get_id(dep))
     }
 
