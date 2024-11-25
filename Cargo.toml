@@ -113,7 +113,7 @@ pretty_assertions = "1.4.1"
 procfs = "0.16.0"
 reqwest = "0.12.9"
 rustc_version = "0.4.1"
-rustls = { version = "0.23.17", default-features = false }
+rustls = { version = "0.23.18", default-features = false }
 rustls-native-certs = "0.8.0"
 rustls-pemfile = "2.2.0"
 serde = "1.0.214"
