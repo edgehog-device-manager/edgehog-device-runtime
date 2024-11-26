@@ -32,6 +32,13 @@ rust-version = "1.72.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.release]
+strip = true
+lto = true
+debug = true
+# Supported by all platform
+split-debuginfo = "packed"
+
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 async-trait = { workspace = true }
