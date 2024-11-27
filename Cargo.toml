@@ -100,6 +100,7 @@ displaydoc = "0.2.5"
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.1.0" }
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
+eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
 http = "1.1.0"

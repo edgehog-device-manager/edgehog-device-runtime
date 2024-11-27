@@ -95,7 +95,7 @@ impl<S> Network<S> {
     }
 
     /// Get the network id or name if it's missing.
-    #[instrument]
+    #[instrument(skip_all)]
     pub fn network(&self) -> &str
     where
         S: AsRef<str> + Debug,
@@ -151,7 +151,7 @@ impl<S> Network<S> {
     /// Create a new docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkCreate)
-    #[instrument]
+    #[instrument(skip_all, fields(name = %self.name))]
     pub async fn create(&mut self, client: &Client) -> Result<(), NetworkError>
     where
         S: Debug + Display + AsRef<str>,
@@ -177,7 +177,7 @@ impl<S> Network<S> {
     /// Inspect a docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
-    #[instrument]
+    #[instrument(skip_all, fields(name = %self.name))]
     pub async fn inspect(&mut self, client: &Client) -> Result<Option<DockerNetwork>, NetworkError>
     where
         S: Debug + Display + AsRef<str>,
@@ -211,7 +211,7 @@ impl<S> Network<S> {
     /// Remove a docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkDelete)
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError>
     where
         S: Debug + Display + AsRef<str>,

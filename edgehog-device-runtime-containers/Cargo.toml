@@ -32,6 +32,7 @@ base64 = { workspace = true }
 bollard = { workspace = true }
 cfg-if = { workspace = true }
 displaydoc = { workspace = true }
+eyre = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
 indexmap = { workspace = true }

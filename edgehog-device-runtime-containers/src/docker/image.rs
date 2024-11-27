@@ -221,7 +221,7 @@ impl<S> Image<S> {
 
         let res = client.inspect_image(image_name).await;
 
-        debug!("received response {res:?}");
+        trace!("received response {res:?}");
 
         // Check if the image was not found
         let inspect = match res {
@@ -230,7 +230,7 @@ impl<S> Image<S> {
                 status_code: 404,
                 message,
             }) => {
-                debug!("image not found: {message}");
+                trace!("image not found: {message}");
 
                 return Ok(None);
             }

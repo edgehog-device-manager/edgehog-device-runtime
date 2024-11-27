@@ -65,7 +65,7 @@ pub(crate) trait AvailableProp {
         let res = device.send(interface, &endpoint, data).await;
 
         if let Err(err) = res {
-            error!("couldn't send data for {interface}{endpoint}: {err}");
+            error!(error = %eyre::Report::new(err), "couldn't send data for {interface}{endpoint}");
         }
     }
 
@@ -80,7 +80,7 @@ pub(crate) trait AvailableProp {
         let res = device.unset(interface, &endpoint).await;
 
         if let Err(err) = res {
-            error!("couldn't send data for {interface}{endpoint}: {err}");
+            error!(error = %eyre::Report::new(err), "couldn't send data for {interface}{endpoint}");
         }
     }
 }

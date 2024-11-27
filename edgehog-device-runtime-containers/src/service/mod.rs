@@ -160,6 +160,12 @@ impl<D> Service<D> {
             }
         }
 
+        for node in self.nodes.nodes_mut() {
+            if let Err(err) = node.fetch(&self.client).await {
+                error!(error = %eyre::Report::new(err), "couldn't fetch node {}", node.id);
+            }
+        }
+
         for deployment_id in self.nodes.running_deployments() {
             self.start(*deployment_id.uuid()).await;
         }
@@ -355,7 +361,9 @@ impl<D> Service<D> {
         let idx = node.idx;
 
         if let Err(err) = self.start_node(idx).await {
-            error!("couldn't start deployment: {err}");
+            let err = eyre::Report::new(err);
+
+            error!(error = %err, "couldn't start deployment");
 
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
@@ -420,7 +428,9 @@ impl<D> Service<D> {
             .await;
 
         if let Err(err) = self.stop_node(node.id, node.idx).await {
-            error!("couldn't stop deployment: {err}");
+            let err = eyre::Report::new(err);
+
+            error!(error = %err,"couldn't stop deployment");
 
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
@@ -486,7 +496,9 @@ impl<D> Service<D> {
         let idx = node.idx;
 
         if let Err(err) = self.delete_node(node.id, idx).await {
-            error!("couldn't delete deployment: {err}");
+            let err = eyre::Report::new(err);
+
+            error!(error = %err,"couldn't delete deployment");
 
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(id.uuid(), &self.device)
@@ -548,7 +560,9 @@ impl<D> Service<D> {
 
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
         if let Err(err) = self.update_deployment(from, to).await {
-            error!("couldn't update deployment: {err}");
+            let err = eyre::Report::new(err);
+
+            error!(error = %err, "couldn't update deployment");
 
             DeploymentEvent::new(EventStatus::Error, err.to_string())
                 .send(from.uuid(), &self.device)
