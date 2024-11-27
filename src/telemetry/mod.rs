@@ -23,7 +23,6 @@ use async_trait::async_trait;
 use cellular_properties::CellularConnection;
 use event::{TelemetryConfig, TelemetryEvent};
 use serde::{Deserialize, Serialize};
-use stable_eyre::Report;
 use system_info::SystemInfo;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -200,9 +199,9 @@ pub struct Telemetry<T> {
 }
 
 impl<T> Telemetry<T> {
-    pub async fn from_config<'a>(
+    pub async fn from_config(
         client: T,
-        configs: &[TelemetryInterfaceConfig<'a>],
+        configs: &[TelemetryInterfaceConfig<'_>],
         store_directory: PathBuf,
     ) -> Self {
         let configs = configs
@@ -415,7 +414,10 @@ where
         let interface = match TelemetryInterface::from_str(&msg.interface) {
             Ok(itf) => itf,
             Err(err) => {
-                error!(error = %Report::new(err), "couldn't parse telemetry interface");
+                error!(
+                    error = format!("{:#}", stable_eyre::Report::new(err)),
+                    "couldn't parse telemetry interface"
+                );
 
                 return Ok(());
             }

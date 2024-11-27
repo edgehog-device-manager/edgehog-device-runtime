@@ -129,6 +129,21 @@ Set the model and part number as environment variables:
 For example, in a systemd service file, refer to
 [this buildroot package](https://github.com/edgehog-device-manager/edgehog-buildroot-packages/blob/d3fdb188b7c683d3951c255d32ee2781be416e83/package/edgehog-device-runtime/edgehog-device-runtime.service#L17-L18).
 
+## Containers
+
+Edgehog Device Runtime can manage containerized applications when compiled with the features
+`containers`.
+
+The container service can be configured in the main `config.toml`, by adding the following map:
+
+```toml
+[containers]
+# If the container service cannot be initialized it will exit the device runtime with an error
+required = false
+# Maximum number of retries if the service is require.
+max_retires = 10
+```
+
 ## Contributing
 
 We are open to any contribution:

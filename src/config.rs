@@ -37,6 +37,9 @@ pub struct Config {
     #[cfg(feature = "message-hub")]
     pub astarte_message_hub: Option<crate::cli::MsgHubArgs>,
 
+    #[cfg(feature = "containers")]
+    pub containers: Option<edgehog_device_runtime::containers::ContainersConfig>,
+
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
     pub download_directory: Option<PathBuf>,
@@ -79,6 +82,8 @@ impl TryFrom<Config> for DeviceManagerOptions {
             astarte_device_sdk,
             #[cfg(feature = "message-hub")]
             astarte_message_hub,
+            #[cfg(feature = "containers")]
+            containers: value.containers.unwrap_or_default(),
             interfaces_directory,
             store_directory,
             download_directory,

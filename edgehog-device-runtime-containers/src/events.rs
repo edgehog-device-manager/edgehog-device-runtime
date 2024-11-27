@@ -52,7 +52,10 @@ impl DeploymentEvent {
             .await;
 
         if let Err(err) = res {
-            error!(error = %err, "couldn't send {self}, with id {id}")
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                "couldn't send {self}, with id {id}"
+            )
         }
     }
 }

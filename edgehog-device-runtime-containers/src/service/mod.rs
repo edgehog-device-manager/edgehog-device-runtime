@@ -162,7 +162,10 @@ impl<D> Service<D> {
 
         for node in self.nodes.nodes_mut() {
             if let Err(err) = node.fetch(&self.client).await {
-                error!(error = %eyre::Report::new(err), "couldn't fetch node {}", node.id);
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "couldn't fetch node {}", node.id
+                );
             }
         }
 
@@ -361,11 +364,11 @@ impl<D> Service<D> {
         let idx = node.idx;
 
         if let Err(err) = self.start_node(idx).await {
-            let err = eyre::Report::new(err);
+            let err = format!("{:#}", eyre::Report::new(err));
 
-            error!(error = %err, "couldn't start deployment");
+            error!(error = err, "couldn't start deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err.to_string())
+            DeploymentEvent::new(EventStatus::Error, err)
                 .send(id.uuid(), &self.device)
                 .await;
         }
@@ -428,11 +431,11 @@ impl<D> Service<D> {
             .await;
 
         if let Err(err) = self.stop_node(node.id, node.idx).await {
-            let err = eyre::Report::new(err);
+            let err = format!("{:#}", eyre::Report::new(err));
 
-            error!(error = %err,"couldn't stop deployment");
+            error!(error = err, "couldn't stop deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err.to_string())
+            DeploymentEvent::new(EventStatus::Error, err)
                 .send(id.uuid(), &self.device)
                 .await;
         }
@@ -496,11 +499,11 @@ impl<D> Service<D> {
         let idx = node.idx;
 
         if let Err(err) = self.delete_node(node.id, idx).await {
-            let err = eyre::Report::new(err);
+            let err = format!("{:#}", eyre::Report::new(err));
 
-            error!(error = %err,"couldn't delete deployment");
+            error!(error = err, "couldn't delete deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err.to_string())
+            DeploymentEvent::new(EventStatus::Error, err)
                 .send(id.uuid(), &self.device)
                 .await;
         }
@@ -560,11 +563,11 @@ impl<D> Service<D> {
 
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
         if let Err(err) = self.update_deployment(from, to).await {
-            let err = eyre::Report::new(err);
+            let err = format!("{:#}", eyre::Report::new(err));
 
-            error!(error = %err, "couldn't update deployment");
+            error!(error = err, "couldn't update deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err.to_string())
+            DeploymentEvent::new(EventStatus::Error, err)
                 .send(from.uuid(), &self.device)
                 .await;
         }
@@ -999,7 +1002,7 @@ mod tests {
                 .withf(move |option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == reference)
+                        .is_some_and(|opt| opt.from_image == reference)
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -1028,7 +1031,7 @@ mod tests {
             let name = container_id.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().map_or(false, |opt| opt.name == name)
+                    option.as_ref().is_some_and(|opt| opt.name == name)
                         && config.image == Some(reference)
                 })
                 .once()

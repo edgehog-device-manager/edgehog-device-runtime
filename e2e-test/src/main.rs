@@ -83,7 +83,7 @@ impl Cli {
 }
 
 /// Retry the future multiple times
-async fn retry<'a, F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
+async fn retry<F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
 where
     F: FnMut() -> T,
     T: Future<Output = color_eyre::Result<U>>,
@@ -142,6 +142,8 @@ async fn main() -> color_eyre::Result<()> {
         telemetry_config: Some(Vec::new()),
         #[cfg(feature = "message-hub")]
         astarte_message_hub: None,
+        #[cfg(feature = "containers")]
+        containers: edgehog_device_runtime::containers::ContainersConfig::default(),
     };
 
     let store = connect_store(store_path.path())
