@@ -206,7 +206,7 @@ where
             && self
                 .driver_opts
                 .iter()
-                .all(|(k, v1)| driver_opts.get(k).map_or(false, |v2| *v1 == *v2));
+                .all(|(k, v1)| driver_opts.get(k).is_some_and(|v2| *v1 == *v2));
 
         self.name.eq(name) && self.driver.eq(driver) && eq_driver_opts
     }

@@ -159,7 +159,7 @@ impl NodeGraph {
                     && node
                         .resource
                         .as_ref()
-                        .map_or(false, |resource| resource.is_up());
+                        .is_some_and(|resource| resource.is_up());
 
                 is_up_deployment.then_some(*id)
             })

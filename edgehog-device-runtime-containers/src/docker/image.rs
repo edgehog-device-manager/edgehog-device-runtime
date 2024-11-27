@@ -361,7 +361,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -402,7 +402,7 @@ mod tests {
                 .withf(|options, _, _| {
                     options
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -491,7 +491,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "alpine:edge")
+                        .is_some_and(|opt| opt.from_image == "alpine:edge")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -622,7 +622,7 @@ mod tests {
 
             mock.expect_create_image()
                 .withf(|options, _, _| {
-                    options.as_ref().map_or(false, |opt| {
+                    options.as_ref().is_some_and(|opt| {
                         opt.from_image == "docker.io/library/nginx:1.27.2-bookworm-perl"
                     })
                 })

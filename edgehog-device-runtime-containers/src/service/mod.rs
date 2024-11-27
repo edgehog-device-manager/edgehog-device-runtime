@@ -1002,7 +1002,7 @@ mod tests {
                 .withf(move |option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == reference)
+                        .is_some_and(|opt| opt.from_image == reference)
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -1031,7 +1031,7 @@ mod tests {
             let name = container_id.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().map_or(false, |opt| opt.name == name)
+                    option.as_ref().is_some_and(|opt| opt.name == name)
                         && config.image == Some(reference)
                 })
                 .once()

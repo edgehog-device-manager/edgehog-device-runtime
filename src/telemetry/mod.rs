@@ -199,9 +199,9 @@ pub struct Telemetry<T> {
 }
 
 impl<T> Telemetry<T> {
-    pub async fn from_config<'a>(
+    pub async fn from_config(
         client: T,
-        configs: &[TelemetryInterfaceConfig<'a>],
+        configs: &[TelemetryInterfaceConfig<'_>],
         store_directory: PathBuf,
     ) -> Self {
         let configs = configs

@@ -83,7 +83,7 @@ impl Cli {
 }
 
 /// Retry the future multiple times
-async fn retry<'a, F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
+async fn retry<F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
 where
     F: FnMut() -> T,
     T: Future<Output = color_eyre::Result<U>>,

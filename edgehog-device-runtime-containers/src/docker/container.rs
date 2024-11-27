@@ -465,7 +465,7 @@ where
             && self
                 .port_bindings
                 .iter()
-                .all(|(k, v1)| port_bindings.get(k).map_or(false, |v2| *v1 == *v2));
+                .all(|(k, v1)| port_bindings.get(k).is_some_and(|v2| *v1 == *v2));
 
         self.id.eq(id)
             && self.name.eq(name)
@@ -644,7 +644,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -666,7 +666,7 @@ mod tests {
             let name_cl = name.clone();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().map_or(false, |opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
@@ -702,7 +702,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -724,7 +724,7 @@ mod tests {
             let name_cl = name.clone();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().map_or(false, |opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
@@ -799,7 +799,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -821,7 +821,7 @@ mod tests {
             let name_cl = name.clone();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().map_or(false, |opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
