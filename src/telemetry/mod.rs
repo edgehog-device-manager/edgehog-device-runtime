@@ -23,7 +23,6 @@ use async_trait::async_trait;
 use cellular_properties::CellularConnection;
 use event::{TelemetryConfig, TelemetryEvent};
 use serde::{Deserialize, Serialize};
-use stable_eyre::Report;
 use system_info::SystemInfo;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -415,7 +414,10 @@ where
         let interface = match TelemetryInterface::from_str(&msg.interface) {
             Ok(itf) => itf,
             Err(err) => {
-                error!(error = %Report::new(err), "couldn't parse telemetry interface");
+                error!(
+                    error = format!("{:#}", stable_eyre::Report::new(err)),
+                    "couldn't parse telemetry interface"
+                );
 
                 return Ok(());
             }

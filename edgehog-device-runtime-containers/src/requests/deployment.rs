@@ -113,12 +113,22 @@ impl FromEvent for DeploymentUpdate {
         let event = DeploymentUpdateEvent::from_event(event)?;
 
         let from = Uuid::parse_str(&event.from).map_err(|err| {
-            error!(error = %eyre::Report::new(err), from = event.from, "invalid deployment update 'from' uuid");
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                from = event.from,
+                "invalid deployment update 'from' uuid"
+            );
+
             FromEventError::Conversion(TypeError::Conversion)
         })?;
 
         let to = Uuid::parse_str(&event.to).map_err(|err| {
-            error!(error = %eyre::Report::new(err), to = event.to, "invalid deployment update 'to' uuid");
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                to = event.to,
+                "invalid deployment update 'to' uuid"
+            );
+
             FromEventError::Conversion(TypeError::Conversion)
         })?;
 

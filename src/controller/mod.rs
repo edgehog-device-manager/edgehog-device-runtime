@@ -45,7 +45,7 @@ pub struct Runtime<T> {
     client: T,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
     #[cfg(feature = "containers")]
-    containers_tx: mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>,
+    containers_tx: mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
     #[cfg(feature = "forwarder")]
     forwarder: crate::forwarder::Forwarder<T>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -90,8 +90,13 @@ impl<T> Runtime<T> {
         tasks.spawn(telemetry.spawn(telemetry_rx));
 
         #[cfg(feature = "containers")]
-        let containers_tx =
-            Self::setup_containers(&opts.store_directory, client.clone(), tasks).await?;
+        let containers_tx = Self::setup_containers(
+            client.clone(),
+            opts.containers,
+            &opts.store_directory,
+            tasks,
+        )
+        .await?;
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
@@ -113,18 +118,23 @@ impl<T> Runtime<T> {
 
     #[cfg(feature = "containers")]
     async fn setup_containers(
-        store_dir: &std::path::Path,
         client: T,
+        config: crate::containers::ContainersConfig,
+        store_dir: &std::path::Path,
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
-    ) -> Result<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>, DeviceManagerError>
+    ) -> Result<
+        mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
+        DeviceManagerError,
+    >
     where
         T: Client + Send + Sync + 'static,
     {
-        let (container_tx, container_rx) = mpsc::channel(8);
+        let (container_tx, container_rx) = mpsc::unbounded_channel();
 
-        let containers = crate::containers::ContainerService::new(store_dir, client).await?;
+        let containers =
+            crate::containers::ContainerService::new(client, config, store_dir).await?;
 
-        tasks.spawn(async move { containers.spawn(container_rx).await });
+        tasks.spawn(async move { containers.spawn_unbounded(container_rx).await });
 
         Ok(container_tx)
     }
@@ -199,8 +209,8 @@ impl<T> Runtime<T> {
             }
             #[cfg(all(feature = "containers", target_os = "linux"))]
             RuntimeEvent::Container(event) => {
-                if self.containers_tx.send(event).await.is_err() {
-                    error!("couldn't send the container event")
+                if self.containers_tx.send(event).is_err() {
+                    error!("couldn't handle the container event")
                 }
             }
             #[cfg(all(feature = "forwarder", target_os = "linux"))]

@@ -28,7 +28,7 @@ pub use self::controller::Runtime;
 
 mod commands;
 #[cfg(feature = "containers")]
-mod containers;
+pub mod containers;
 mod controller;
 pub mod data;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -61,6 +61,8 @@ pub struct DeviceManagerOptions {
     pub astarte_device_sdk: Option<AstarteDeviceSdkConfigOptions>,
     #[cfg(feature = "message-hub")]
     pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
+    #[cfg(feature = "containers")]
+    pub containers: containers::ContainersConfig,
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
@@ -116,6 +118,8 @@ mod tests {
             }),
             #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
+            #[cfg(feature = "containers")]
+            containers: crate::containers::ContainersConfig::default(),
             interfaces_directory: PathBuf::new(),
             store_directory: store_dir.path().to_owned(),
             download_directory: PathBuf::new(),
@@ -158,6 +162,8 @@ mod tests {
             }),
             #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
+            #[cfg(feature = "containers")]
+            containers: crate::containers::ContainersConfig::default(),
             interfaces_directory: PathBuf::new(),
             store_directory: tempdir.path().to_owned(),
             download_directory: PathBuf::new(),

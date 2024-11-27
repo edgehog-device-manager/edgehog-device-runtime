@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use astarte_device_sdk::Client;
 use async_trait::async_trait;
@@ -26,23 +26,60 @@ use edgehog_containers::{
     store::StateStore,
     Docker,
 };
+use serde::Deserialize;
+use stable_eyre::eyre::eyre;
 use tracing::error;
 
 use crate::controller::actor::Actor;
 
+/// Maximum number of retries for the initialization of the service
+pub const MAX_INIT_RETRIES: usize = 10;
+
+/// Configuration for the container service.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainersConfig {
+    /// Flag to make the container service is required
+    #[serde(default)]
+    required: bool,
+    /// Maximum number of retries for the initialization of the service
+    #[serde(default = "ContainersConfig::default_max_retries")]
+    max_retries: usize,
+}
+
+impl ContainersConfig {
+    const fn default_max_retries() -> usize {
+        MAX_INIT_RETRIES
+    }
+}
+
+impl Default for ContainersConfig {
+    fn default() -> Self {
+        Self {
+            required: false,
+            max_retries: Self::default_max_retries(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ContainerService<D> {
+    config: ContainersConfig,
     service: Service<D>,
 }
 
 impl<D> ContainerService<D> {
-    pub(crate) async fn new(store_dir: &Path, device: D) -> Result<Self, ServiceError> {
+    pub(crate) async fn new(
+        device: D,
+        config: ContainersConfig,
+        store_dir: &Path,
+    ) -> Result<Self, ServiceError> {
         let client = Docker::connect().await?;
         let store = StateStore::open(store_dir.join("containers/state.json")).await?;
 
         let service = Service::new(client, store, device);
 
-        Ok(Self { service })
+        Ok(Self { config, service })
     }
 }
 
@@ -58,14 +95,42 @@ where
     }
 
     async fn init(&mut self) -> stable_eyre::Result<()> {
-        self.service.init().await?;
+        let mut retries = 0usize;
+        let mut timeout = Duration::from_secs(2);
+
+        // retry with an exponential back off
+        while let Err(err) = self.service.init().await {
+            error!(
+                error = format!("{:#}", stable_eyre::Report::new(err)),
+                "couldn't init container service"
+            );
+
+            // Increase the times we tired
+            retries += retries.saturating_add(1);
+
+            if self.config.required && retries >= self.config.max_retries {
+                return Err(
+                    eyre!("couldn't initialize the container service").wrap_err(eyre!(
+                        "tried to start the runtime {retries} times, but reached the maximum"
+                    )),
+                );
+            }
+
+            tokio::time::sleep(timeout).await;
+
+            // Exponential
+            timeout = Duration::from_secs(timeout.as_secs().saturating_mul(2));
+        }
 
         Ok(())
     }
 
     async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
         if let Err(err) = self.service.on_event(*msg).await {
-            error!(error = %stable_eyre::Report::new(err), "couldn't handle container event");
+            error!(
+                error = format!("{:#}", stable_eyre::Report::new(err)),
+                "couldn't handle container event"
+            );
         }
 
         Ok(())

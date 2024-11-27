@@ -43,7 +43,10 @@ where
                 service.on_event(req).await?;
             }
             Err(err) => {
-                error!(error = %color_eyre::Report::new(err),"couldn't parse the event");
+                error!(
+                    error = format!("{:#}", color_eyre::Report::new(err)),
+                    "couldn't parse the event"
+                );
             }
         }
     }
