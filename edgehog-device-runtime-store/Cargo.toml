@@ -1,0 +1,22 @@
+[package]
+name = "edgehog-device-runtime-store"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+diesel = { workspace = true, features = ["sqlite", "uuid"] }
+diesel_migrations = { workspace = true, features = ["sqlite"] }
+displaydoc = { workspace = true }
+sync_wrapper = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[features]
+containers = []
