@@ -28,7 +28,8 @@ publish = false
 astarte-device-sdk = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre = { workspace = true }
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "../edgehog-device-runtime-containers" }
+edgehog-containers = { workspace = true }
+edgehog-store = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

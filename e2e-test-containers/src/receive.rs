@@ -19,16 +19,20 @@
 use std::{fmt::Debug, path::Path};
 
 use astarte_device_sdk::{properties::PropAccess, Client, FromEvent};
-use edgehog_containers::{requests::ContainerRequest, service::Service, Docker};
+use edgehog_containers::{requests::ContainerRequest, service::Service, store::StateStore, Docker};
+use edgehog_store::db::Handle;
 use tracing::error;
 
-pub async fn receive<D>(device: D, _store: &Path) -> color_eyre::Result<()>
+pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
     D: Debug + Client + Clone + PropAccess + Sync + 'static,
 {
     let client = Docker::connect().await?;
 
-    let mut service = Service::new(client, device.clone());
+    let handle = Handle::open(store_path.join("state.db")).await?;
+    let store = StateStore::new(handle);
+
+    let mut service = Service::new(client, store, device.clone());
     service.init().await?;
 
     loop {

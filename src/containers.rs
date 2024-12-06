@@ -23,8 +23,10 @@ use async_trait::async_trait;
 use edgehog_containers::{
     requests::ContainerRequest,
     service::{Service, ServiceError},
+    store::{StateStore, StoreError},
     Docker,
 };
+use edgehog_store::db::Handle;
 use serde::Deserialize;
 use stable_eyre::eyre::eyre;
 use tracing::error;
@@ -71,11 +73,16 @@ impl<D> ContainerService<D> {
     pub(crate) async fn new(
         device: D,
         config: ContainersConfig,
-        _store_dir: &Path,
+        store_dir: &Path,
     ) -> Result<Self, ServiceError> {
         let client = Docker::connect().await?;
 
-        let service = Service::new(client, device);
+        let handle = Handle::open(store_dir.join("state.db"))
+            .await
+            .map_err(|err| ServiceError::Store(StoreError::Handle(err)))?;
+        let store = StateStore::new(handle);
+
+        let service = Service::new(client, store, device);
 
         Ok(Self { config, service })
     }

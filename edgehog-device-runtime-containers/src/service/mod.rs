@@ -47,6 +47,7 @@ use crate::{
         ContainerRequest, ReqError,
     },
     service::resource::NodeType,
+    store::{StateStore, StoreError},
     volume::Volume,
     Docker,
 };
@@ -79,6 +80,8 @@ pub enum ServiceError {
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
+    /// store operation failed
+    Store(#[from] StoreError),
     /// couldn't parse id, it's an invalid UUID
     Uuid {
         /// The invalid [`Id`]
@@ -107,6 +110,8 @@ where
 #[derive(Debug)]
 pub struct Service<D> {
     client: Docker,
+    #[allow(dead_code)]
+    store: StateStore,
     device: D,
     nodes: NodeGraph,
 }
@@ -114,9 +119,10 @@ pub struct Service<D> {
 impl<D> Service<D> {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, device: D) -> Self {
+    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
         Self {
             client,
+            store,
             device,
             nodes: NodeGraph::new(),
         }
@@ -701,8 +707,10 @@ mod tests {
     use astarte_device_sdk::FromEvent;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use edgehog_store::db::{self, Handle};
     use pretty_assertions::assert_eq;
     use resource::NodeType;
+    use tempfile::TempDir;
     use uuid::uuid;
 
     use crate::container::{Binding, PortBindingMap};
@@ -720,6 +728,14 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_an_image() {
+        let tempdir = TempDir::new().unwrap();
+
+        let db_file = tempdir.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
         let id = uuid!("5b705c7b-e6c7-4455-ba9b-a081be020c43");
 
         let client = Docker::connect().await.unwrap();
@@ -738,7 +754,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, device);
+        let mut service = Service::new(client, store, device);
 
         let reference = "docker.io/nginx:stable-alpine-slim";
         let create_image_req = create_image_request_event(id.to_string(), reference, "");
@@ -769,6 +785,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_volume() {
+        let tempdir = TempDir::new().unwrap();
+
+        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
+        let store = StateStore::new(handle);
+
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -787,7 +808,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, device);
+        let mut service = Service::new(client, store, device);
 
         let create_volume_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
 
@@ -818,6 +839,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_network() {
+        let tempdir = TempDir::new().unwrap();
+
+        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
+        let store = StateStore::new(handle);
+
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -836,7 +862,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, device);
+        let mut service = Service::new(client, store, device);
 
         let create_network_req = create_network_request_event(id, "bridged", &[]);
 
@@ -870,6 +896,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_container() {
+        let tempdir = TempDir::new().unwrap();
+
+        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
+        let store = StateStore::new(handle);
+
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -888,7 +919,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, device);
+        let mut service = Service::new(client, store, device);
 
         let image_id = Uuid::new_v4().to_string();
         let create_container_req = create_container_request_event(
@@ -939,6 +970,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_start_deployment() {
+        let tempdir = TempDir::new().unwrap();
+
+        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
+        let store = StateStore::new(handle);
+
         let image_id = Uuid::new_v4();
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -1103,7 +1139,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, device);
+        let mut service = Service::new(client, store, device);
 
         let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
 

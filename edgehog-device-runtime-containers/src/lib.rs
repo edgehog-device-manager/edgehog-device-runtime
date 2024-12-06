@@ -37,6 +37,7 @@ pub(crate) mod events;
 mod properties;
 pub mod requests;
 pub mod service;
+pub mod store;
 
 #[cfg(feature = "mock")]
 mod mock;
