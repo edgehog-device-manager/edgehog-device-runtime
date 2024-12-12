@@ -22,7 +22,7 @@ use astarte_device_sdk::FromEvent;
 
 use crate::network::Network;
 
-use super::{parse_kv_map, ReqError};
+use super::{parse_kv_map, ReqError, ReqUuid};
 
 /// Request to pull a Docker Network.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,7 +32,7 @@ use super::{parse_kv_map, ReqError};
     rename_all = "camelCase"
 )]
 pub struct CreateNetwork {
-    pub(crate) id: String,
+    pub(crate) id: ReqUuid,
     pub(crate) driver: String,
     pub(crate) internal: bool,
     pub(crate) enable_ipv6: bool,
@@ -47,7 +47,7 @@ impl TryFrom<CreateNetwork> for Network<String> {
 
         Ok(Network {
             id: None,
-            name: value.id,
+            name: value.id.to_string(),
             driver: value.driver,
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
@@ -63,6 +63,7 @@ pub(crate) mod tests {
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use itertools::Itertools;
+    use uuid::Uuid;
 
     use super::*;
 
@@ -94,12 +95,13 @@ pub(crate) mod tests {
 
     #[test]
     fn create_network_request() {
-        let event = create_network_request_event("id", "driver", &["foo=bar", "some="]);
+        let id = Uuid::new_v4();
+        let event = create_network_request_event(id.to_string(), "driver", &["foo=bar", "some="]);
 
         let request = CreateNetwork::from_event(event).unwrap();
 
         let expect = CreateNetwork {
-            id: "id".to_string(),
+            id: ReqUuid(id),
             driver: "driver".to_string(),
             internal: false,
             enable_ipv6: false,

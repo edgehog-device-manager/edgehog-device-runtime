@@ -22,6 +22,8 @@ use astarte_device_sdk::FromEvent;
 
 use crate::image::Image;
 
+use super::ReqUuid;
+
 /// Request to pull a Docker Image.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
 #[from_event(
@@ -30,7 +32,7 @@ use crate::image::Image;
     rename_all = "camelCase"
 )]
 pub struct CreateImage {
-    pub(crate) id: String,
+    pub(crate) id: ReqUuid,
     pub(crate) reference: String,
     pub(crate) registry_auth: String,
 }
@@ -56,6 +58,7 @@ pub(crate) mod tests {
     use std::fmt::Display;
 
     use astarte_device_sdk::{DeviceEvent, Value};
+    use uuid::Uuid;
 
     use super::*;
 
@@ -82,12 +85,13 @@ pub(crate) mod tests {
 
     #[test]
     fn create_image_request() {
-        let event = create_image_request_event("id", "reference", "registry_auth");
+        let id = Uuid::new_v4();
+        let event = create_image_request_event(id.to_string(), "reference", "registry_auth");
 
         let request = CreateImage::from_event(event).unwrap();
 
         let expect = CreateImage {
-            id: "id".to_string(),
+            id: ReqUuid(id),
             reference: "reference".to_string(),
             registry_auth: "registry_auth".to_string(),
         };
@@ -97,7 +101,8 @@ pub(crate) mod tests {
 
     #[test]
     fn should_convert_to_image() {
-        let event = create_image_request_event("id", "reference", "registry_auth");
+        let id = Uuid::new_v4();
+        let event = create_image_request_event(id.to_string(), "reference", "registry_auth");
 
         let request = CreateImage::from_event(event).unwrap();
 
