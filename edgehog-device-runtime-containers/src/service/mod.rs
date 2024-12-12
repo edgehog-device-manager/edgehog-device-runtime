@@ -21,7 +21,6 @@
 use std::{
     collections::HashSet,
     fmt::{Debug, Display},
-    str::FromStr,
 };
 
 use astarte_device_sdk::event::FromEventError;
@@ -232,7 +231,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::try_from_str(ResourceType::Image, &req.id)?;
+        let id = Id::new(ResourceType::Image, *req.id);
 
         debug!("creating image with id {id}");
 
@@ -249,7 +248,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::try_from_str(ResourceType::Volume, &req.id)?;
+        let id = Id::new(ResourceType::Volume, *req.id);
 
         debug!("creating volume with id {id}");
 
@@ -266,7 +265,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::try_from_str(ResourceType::Network, &req.id)?;
+        let id = Id::new(ResourceType::Network, *req.id);
 
         debug!("creating network with id {id}");
 
@@ -283,11 +282,11 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::try_from_str(ResourceType::Container, &req.id)?;
+        let id = Id::new(ResourceType::Container, *req.id);
 
         debug!("creating container with id {id}");
 
-        let deps = req.dependencies()?;
+        let deps = req.dependencies();
 
         let container = Container::try_from(req)?;
 
@@ -302,15 +301,15 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::try_from_str(ResourceType::Deployment, &req.id)?;
+        let id = Id::new(ResourceType::Deployment, *req.id);
 
         debug!("creating deployment with id {id}");
 
         let deps: Vec<Id> = req
             .containers
             .iter()
-            .map(|id| Id::try_from_str(ResourceType::Container, id))
-            .try_collect()?;
+            .map(|id| Id::new(ResourceType::Container, **id))
+            .collect();
 
         self.create(id, deps, NodeType::Deployment).await?;
 
@@ -656,15 +655,6 @@ impl Id {
     /// Create a new ID
     pub fn new(rt: ResourceType, id: Uuid) -> Self {
         Self { rt, id }
-    }
-
-    pub(crate) fn try_from_str(rt: ResourceType, id: &str) -> Result<Self> {
-        let id = Uuid::from_str(id).map_err(|err| ServiceError::Uuid {
-            id: id.to_string(),
-            source: err,
-        })?;
-
-        Ok(Self { rt, id })
     }
 
     pub(crate) fn uuid(&self) -> &Uuid {
@@ -1160,8 +1150,12 @@ mod tests {
 
         let image_req = ContainerRequest::from_event(create_image_req).unwrap();
 
-        let create_container_req =
-            create_container_request_event(container_id, &image_id.to_string(), reference, &[]);
+        let create_container_req = create_container_request_event(
+            container_id,
+            &image_id.to_string(),
+            reference,
+            &Vec::<Uuid>::new(),
+        );
 
         let container_req = ContainerRequest::from_event(create_container_req).unwrap();
 
