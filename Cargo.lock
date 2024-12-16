@@ -1135,7 +1135,7 @@ dependencies = [
  "procfs",
  "reqwest",
  "rustc_version",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "serde",
  "serde_json",
  "stable-eyre",
@@ -1199,7 +1199,7 @@ dependencies = [
  "http 1.1.0",
  "httpmock",
  "reqwest",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-native-certs 0.8.1",
  "rustls-pemfile",
  "thiserror 2.0.3",
@@ -1886,7 +1886,7 @@ dependencies = [
  "http 1.1.0",
  "hyper 1.5.1",
  "hyper-util",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.0",
@@ -3038,7 +3038,7 @@ dependencies = [
  "quinn-proto",
  "quinn-udp",
  "rustc-hash",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "socket2 0.5.7",
  "thiserror 2.0.3",
  "tokio",
@@ -3056,7 +3056,7 @@ dependencies = [
  "rand 0.8.5",
  "ring",
  "rustc-hash",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-pki-types",
  "slab",
  "thiserror 2.0.3",
@@ -3295,7 +3295,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "quinn",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-pemfile",
  "rustls-pki-types",
  "serde",
@@ -3431,9 +3431,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.18"
+version = "0.23.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9cc1d47e243d655ace55ed38201c19ae02c148ae56412ab8750e8f0166ab7f"
+checksum = "5065c3f250cbd332cd894be57c40fa52387247659b14a2d6041d121547903b1b"
 dependencies = [
  "log",
  "once_cell",
@@ -4149,7 +4149,7 @@ version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c7bc40d0e5a97695bb96e27995cd3a08538541b0a846f65bba7a359f36700d4"
 dependencies = [
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-pki-types",
  "tokio",
 ]
@@ -4173,7 +4173,7 @@ checksum = "edc5f74e248dc973e0dbb7b74c7e0d6fcc301c694ff50049504004ef4d0cdcd9"
 dependencies = [
  "futures-util",
  "log",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-native-certs 0.8.1",
  "rustls-pki-types",
  "tokio",
@@ -4389,7 +4389,7 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.8.5",
- "rustls 0.23.18",
+ "rustls 0.23.20",
  "rustls-pki-types",
  "sha1",
  "thiserror 1.0.69",
