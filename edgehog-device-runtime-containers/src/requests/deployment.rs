@@ -22,6 +22,8 @@ use astarte_device_sdk::{event::FromEventError, types::TypeError, AstarteType, F
 use tracing::error;
 use uuid::Uuid;
 
+use super::{ReqUuid, VecReqUuid};
+
 /// Request to pull a Docker Deployment.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
 #[from_event(
@@ -30,8 +32,8 @@ use uuid::Uuid;
     rename_all = "camelCase"
 )]
 pub struct CreateDeployment {
-    pub(crate) id: String,
-    pub(crate) containers: Vec<String>,
+    pub(crate) id: ReqUuid,
+    pub(crate) containers: VecReqUuid,
 }
 
 /// Command for a previously received deployment
@@ -150,14 +152,14 @@ struct DeploymentUpdateEvent {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use std::collections::HashMap;
+    use std::{collections::HashMap, fmt::Display};
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
 
     use super::*;
 
-    pub fn create_deployment_request_event(id: &str, containers: &[&str]) -> DeviceEvent {
+    pub fn create_deployment_request_event<S: Display>(id: &str, containers: &[S]) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
             (
@@ -178,14 +180,13 @@ pub(crate) mod tests {
 
     #[test]
     fn create_deployment_request() {
-        let event = create_deployment_request_event("id", &["container_id"]);
+        let id = ReqUuid(Uuid::new_v4());
+        let containers = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
+        let event = create_deployment_request_event(&id.to_string(), &containers);
 
         let request = CreateDeployment::from_event(event).unwrap();
 
-        let expect = CreateDeployment {
-            id: "id".to_string(),
-            containers: vec!["container_id".to_string()],
-        };
+        let expect = CreateDeployment { id, containers };
 
         assert_eq!(request, expect);
     }

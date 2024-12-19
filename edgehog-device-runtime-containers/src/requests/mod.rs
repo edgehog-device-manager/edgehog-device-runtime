@@ -18,11 +18,15 @@
 
 //! Container requests sent from Astarte.
 
-use std::{collections::HashMap, num::ParseIntError};
+use std::{borrow::Borrow, collections::HashMap, fmt::Display, num::ParseIntError, ops::Deref};
 
-use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
+use astarte_device_sdk::{
+    event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
+};
 use container::CreateContainer;
 use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
+use tracing::error;
+use uuid::Uuid;
 
 use crate::store::container::RestartPolicyError;
 
@@ -128,6 +132,84 @@ where
         .collect()
 }
 
+/// Wrapper to convert an [`AstarteType`] to [`Uuid`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ReqUuid(pub(crate) Uuid);
+
+impl Display for ReqUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Borrow<Uuid> for ReqUuid {
+    fn borrow(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl Deref for ReqUuid {
+    type Target = Uuid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&str> for ReqUuid {
+    type Error = TypeError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Uuid::parse_str(value).map(ReqUuid).map_err(|err| {
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                value, "couldn't parse uuid value"
+            );
+
+            TypeError::Conversion
+        })
+    }
+}
+
+impl TryFrom<AstarteType> for ReqUuid {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        Self::try_from(value.as_str())
+    }
+}
+
+/// Wrapper to convert an [`AstarteType`] to [`Vec<Uuid>`].
+///
+/// This is required because we cannot implement [`TryFrom<AstarteType>`] for [`Vec<ReqUuid>`], because
+/// of the orphan rule.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct VecReqUuid(Vec<ReqUuid>);
+
+impl Deref for VecReqUuid {
+    type Target = Vec<ReqUuid>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<AstarteType> for VecReqUuid {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+        let value = Vec::<String>::try_from(value)?;
+
+        value
+            .iter()
+            .map(|v| ReqUuid::try_from(v.as_str()))
+            .collect::<Result<Vec<ReqUuid>, TypeError>>()
+            .map(VecReqUuid)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,8 +221,10 @@ mod tests {
 
     #[test]
     fn from_event_image() {
+        let id = Uuid::new_v4();
+
         let fields = [
-            ("id", "id"),
+            ("id", id.to_string().as_str()),
             ("reference", "reference"),
             ("registryAuth", "registry_auth"),
         ]
@@ -156,7 +240,7 @@ mod tests {
         let request = ContainerRequest::from_event(event).unwrap();
 
         let expect = ContainerRequest::Image(CreateImage {
-            id: "id".to_string(),
+            id: ReqUuid(id),
             reference: "reference".to_string(),
             registry_auth: "registry_auth".to_string(),
         });
@@ -183,12 +267,13 @@ mod tests {
 
     #[test]
     fn from_event_network() {
-        let event = create_network_request_event("id", "driver", &[]);
+        let id = Uuid::new_v4();
+        let event = create_network_request_event(id.to_string(), "driver", &[]);
 
         let request = ContainerRequest::from_event(event).unwrap();
 
         let expect = CreateNetwork {
-            id: "id".to_string(),
+            id: ReqUuid(id),
             driver: "driver".to_string(),
             internal: false,
             enable_ipv6: false,

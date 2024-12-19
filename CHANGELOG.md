@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add support for the `edgehog-device-runtime-containers`
+
 ### Changed
 
 - Update OS requirements to specify ttyd minimum version
