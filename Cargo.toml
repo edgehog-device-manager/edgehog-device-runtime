@@ -32,7 +32,8 @@ rust-version = "1.72.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[profile.release]
+[profile.release-minimal]
+inherits = "release"
 strip = true
 lto = true
 debug = true
