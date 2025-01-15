@@ -23,7 +23,6 @@ use async_trait::async_trait;
 use edgehog_containers::{
     requests::ContainerRequest,
     service::{Service, ServiceError},
-    store::StateStore,
     Docker,
 };
 use serde::Deserialize;
@@ -72,12 +71,11 @@ impl<D> ContainerService<D> {
     pub(crate) async fn new(
         device: D,
         config: ContainersConfig,
-        store_dir: &Path,
+        _store_dir: &Path,
     ) -> Result<Self, ServiceError> {
         let client = Docker::connect().await?;
-        let store = StateStore::open(store_dir.join("containers/state.json")).await?;
 
-        let service = Service::new(client, store, device);
+        let service = Service::new(client, device);
 
         Ok(Self { config, service })
     }

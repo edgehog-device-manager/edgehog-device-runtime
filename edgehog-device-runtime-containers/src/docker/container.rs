@@ -32,15 +32,18 @@ use bollard::{
     },
     errors::Error as BollardError,
     models::{
-        ContainerInspectResponse, EndpointSettings, HostConfig, PortBinding, RestartPolicy,
-        RestartPolicyNameEnum,
+        ContainerInspectResponse, EndpointSettings, HostConfig, PortBinding,
+        RestartPolicy as BollardRestartPolicy,
     },
 };
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     client::*,
-    requests::{container::parse_port_binding, BindingError},
+    requests::{
+        container::{parse_port_binding, RestartPolicy},
+        BindingError,
+    },
 };
 
 /// Error for the container operations.
@@ -63,52 +66,52 @@ pub enum ContainerError {
 
 /// Docker container struct.
 #[derive(Debug, Clone, Eq)]
-pub struct Container<S>
+pub(crate) struct Container<S>
 where
     S: Hash + Eq,
 {
     /// Id of the docker container.
     ///
     /// The id of the image is optional since it will be available only when the image is created.
-    pub id: Option<String>,
+    pub(crate) id: Option<String>,
     /// Assign the specified name to the container.
     ///
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
-    pub name: S,
+    pub(crate) name: S,
     /// The name (or reference) of the image to use.
     ///
     /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
     /// square brackets optional.
-    pub image: S,
+    pub(crate) image: S,
     /// Network mode to use for this container.
-    pub network_mode: S,
+    pub(crate) network_mode: S,
     /// Network to connect the container to.
-    pub networks: Vec<S>,
+    pub(crate) networks: Vec<S>,
     /// The hostname to use for the container.
     ///
     /// Defaults to the container name.
-    pub hostname: Option<S>,
+    pub(crate) hostname: Option<S>,
     /// The behaviour to apply when the container exits.
     ///
     /// See the [create container
     /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
     /// possible values.
-    pub restart_policy: RestartPolicyNameEnum,
+    pub(crate) restart_policy: RestartPolicy,
     /// A list of environment variables to set inside the container.
     ///
     /// In the form of `NAME=VALUE`.
-    pub env: Vec<S>,
+    pub(crate) env: Vec<S>,
     /// A list of volume bindings for this container.
-    pub binds: Vec<S>,
+    pub(crate) binds: Vec<S>,
     /// Describes the mapping of container ports to host ports.
     ///
     /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
     /// example, 80/udp.
-    pub port_bindings: PortBindingMap<S>,
+    pub(crate) port_bindings: PortBindingMap<S>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
-    pub privileged: bool,
+    pub(crate) privileged: bool,
 }
 
 impl<S> Container<S>
@@ -401,8 +404,8 @@ where
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
 
-        let restart_policy = RestartPolicy {
-            name: Some(value.restart_policy),
+        let restart_policy = BollardRestartPolicy {
+            name: Some(value.restart_policy.into()),
             maximum_retry_count: None,
         };
 
@@ -615,7 +618,7 @@ mod tests {
                 name: name.into(),
                 image: image.into(),
                 hostname: None,
-                restart_policy: RestartPolicyNameEnum::EMPTY,
+                restart_policy: RestartPolicy::Empty,
                 env: Vec::new(),
                 binds: Vec::new(),
                 network_mode: "bridge".to_string(),

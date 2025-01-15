@@ -26,6 +26,7 @@ use std::{
 use astarte_device_sdk::event::FromEventError;
 use itertools::Itertools;
 use petgraph::{stable_graph::NodeIndex, visit::Walker};
+use resource::State;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
@@ -46,7 +47,6 @@ use crate::{
         ContainerRequest, ReqError,
     },
     service::resource::NodeType,
-    store::{Resource, StateStore, StateStoreError},
     volume::Volume,
     Docker,
 };
@@ -79,8 +79,6 @@ pub enum ServiceError {
     MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
-    /// state store operation failed
-    StateStore(#[from] StateStoreError),
     /// couldn't parse id, it's an invalid UUID
     Uuid {
         /// The invalid [`Id`]
@@ -109,7 +107,6 @@ where
 #[derive(Debug)]
 pub struct Service<D> {
     client: Docker,
-    store: StateStore,
     device: D,
     nodes: NodeGraph,
 }
@@ -117,10 +114,9 @@ pub struct Service<D> {
 impl<D> Service<D> {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
+    pub fn new(client: Docker, device: D) -> Self {
         Self {
             client,
-            store,
             device,
             nodes: NodeGraph::new(),
         }
@@ -132,7 +128,20 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let stored = self.store.load().await?;
+        // FIXME: remove this when implemented with the db
+        struct Node {
+            id: Id,
+            resource: Option<NodeType>,
+            deps: Vec<Id>,
+        }
+
+        impl Node {
+            fn state(&self) -> State {
+                unimplemented!()
+            }
+        }
+
+        let stored = Vec::<Node>::new();
 
         debug!("loaded {} resources from state store", stored.len());
 
@@ -143,9 +152,7 @@ impl<D> Service<D> {
             debug!("adding {id} with state {state}");
 
             match value.resource {
-                Some(resource) => {
-                    let node = NodeType::from(resource);
-
+                Some(node) => {
                     self.nodes
                         .get_or_insert(id, NodeResource::new(state, node), &value.deps);
                 }
@@ -172,7 +179,7 @@ impl<D> Service<D> {
             self.start(*deployment_id.uuid()).await;
         }
 
-        Ok(())
+        unimplemented!("load the resources from the store");
     }
 
     /// Handles an event from the image.
@@ -219,8 +226,6 @@ impl<D> Service<D> {
                 self.update(from, to).await;
             }
         }
-
-        self.store.store(&self.nodes).await?;
 
         Ok(())
     }
@@ -320,12 +325,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
         NodeType: From<T>,
-        for<'a> Resource<'a>: From<&'a T>,
     {
-        self.store
-            .append(id, Resource::from(&resource), deps.clone())
-            .await?;
-
         let node = self.nodes.get_or_insert(
             id,
             NodeResource::with_default(NodeType::from(resource)),
@@ -399,8 +399,6 @@ impl<D> Service<D> {
                 })?;
 
             node.up(&self.device, &self.client).await?;
-
-            self.store.store(&self.nodes).await?;
         }
 
         Ok(())
@@ -465,8 +463,6 @@ impl<D> Service<D> {
                 })?;
 
             node.stop(&self.device, &self.client).await?;
-
-            self.store.store(&self.nodes).await?;
         }
 
         Ok(())
@@ -540,8 +536,6 @@ impl<D> Service<D> {
             node.delete(&self.device, &self.client).await?;
 
             self.nodes.remove(id);
-
-            self.store.store(&self.nodes).await?;
         }
 
         Ok(())
@@ -625,8 +619,6 @@ impl<D> Service<D> {
                 .ok_or_else(|| ServiceError::Missing { id, ctx: "update" })?;
 
             node.stop(&self.device, &self.client).await?;
-
-            self.store.store(&self.nodes).await?;
         }
 
         for id in to_start_ids {
@@ -636,8 +628,6 @@ impl<D> Service<D> {
                 .ok_or_else(|| ServiceError::Missing { id, ctx: "update" })?;
 
             node.up(&self.device, &self.client).await?;
-
-            self.store.store(&self.nodes).await?;
         }
 
         Ok(())
@@ -711,16 +701,15 @@ mod tests {
     use astarte_device_sdk::FromEvent;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use bollard::secret::RestartPolicyNameEnum;
     use pretty_assertions::assert_eq;
     use resource::NodeType;
-    use tempfile::TempDir;
     use uuid::uuid;
 
     use crate::container::{Binding, PortBindingMap};
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
     use crate::requests::container::tests::create_container_request_event;
+    use crate::requests::container::RestartPolicy;
     use crate::requests::deployment::tests::create_deployment_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
@@ -731,8 +720,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_an_image() {
-        let tempdir = TempDir::new().unwrap();
-
         let id = uuid!("5b705c7b-e6c7-4455-ba9b-a081be020c43");
 
         let client = Docker::connect().await.unwrap();
@@ -751,11 +738,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let store = StateStore::open(tempdir.path().join("containers/state.json"))
-            .await
-            .unwrap();
-
-        let mut service = Service::new(client, store, device);
+        let mut service = Service::new(client, device);
 
         let reference = "docker.io/nginx:stable-alpine-slim";
         let create_image_req = create_image_request_event(id.to_string(), reference, "");
@@ -786,8 +769,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_volume() {
-        let tempdir = TempDir::new().unwrap();
-
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -806,11 +787,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let store = StateStore::open(tempdir.path().join("state.json"))
-            .await
-            .unwrap();
-
-        let mut service = Service::new(client, store, device);
+        let mut service = Service::new(client, device);
 
         let create_volume_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
 
@@ -841,8 +818,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_network() {
-        let tempdir = TempDir::new().unwrap();
-
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -861,11 +836,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let store = StateStore::open(tempdir.path().join("state.json"))
-            .await
-            .unwrap();
-
-        let mut service = Service::new(client, store, device);
+        let mut service = Service::new(client, device);
 
         let create_network_req = create_network_request_event(id, "bridged", &[]);
 
@@ -899,8 +870,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_container() {
-        let tempdir = TempDir::new().unwrap();
-
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -919,11 +888,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let store = StateStore::open(tempdir.path().join("state.json"))
-            .await
-            .unwrap();
-
-        let mut service = Service::new(client, store, device);
+        let mut service = Service::new(client, device);
 
         let image_id = Uuid::new_v4().to_string();
         let create_container_req = create_container_request_event(
@@ -956,7 +921,7 @@ mod tests {
             network_mode: "bridge",
             networks: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
             hostname: Some("hostname"),
-            restart_policy: RestartPolicyNameEnum::NO,
+            restart_policy: RestartPolicy::No,
             env: vec!["env"],
             binds: vec!["binds"],
             port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
@@ -974,8 +939,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_start_deployment() {
-        let tempdir = TempDir::new().unwrap();
-
         let image_id = Uuid::new_v4();
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -1140,11 +1103,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let store = StateStore::open(tempdir.path().join("containers/state.json"))
-            .await
-            .unwrap();
-
-        let mut service = Service::new(client, store, device);
+        let mut service = Service::new(client, device);
 
         let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
 

@@ -19,20 +19,16 @@
 use std::{fmt::Debug, path::Path};
 
 use astarte_device_sdk::{properties::PropAccess, Client, FromEvent};
-use color_eyre::eyre::Context;
-use edgehog_containers::{requests::ContainerRequest, service::Service, store::StateStore, Docker};
+use edgehog_containers::{requests::ContainerRequest, service::Service, Docker};
 use tracing::error;
 
-pub async fn receive<D>(device: D, store: &Path) -> color_eyre::Result<()>
+pub async fn receive<D>(device: D, _store: &Path) -> color_eyre::Result<()>
 where
     D: Debug + Client + Clone + PropAccess + Sync + 'static,
 {
     let client = Docker::connect().await?;
-    let store = StateStore::open(store.join("containers/state.json"))
-        .await
-        .wrap_err("couldn't open the state store")?;
 
-    let mut service = Service::new(client, store, device.clone());
+    let mut service = Service::new(client, device.clone());
     service.init().await?;
 
     loop {
