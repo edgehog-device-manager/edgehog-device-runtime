@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        msrv: [1.72.0]
+        msrv: [1.72]
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - name: Install system dependencies
@@ -114,6 +114,8 @@ jobs:
           toolchain: ${{ matrix.msrv }}
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.6
+      - name: Install cargo hack
+        uses: taiki-e/install-action@cargo-hack
       - name: cargo +${{ matrix.msrv }} check
         # the compatibility with the MSRV needs to be checked only for the binary
-        run: cargo check --all-features -p edgehog-device-runtime
+        run: cargo +${{ matrix.msrv }} check --all-features -p edgehog-device-runtime
