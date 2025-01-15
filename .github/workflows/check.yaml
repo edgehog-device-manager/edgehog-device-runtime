@@ -74,11 +74,11 @@ jobs:
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
-      - name: cargo doc
-        run: cargo doc --no-deps --all-features --workspace
-        env:
-          RUSTDOCFLAGS: --cfg docsrs -D warnings
+        uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Install cargo-docs-rs
+        uses: dtolnay/install@cargo-docs-rs
+      - run: cargo docs-rs
+
   hack:
     runs-on: ubuntu-24.04
     name: ubuntu / stable / features
