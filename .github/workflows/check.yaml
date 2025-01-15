@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2022-2024 SECO Mind Srl
+# Copyright 2022 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ env:
   RUSTC_WRAPPER: "sccache"
 jobs:
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: stable / fmt
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check --all
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: ${{ matrix.toolchain }} / clippy
     strategy:
       fail-fast: false
@@ -61,7 +61,7 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features --workspace -- -D warnings
   doc:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: nightly / doc
     steps:
       - name: Install system dependencies
@@ -78,7 +78,7 @@ jobs:
         env:
           RUSTDOCFLAGS: --cfg docsrs -D warnings
   hack:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: ubuntu / stable / features
     steps:
       - name: Install system dependencies
@@ -97,7 +97,7 @@ jobs:
           RUSTFLAGS: -D warnings
         run: cargo hack --workspace --feature-powerset check
   msrv:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         msrv: [1.72.0]
