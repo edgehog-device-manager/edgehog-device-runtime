@@ -36,17 +36,17 @@ jobs:
       matrix:
         toolchain: [stable, beta]
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
@@ -59,17 +59,17 @@ jobs:
     runs-on: ubuntu-24.04
     name: ubuntu / stable / coverage
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: llvm-tools-preview
+          components: llvm-tools
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: cargo install cargo-tarpaulin
         uses: taiki-e/install-action@cargo-tarpaulin
       - name: cargo generate-lockfile

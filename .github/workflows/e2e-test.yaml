@@ -35,10 +35,6 @@ jobs:
   e2e-test:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
       - name: Create Astarte Cluster
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1.2.0
@@ -50,6 +46,10 @@ jobs:
           # Update ref when updated interfaces are required.
           ref: v0.5.2
           path: ./edgehog/astarte-interfaces
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt-get -y install libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install interface
         run: |
           astartectl realm-management interfaces sync $GITHUB_WORKSPACE/edgehog/astarte-interfaces/*.json --non-interactive

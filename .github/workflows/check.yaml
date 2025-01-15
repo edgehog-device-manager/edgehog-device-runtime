@@ -46,29 +46,31 @@ jobs:
       matrix:
         toolchain: [stable, beta]
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features --workspace -- -D warnings
   doc:
     runs-on: ubuntu-24.04
     name: nightly / doc
+    env:
+      RUSTDOCFLAGS: -Dwarnings
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - name: Install sccache-cache
@@ -81,21 +83,19 @@ jobs:
     runs-on: ubuntu-24.04
     name: ubuntu / stable / features
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
-      - name: cargo hack
-        env:
-          RUSTFLAGS: -D warnings
-        run: cargo hack --workspace --feature-powerset check
+      - name: cargo hack test
+        run: cargo hack --workspace --feature-powerset test
   msrv:
     runs-on: ubuntu-24.04
     strategy:
@@ -103,17 +103,17 @@ jobs:
         msrv: [1.72]
     name: ubuntu / ${{ matrix.msrv }}
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install ${{ matrix.msrv }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.msrv }}
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install cargo hack
         uses: taiki-e/install-action@cargo-hack
       - name: cargo +${{ matrix.msrv }} check
