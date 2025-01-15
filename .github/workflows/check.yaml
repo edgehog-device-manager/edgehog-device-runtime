@@ -95,7 +95,9 @@ jobs:
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: cargo hack test
-        run: cargo hack --workspace --feature-powerset test
+        # Doesn't test all combination of features, but the space is becoming too large and it takes
+        # too long
+        run: cargo hack --each-feature test
   msrv:
     runs-on: ubuntu-24.04
     strategy:

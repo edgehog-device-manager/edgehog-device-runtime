@@ -172,7 +172,13 @@ mod tests {
 
         let mut pub_sub = MockPubSub::new();
 
-        pub_sub.expect_clone().times(3).returning(MockPubSub::new);
+        pub_sub.expect_clone().once().returning(MockPubSub::new);
+
+        #[cfg(feature = "zbus")]
+        pub_sub.expect_clone().once().returning(MockPubSub::new);
+
+        #[cfg(feature = "containers")]
+        pub_sub.expect_clone().once().returning(MockPubSub::new);
 
         #[cfg(feature = "forwarder")]
         mock_forwarder(&mut pub_sub);

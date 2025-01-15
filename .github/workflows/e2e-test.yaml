@@ -67,5 +67,6 @@ jobs:
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.6
       - name: Run test
+        # use the full command to use the sccache
         run: |
-          cargo e2e-test
+          cargo run -p e2e-test
