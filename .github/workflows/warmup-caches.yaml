@@ -16,16 +16,34 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: REUSE Compliance Check
+name: warmup-caches
 on:
   workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 jobs:
-  test:
+  build:
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        toolchain: [stable, beta, nightly]
+    name: ${{ matrix.toolchain }} / build
     steps:
       - uses: actions/checkout@v4
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v5
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt-get -y install libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Install sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Build with all features
+        run: cargo build --all-targets --all-features --workspace
