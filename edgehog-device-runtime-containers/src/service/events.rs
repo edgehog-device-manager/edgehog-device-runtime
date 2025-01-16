@@ -21,10 +21,14 @@
 //! When an event is received it will be handled by storing it to the [`StateStore`] and then the
 //! [Service](super::Service) will be notified.
 
+use edgehog_store::models::containers::deployment::DeploymentStatus;
 use tokio::sync::mpsc;
-use tracing::{error, instrument};
+use tracing::{debug, error, instrument};
+use uuid::Uuid;
 
 use crate::{
+    events::{DeploymentEvent, EventStatus},
+    properties::Client,
     requests::{
         deployment::{DeploymentCommand, DeploymentUpdate},
         ContainerRequest,
@@ -33,36 +37,48 @@ use crate::{
 };
 
 /// Error returned by the [`ServiceHandle`]
-#[derive(Debug, Clone, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EventError {
     /// couldn't handle the event since the service exited.
     Disconnected,
 }
 
-use super::{Id, ResourceType};
+use super::{CommandValue, Id, ResourceType};
 
 /// Handle to the [container service](super::Service).
 #[derive(Debug)]
-pub struct ServiceHandle {
+pub struct ServiceHandle<D> {
     /// Queue of events received from Astarte.
     events: mpsc::UnboundedSender<AstarteEvent>,
-    _store: StateStore,
+    device: D,
+    store: StateStore,
 }
 
-impl ServiceHandle {
+impl<D> ServiceHandle<D> {
     /// Create the handle from the [channel](mpsc::UnboundedSender) shared with the [`Service`](super::Service).
-    pub(crate) fn new(events: mpsc::UnboundedSender<AstarteEvent>, store: StateStore) -> Self {
+    pub(crate) fn new(
+        events: mpsc::UnboundedSender<AstarteEvent>,
+        client: D,
+        store: StateStore,
+    ) -> Self {
         Self {
             events,
-            _store: store,
+            device: client,
+            store,
         }
     }
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
-    pub async fn on_event(&self, event: ContainerRequest) -> Result<(), EventError> {
-        // FIXME: store the resource into the database
-        let event = AstarteEvent::from(&event);
+    pub async fn on_event(&self, request: ContainerRequest) -> Result<(), EventError>
+    where
+        D: Client + Sync + 'static,
+    {
+        let event = AstarteEvent::from(&request);
+
+        let deployment_id = request.deployment_id();
+
+        self.persist_request(deployment_id, request).await;
 
         self.events.send(event).map_err(|_err| {
             error!("the container service disconnected");
@@ -72,11 +88,60 @@ impl ServiceHandle {
 
         Ok(())
     }
+
+    #[instrument(skip_all, fields(?deployment_id))]
+    async fn persist_request(&self, deployment_id: Option<Uuid>, request: ContainerRequest)
+    where
+        D: Client + Sync + 'static,
+    {
+        let res = match request {
+            ContainerRequest::Image(create_image) => self.store.create_image(create_image).await,
+            ContainerRequest::Volume(create_volume) => {
+                self.store.create_volume(create_volume).await
+            }
+            ContainerRequest::Network(create_network) => {
+                self.store.create_network(create_network).await
+            }
+            ContainerRequest::Container(create_container) => {
+                self.store.create_container(create_container).await
+            }
+            ContainerRequest::Deployment(create_deployment) => {
+                self.store.create_deployment(create_deployment).await
+            }
+            ContainerRequest::DeploymentCommand(DeploymentCommand { id, command }) => {
+                self.store
+                    .update_deployment_status(id, command.into())
+                    .await
+            }
+            ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
+                self.store.deployment_update(from, to).await
+            }
+        };
+
+        if let Err(err) = res {
+            let error = format!("{:#}", eyre::Report::new(err));
+
+            error!(%error, "couldn't store request");
+
+            let Some(id) = deployment_id else {
+                debug!("no deployment id in the request to message the error");
+                return;
+            };
+
+            DeploymentEvent::new(EventStatus::Error, error)
+                .send(&id, &self.device)
+                .await;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AstarteEvent {
-    Resource(Id),
+    Resource {
+        resource: Id,
+        // FIXME: this need to be added to the interface for all the resources
+        deployment: Option<Uuid>,
+    },
     DeploymentCmd(DeploymentCommand),
     DeploymentUpdate(DeploymentUpdate),
 }
@@ -85,22 +150,57 @@ impl From<&ContainerRequest> for AstarteEvent {
     fn from(value: &ContainerRequest) -> Self {
         match value {
             ContainerRequest::Image(create_image) => {
-                Self::Resource(Id::new(ResourceType::Image, create_image.id.0))
+                let resource = Id::new(ResourceType::Image, create_image.id.0);
+
+                AstarteEvent::Resource {
+                    resource,
+                    deployment: None,
+                }
             }
             ContainerRequest::Volume(create_volume) => {
-                Self::Resource(Id::new(ResourceType::Volume, create_volume.id.0))
+                let resource = Id::new(ResourceType::Volume, create_volume.id.0);
+
+                AstarteEvent::Resource {
+                    resource,
+                    deployment: None,
+                }
             }
             ContainerRequest::Network(create_network) => {
-                Self::Resource(Id::new(ResourceType::Network, create_network.id.0))
+                let resource = Id::new(ResourceType::Network, create_network.id.0);
+
+                AstarteEvent::Resource {
+                    resource,
+                    deployment: None,
+                }
             }
             ContainerRequest::Container(create_container) => {
-                Self::Resource(Id::new(ResourceType::Container, create_container.id.0))
+                let resource = Id::new(ResourceType::Container, create_container.id.0);
+
+                AstarteEvent::Resource {
+                    resource,
+                    deployment: None,
+                }
             }
             ContainerRequest::Deployment(create_deployment) => {
-                Self::Resource(Id::new(ResourceType::Deployment, create_deployment.id.0))
+                let resource = Id::new(ResourceType::Deployment, create_deployment.id.0);
+
+                AstarteEvent::Resource {
+                    resource,
+                    deployment: Some(create_deployment.id.0),
+                }
             }
             ContainerRequest::DeploymentCommand(cmd) => Self::DeploymentCmd(*cmd),
             ContainerRequest::DeploymentUpdate(update) => Self::DeploymentUpdate(*update),
+        }
+    }
+}
+
+impl From<CommandValue> for DeploymentStatus {
+    fn from(value: CommandValue) -> Self {
+        match value {
+            CommandValue::Start => Self::Started,
+            CommandValue::Stop => Self::Stopped,
+            CommandValue::Delete => Self::Deleted,
         }
     }
 }

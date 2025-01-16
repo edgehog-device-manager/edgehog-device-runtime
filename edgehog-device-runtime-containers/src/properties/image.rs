@@ -21,8 +21,6 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::service::Id;
-
 use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
@@ -30,11 +28,11 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableImages";
 /// Available
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AvailableImage<'a> {
-    id: &'a Id,
+    id: &'a Uuid,
 }
 
 impl<'a> AvailableImage<'a> {
-    pub(crate) fn new(id: &'a Id) -> Self {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
         Self { id }
     }
 }
@@ -52,7 +50,7 @@ impl AvailableProp for AvailableImage<'_> {
     }
 
     fn id(&self) -> &Uuid {
-        self.id.uuid()
+        self.id
     }
 }
 
@@ -62,14 +60,11 @@ mod tests {
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
     use uuid::Uuid;
 
-    use crate::service::ResourceType;
-
     use super::*;
 
     #[tokio::test]
     async fn should_store_image() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Image, uuid);
+        let id = Uuid::new_v4();
 
         let image = AvailableImage::new(&id);
 
@@ -82,18 +77,17 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path, pulled: &bool| {
                 interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == format!("/{uuid}/pulled")
+                    && path == format!("/{id}/pulled")
                     && *pulled
             })
             .returning(|_, _, _| Ok(()));
 
-        image.send(&client, true).await;
+        image.send(&client, true).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_unset_image() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Image, uuid);
+        let id = Uuid::new_v4();
 
         let image = AvailableImage::new(&id);
 
@@ -106,7 +100,7 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path| {
                 interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == format!("/{uuid}/pulled")
+                    && path == format!("/{id}/pulled")
             })
             .returning(|_, _| Ok(()));
 

@@ -24,42 +24,38 @@ use std::{
 };
 
 use astarte_device_sdk::event::FromEventError;
+use edgehog_store::models::containers::deployment::DeploymentStatus;
 use events::ServiceHandle;
+use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use petgraph::{stable_graph::NodeIndex, visit::Walker};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 
 use crate::{
-    container::Container,
     error::DockerError,
     events::{DeploymentEvent, EventStatus},
     image::Image,
     network::Network,
-    properties::Client,
+    properties::{deployment::AvailableDeployment, AvailableProp, Client},
     requests::{
-        container::CreateContainer,
-        deployment::{CommandValue, CreateDeployment, DeploymentCommand, DeploymentUpdate},
-        image::CreateImage,
-        network::CreateNetwork,
-        volume::CreateVolume,
+        deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
         ReqError,
     },
-    service::resource::NodeType,
+    resource::{
+        container::ContainerResource, deployment::Deployment, Context, Create, Resource,
+        ResourceError, State,
+    },
     store::{StateStore, StoreError},
     volume::Volume,
     Docker,
 };
 
-use self::resource::NodeResource;
-use self::resource::State;
-use self::{collection::NodeGraph, events::AstarteEvent};
+use self::events::AstarteEvent;
 
-pub(crate) mod collection;
 pub mod events;
-pub(crate) mod node;
 pub(crate) mod resource;
 
 type Result<T> = std::result::Result<T, ServiceError>;
@@ -72,6 +68,8 @@ pub enum ServiceError {
     FromEvent(#[from] FromEventError),
     /// docker operation failed
     Docker(#[source] DockerError),
+    /// couldn't send data to Astarte
+    Astarte(#[from] astarte_device_sdk::Error),
     /// couldn't {ctx} resource {id}, because it's missing
     Missing {
         /// Operation where the error originated
@@ -85,6 +83,8 @@ pub enum ServiceError {
     Request(#[from] ReqError),
     /// store operation failed
     Store(#[from] StoreError),
+    /// couldn't complete operation on a resource
+    Resource(#[from] ResourceError),
     /// couldn't parse id, it's an invalid UUID
     Uuid {
         /// The invalid [`Id`]
@@ -116,28 +116,38 @@ pub struct Service<D> {
     device: D,
     /// Queue of events received from Astarte.
     events: mpsc::UnboundedReceiver<AstarteEvent>,
-    nodes: NodeGraph,
-    _store: StateStore,
+    store: StateStore,
 }
 
 impl<D> Service<D> {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, store: StateStore, device: D) -> (Self, ServiceHandle) {
+    pub fn new(client: Docker, store: StateStore, device: D) -> (Self, ServiceHandle<D>)
+    where
+        D: Clone,
+    {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Clone the store lazily since the service handle will only write to the database.
-        let handle = ServiceHandle::new(tx, store.clone_lazy());
+        let handle = ServiceHandle::new(tx, device.clone(), store.clone_lazy());
 
         let service = Self {
             client,
             device,
             events: rx,
-            nodes: NodeGraph::new(),
-            _store: store,
+            store,
         };
 
         (service, handle)
+    }
+
+    fn context(&mut self, id: impl Into<Uuid>) -> Context<D> {
+        Context {
+            id: id.into(),
+            store: &mut self.store,
+            device: &mut self.device,
+            client: &mut self.client,
+        }
     }
 
     /// Initialize the service, it will load all the already stored properties
@@ -146,58 +156,83 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        // FIXME: remove this when implemented with the db
-        struct Node {
-            id: Id,
-            resource: Option<NodeType>,
-            deps: Vec<Id>,
+        self.publish_received().await?;
+
+        self.start_deployments().await?;
+        self.stop_deployments().await?;
+        self.delete_deployments().await?;
+
+        info!("init completed");
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn publish_received(&mut self) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        for id in self.store.unpublished_images().await? {
+            Image::publish(self.context(id)).await?;
         }
 
-        impl Node {
-            fn state(&self) -> State {
-                unimplemented!()
-            }
+        for id in self.store.unpublished_volumes().await? {
+            Volume::publish(self.context(id)).await?;
         }
 
-        let stored = Vec::<Node>::new();
-
-        debug!("loaded {} resources from state store", stored.len());
-
-        for value in stored {
-            let id = value.id;
-            let state = value.state();
-
-            debug!("adding {id} with state {state}");
-
-            match value.resource {
-                Some(node) => {
-                    self.nodes
-                        .get_or_insert(id, NodeResource::new(state, node), &value.deps);
-                }
-                None => {
-                    debug!("adding missing resource");
-
-                    debug_assert!(value.deps.is_empty());
-
-                    self.nodes.get_or_add_missing(id);
-                }
-            }
+        for id in self.store.unpublished_networks().await? {
+            Network::publish(self.context(id)).await?;
         }
 
-        for node in self.nodes.nodes_mut() {
-            if let Err(err) = node.fetch(&self.client).await {
-                error!(
-                    error = format!("{:#}", eyre::Report::new(err)),
-                    "couldn't fetch node {}", node.id
-                );
-            }
+        for id in self.store.unpublished_containers().await? {
+            ContainerResource::publish(self.context(id)).await?;
         }
 
-        for deployment_id in self.nodes.running_deployments() {
-            self.start(*deployment_id.uuid()).await;
+        for id in self
+            .store
+            .deployments_in(DeploymentStatus::Received)
+            .await?
+        {
+            Deployment::publish(self.context(id)).await?;
         }
 
-        unimplemented!("load the resources from the store");
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn start_deployments(&mut self) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        for id in self.store.deployments_in(DeploymentStatus::Started).await? {
+            self.start(*id).await;
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn stop_deployments(&mut self) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        for id in self.store.deployments_in(DeploymentStatus::Stopped).await? {
+            self.stop(*id).await;
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn delete_deployments(&mut self) -> Result<()>
+    where
+        D: Client + Sync + 'static,
+    {
+        for id in self.store.deployments_in(DeploymentStatus::Deleted).await? {
+            self.delete(*id).await;
+        }
+
+        Ok(())
     }
 
     /// Blocking call that will handle the events from Astarte and the containers.
@@ -210,7 +245,7 @@ impl<D> Service<D> {
             self.on_event(event).await;
         }
 
-        info!("event reveiver disconnected");
+        info!("event receiver disconnected");
     }
 
     #[instrument(skip_all)]
@@ -219,8 +254,11 @@ impl<D> Service<D> {
         D: Client + Sync + 'static,
     {
         match event {
-            AstarteEvent::Resource(id) => {
-                self.create(id).await;
+            AstarteEvent::Resource {
+                resource,
+                deployment,
+            } => {
+                self.resource_req(resource, deployment).await;
             }
             AstarteEvent::DeploymentCmd(DeploymentCommand {
                 id,
@@ -246,187 +284,107 @@ impl<D> Service<D> {
         }
     }
 
-    async fn create(&mut self, id: Id) {
-        // FIXME: create the images from the stored values
-        match id.resource_type() {
-            ResourceType::Image => todo!(),
-            ResourceType::Volume => todo!(),
-            ResourceType::Network => todo!(),
-            ResourceType::Container => todo!(),
-            ResourceType::Deployment => todo!(),
+    #[instrument(skip_all, fields(%id))]
+    async fn resource_req(&mut self, id: Id, deployment: Option<Uuid>)
+    where
+        D: Client + Sync + 'static,
+    {
+        // TODO: error handling with a DeploymentEvent
+        let res = match id.resource_type() {
+            ResourceType::Image => Image::publish(self.context(*id.uuid())).await,
+            ResourceType::Volume => Volume::publish(self.context(*id.uuid())).await,
+            ResourceType::Network => Network::publish(self.context(*id.uuid())).await,
+            ResourceType::Container => ContainerResource::publish(self.context(*id.uuid())).await,
+            ResourceType::Deployment => Deployment::publish(self.context(*id.uuid())).await,
+        };
+
+        if let Err(err) = res {
+            let error = format!("{:#}", eyre::Report::new(err));
+            error!(error, "failed to create resource");
+
+            if let Some(deployment_id) = deployment {
+                DeploymentEvent::new(EventStatus::Error, error)
+                    .send(&deployment_id, &self.device)
+                    .await;
+            }
         }
     }
 
-    /// Store the create image request
-    #[instrument(skip_all)]
-    async fn create_image(&mut self, req: CreateImage) -> Result<()>
-    where
-        D: Client + Sync + 'static,
-    {
-        let id = Id::new(ResourceType::Image, *req.id);
-
-        debug!("creating image with id {id}");
-
-        let image = Image::from(req);
-
-        self.create_node(id, Vec::new(), image).await?;
-
-        Ok(())
-    }
-
-    /// Store the create volume request
-    #[instrument(skip_all)]
-    async fn create_volume(&mut self, req: CreateVolume) -> Result<()>
-    where
-        D: Client + Sync + 'static,
-    {
-        let id = Id::new(ResourceType::Volume, *req.id);
-
-        debug!("creating volume with id {id}");
-
-        let volume = Volume::try_from(req)?;
-
-        self.create_node(id, Vec::new(), volume).await?;
-
-        Ok(())
-    }
-
-    /// Store the create network request
-    #[instrument(skip_all)]
-    async fn create_network(&mut self, req: CreateNetwork) -> Result<()>
-    where
-        D: Client + Sync + 'static,
-    {
-        let id = Id::new(ResourceType::Network, *req.id);
-
-        debug!("creating network with id {id}");
-
-        let network = Network::try_from(req)?;
-
-        self.create_node(id, Vec::new(), network).await?;
-
-        Ok(())
-    }
-
-    /// Store the create container request
-    #[instrument(skip_all)]
-    async fn create_container(&mut self, req: CreateContainer) -> Result<()>
-    where
-        D: Client + Sync + 'static,
-    {
-        let id = Id::new(ResourceType::Container, *req.id);
-
-        debug!("creating container with id {id}");
-
-        let deps = req.dependencies();
-
-        let container = Container::try_from(req)?;
-
-        self.create_node(id, deps, container).await?;
-
-        Ok(())
-    }
-
-    /// Store the create deployment request
-    #[instrument(skip_all)]
-    async fn create_deployment(&mut self, req: CreateDeployment) -> Result<()>
-    where
-        D: Client + Sync + 'static,
-    {
-        let id = Id::new(ResourceType::Deployment, *req.id);
-
-        debug!("creating deployment with id {id}");
-
-        let deps: Vec<Id> = req
-            .containers
-            .iter()
-            .map(|id| Id::new(ResourceType::Container, **id))
-            .collect();
-
-        self.create_node(id, deps, NodeType::Deployment).await?;
-
-        Ok(())
-    }
-
-    async fn create_node<T>(&mut self, id: Id, deps: Vec<Id>, resource: T) -> Result<()>
-    where
-        D: Client + Sync + 'static,
-        NodeType: From<T>,
-    {
-        let node = self.nodes.get_or_insert(
-            id,
-            NodeResource::with_default(NodeType::from(resource)),
-            &deps,
-        );
-
-        node.publish(&self.device).await?;
-
-        Ok(())
-    }
-
-    /// Will start an application
+    /// Will start a [`Deployment`]
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: Uuid)
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Deployment, id);
-        debug!("starting {id}");
+        let deployment = match self.store.complete_deployment(id).await {
+            Ok(Some(deployment)) => deployment,
+            Ok(None) => {
+                error!("{id} not found");
 
-        let Some(node) = self.nodes.node(&id) else {
-            error!("{id} not found");
+                DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                    .send(&id, &self.device)
+                    .await;
 
-            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
-                .send(id.uuid(), &self.device)
-                .await;
+                return;
+            }
+            Err(err) => {
+                let err = format!("{:#}", eyre::Report::new(err));
 
-            return;
+                error!(error = err, "couldn't start deployment");
+
+                DeploymentEvent::new(EventStatus::Error, err)
+                    .send(&id, &self.device)
+                    .await;
+
+                return;
+            }
         };
 
+        info!("starting deployment");
+
         DeploymentEvent::new(EventStatus::Starting, "")
-            .send(node.id.uuid(), &self.device)
+            .send(&id, &self.device)
             .await;
 
-        let idx = node.idx;
-
-        if let Err(err) = self.start_node(idx).await {
+        if let Err(err) = self.start_deployment(id, deployment).await {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't start deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(id.uuid(), &self.device)
+                .send(&id, &self.device)
                 .await;
         }
     }
 
-    async fn start_node(&mut self, idx: NodeIndex) -> Result<()>
+    async fn start_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), idx);
-
-        let relations = space
-            .iter(self.nodes.relations())
-            .map(|idx| {
-                self.nodes
-                    .get_id(idx)
-                    .copied()
-                    .ok_or(ServiceError::MissingRelation)
-            })
-            .collect::<Result<Vec<Id>>>()?;
-
-        for id in relations {
-            let node = self
-                .nodes
-                .node_mut(&id)
-                .ok_or_else(|| ServiceError::Missing {
-                    id,
-                    ctx: "start node",
-                })?;
-
-            node.up(&self.device, &self.client).await?;
+        for id in deployment.images {
+            Image::up(self.context(id)).await?;
         }
+
+        for id in deployment.volumes {
+            Volume::up(self.context(id)).await?;
+        }
+
+        for id in deployment.networks {
+            Network::up(self.context(id)).await?;
+        }
+
+        for id in deployment.containers {
+            let mut container = ContainerResource::up(self.context(id)).await?;
+
+            container.start(self.context(id)).await?;
+        }
+
+        AvailableDeployment::new(&deployment_id)
+            .send(
+                &self.device,
+                crate::properties::deployment::DeploymentStatus::Started,
+            )
+            .await;
 
         Ok(())
     }
@@ -437,60 +395,74 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Deployment, id);
-        debug!("stopping {id}");
+        let containers = match self.store.deployment_containers(id).await {
+            Ok(Some(containers)) => containers,
+            Ok(None) => {
+                error!("{id} not found");
 
-        let Some(node) = self.nodes.node(&id) else {
-            error!("{id} not found");
+                DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                    .send(&id, &self.device)
+                    .await;
 
-            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
-                .send(id.uuid(), &self.device)
-                .await;
+                return;
+            }
+            Err(err) => {
+                let err = format!("{:#}", eyre::Report::new(err));
 
-            return;
+                error!(error = err, "couldn't start deployment");
+
+                DeploymentEvent::new(EventStatus::Error, err)
+                    .send(&id, &self.device)
+                    .await;
+
+                return;
+            }
         };
 
+        info!("starting deployment");
+
         DeploymentEvent::new(EventStatus::Stopping, "")
-            .send(id.uuid(), &self.device)
+            .send(&id, &self.device)
             .await;
 
-        if let Err(err) = self.stop_node(node.id, node.idx).await {
+        if let Err(err) = self.stop_deployment(id, containers).await {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't stop deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(id.uuid(), &self.device)
+                .send(&id, &self.device)
                 .await;
         }
     }
 
-    async fn stop_node(&mut self, current: Id, start_idx: NodeIndex) -> Result<()>
+    async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<Uuid>) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let relations = self.nodes.nodes_to_stop(current, start_idx)?;
+        for id in containers {
+            let mut ctx = self.context(id);
+            let (state, mut container) = ContainerResource::fetch(&mut ctx).await?;
 
-        debug_assert_eq!(
-            relations
-                .last()
-                .and_then(|id| self.nodes.node(id))
-                .expect("there should be at least the starting node")
-                .idx,
-            start_idx
-        );
+            match state {
+                State::Missing => {
+                    warn!(%id, "contaienr already missing, cannot stop");
 
-        for id in relations {
-            let node = self
-                .nodes
-                .node_mut(&id)
-                .ok_or_else(|| ServiceError::Missing {
-                    id,
-                    ctx: "stop node",
-                })?;
+                    continue;
+                }
+                State::Created => {}
+            }
 
-            node.stop(&self.device, &self.client).await?;
+            container.stop(ctx).await?;
         }
+
+        AvailableDeployment::new(&deployment)
+            .send(
+                &self.device,
+                crate::properties::deployment::DeploymentStatus::Stopped,
+            )
+            .await
+            .map_err(ResourceError::from)?;
 
         Ok(())
     }
@@ -501,69 +473,74 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let id = Id::new(ResourceType::Deployment, id);
-        debug!("deleting {id}");
+        let deployment = match self.store.complete_deployment(id).await {
+            Ok(Some(deployment)) => deployment,
+            Ok(None) => {
+                error!("{id} not found");
 
-        let Some(node) = self.nodes.node(&id) else {
-            error!("{id} not found");
+                DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                    .send(&id, &self.device)
+                    .await;
 
-            DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
-                .send(id.uuid(), &self.device)
-                .await;
+                return;
+            }
+            Err(err) => {
+                let err = format!("{:#}", eyre::Report::new(err));
 
-            return;
+                error!(error = err, "couldn't start deployment");
+
+                DeploymentEvent::new(EventStatus::Error, err)
+                    .send(&id, &self.device)
+                    .await;
+
+                return;
+            }
         };
 
+        info!("starting deployment");
+
         DeploymentEvent::new(EventStatus::Deleting, "")
-            .send(id.uuid(), &self.device)
+            .send(&id, &self.device)
             .await;
 
-        let idx = node.idx;
-
-        if let Err(err) = self.delete_node(node.id, idx).await {
+        if let Err(err) = self.delete_deployment(id, deployment).await {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't delete deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(id.uuid(), &self.device)
+                .send(&id, &self.device)
                 .await;
         }
     }
 
-    async fn delete_node(&mut self, current: Id, start_idx: NodeIndex) -> Result<()>
+    // FIXME: remove only unused resources
+    async fn delete_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        // TODO: find a better way to not delete only the containers
-        let relations = self
-            .nodes
-            .nodes_to_delete(current, start_idx)?
-            .into_iter()
-            .collect_vec();
-
-        debug_assert_eq!(
-            relations
-                .last()
-                .and_then(|id| self.nodes.node(id))
-                .expect("there should be at least the starting node")
-                .idx,
-            start_idx
-        );
-
-        for id in relations {
-            let node = self
-                .nodes
-                .node_mut(&id)
-                .ok_or_else(|| ServiceError::Missing {
-                    id,
-                    ctx: "delete node",
-                })?;
-
-            node.delete(&self.device, &self.client).await?;
-
-            self.nodes.remove(id);
+        for id in deployment.containers {
+            ContainerResource::down(self.context(id)).await?;
         }
+
+        for id in deployment.volumes {
+            Volume::down(self.context(id)).await?;
+        }
+
+        for id in deployment.networks {
+            Network::down(self.context(id)).await?;
+        }
+
+        for id in deployment.images {
+            Image::down(self.context(id)).await?;
+        }
+
+        AvailableDeployment::new(&deployment_id)
+            .unset(&self.device)
+            .await
+            .map_err(ResourceError::from)?;
+
+        self.store.delete_deployment(deployment_id).await?;
 
         Ok(())
     }
@@ -734,11 +711,12 @@ mod tests {
     use astarte_device_sdk_mock::MockDeviceClient;
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
-    use resource::NodeType;
+    use resource::{NodeResource, NodeType};
     use tempfile::TempDir;
     use uuid::uuid;
 
-    use crate::container::{Binding, PortBindingMap};
+    use crate::container::{Binding, Container, PortBindingMap};
+    use crate::network::Network;
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
     use crate::requests::container::tests::create_container_request_event;
@@ -748,6 +726,7 @@ mod tests {
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
     use crate::requests::ContainerRequest;
+    use crate::volume::Volume;
     use crate::{docker, docker_mock};
 
     use super::*;
@@ -756,7 +735,10 @@ mod tests {
         tempdir: &TempDir,
         client: Docker,
         device: MockDeviceClient<SqliteStore>,
-    ) -> (Service<MockDeviceClient<SqliteStore>>, ServiceHandle) {
+    ) -> (
+        Service<MockDeviceClient<SqliteStore>>,
+        ServiceHandle<MockDeviceClient<SqliteStore>>,
+    ) {
         let db_file = tempdir.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
 

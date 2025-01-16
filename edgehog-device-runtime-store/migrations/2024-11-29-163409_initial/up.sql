@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS networks (
 CREATE TABLE IF NOT EXISTS network_driver_opts (
     network_id BLOB NOT NULL,
     name TEXT NOT NULL,
-    value TEXT,
+    value TEXT NOT NULL,
     PRIMARY KEY (network_id, name),
     FOREIGN KEY (network_id) REFERENCES networks (
         id
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS volumes (
 CREATE TABLE IF NOT EXISTS volume_driver_opts (
     volume_id BLOB NOT NULL,
     name TEXT NOT NULL,
-    value TEXT,
+    value TEXT NOT NULL,
     PRIMARY KEY (volume_id, name),
     FOREIGN KEY (volume_id) REFERENCES volumes (
         id
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS containers (
     ) ON DELETE CASCADE ON UPDATE CASCADE,
     status INTEGER NOT NULL,
     network_mode TEXT NOT NULL,
-    hostname TEXT NOT NULL,
+    hostname TEXT,
     restart_policy INTEGER NOT NULL,
     privileged BOOLEAN NOT NULL
 );

@@ -73,6 +73,16 @@ pub enum HandleError {
         /// Expected number or rows.
         exp: usize,
     },
+    /// error returned by the application
+    #[error(transparent)]
+    Application(DynError),
+}
+
+impl HandleError {
+    /// Creates an [`HandleError::Application`] error.
+    pub fn from_app(error: impl Into<DynError>) -> Self {
+        Self::Application(error.into())
+    }
 }
 
 impl HandleError {

@@ -35,7 +35,7 @@ jobs:
     name: ${{ matrix.toolchain }} / build
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt-get -y install libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower

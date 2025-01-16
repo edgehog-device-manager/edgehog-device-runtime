@@ -83,6 +83,20 @@ pub enum ContainerRequest {
     DeploymentUpdate(DeploymentUpdate),
 }
 
+impl ContainerRequest {
+    pub(crate) fn deployment_id(&self) -> Option<Uuid> {
+        match self {
+            ContainerRequest::Image(_)
+            | ContainerRequest::Volume(_)
+            | ContainerRequest::Network(_)
+            | ContainerRequest::Container(_) => None,
+            ContainerRequest::Deployment(create_deployment) => Some(create_deployment.id.0),
+            ContainerRequest::DeploymentCommand(deployment_command) => Some(deployment_command.id),
+            ContainerRequest::DeploymentUpdate(deployment_update) => Some(deployment_update.from),
+        }
+    }
+}
+
 impl FromEvent for ContainerRequest {
     type Err = FromEventError;
 

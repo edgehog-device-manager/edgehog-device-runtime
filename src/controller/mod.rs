@@ -127,7 +127,7 @@ impl<T> Runtime<T> {
         DeviceManagerError,
     >
     where
-        T: Client + Send + Sync + 'static,
+        T: Client + Clone + Send + Sync + 'static,
     {
         let (container_tx, container_rx) = mpsc::unbounded_channel();
 

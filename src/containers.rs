@@ -85,7 +85,7 @@ where
             "couldn't init container service"
         );
 
-        // Increase the times we tired
+        // Increase the times we tried
         retries += retries.saturating_add(1);
 
         if config.required && retries >= config.max_retries {
@@ -108,19 +108,19 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct ContainerService {
-    handle: ServiceHandle,
+pub(crate) struct ContainerService<D> {
+    handle: ServiceHandle<D>,
 }
 
-impl ContainerService {
-    pub(crate) async fn new<D>(
+impl<D> ContainerService<D> {
+    pub(crate) async fn new(
         device: D,
         config: ContainersConfig,
         store_dir: &Path,
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
     ) -> Result<Self, ServiceError>
     where
-        D: Client + Send + Sync + 'static,
+        D: Client + Clone + Send + Sync + 'static,
     {
         // TODO: run this logic with the retry
         let client = Docker::connect().await?;
@@ -139,7 +139,10 @@ impl ContainerService {
 }
 
 #[async_trait]
-impl Actor for ContainerService {
+impl<D> Actor for ContainerService<D>
+where
+    D: Client + Send + Sync + 'static,
+{
     type Msg = Box<ContainerRequest>;
 
     fn task() -> &'static str {

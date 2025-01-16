@@ -58,7 +58,7 @@ pub enum ConversionError {
 ///
 /// Networks are user-defined networks that containers can be attached to.
 #[derive(Debug, Clone, Eq)]
-pub struct Network<S> {
+pub struct Network<S = String> {
     /// Id of the container network.
     pub id: Option<String>,
     /// The network's name.

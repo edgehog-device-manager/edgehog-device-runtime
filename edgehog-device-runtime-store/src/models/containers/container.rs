@@ -60,7 +60,7 @@ pub struct Container {
     /// Container network mode: none, bridge, ...
     pub network_mode: String,
     /// Hostname for the container
-    pub hostname: String,
+    pub hostname: Option<String>,
     /// Container restart policy
     pub restart_policy: ContainerRestartPolicy,
     /// Privileged
@@ -91,12 +91,10 @@ pub enum ContainerStatus {
     Received = 0,
     /// The container was acknowledged
     Published = 1,
-    /// Created on the runtime.
-    Created = 2,
+    /// Stopped or exited.
+    Stopped = 2,
     /// Up and running.
     Running = 3,
-    /// Stopped or exited.
-    Stopped = 4,
 }
 
 impl Display for ContainerStatus {
@@ -104,9 +102,8 @@ impl Display for ContainerStatus {
         match self {
             ContainerStatus::Received => write!(f, "Received"),
             ContainerStatus::Published => write!(f, "Published"),
-            ContainerStatus::Created => write!(f, "Created"),
-            ContainerStatus::Running => write!(f, "Running"),
             ContainerStatus::Stopped => write!(f, "Stopped"),
+            ContainerStatus::Running => write!(f, "Running"),
         }
     }
 }
@@ -124,9 +121,8 @@ impl TryFrom<i32> for ContainerStatus {
         match value {
             0 => Ok(ContainerStatus::Received),
             1 => Ok(ContainerStatus::Published),
-            2 => Ok(ContainerStatus::Created),
+            2 => Ok(ContainerStatus::Stopped),
             3 => Ok(ContainerStatus::Running),
-            4 => Ok(ContainerStatus::Stopped),
             _ => Err(format!("unrecognized status value {value}")),
         }
     }
@@ -447,9 +443,8 @@ mod tests {
         let variants = [
             ContainerStatus::Received,
             ContainerStatus::Published,
-            ContainerStatus::Created,
-            ContainerStatus::Running,
             ContainerStatus::Stopped,
+            ContainerStatus::Running,
         ];
 
         for exp in variants {

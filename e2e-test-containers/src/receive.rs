@@ -30,7 +30,7 @@ use edgehog_store::db::Handle;
 use tokio::task::JoinSet;
 use tracing::error;
 
-async fn receive_events<D>(device: D, handle: ServiceHandle) -> color_eyre::Result<()>
+async fn receive_events<D>(device: D, handle: ServiceHandle<D>) -> color_eyre::Result<()>
 where
     D: Debug + Client + Send + Sync + 'static,
 {
@@ -39,10 +39,7 @@ where
     match ContainerRequest::from_event(event) {
         Ok(req) => {
             handle.on_event(req).await.inspect_err(|err| {
-                error!(
-                    error = format!("{:#}", color_eyre::Report::new(err.clone())),
-                    "couldn't handle the event"
-                );
+                error!(error = format!("{:#}", err), "couldn't handle the event");
             })?;
         }
         Err(err) => {

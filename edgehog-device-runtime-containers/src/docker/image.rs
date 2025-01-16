@@ -79,7 +79,7 @@ pub enum ConversionError {
 
 /// Docker image struct.
 #[derive(Debug, Clone, Eq, Hash)]
-pub struct Image<S> {
+pub struct Image<S = String> {
     /// Id of the crated image.
     pub id: Option<String>,
     /// Reference to the image that we need to pull.
@@ -161,7 +161,7 @@ impl<S> Image<S> {
             warn!("{self} has id, but cannot inspect it");
         }
 
-        self.create(client).await?;
+        self.pull(client).await?;
 
         Ok(true)
     }
@@ -170,7 +170,7 @@ impl<S> Image<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageCreate)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn create(&mut self, client: &Client) -> Result<(), ImageError>
+    pub async fn pull(&mut self, client: &Client) -> Result<(), ImageError>
     where
         S: AsRef<str> + Debug + Display,
     {
@@ -251,7 +251,7 @@ impl<S> Image<S> {
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageDelete)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
     pub async fn remove(
-        &self,
+        &mut self,
         client: &Client,
     ) -> Result<Option<Vec<ImageDeleteResponseItem>>, ImageError>
     where
@@ -268,6 +268,8 @@ impl<S> Image<S> {
         match res {
             Ok(delete_res) => {
                 info!("removed {self}");
+
+                self.id = None;
 
                 Ok(Some(delete_res))
             }
@@ -386,7 +388,7 @@ mod tests {
         let mut image = Image::new("hello-world:latest", None);
 
         image
-            .create(&docker)
+            .pull(&docker)
             .await
             .expect("error while pulling the image");
     }
@@ -439,7 +441,7 @@ mod tests {
 
         let mut image = Image::new("hello-world:latest", None);
 
-        image.create(&docker).await.expect("failed to poll image");
+        image.pull(&docker).await.expect("failed to poll image");
 
         let inspect = image
             .inspect(&docker)
@@ -538,7 +540,7 @@ mod tests {
 
         let mut image = Image::new("alpine:edge", None);
 
-        image.create(&docker).await.expect("failed to pull");
+        image.pull(&docker).await.expect("failed to pull");
 
         let res = image
             .clone()
@@ -584,7 +586,7 @@ mod tests {
             mock
         });
 
-        let image = Image::new(name, None);
+        let mut image = Image::new(name, None);
 
         let res = image.remove(&docker).await.expect("error removing");
         assert_eq!(res, None);

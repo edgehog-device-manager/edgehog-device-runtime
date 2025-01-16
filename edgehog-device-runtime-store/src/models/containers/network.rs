@@ -82,7 +82,7 @@ pub struct NetworkDriverOpts {
     /// Name of the driver option
     pub name: String,
     /// Value of the driver option
-    pub value: Option<String>,
+    pub value: String,
 }
 
 /// Status of a network.

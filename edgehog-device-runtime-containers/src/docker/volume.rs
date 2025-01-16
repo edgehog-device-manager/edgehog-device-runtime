@@ -50,7 +50,7 @@ pub enum VolumeError {
 ///
 /// Persistent storage that can be attached to containers.
 #[derive(Debug, Clone, Eq)]
-pub struct Volume<S> {
+pub struct Volume<S = String> {
     /// The volume's name. If not specified (empty), Docker generates a name.
     pub name: S,
     /// Name of the volume driver to use.

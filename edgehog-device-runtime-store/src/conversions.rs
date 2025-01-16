@@ -31,7 +31,7 @@ use diesel::{
 use uuid::Uuid;
 
 /// Binary serialization of a UUID.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromSqlRow, AsExpression)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Binary)]
 pub struct SqlUuid(Uuid);
 
@@ -65,6 +65,11 @@ impl From<&Uuid> for SqlUuid {
 impl From<Uuid> for SqlUuid {
     fn from(value: Uuid) -> Self {
         SqlUuid(value)
+    }
+}
+impl From<SqlUuid> for Uuid {
+    fn from(value: SqlUuid) -> Self {
+        value.0
     }
 }
 
