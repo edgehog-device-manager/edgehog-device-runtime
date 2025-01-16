@@ -22,7 +22,7 @@ use astarte_device_sdk::FromEvent;
 
 use crate::volume::Volume;
 
-use super::{parse_kv_map, ReqError};
+use super::{parse_kv_map, ReqError, ReqUuid};
 
 /// Request to pull a Docker Volume.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,7 +32,7 @@ use super::{parse_kv_map, ReqError};
     rename_all = "camelCase"
 )]
 pub struct CreateVolume {
-    pub(crate) id: String,
+    pub(crate) id: ReqUuid,
     pub(crate) driver: String,
     pub(crate) options: Vec<String>,
 }
@@ -50,7 +50,7 @@ impl TryFrom<CreateVolume> for Volume<String> {
         let driver_opts = parse_kv_map(&value.options)?;
 
         Ok(Volume {
-            name: value.id,
+            name: value.id.to_string(),
             driver,
             driver_opts,
         })
@@ -63,6 +63,7 @@ pub(crate) mod tests {
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use itertools::Itertools;
+    use uuid::Uuid;
 
     use super::*;
 
@@ -93,12 +94,13 @@ pub(crate) mod tests {
 
     #[test]
     fn create_volume_request() {
-        let event = create_volume_request_event("id", "driver", &["foo=bar", "some="]);
+        let id = Uuid::new_v4();
+        let event = create_volume_request_event(id.to_string(), "driver", &["foo=bar", "some="]);
 
         let request = CreateVolume::from_event(event).unwrap();
 
         let expect = CreateVolume {
-            id: "id".to_string(),
+            id: ReqUuid(id),
             driver: "driver".to_string(),
             options: ["foo=bar", "some="].map(str::to_string).to_vec(),
         };
@@ -108,12 +110,13 @@ pub(crate) mod tests {
 
     #[test]
     fn volume_default_driver() {
-        let event = create_volume_request_event("id", "", &["foo=bar", "some="]);
+        let id = Uuid::new_v4().to_string();
+        let event = create_volume_request_event(&id, "", &["foo=bar", "some="]);
 
         let request = CreateVolume::from_event(event).unwrap();
 
         let expect = Volume {
-            name: "id",
+            name: id.as_str(),
             driver: "local",
             driver_opts: HashMap::from([("foo".to_string(), "bar"), ("some".to_string(), "")]),
         };

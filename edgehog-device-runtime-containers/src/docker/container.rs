@@ -487,10 +487,10 @@ where
 #[derive(Debug, Clone, Default)]
 pub struct PortBindingMap<S>(pub HashMap<String, Vec<Binding<S>>>);
 
-impl TryFrom<Vec<String>> for PortBindingMap<String> {
+impl TryFrom<&[String]> for PortBindingMap<String> {
     type Error = BindingError;
 
-    fn try_from(value: Vec<String>) -> Result<Self, Self::Error> {
+    fn try_from(value: &[String]) -> Result<Self, Self::Error> {
         value
             .iter()
             .try_fold(

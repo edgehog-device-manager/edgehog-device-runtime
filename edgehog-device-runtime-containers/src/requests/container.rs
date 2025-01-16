@@ -26,11 +26,11 @@ use tracing::{instrument, trace};
 use crate::{
     container::{Binding, Container, PortBindingMap},
     requests::BindingError,
-    service::{Id, ResourceType, ServiceError},
+    service::{Id, ResourceType},
     store::container::RestartPolicy,
 };
 
-use super::ReqError;
+use super::{ReqError, ReqUuid, VecReqUuid};
 
 /// Request to pull a Docker Container.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,10 +40,10 @@ use super::ReqError;
     rename_all = "camelCase"
 )]
 pub struct CreateContainer {
-    pub(crate) id: String,
-    pub(crate) image_id: String,
-    pub(crate) network_ids: Vec<String>,
-    pub(crate) volume_ids: Vec<String>,
+    pub(crate) id: ReqUuid,
+    pub(crate) image_id: ReqUuid,
+    pub(crate) network_ids: VecReqUuid,
+    pub(crate) volume_ids: VecReqUuid,
     // TODO: remove this image, use the image id
     pub(crate) image: String,
     pub(crate) hostname: String,
@@ -56,17 +56,17 @@ pub struct CreateContainer {
 }
 
 impl CreateContainer {
-    pub(crate) fn dependencies(&self) -> Result<Vec<Id>, ServiceError> {
-        std::iter::once(Id::try_from_str(ResourceType::Image, &self.image_id))
+    pub(crate) fn dependencies(&self) -> Vec<Id> {
+        std::iter::once(Id::new(ResourceType::Image, *self.image_id))
             .chain(
                 self.network_ids
                     .iter()
-                    .map(|id| Id::try_from_str(ResourceType::Network, id)),
+                    .map(|id| Id::new(ResourceType::Network, **id)),
             )
             .chain(
                 self.volume_ids
                     .iter()
-                    .map(|id| Id::try_from_str(ResourceType::Volume, id)),
+                    .map(|id| Id::new(ResourceType::Volume, **id)),
             )
             .collect()
     }
@@ -83,18 +83,18 @@ impl TryFrom<CreateContainer> for Container<String> {
         };
 
         let restart_policy = RestartPolicy::from_str(&value.restart_policy)?.into();
-        let port_bindings = PortBindingMap::try_from(value.port_bindings)?;
+        let port_bindings = PortBindingMap::try_from(value.port_bindings.as_slice())?;
 
         Ok(Container {
             id: None,
-            name: value.id,
+            name: value.id.to_string(),
             image: value.image,
             hostname,
             restart_policy,
             env: value.env,
             network_mode: value.network_mode,
             // Use the network ids
-            networks: value.network_ids,
+            networks: value.network_ids.iter().map(|id| id.to_string()).collect(),
             binds: value.binds,
             port_bindings,
             privileged: value.privileged,
@@ -207,15 +207,17 @@ pub(crate) mod tests {
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use bollard::secret::RestartPolicyNameEnum;
+    use itertools::Itertools;
     use pretty_assertions::assert_eq;
+    use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_container_request_event(
+    pub fn create_container_request_event<S: Display>(
         id: impl Display,
         image_id: &str,
         image: &str,
-        network_ids: &[&str],
+        network_ids: &[S],
     ) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
@@ -250,20 +252,19 @@ pub(crate) mod tests {
 
     #[test]
     fn create_container_request() {
-        let event = create_container_request_event(
-            "id",
-            "image_id",
-            "image",
-            &["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
-        );
+        let id = ReqUuid(Uuid::new_v4());
+        let image_id = ReqUuid(Uuid::new_v4());
+        let network_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
+        let event =
+            create_container_request_event(id, &image_id.to_string(), "image", &network_ids);
 
         let request = CreateContainer::from_event(event).unwrap();
 
         let expect = CreateContainer {
-            id: "id".to_string(),
-            image_id: "image_id".to_string(),
-            network_ids: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196".to_string()],
-            volume_ids: vec![],
+            id,
+            image_id,
+            network_ids,
+            volume_ids: VecReqUuid(vec![]),
             image: "image".to_string(),
             hostname: "hostname".to_string(),
             restart_policy: "no".to_string(),
@@ -278,12 +279,20 @@ pub(crate) mod tests {
 
         let container = Container::try_from(request).unwrap();
 
+        let network_ids = expect
+            .network_ids
+            .iter()
+            .map(|s| s.to_string())
+            .collect_vec();
+        let network_ids = network_ids.iter().map(|s| s.as_str()).collect_vec();
+        let name = id.to_string();
+
         let exp = Container {
             id: None,
-            name: "id",
+            name: name.as_str(),
             image: "image",
             network_mode: "bridge",
-            networks: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
+            networks: network_ids,
             hostname: Some("hostname"),
             restart_policy: RestartPolicyNameEnum::NO,
             env: vec!["env"],
