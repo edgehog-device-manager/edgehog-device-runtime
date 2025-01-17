@@ -23,7 +23,7 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, BareSelect, Eq, Filter},
+    dsl::{exists, Eq, Filter},
     expression::AsExpression,
     prelude::*,
     select,
@@ -36,6 +36,7 @@ use super::container::Container;
 
 use crate::{
     conversions::SqlUuid,
+    models::{ExistsFilterById, QueryModel},
     schema::containers::{deployment_missing_containers, deployments},
 };
 
@@ -50,23 +51,14 @@ pub struct Deployment {
     pub status: DeploymentStatus,
 }
 
-type DeploymentById<'a> = Eq<deployments::id, &'a SqlUuid>;
-type DeploymentFilterById<'a> = Filter<deployments::table, DeploymentById<'a>>;
-type DeploymentExists<'a> = BareSelect<exists<Filter<deployments::table, DeploymentById<'a>>>>;
+impl QueryModel for Deployment {
+    type Table = deployments::table;
 
-impl Deployment {
-    /// Returns the filter deployment table by id.
-    pub fn by_id(id: &SqlUuid) -> DeploymentById<'_> {
-        deployments::id.eq(id)
-    }
+    type Id = deployments::id;
 
-    /// Returns the filtered deployment table by id.
-    pub fn find_id(id: &SqlUuid) -> DeploymentFilterById<'_> {
-        deployments::table.filter(Self::by_id(id))
-    }
+    type ExistsQuery<'a> = ExistsFilterById<'a, Self::Table, Self::Id>;
 
-    /// Returns the deployment exists query.
-    pub fn exists(id: &SqlUuid) -> DeploymentExists<'_> {
+    fn exists(id: &SqlUuid) -> Self::ExistsQuery<'_> {
         select(exists(Self::find_id(id)))
     }
 }

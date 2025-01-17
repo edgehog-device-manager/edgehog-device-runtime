@@ -23,7 +23,7 @@ use std::{fmt::Display, ops::Deref};
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, BareSelect, Eq, Filter},
+    dsl::{exists, Eq, Filter},
     expression::AsExpression,
     select,
     serialize::{IsNull, ToSql},
@@ -34,7 +34,10 @@ use diesel::{
 
 use crate::{
     conversions::SqlUuid,
-    models::containers::{image::Image, network::Network, volume::Volume},
+    models::{
+        containers::{image::Image, network::Network, volume::Volume},
+        ExistsFilterById, QueryModel,
+    },
     schema::containers::{
         container_missing_images, container_missing_networks, container_missing_volumes, containers,
     },
@@ -64,23 +67,14 @@ pub struct Container {
     pub privileged: bool,
 }
 
-type ContainerById<'a> = Eq<containers::id, &'a SqlUuid>;
-type ContainerFilterById<'a> = Filter<containers::table, ContainerById<'a>>;
-type ContainerExists<'a> = BareSelect<exists<Filter<containers::table, ContainerById<'a>>>>;
+impl QueryModel for Container {
+    type Table = containers::table;
 
-impl Container {
-    /// Returns the filter container table by id.
-    pub fn by_id(id: &SqlUuid) -> ContainerById<'_> {
-        containers::id.eq(id)
-    }
+    type Id = containers::id;
 
-    /// Returns the filtered container table by id.
-    pub fn find_id(id: &SqlUuid) -> ContainerFilterById<'_> {
-        containers::table.filter(Self::by_id(id))
-    }
+    type ExistsQuery<'a> = ExistsFilterById<'a, Self::Table, Self::Id>;
 
-    /// Returns the container exists query.
-    pub fn exists(id: &SqlUuid) -> ContainerExists<'_> {
+    fn exists(id: &SqlUuid) -> Self::ExistsQuery<'_> {
         select(exists(Self::find_id(id)))
     }
 }

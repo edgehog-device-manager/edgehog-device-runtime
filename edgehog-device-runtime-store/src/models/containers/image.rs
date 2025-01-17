@@ -23,16 +23,20 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, BareSelect, Eq, Filter},
+    dsl::exists,
     expression::AsExpression,
     select,
     serialize::{IsNull, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
-    ExpressionMethods, Insertable, QueryDsl, Queryable, Selectable,
+    Insertable, Queryable, Selectable,
 };
 
-use crate::{conversions::SqlUuid, schema::containers::images};
+use crate::{
+    conversions::SqlUuid,
+    models::{ExistsFilterById, QueryModel},
+    schema::containers::images,
+};
 
 /// Container image with the authentication to pull it.
 #[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
@@ -54,23 +58,14 @@ pub struct Image {
     pub registry_auth: Option<String>,
 }
 
-type ImageById<'a> = Eq<images::id, &'a SqlUuid>;
-type ImageFilterById<'a> = Filter<images::table, ImageById<'a>>;
-type ImageExists<'a> = BareSelect<exists<Filter<images::table, ImageById<'a>>>>;
+impl QueryModel for Image {
+    type Table = images::table;
 
-impl Image {
-    /// Returns the filter image table by id.
-    pub fn by_id(id: &SqlUuid) -> ImageById<'_> {
-        images::id.eq(id)
-    }
+    type Id = images::id;
 
-    /// Returns the filtered image table by id.
-    pub fn find_id(id: &SqlUuid) -> ImageFilterById<'_> {
-        images::table.filter(Self::by_id(id))
-    }
+    type ExistsQuery<'a> = ExistsFilterById<'a, Self::Table, Self::Id>;
 
-    /// Returns the image exists query.
-    pub fn exists(id: &SqlUuid) -> ImageExists<'_> {
+    fn exists(id: &SqlUuid) -> Self::ExistsQuery<'_> {
         select(exists(Self::find_id(id)))
     }
 }

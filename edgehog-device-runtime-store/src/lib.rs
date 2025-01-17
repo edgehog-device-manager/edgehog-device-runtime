@@ -25,6 +25,8 @@
 
 //! Separate crate for the database definitions
 
+pub use diesel;
+
 pub mod conversions;
 pub mod db;
 pub mod models;

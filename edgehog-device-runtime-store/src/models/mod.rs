@@ -18,5 +18,47 @@
 
 //! Models for all the resources.
 
+use diesel::{
+    dsl::{exists, BareSelect, Eq, Filter},
+    query_dsl::methods::FilterDsl,
+    sql_types::Binary,
+    AppearsOnTable, Expression, ExpressionMethods, Table,
+};
+
+use crate::conversions::SqlUuid;
+
 #[cfg(feature = "containers")]
 pub mod containers;
+
+type ById<'a, Id> = Eq<Id, &'a SqlUuid>;
+type FilterById<'a, Table, Id> = Filter<Table, ById<'a, Id>>;
+type ExistsFilterById<'a, Table, Id> = BareSelect<exists<FilterById<'a, Table, Id>>>;
+
+/// General implementation for utility functions on a model.
+pub trait QueryModel {
+    /// Table to generate the queries for the model
+    type Table: Table<PrimaryKey = Self::Id> + Default;
+    /// Primary id of the table
+    type Id: AppearsOnTable<Self::Table> + Expression<SqlType = Binary> + Default;
+
+    /// Query type returned for the exists method.
+    type ExistsQuery<'a>;
+
+    /// Returns the filter table by id.
+    fn by_id(id: &SqlUuid) -> ById<'_, Self::Id> {
+        Self::Id::default().eq(id)
+    }
+
+    /// Returns the filtered table by id.
+    fn find_id<'a>(id: &'a SqlUuid) -> FilterById<'a, Self::Table, Self::Id>
+    where
+        Self::Table: FilterDsl<ById<'a, Self::Id>>,
+    {
+        Self::Table::default().filter(Self::by_id(id))
+    }
+
+    /// Returns the deployment exists query.
+    ///
+    // TODO: this could be made into a default implementation too if the trait bound are satisfied
+    fn exists(id: &SqlUuid) -> Self::ExistsQuery<'_>;
+}

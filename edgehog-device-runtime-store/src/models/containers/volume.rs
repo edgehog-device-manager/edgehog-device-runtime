@@ -23,16 +23,20 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, BareSelect, Eq, Filter},
+    dsl::exists,
     expression::AsExpression,
     select,
     serialize::{IsNull, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
-    Associations, ExpressionMethods, Insertable, QueryDsl, Queryable, Selectable,
+    Associations, Insertable, Queryable, Selectable,
 };
 
-use crate::{conversions::SqlUuid, schema::containers::volumes};
+use crate::{
+    conversions::SqlUuid,
+    models::{ExistsFilterById, QueryModel},
+    schema::containers::volumes,
+};
 
 /// Container volume with driver configuration.
 #[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
@@ -47,23 +51,14 @@ pub struct Volume {
     pub driver: String,
 }
 
-type VolumeById<'a> = Eq<volumes::id, &'a SqlUuid>;
-type VolumeFilterById<'a> = Filter<volumes::table, VolumeById<'a>>;
-type VolumeExists<'a> = BareSelect<exists<Filter<volumes::table, VolumeById<'a>>>>;
+impl QueryModel for Volume {
+    type Table = volumes::table;
 
-impl Volume {
-    /// Returns the filter volume table by id.
-    pub fn by_id(id: &SqlUuid) -> VolumeById<'_> {
-        volumes::id.eq(id)
-    }
+    type Id = volumes::id;
 
-    /// Returns the filtered volume table by id.
-    pub fn find_id(id: &SqlUuid) -> VolumeFilterById<'_> {
-        volumes::table.filter(Self::by_id(id))
-    }
+    type ExistsQuery<'a> = ExistsFilterById<'a, Self::Table, Self::Id>;
 
-    /// Returns the volume exists query.
-    pub fn exists(id: &SqlUuid) -> VolumeExists<'_> {
+    fn exists(id: &SqlUuid) -> Self::ExistsQuery<'_> {
         select(exists(Self::find_id(id)))
     }
 }

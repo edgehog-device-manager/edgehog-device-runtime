@@ -23,16 +23,20 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, BareSelect, Eq, Filter},
+    dsl::exists,
     expression::AsExpression,
     select,
     serialize::{IsNull, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
-    Associations, ExpressionMethods, Insertable, QueryDsl, Queryable, Selectable,
+    Associations, Insertable, Queryable, Selectable,
 };
 
-use crate::{conversions::SqlUuid, schema::containers::networks};
+use crate::{
+    conversions::SqlUuid,
+    models::{ExistsFilterById, QueryModel},
+    schema::containers::networks,
+};
 
 /// Container network with driver configuration.
 #[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
@@ -54,23 +58,14 @@ pub struct Network {
     pub enable_ipv6: bool,
 }
 
-type NetworkById<'a> = Eq<networks::id, &'a SqlUuid>;
-type NetworkFilterById<'a> = Filter<networks::table, NetworkById<'a>>;
-type NetworkExists<'a> = BareSelect<exists<Filter<networks::table, NetworkById<'a>>>>;
+impl QueryModel for Network {
+    type Table = networks::table;
 
-impl Network {
-    /// Returns the filter network table by id.
-    pub fn by_id(id: &SqlUuid) -> NetworkById<'_> {
-        networks::id.eq(id)
-    }
+    type Id = networks::id;
 
-    /// Returns the filtered network table by id.
-    pub fn find_id(id: &SqlUuid) -> NetworkFilterById<'_> {
-        networks::table.filter(Self::by_id(id))
-    }
+    type ExistsQuery<'a> = ExistsFilterById<'a, Self::Table, Self::Id>;
 
-    /// Returns the network exists query.
-    pub fn exists(id: &SqlUuid) -> NetworkExists<'_> {
+    fn exists(id: &SqlUuid) -> Self::ExistsQuery<'_> {
         select(exists(Self::find_id(id)))
     }
 }
