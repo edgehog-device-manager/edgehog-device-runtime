@@ -24,11 +24,12 @@ use std::{
 };
 
 use astarte_device_sdk::event::FromEventError;
+use events::ServiceHandle;
 use itertools::Itertools;
 use petgraph::{stable_graph::NodeIndex, visit::Walker};
-use resource::State;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, instrument, trace};
+use tokio::sync::mpsc;
+use tracing::{debug, error, info, instrument, trace};
 use uuid::Uuid;
 
 use crate::{
@@ -44,7 +45,7 @@ use crate::{
         image::CreateImage,
         network::CreateNetwork,
         volume::CreateVolume,
-        ContainerRequest, ReqError,
+        ReqError,
     },
     service::resource::NodeType,
     store::{StateStore, StoreError},
@@ -52,10 +53,12 @@ use crate::{
     Docker,
 };
 
-use self::collection::NodeGraph;
 use self::resource::NodeResource;
+use self::resource::State;
+use self::{collection::NodeGraph, events::AstarteEvent};
 
 pub(crate) mod collection;
+pub mod events;
 pub(crate) mod node;
 pub(crate) mod resource;
 
@@ -110,22 +113,31 @@ where
 #[derive(Debug)]
 pub struct Service<D> {
     client: Docker,
-    #[allow(dead_code)]
-    store: StateStore,
     device: D,
+    /// Queue of events received from Astarte.
+    events: mpsc::UnboundedReceiver<AstarteEvent>,
     nodes: NodeGraph,
+    _store: StateStore,
 }
 
 impl<D> Service<D> {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, store: StateStore, device: D) -> Self {
-        Self {
+    pub fn new(client: Docker, store: StateStore, device: D) -> (Self, ServiceHandle) {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        // Clone the store lazily since the service handle will only write to the database.
+        let handle = ServiceHandle::new(tx, store.clone_lazy());
+
+        let service = Self {
             client,
-            store,
             device,
+            events: rx,
             nodes: NodeGraph::new(),
-        }
+            _store: store,
+        };
+
+        (service, handle)
     }
 
     /// Initialize the service, it will load all the already stored properties
@@ -188,52 +200,61 @@ impl<D> Service<D> {
         unimplemented!("load the resources from the store");
     }
 
-    /// Handles an event from the image.
+    /// Blocking call that will handle the events from Astarte and the containers.
     #[instrument(skip_all)]
-    pub async fn on_event(&mut self, event: ContainerRequest) -> Result<()>
+    pub async fn handle_events(&mut self)
+    where
+        D: Client + Sync + 'static,
+    {
+        while let Some(event) = self.events.recv().await {
+            self.on_event(event).await;
+        }
+
+        info!("event reveiver disconnected");
+    }
+
+    #[instrument(skip_all)]
+    async fn on_event(&mut self, event: AstarteEvent)
     where
         D: Client + Sync + 'static,
     {
         match event {
-            ContainerRequest::Image(req) => {
-                self.create_image(req).await?;
+            AstarteEvent::Resource(id) => {
+                self.create(id).await;
             }
-            ContainerRequest::Volume(req) => {
-                self.create_volume(req).await?;
-            }
-            ContainerRequest::Network(req) => {
-                self.create_network(req).await?;
-            }
-            ContainerRequest::Container(req) => {
-                self.create_container(req).await?;
-            }
-            ContainerRequest::Deployment(req) => {
-                self.create_deployment(req).await?;
-            }
-            ContainerRequest::DeploymentCommand(DeploymentCommand {
+            AstarteEvent::DeploymentCmd(DeploymentCommand {
                 id,
                 command: CommandValue::Start,
             }) => {
                 self.start(id).await;
             }
-            ContainerRequest::DeploymentCommand(DeploymentCommand {
+            AstarteEvent::DeploymentCmd(DeploymentCommand {
                 id,
                 command: CommandValue::Stop,
             }) => {
                 self.stop(id).await;
             }
-            ContainerRequest::DeploymentCommand(DeploymentCommand {
+            AstarteEvent::DeploymentCmd(DeploymentCommand {
                 id,
                 command: CommandValue::Delete,
             }) => {
                 self.delete(id).await;
             }
-            ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
+            AstarteEvent::DeploymentUpdate(DeploymentUpdate { from, to }) => {
                 self.update(from, to).await;
             }
         }
+    }
 
-        Ok(())
+    async fn create(&mut self, id: Id) {
+        // FIXME: create the images from the stored values
+        match id.resource_type() {
+            ResourceType::Image => todo!(),
+            ResourceType::Volume => todo!(),
+            ResourceType::Network => todo!(),
+            ResourceType::Container => todo!(),
+            ResourceType::Deployment => todo!(),
+        }
     }
 
     /// Store the create image request
@@ -248,7 +269,7 @@ impl<D> Service<D> {
 
         let image = Image::from(req);
 
-        self.create(id, Vec::new(), image).await?;
+        self.create_node(id, Vec::new(), image).await?;
 
         Ok(())
     }
@@ -265,7 +286,7 @@ impl<D> Service<D> {
 
         let volume = Volume::try_from(req)?;
 
-        self.create(id, Vec::new(), volume).await?;
+        self.create_node(id, Vec::new(), volume).await?;
 
         Ok(())
     }
@@ -282,7 +303,7 @@ impl<D> Service<D> {
 
         let network = Network::try_from(req)?;
 
-        self.create(id, Vec::new(), network).await?;
+        self.create_node(id, Vec::new(), network).await?;
 
         Ok(())
     }
@@ -301,7 +322,7 @@ impl<D> Service<D> {
 
         let container = Container::try_from(req)?;
 
-        self.create(id, deps, container).await?;
+        self.create_node(id, deps, container).await?;
 
         Ok(())
     }
@@ -322,12 +343,12 @@ impl<D> Service<D> {
             .map(|id| Id::new(ResourceType::Container, **id))
             .collect();
 
-        self.create(id, deps, NodeType::Deployment).await?;
+        self.create_node(id, deps, NodeType::Deployment).await?;
 
         Ok(())
     }
 
-    async fn create<T>(&mut self, id: Id, deps: Vec<Id>, resource: T) -> Result<()>
+    async fn create_node<T>(&mut self, id: Id, deps: Vec<Id>, resource: T) -> Result<()>
     where
         D: Client + Sync + 'static,
         NodeType: From<T>,
@@ -663,6 +684,10 @@ impl Id {
     fn is_deployment(&self) -> bool {
         matches!(self.rt, ResourceType::Deployment)
     }
+
+    fn resource_type(&self) -> ResourceType {
+        self.rt
+    }
 }
 
 impl Display for Id {
@@ -707,7 +732,7 @@ mod tests {
     use astarte_device_sdk::FromEvent;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use edgehog_store::db::{self, Handle};
+    use edgehog_store::db;
     use pretty_assertions::assert_eq;
     use resource::NodeType;
     use tempfile::TempDir;
@@ -722,19 +747,28 @@ mod tests {
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
+    use crate::requests::ContainerRequest;
     use crate::{docker, docker_mock};
 
     use super::*;
 
-    #[tokio::test]
-    async fn should_add_an_image() {
-        let tempdir = TempDir::new().unwrap();
-
+    async fn mock_service(
+        tempdir: &TempDir,
+        client: Docker,
+        device: MockDeviceClient<SqliteStore>,
+    ) -> (Service<MockDeviceClient<SqliteStore>>, ServiceHandle) {
         let db_file = tempdir.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
+
+        Service::new(client, store, device)
+    }
+
+    #[tokio::test]
+    async fn should_add_an_image() {
+        let tmpdir = TempDir::new().unwrap();
 
         let id = uuid!("5b705c7b-e6c7-4455-ba9b-a081be020c43");
 
@@ -754,14 +788,17 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, store, device);
+        let (mut service, handle) = mock_service(&tmpdir, client, device).await;
 
         let reference = "docker.io/nginx:stable-alpine-slim";
         let create_image_req = create_image_request_event(id.to_string(), reference, "");
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
 
-        service.on_event(req).await.unwrap();
+        handle.on_event(req).await.unwrap();
+
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
         let id = Id::new(ResourceType::Image, id);
         let node = service.nodes.node(&id).unwrap();
@@ -787,9 +824,6 @@ mod tests {
     async fn should_add_a_volume() {
         let tempdir = TempDir::new().unwrap();
 
-        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
-        let store = StateStore::new(handle);
-
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -808,13 +842,15 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, store, device);
+        let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
         let create_volume_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
 
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
 
-        service.on_event(req).await.unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
         let id = Id::new(ResourceType::Volume, id);
         let node = service.nodes.node(&id).unwrap();
@@ -841,9 +877,6 @@ mod tests {
     async fn should_add_a_network() {
         let tempdir = TempDir::new().unwrap();
 
-        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
-        let store = StateStore::new(handle);
-
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -862,13 +895,16 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, store, device);
+        let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
         let create_network_req = create_network_request_event(id, "bridged", &[]);
 
         let req = ContainerRequest::from_event(create_network_req).unwrap();
 
-        service.on_event(req).await.unwrap();
+        handle.on_event(req).await.unwrap();
+
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
         let id = Id::new(ResourceType::Network, id);
         let node = service.nodes.node(&id).unwrap();
@@ -898,9 +934,6 @@ mod tests {
     async fn should_add_a_container() {
         let tempdir = TempDir::new().unwrap();
 
-        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
-        let store = StateStore::new(handle);
-
         let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
 
         let client = Docker::connect().await.unwrap();
@@ -919,7 +952,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, store, device);
+        let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
         let image_id = Uuid::new_v4().to_string();
         let create_container_req = create_container_request_event(
@@ -931,7 +964,10 @@ mod tests {
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
-        service.on_event(req).await.unwrap();
+        handle.on_event(req).await.unwrap();
+
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
         let id = Id::new(ResourceType::Container, id);
         let node = service.nodes.node(&id).unwrap();
@@ -971,9 +1007,6 @@ mod tests {
     #[tokio::test]
     async fn should_start_deployment() {
         let tempdir = TempDir::new().unwrap();
-
-        let handle = Handle::open(tempdir.path().join("state.db")).await.unwrap();
-        let store = StateStore::new(handle);
 
         let image_id = Uuid::new_v4();
         let container_id = Uuid::new_v4();
@@ -1139,7 +1172,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let mut service = Service::new(client, store, device);
+        let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
         let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
 
@@ -1166,9 +1199,18 @@ mod tests {
             command: CommandValue::Start,
         });
 
-        service.on_event(image_req).await.unwrap();
-        service.on_event(container_req).await.unwrap();
-        service.on_event(deployment_req).await.unwrap();
-        service.on_event(start).await.unwrap();
+        handle.on_event(image_req).await.unwrap();
+        handle.on_event(container_req).await.unwrap();
+        handle.on_event(deployment_req).await.unwrap();
+        handle.on_event(start).await.unwrap();
+
+        let image_event = service.events.recv().await.unwrap();
+        service.on_event(image_event).await;
+        let container_event = service.events.recv().await.unwrap();
+        service.on_event(container_event).await;
+        let deployment_event = service.events.recv().await.unwrap();
+        service.on_event(deployment_event).await;
+        let start_event = service.events.recv().await.unwrap();
+        service.on_event(start_event).await;
     }
 }

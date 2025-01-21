@@ -22,13 +22,18 @@ use astarte_device_sdk::Client;
 use async_trait::async_trait;
 use edgehog_containers::{
     requests::ContainerRequest,
-    service::{Service, ServiceError},
+    service::{
+        events::{EventError, ServiceHandle},
+        Service, ServiceError,
+    },
     store::{StateStore, StoreError},
     Docker,
 };
 use edgehog_store::db::Handle;
 use serde::Deserialize;
 use stable_eyre::eyre::eyre;
+use stable_eyre::eyre::WrapErr;
+use tokio::task::JoinSet;
 use tracing::error;
 
 use crate::controller::actor::Actor;
@@ -63,18 +68,60 @@ impl Default for ContainersConfig {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ContainerService<D> {
+async fn handle_events<D>(
+    mut service: Service<D>,
     config: ContainersConfig,
-    service: Service<D>,
+) -> stable_eyre::Result<()>
+where
+    D: Client + Send + Sync + 'static,
+{
+    let mut retries = 0usize;
+    let mut timeout = Duration::from_secs(2);
+
+    // retry with an exponential back off
+    while let Err(err) = service.init().await {
+        error!(
+            error = format!("{:#}", stable_eyre::Report::new(err)),
+            "couldn't init container service"
+        );
+
+        // Increase the times we tired
+        retries += retries.saturating_add(1);
+
+        if config.required && retries >= config.max_retries {
+            return Err(
+                eyre!("couldn't initialize the container service").wrap_err(eyre!(
+                    "tried to start the runtime {retries} times, but reached the maximum"
+                )),
+            );
+        }
+
+        tokio::time::sleep(timeout).await;
+
+        // Exponential
+        timeout = Duration::from_secs(timeout.as_secs().saturating_mul(2));
+    }
+
+    service.handle_events().await;
+
+    Ok(())
 }
 
-impl<D> ContainerService<D> {
-    pub(crate) async fn new(
+#[derive(Debug)]
+pub(crate) struct ContainerService {
+    handle: ServiceHandle,
+}
+
+impl ContainerService {
+    pub(crate) async fn new<D>(
         device: D,
         config: ContainersConfig,
         store_dir: &Path,
-    ) -> Result<Self, ServiceError> {
+        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+    ) -> Result<Self, ServiceError>
+    where
+        D: Client + Send + Sync + 'static,
+    {
         // TODO: run this logic with the retry
         let client = Docker::connect().await?;
 
@@ -83,17 +130,16 @@ impl<D> ContainerService<D> {
             .map_err(|err| ServiceError::Store(StoreError::Handle(err)))?;
         let store = StateStore::new(handle);
 
-        let service = Service::new(client, store, device);
+        let (service, handle) = Service::new(client, store, device);
 
-        Ok(Self { config, service })
+        tasks.spawn(handle_events(service, config));
+
+        Ok(Self { handle })
     }
 }
 
 #[async_trait]
-impl<D> Actor for ContainerService<D>
-where
-    D: Client + Send + Sync + 'static,
-{
+impl Actor for ContainerService {
     type Msg = Box<ContainerRequest>;
 
     fn task() -> &'static str {
@@ -101,42 +147,16 @@ where
     }
 
     async fn init(&mut self) -> stable_eyre::Result<()> {
-        let mut retries = 0usize;
-        let mut timeout = Duration::from_secs(2);
-
-        // retry with an exponential back off
-        while let Err(err) = self.service.init().await {
-            error!(
-                error = format!("{:#}", stable_eyre::Report::new(err)),
-                "couldn't init container service"
-            );
-
-            // Increase the times we tired
-            retries += retries.saturating_add(1);
-
-            if self.config.required && retries >= self.config.max_retries {
-                return Err(
-                    eyre!("couldn't initialize the container service").wrap_err(eyre!(
-                        "tried to start the runtime {retries} times, but reached the maximum"
-                    )),
-                );
-            }
-
-            tokio::time::sleep(timeout).await;
-
-            // Exponential
-            timeout = Duration::from_secs(timeout.as_secs().saturating_mul(2));
-        }
-
         Ok(())
     }
 
     async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
-        if let Err(err) = self.service.on_event(*msg).await {
-            error!(
-                error = format!("{:#}", stable_eyre::Report::new(err)),
-                "couldn't handle container event"
-            );
+        let res = self.handle.on_event(*msg).await;
+        match res {
+            Ok(()) => {}
+            Err(EventError::Disconnected) => {
+                return res.wrap_err("couldn't handle container event")
+            }
         }
 
         Ok(())

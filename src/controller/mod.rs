@@ -131,13 +131,10 @@ impl<T> Runtime<T> {
     {
         let (container_tx, container_rx) = mpsc::unbounded_channel();
 
-        let store_dir = store_dir.to_owned();
-        tasks.spawn(async move {
-            let containers =
-                crate::containers::ContainerService::new(client, config, &store_dir).await?;
+        let containers =
+            crate::containers::ContainerService::new(client, config, store_dir, tasks).await?;
 
-            containers.spawn_unbounded(container_rx).await
-        });
+        tasks.spawn(async move { containers.spawn_unbounded(container_rx).await });
 
         Ok(container_tx)
     }

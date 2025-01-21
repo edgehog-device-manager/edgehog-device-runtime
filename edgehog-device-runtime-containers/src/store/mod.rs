@@ -46,6 +46,12 @@ impl StateStore {
     pub fn new(handle: db::Handle) -> Self {
         Self { handle }
     }
+
+    pub(crate) fn clone_lazy(&self) -> Self {
+        Self {
+            handle: self.handle.clone_lazy(),
+        }
+    }
 }
 
 fn split_key_value(value: &str) -> Option<(&str, Option<&str>)> {

@@ -18,36 +18,94 @@
 
 use std::{fmt::Debug, path::Path};
 
-use astarte_device_sdk::{properties::PropAccess, Client, FromEvent};
-use edgehog_containers::{requests::ContainerRequest, service::Service, store::StateStore, Docker};
+use astarte_device_sdk::{Client, FromEvent};
+use color_eyre::eyre::bail;
+use edgehog_containers::{
+    requests::ContainerRequest,
+    service::{events::ServiceHandle, Service},
+    store::StateStore,
+    Docker,
+};
 use edgehog_store::db::Handle;
+use tokio::task::JoinSet;
 use tracing::error;
+
+async fn receive_events<D>(device: D, handle: ServiceHandle) -> color_eyre::Result<()>
+where
+    D: Debug + Client + Send + Sync + 'static,
+{
+    let event = device.recv().await?;
+
+    match ContainerRequest::from_event(event) {
+        Ok(req) => {
+            handle.on_event(req).await.inspect_err(|err| {
+                error!(
+                    error = format!("{:#}", color_eyre::Report::new(err.clone())),
+                    "couldn't handle the event"
+                );
+            })?;
+        }
+        Err(err) => {
+            error!(
+                error = format!("{:#}", color_eyre::Report::new(err)),
+                "couldn't parse the event"
+            );
+
+            bail!("invalid event received");
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_events<D>(mut service: Service<D>) -> color_eyre::Result<()>
+where
+    D: Debug + Client + Clone + Send + Sync + 'static,
+{
+    service.init().await?;
+
+    service.handle_events().await;
+
+    Ok(())
+}
 
 pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
-    D: Debug + Client + Clone + PropAccess + Sync + 'static,
+    D: Debug + Client + Clone + Send + Sync + 'static,
 {
     let client = Docker::connect().await?;
 
     let handle = Handle::open(store_path.join("state.db")).await?;
     let store = StateStore::new(handle);
 
-    let mut service = Service::new(client, store, device.clone());
-    service.init().await?;
+    let (service, handle) = Service::new(client, store, device.clone());
 
-    loop {
-        let event = device.recv().await?;
+    let mut tasks = JoinSet::new();
 
-        match ContainerRequest::from_event(event) {
-            Ok(req) => {
-                service.on_event(req).await?;
+    tasks.spawn(handle_events(service));
+    tasks.spawn(receive_events(device, handle));
+
+    while let Some(res) = tasks.join_next().await {
+        match res {
+            Ok(Ok(())) => {
+                tasks.abort_all();
             }
+            Ok(Err(err)) => {
+                error!(error = format!("{:#}", err), "joined with error");
+
+                return Err(err);
+            }
+            Err(err) if err.is_cancelled() => {}
             Err(err) => {
                 error!(
                     error = format!("{:#}", color_eyre::Report::new(err)),
-                    "couldn't parse the event"
+                    "tasks panicked"
                 );
+
+                bail!("taks panicked");
             }
         }
     }
+
+    Ok(())
 }
