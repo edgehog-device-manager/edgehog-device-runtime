@@ -59,6 +59,16 @@ feature enabled.
 cargo build --features systemd
 ```
 
+To allow systemd to receive status changes from service, you need to set the
+[NotifyAccess](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#NotifyAccess=) option to
+either `exec` or `main`.
+
+```
+[Service]
+...
+NotifyAccess=exec
+```
+
 #### Forwarder
 
 The forwarder requires [ttyd](https://github.com/tsl0922/ttyd) for sharing terminal over the web.
