@@ -59,13 +59,6 @@ impl NodeGraph {
         self.relations.node_weight(idx)
     }
 
-    /// Get the dependencies of a node
-    pub(crate) fn deps(&self, node: &Node) -> impl Iterator<Item = &Id> {
-        self.relations
-            .neighbors_directed(node.idx, Direction::Outgoing)
-            .filter_map(|dep| self.get_id(dep))
-    }
-
     /// Get the ids of nodes depending on the one provided
     pub(crate) fn dependent(&self, idx: NodeIndex) -> impl Iterator<Item = &Id> {
         self.relations
@@ -140,10 +133,6 @@ impl NodeGraph {
 
     pub(crate) fn relations(&self) -> &StableDiGraph<Id, ()> {
         &self.relations
-    }
-
-    pub(crate) fn nodes(&self) -> &HashMap<Id, Node> {
-        &self.nodes
     }
 
     pub(crate) fn nodes_mut(&mut self) -> ValuesMut<Id, Node> {

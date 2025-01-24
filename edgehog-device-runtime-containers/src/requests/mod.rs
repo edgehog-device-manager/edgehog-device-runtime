@@ -23,12 +23,10 @@ use std::{borrow::Borrow, collections::HashMap, fmt::Display, num::ParseIntError
 use astarte_device_sdk::{
     event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
 };
-use container::CreateContainer;
+use container::{CreateContainer, RestartPolicyError};
 use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 use tracing::error;
 use uuid::Uuid;
-
-use crate::store::container::RestartPolicyError;
 
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 

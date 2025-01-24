@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,18 +19,18 @@
 use std::{fmt::Debug, path::Path};
 
 use astarte_device_sdk::{properties::PropAccess, Client, FromEvent};
-use color_eyre::eyre::Context;
 use edgehog_containers::{requests::ContainerRequest, service::Service, store::StateStore, Docker};
+use edgehog_store::db::Handle;
 use tracing::error;
 
-pub async fn receive<D>(device: D, store: &Path) -> color_eyre::Result<()>
+pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
     D: Debug + Client + Clone + PropAccess + Sync + 'static,
 {
     let client = Docker::connect().await?;
-    let store = StateStore::open(store.join("containers/state.json"))
-        .await
-        .wrap_err("couldn't open the state store")?;
+
+    let handle = Handle::open(store_path.join("state.db")).await?;
+    let store = StateStore::new(handle);
 
     let mut service = Service::new(client, store, device.clone());
     service.init().await?;

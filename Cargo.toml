@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# SPDX-License-Identifier: CC0-1.0
+# SPDX-License-Identifier: Apache-2.0
 
 [package]
 name = "edgehog-device-runtime"
@@ -33,6 +33,7 @@ members = [
   "e2e-test-forwarder",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
+  "edgehog-device-runtime-store",
   "hardware-id-service",
   "led-manager-service",
 ]
@@ -62,6 +63,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 displaydoc = { workspace = true }
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
+edgehog-store = { workspace = true, optional = true }
 futures = { workspace = true }
 procfs = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
@@ -97,7 +99,7 @@ tokio-stream = { workspace = true, features = ["net"] }
 
 [features]
 default = ["udev", "wifiscanner", "zbus"]
-containers = ["dep:edgehog-containers"]
+containers = ["dep:edgehog-containers", "dep:edgehog-store"]
 forwarder = ["dep:edgehog-forwarder"]
 message-hub = ["astarte-device-sdk/message-hub"]
 systemd = ["dep:systemd"]
@@ -117,10 +119,13 @@ bytes = "1.8.0"
 cfg-if = "1.0.0"
 clap = "=4.4.18"
 color-eyre = "0.6.3"
+diesel = "=2.1.6"
+diesel_migrations = "=2.1.0"
 displaydoc = "0.2.5"
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.8.1" }
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.8.1" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -141,6 +146,7 @@ rustls-pemfile = "2.2.0"
 serde = "1.0.214"
 serde_json = "1.0.133"
 stable-eyre = "0.2.2"
+sync_wrapper = "1.0.2"
 sysinfo = "0.30.13"
 systemd = "0.10.0"
 tempdir = "0.3.7"
