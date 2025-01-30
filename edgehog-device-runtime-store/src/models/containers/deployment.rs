@@ -23,7 +23,7 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, Eq, Filter},
+    dsl::{exists, Eq, Filter, InnerJoin, IsNotNull, LeftJoin},
     expression::AsExpression,
     prelude::*,
     select,
@@ -37,7 +37,10 @@ use super::container::Container;
 use crate::{
     conversions::SqlUuid,
     models::{ExistsFilterById, QueryModel},
-    schema::containers::{deployment_missing_containers, deployments},
+    schema::containers::{
+        container_networks, container_volumes, containers, deployment_containers,
+        deployment_missing_containers, deployments,
+    },
 };
 
 /// Container deployment
@@ -49,6 +52,26 @@ pub struct Deployment {
     pub id: SqlUuid,
     /// Status of the deployment.
     pub status: DeploymentStatus,
+}
+
+type ContainerResources =
+    LeftJoin<LeftJoin<containers::table, container_networks::table>, container_volumes::table>;
+type DeploymentResources = InnerJoin<deployment_containers::table, ContainerResources>;
+type FilteredDeploymentJoin = Filter<DeploymentResources, IsNotNull<containers::image_id>>;
+// type SelectDeploymentResource = Select<FilterImageResource,TryFromCharError>;
+
+impl Deployment {
+    /// Join the deployment with all the resources
+    pub fn join_resources() -> FilteredDeploymentJoin {
+        deployment_containers::table
+            .inner_join(
+                // Join the container related tables
+                containers::table
+                    .left_join(container_networks::table)
+                    .left_join(container_volumes::table),
+            )
+            .filter(containers::image_id.is_not_null())
+    }
 }
 
 impl QueryModel for Deployment {

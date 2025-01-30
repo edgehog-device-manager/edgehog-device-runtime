@@ -47,7 +47,12 @@ pub enum ResourceError {
     /// couldn't complete docker operation
     Docker(#[source] DockerError),
     /// couldn't fetch the {resource} with id {id}
-    Missing { id: Uuid, resource: &'static str },
+    Missing {
+        /// Id of the resource
+        id: Uuid,
+        /// Type of the resource
+        resource: &'static str,
+    },
 }
 
 #[derive(Debug)]

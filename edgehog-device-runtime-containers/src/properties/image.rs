@@ -104,6 +104,6 @@ mod tests {
             })
             .returning(|_, _| Ok(()));
 
-        image.unset(&client).await;
+        image.unset(&client).await.unwrap();
     }
 }

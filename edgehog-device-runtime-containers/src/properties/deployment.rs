@@ -131,6 +131,6 @@ mod tests {
             })
             .returning(|_, _| Ok(()));
 
-        deployment.unset(&client).await;
+        deployment.unset(&client).await.unwrap();
     }
 }

@@ -145,6 +145,6 @@ mod tests {
             })
             .returning(|_, _| Ok(()));
 
-        container.unset(&client).await;
+        container.unset(&client).await.unwrap();
     }
 }

@@ -31,7 +31,7 @@ use super::{Context, Create, Resource, ResourceError, Result, State};
 
 #[derive(Debug)]
 pub(crate) struct ContainerResource {
-    container: Container,
+    pub(crate) container: Container,
 }
 
 impl ContainerResource {

@@ -18,20 +18,14 @@
 
 //! Service to receive and handle the Astarte events.
 
-use std::{
-    collections::HashSet,
-    fmt::{Debug, Display},
-};
+use std::fmt::{Debug, Display};
 
 use astarte_device_sdk::event::FromEventError;
 use edgehog_store::models::containers::deployment::DeploymentStatus;
 use events::ServiceHandle;
-use futures::{FutureExt, TryStreamExt};
-use itertools::Itertools;
-use petgraph::{stable_graph::NodeIndex, visit::Walker};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -56,7 +50,6 @@ use crate::{
 use self::events::AstarteEvent;
 
 pub mod events;
-pub(crate) mod resource;
 
 type Result<T> = std::result::Result<T, ServiceError>;
 
@@ -70,31 +63,12 @@ pub enum ServiceError {
     Docker(#[source] DockerError),
     /// couldn't send data to Astarte
     Astarte(#[from] astarte_device_sdk::Error),
-    /// couldn't {ctx} resource {id}, because it's missing
-    Missing {
-        /// Operation where the error originated
-        ctx: &'static str,
-        /// Id of the resource that is missing
-        id: Id,
-    },
-    /// relation is missing given the index
-    MissingRelation,
     /// couldn't process request
     Request(#[from] ReqError),
     /// store operation failed
     Store(#[from] StoreError),
     /// couldn't complete operation on a resource
     Resource(#[from] ResourceError),
-    /// couldn't parse id, it's an invalid UUID
-    Uuid {
-        /// The invalid [`Id`]
-        id: String,
-        /// Error with the reason it's invalid
-        #[source]
-        source: uuid::Error,
-    },
-    /// BUG couldn't convert missing node
-    BugMissing,
 }
 
 impl<T> From<T> for ServiceError
@@ -158,8 +132,8 @@ impl<D> Service<D> {
     {
         self.publish_received().await?;
 
-        self.start_deployments().await?;
-        self.stop_deployments().await?;
+        self.init_start_deployments().await?;
+        self.init_stop_deployments().await?;
         self.delete_deployments().await?;
 
         info!("init completed");
@@ -168,7 +142,7 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    pub async fn publish_received(&mut self) -> Result<()>
+    async fn publish_received(&mut self) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
@@ -200,7 +174,7 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    pub async fn start_deployments(&mut self) -> Result<()>
+    async fn init_start_deployments(&mut self) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
@@ -212,7 +186,7 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    pub async fn stop_deployments(&mut self) -> Result<()>
+    async fn init_stop_deployments(&mut self) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
@@ -224,7 +198,7 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    pub async fn delete_deployments(&mut self) -> Result<()>
+    async fn delete_deployments(&mut self) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
@@ -384,7 +358,8 @@ impl<D> Service<D> {
                 &self.device,
                 crate::properties::deployment::DeploymentStatus::Started,
             )
-            .await;
+            .await
+            .map_err(ResourceError::Property)?;
 
         Ok(())
     }
@@ -473,7 +448,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let deployment = match self.store.complete_deployment(id).await {
+        let deployment = match self.store.deployment_for_delete(id).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{id} not found");
@@ -487,7 +462,7 @@ impl<D> Service<D> {
             Err(err) => {
                 let err = format!("{:#}", eyre::Report::new(err));
 
-                error!(error = err, "couldn't start deployment");
+                error!(error = err, "couldn't delete deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
                     .send(&id, &self.device)
@@ -514,7 +489,6 @@ impl<D> Service<D> {
         }
     }
 
-    // FIXME: remove only unused resources
     async fn delete_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
     where
         D: Client + Sync + 'static,
@@ -551,88 +525,88 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let from = Id::new(ResourceType::Deployment, from);
-        let to = Id::new(ResourceType::Deployment, to);
+        let from_deployment = match self.store.deployment_update_from(from, to).await {
+            Ok(Some(deployment)) => deployment,
+            Ok(None) => {
+                error!("{from} not found");
+
+                DeploymentEvent::new(EventStatus::Error, format!("{from} not found"))
+                    .send(&to, &self.device)
+                    .await;
+
+                return;
+            }
+            Err(err) => {
+                let err = format!("{:#}", eyre::Report::new(err));
+
+                error!(error = err, "couldn't update deployment");
+
+                DeploymentEvent::new(EventStatus::Error, err)
+                    .send(&to, &self.device)
+                    .await;
+
+                return;
+            }
+        };
+
+        let to_deployment = match self.store.complete_deployment(to).await {
+            Ok(Some(deployment)) => deployment,
+            Ok(None) => {
+                error!("{to} not found");
+
+                DeploymentEvent::new(EventStatus::Error, format!("{to} not found"))
+                    .send(&to, &self.device)
+                    .await;
+
+                return;
+            }
+            Err(err) => {
+                let err = format!("{:#}", eyre::Report::new(err));
+
+                error!(error = err, "couldn't update deployment");
+
+                DeploymentEvent::new(EventStatus::Error, err)
+                    .send(&to, &self.device)
+                    .await;
+
+                return;
+            }
+        };
+
+        info!("update deployment");
 
         DeploymentEvent::new(EventStatus::Updating, "")
-            .send(from.uuid(), &self.device)
+            .send(&from, &self.device)
             .await;
 
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
-        if let Err(err) = self.update_deployment(from, to).await {
+        if let Err(err) = self
+            .update_deployment(from, from_deployment, to, to_deployment)
+            .await
+        {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't update deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(from.uuid(), &self.device)
+                .send(&from, &self.device)
                 .await;
         }
     }
 
-    async fn update_deployment(&mut self, from: Id, to: Id) -> Result<()>
+    async fn update_deployment(
+        &mut self,
+        from: Uuid,
+        from_deployment: Vec<Uuid>,
+        to: Uuid,
+        to_deployment: Deployment,
+    ) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        let to_deployment = self.nodes.node(&to).ok_or(ServiceError::Missing {
-            ctx: "update",
-            id: to,
-        })?;
+        self.stop_deployment(from, from_deployment).await?;
 
-        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), to_deployment.idx);
-        let to_start_ids = space
-            .iter(self.nodes.relations())
-            .map(|idx| {
-                self.nodes
-                    .get_id(idx)
-                    .copied()
-                    .ok_or(ServiceError::MissingRelation)
-            })
-            .collect::<Result<HashSet<Id>>>()?;
-
-        let from_deployment = self.nodes.node(&from).ok_or(ServiceError::Missing {
-            ctx: "update",
-            id: to,
-        })?;
-
-        let space = petgraph::visit::DfsPostOrder::new(self.nodes.relations(), from_deployment.idx);
-        let to_stop_ids = space
-            .iter(self.nodes.relations())
-            .filter_map(|idx| {
-                let Some(id) = self.nodes.get_id(idx) else {
-                    return Some(Err(ServiceError::MissingRelation));
-                };
-
-                // Skip container in the start set
-                if to_start_ids.contains(id) {
-                    trace!("{id} present in the update");
-
-                    return None;
-                }
-
-                Some(Ok(*id))
-            })
-            .collect::<Result<Vec<Id>>>()?;
-
-        debug!("stopping {} containers", to_stop_ids.len());
-
-        for id in to_stop_ids {
-            let node = self
-                .nodes
-                .node_mut(&id)
-                .ok_or_else(|| ServiceError::Missing { id, ctx: "update" })?;
-
-            node.stop(&self.device, &self.client).await?;
-        }
-
-        for id in to_start_ids {
-            let node = self
-                .nodes
-                .node_mut(&id)
-                .ok_or_else(|| ServiceError::Missing { id, ctx: "update" })?;
-
-            node.up(&self.device, &self.client).await?;
-        }
+        self.start_deployment(to, to_deployment).await?;
 
         Ok(())
     }
@@ -640,7 +614,7 @@ impl<D> Service<D> {
 
 /// Id of the nodes in the Service graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Id {
+pub(crate) struct Id {
     rt: ResourceType,
     id: Uuid,
 }
@@ -653,13 +627,6 @@ impl Id {
 
     pub(crate) fn uuid(&self) -> &Uuid {
         &self.id
-    }
-
-    /// Returns `true` if the [`ResourceType`] is a [`Deployment`]
-    ///
-    /// [`Deployment`]: ResourceType::Deployment
-    fn is_deployment(&self) -> bool {
-        matches!(self.rt, ResourceType::Deployment)
     }
 
     fn resource_type(&self) -> ResourceType {
@@ -711,7 +678,6 @@ mod tests {
     use astarte_device_sdk_mock::MockDeviceClient;
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
-    use resource::{NodeResource, NodeType};
     use tempfile::TempDir;
     use uuid::uuid;
 
@@ -782,16 +748,9 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let id = Id::new(ResourceType::Image, id);
-        let node = service.nodes.node(&id).unwrap();
+        let (state, image) = Image::fetch(&mut service.context(id)).await.unwrap();
 
-        let Some(NodeResource {
-            value: NodeType::Image(image),
-            ..
-        }) = &node.resource
-        else {
-            panic!("incorrect node {node:?}");
-        };
+        assert_eq!(state, State::Missing);
 
         let exp = Image {
             id: None,
@@ -799,7 +758,7 @@ mod tests {
             registry_auth: None,
         };
 
-        assert_eq!(*image, exp);
+        assert_eq!(image, exp);
     }
 
     #[tokio::test]
@@ -834,25 +793,20 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let id = Id::new(ResourceType::Volume, id);
-        let node = service.nodes.node(&id).unwrap();
+        let (state, volume) = Volume::fetch(&mut service.context(id)).await.unwrap();
 
-        let Some(NodeResource {
-            value: NodeType::Volume(volume),
-            ..
-        }) = &node.resource
-        else {
-            panic!("incorrect node {node:?}");
-        };
+        assert_eq!(state, State::Missing);
 
-        let name = id.uuid().to_string();
         let exp = Volume {
-            name: name.as_str(),
-            driver: "local",
-            driver_opts: HashMap::from([("foo".to_string(), "bar"), ("some".to_string(), "")]),
+            name: id.to_string(),
+            driver: "local".to_string(),
+            driver_opts: HashMap::from([
+                ("foo".to_string(), "bar".to_string()),
+                ("some".to_string(), "".to_string()),
+            ]),
         };
 
-        assert_eq!(*volume, exp);
+        assert_eq!(volume, exp);
     }
 
     #[tokio::test]
@@ -888,28 +842,20 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let id = Id::new(ResourceType::Network, id);
-        let node = service.nodes.node(&id).unwrap();
+        let (state, network) = Network::fetch(&mut service.context(id)).await.unwrap();
 
-        let Some(NodeResource {
-            value: NodeType::Network(network),
-            ..
-        }) = &node.resource
-        else {
-            panic!("incorrect node {node:?}");
-        };
+        assert_eq!(state, State::Missing);
 
-        let id = id.uuid().to_string();
         let exp = Network {
             id: None,
-            name: id.as_str(),
-            driver: "bridged",
+            name: id.to_string(),
+            driver: "bridged".to_string(),
             internal: false,
             enable_ipv6: false,
             driver_opts: HashMap::new(),
         };
 
-        assert_eq!(*network, exp);
+        assert_eq!(network, exp);
     }
 
     #[tokio::test]
@@ -951,29 +897,23 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let id = Id::new(ResourceType::Container, id);
-        let node = service.nodes.node(&id).unwrap();
+        let (state, resource) = ContainerResource::fetch(&mut service.context(id))
+            .await
+            .unwrap();
 
-        let Some(NodeResource {
-            value: NodeType::Container(container),
-            ..
-        }) = &node.resource
-        else {
-            panic!("incorrect node {node:?}");
-        };
+        assert_eq!(state, State::Missing);
 
-        let id = id.uuid().to_string();
         let exp = Container {
             id: None,
-            name: id.as_str(),
-            image: "image",
-            network_mode: "bridge",
-            networks: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
-            hostname: Some("hostname"),
+            name: id.to_string(),
+            image: "image".to_string(),
+            network_mode: "bridge".to_string(),
+            networks: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196".to_string()],
+            hostname: Some("hostname".to_string()),
             restart_policy: RestartPolicy::No,
-            env: vec!["env"],
-            binds: vec!["binds"],
-            port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
+            env: vec!["env".to_string()],
+            binds: vec!["binds".to_string()],
+            port_bindings: PortBindingMap(HashMap::from_iter([(
                 "80/tcp".to_string(),
                 vec![Binding {
                     host_ip: None,
@@ -983,7 +923,7 @@ mod tests {
             privileged: false,
         };
 
-        assert_eq!(*container, exp);
+        assert_eq!(resource.container, exp);
     }
 
     #[tokio::test]

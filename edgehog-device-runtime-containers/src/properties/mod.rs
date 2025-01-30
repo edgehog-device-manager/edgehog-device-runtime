@@ -41,9 +41,19 @@ pub(crate) mod volume;
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum PropertyError {
     /// couldn't send property {interface}{endpoint}
-    Send { interface: String, endpoint: String },
+    Send {
+        /// Interface of the property
+        interface: String,
+        /// Endpoint of the property
+        endpoint: String,
+    },
     /// couldn't unset property {interface}{endpoint}
-    Unset { interface: String, endpoint: String },
+    Unset {
+        /// Interface of the property
+        interface: String,
+        /// Endpoint of the property
+        endpoint: String,
+    },
 }
 
 #[async_trait]

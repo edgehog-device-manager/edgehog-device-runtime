@@ -18,8 +18,9 @@
 
 use diesel::dsl::exists;
 use diesel::{
-    delete, insert_or_ignore_into, select, update, ExpressionMethods, NullableExpressionMethods,
-    OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper, SqliteConnection,
+    delete, insert_or_ignore_into, select, update, CombineDsl, ExpressionMethods,
+    NullableExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
+    SqliteConnection,
 };
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
@@ -29,16 +30,15 @@ use edgehog_store::models::containers::deployment::{
 };
 use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{
-    container_missing_images, container_missing_networks, container_missing_volumes,
-    container_networks, container_volumes, containers, deployment_containers,
-    deployment_missing_containers, deployments,
+    container_missing_images, container_missing_networks, container_missing_volumes, containers,
+    deployment_containers, deployment_missing_containers, deployments,
 };
 use itertools::Itertools;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::requests::deployment::CreateDeployment;
-use crate::resource::deployment::Deployment as DeploymentResource;
+use crate::resource::deployment::{Deployment as DeploymentResource, DeploymentRow};
 
 use super::{Result, StateStore};
 
@@ -198,7 +198,7 @@ impl StateStore {
         Ok(deployment)
     }
 
-    /// Fetches an deployment by id
+    /// Fetches the containers for a deployment
     #[instrument(skip(self))]
     pub(crate) async fn deployment_containers(&mut self, id: Uuid) -> Result<Option<Vec<Uuid>>> {
         let containers = self
@@ -241,14 +241,29 @@ impl StateStore {
                     return Ok(None);
                 }
 
-                deployment_resource(reader, &id).map(Some)
+                let rows = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select((
+                        deployment_containers::container_id,
+                        containers::image_id.assume_not_null(),
+                        Option::<ContainerNetwork>::as_select(),
+                        Option::<ContainerVolume>::as_select(),
+                    ))
+                    .load::<(
+                        SqlUuid,
+                        SqlUuid,
+                        Option<ContainerNetwork>,
+                        Option<ContainerVolume>,
+                    )>(reader)?;
+
+                Ok(Some(DeploymentResource::from(rows)))
             })
             .await?;
 
         Ok(deployment)
     }
 
-    pub(crate) async fn deployment_resource(
+    pub(crate) async fn deployment_for_delete(
         &mut self,
         id: Uuid,
     ) -> Result<Option<DeploymentResource>> {
@@ -261,58 +276,71 @@ impl StateStore {
                     return Ok(None);
                 }
 
-                deployment_resource(reader, &id).map(Some)
+                // Delete only the resources present in this deployment
+                let rows = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select((
+                        deployment_containers::container_id,
+                        containers::image_id.assume_not_null(),
+                        Option::<ContainerNetwork>::as_select(),
+                        Option::<ContainerVolume>::as_select(),
+                    ))
+                    .except(
+                        Deployment::join_resources()
+                            .filter(deployment_containers::deployment_id.ne(id))
+                            .select((
+                                deployment_containers::container_id,
+                                containers::image_id.assume_not_null(),
+                                Option::<ContainerNetwork>::as_select(),
+                                Option::<ContainerVolume>::as_select(),
+                            )),
+                    )
+                    .load::<DeploymentRow>(reader)?;
+
+                Ok(Some(DeploymentResource::from(rows)))
             })
             .await?;
 
         Ok(deployment)
     }
-}
 
-fn deployment_resource(
-    reader: &mut SqliteConnection,
-    id: &SqlUuid,
-) -> std::result::Result<DeploymentResource, HandleError> {
-    let values = deployment_containers::table
-        .inner_join(
-            // Join the container related tables
-            containers::table
-                .left_join(container_networks::table)
-                .left_join(container_volumes::table),
-        )
-        .select((
-            deployment_containers::container_id,
-            containers::image_id.assume_not_null(),
-            Option::<ContainerNetwork>::as_select(),
-            Option::<ContainerVolume>::as_select(),
-        ))
-        .filter(deployment_containers::deployment_id.eq(id))
-        .filter(containers::image_id.is_not_null())
-        .load::<(
-            SqlUuid,
-            SqlUuid,
-            Option<ContainerNetwork>,
-            Option<ContainerVolume>,
-        )>(reader)?;
+    /// Fetches the containers for a deployment
+    #[instrument(skip(self))]
+    pub(crate) async fn deployment_update_from(
+        &mut self,
+        from: Uuid,
+        to: Uuid,
+    ) -> Result<Option<Vec<Uuid>>> {
+        let containers = self
+            .handle
+            .for_read(move |reader| {
+                let from = SqlUuid::new(from);
+                if !Deployment::exists(&from).get_result(reader)? {
+                    return Ok(None);
+                }
 
-    let resource = values.into_iter().fold(
-        DeploymentResource::default(),
-        |mut acc, (container_id, image_id, c_network, c_volume)| {
-            acc.containers.insert(*container_id);
-            acc.images.insert(*image_id);
+                let to = SqlUuid::new(from);
 
-            if let Some(c_network) = c_network {
-                acc.networks.insert(*c_network.network_id);
-            }
+                let containers = deployment_containers::table
+                    .select(deployment_containers::container_id)
+                    .filter(deployment_containers::deployment_id.eq(from))
+                    // Exclude container in the update
+                    .except(
+                        deployment_containers::table
+                            .select(deployment_containers::container_id)
+                            .filter(deployment_containers::deployment_id.eq(to)),
+                    )
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect_vec();
 
-            if let Some(c_volume) = c_volume {
-                acc.volumes.insert(*c_volume.volume_id);
-            }
-            acc
-        },
-    );
+                Ok(Some(containers))
+            })
+            .await?;
 
-    Ok(resource)
+        Ok(containers)
+    }
 }
 
 /// Check that a deployment with the given id exists, and there are no missing rows
@@ -431,10 +459,7 @@ mod tests {
         assert_eq!(deployment, Some(exp));
 
         let containers = store.deployment_containers(deployment_id).await.unwrap();
-        let exp = vec![DeploymentContainer {
-            deployment_id: SqlUuid::new(deployment_id),
-            container_id: SqlUuid::new(container_id),
-        }];
+        let exp = Some(vec![container_id]);
         assert_eq!(containers, exp);
     }
 

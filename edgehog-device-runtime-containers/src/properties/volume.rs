@@ -104,6 +104,6 @@ mod tests {
             })
             .returning(|_, _| Ok(()));
 
-        volume.unset(&client).await;
+        volume.unset(&client).await.unwrap();
     }
 }

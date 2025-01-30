@@ -104,6 +104,6 @@ mod tests {
             })
             .returning(|_, _| Ok(()));
 
-        network.unset(&client).await;
+        network.unset(&client).await.unwrap();
     }
 }

@@ -19,7 +19,13 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use edgehog_store::models::containers::deployment::DeploymentStatus;
+use edgehog_store::{
+    conversions::SqlUuid,
+    models::containers::{
+        container::{ContainerNetwork, ContainerVolume},
+        deployment::DeploymentStatus,
+    },
+};
 use uuid::Uuid;
 
 use crate::properties::{
@@ -29,12 +35,43 @@ use crate::properties::{
 
 use super::{Context, Resource, Result};
 
+/// Row for a deployment
+///
+/// It's made of the columns: container_id, image_id, network_id, volume_id
+pub(crate) type DeploymentRow = (
+    SqlUuid,
+    SqlUuid,
+    Option<ContainerNetwork>,
+    Option<ContainerVolume>,
+);
+
 #[derive(Debug, Default)]
 pub(crate) struct Deployment {
+    pub(crate) containers: HashSet<Uuid>,
     pub(crate) images: HashSet<Uuid>,
     pub(crate) volumes: HashSet<Uuid>,
     pub(crate) networks: HashSet<Uuid>,
-    pub(crate) containers: HashSet<Uuid>,
+}
+
+impl From<Vec<DeploymentRow>> for Deployment {
+    fn from(value: Vec<DeploymentRow>) -> Self {
+        value.into_iter().fold(
+            Self::default(),
+            |mut acc, (container_id, image_id, c_network, c_volume)| {
+                acc.containers.insert(*container_id);
+                acc.images.insert(*image_id);
+
+                if let Some(c_network) = c_network {
+                    acc.networks.insert(*c_network.network_id);
+                }
+
+                if let Some(c_volume) = c_volume {
+                    acc.volumes.insert(*c_volume.volume_id);
+                }
+                acc
+            },
+        )
+    }
 }
 
 #[async_trait]

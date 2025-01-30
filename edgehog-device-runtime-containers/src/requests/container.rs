@@ -27,7 +27,6 @@ use tracing::{instrument, trace};
 use crate::{
     container::{Binding, Container, PortBindingMap},
     requests::BindingError,
-    service::{Id, ResourceType},
 };
 
 use super::{ReqError, ReqUuid, VecReqUuid};
@@ -59,23 +58,6 @@ pub struct CreateContainer {
     pub(crate) network_mode: String,
     pub(crate) port_bindings: Vec<String>,
     pub(crate) privileged: bool,
-}
-
-impl CreateContainer {
-    pub(crate) fn dependencies(&self) -> Vec<Id> {
-        std::iter::once(Id::new(ResourceType::Image, *self.image_id))
-            .chain(
-                self.network_ids
-                    .iter()
-                    .map(|id| Id::new(ResourceType::Network, **id)),
-            )
-            .chain(
-                self.volume_ids
-                    .iter()
-                    .map(|id| Id::new(ResourceType::Volume, **id)),
-            )
-            .collect()
-    }
 }
 
 impl TryFrom<CreateContainer> for Container<String> {
