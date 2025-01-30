@@ -19,7 +19,6 @@
 //! Database schema definitions
 
 #[cfg(feature = "containers")]
-#[allow(missing_docs)]
 pub mod containers;
 
 /// Embedded migrations

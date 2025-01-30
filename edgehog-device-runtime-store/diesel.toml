@@ -23,6 +23,7 @@
 file = "src/schema/containers.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 with_docs = true
+patch_file = "assets/schema.patch"
 
 [migrations_directory]
 dir = "migrations"
