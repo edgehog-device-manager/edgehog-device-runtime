@@ -30,6 +30,7 @@ use itertools::Itertools;
 use tracing::instrument;
 use uuid::Uuid;
 
+use crate::resource::network::NetworkResource;
 use crate::{docker::network::Network as ContainerNetwork, requests::network::CreateNetwork};
 
 use super::{split_key_value, Result, StateStore, StoreError};
@@ -126,22 +127,6 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn network(&mut self, network_id: Uuid) -> Result<Option<Network>> {
-        let network = self
-            .handle
-            .for_read(move |reader| {
-                let network: Option<Network> = Network::find_id(&SqlUuid::new(network_id))
-                    .first(reader)
-                    .optional()?;
-
-                Ok(network)
-            })
-            .await?;
-
-        Ok(network)
-    }
-
-    #[instrument(skip(self))]
     pub(crate) async fn unpublished_networks(&mut self) -> Result<Vec<SqlUuid>> {
         let networks = self
             .handle
@@ -159,10 +144,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn network_for_container(
-        &mut self,
-        network_id: Uuid,
-    ) -> Result<Option<ContainerNetwork<String>>> {
+    pub(crate) async fn network(&mut self, network_id: Uuid) -> Result<Option<NetworkResource>> {
         let network = self
             .handle
             .for_read(move |reader| {
@@ -179,14 +161,14 @@ impl StateStore {
                     .map(|opt| (opt.name, opt.value))
                     .collect();
 
-                Ok(Some(ContainerNetwork {
+                Ok(Some(NetworkResource::new(ContainerNetwork {
                     id: network.local_id,
                     name: network.id.to_string(),
                     driver: network.driver,
                     internal: network.internal,
                     enable_ipv6: network.enable_ipv6,
                     driver_opts,
-                }))
+                })))
             })
             .await?;
 
@@ -270,6 +252,19 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
+    async fn find_network(store: &mut StateStore, id: Uuid) -> Option<Network> {
+        store
+            .handle
+            .for_read(move |reader| {
+                Network::find_id(&SqlUuid::new(id))
+                    .first::<Network>(reader)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn should_store() {
         let tmp = TempDir::with_prefix("store_network").unwrap();
@@ -289,7 +284,7 @@ mod tests {
         };
         store.create_network(network).await.unwrap();
 
-        let res = store.network(network_id).await.unwrap();
+        let res = find_network(&mut store, network_id).await.unwrap();
 
         let exp = Network {
             id: SqlUuid::new(network_id),
@@ -300,7 +295,7 @@ mod tests {
             enable_ipv6: false,
         };
 
-        assert_eq!(res, Some(exp));
+        assert_eq!(res, exp);
 
         let network_opts = store.network_opts(network_id).await.unwrap();
 
@@ -338,7 +333,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = store.network(network_id).await.unwrap();
+        let res = find_network(&mut store, network_id).await.unwrap();
 
         let exp = Network {
             id: SqlUuid::new(network_id),
@@ -349,6 +344,6 @@ mod tests {
             enable_ipv6: false,
         };
 
-        assert_eq!(res, Some(exp));
+        assert_eq!(res, exp);
     }
 }

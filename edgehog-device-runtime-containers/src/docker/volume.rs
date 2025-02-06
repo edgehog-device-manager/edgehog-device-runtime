@@ -73,26 +73,6 @@ impl<S> Volume<S> {
         }
     }
 
-    /// Check if the volume exists if the id is set, otherwise it will try creating it.
-    ///
-    /// Returns true if the volume was created.
-    pub async fn inspect_or_create(&self, client: &Client) -> Result<bool, VolumeError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
-        if let Some(vol) = self.inspect(client).await? {
-            trace!("found volume {vol:?}");
-
-            return Ok(false);
-        }
-
-        debug!("volume not found, creating it");
-
-        self.create(client).await?;
-
-        Ok(true)
-    }
-
     /// Create a new docker volume.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
@@ -234,10 +214,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::{
-        docker_mock,
-        tests::{not_found_response, random_name},
-    };
+    use crate::{docker_mock, tests::random_name};
 
     #[tokio::test]
     async fn should_create_volume() {
@@ -355,49 +332,5 @@ mod tests {
         let v = volume.inspect(&docker).await.unwrap();
 
         assert_eq!(v, None);
-    }
-    #[tokio::test]
-    async fn should_inspect_or_create_volume() {
-        let name = random_name("inspect_or_create");
-
-        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            let mut mock = Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            let volume = bollard::models::Volume {
-                name: name.clone(),
-                driver: "local".to_string(),
-                ..Default::default()
-            };
-
-            let name_cl = name.clone();
-            mock.expect_inspect_volume()
-                .withf(move |name| name == name_cl)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| Err(not_found_response()));
-
-            let v_cl = volume.clone();
-            let name_cl = name.clone();
-            mock.expect_create_volume()
-                .withf(move |option| option.name == name_cl && option.driver == "local")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_| Ok(v_cl.clone()));
-
-            let name_cl = name.clone();
-            mock.expect_inspect_volume()
-                .withf(move |name| name == name_cl)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_| Ok(volume.clone()));
-
-            mock
-        });
-
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
-
-        assert!(volume.inspect_or_create(&docker).await.unwrap());
-        assert!(!volume.inspect_or_create(&docker).await.unwrap());
     }
 }

@@ -26,8 +26,19 @@ use crate::{
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
 
+#[derive(Debug, Clone)]
+pub(crate) struct NetworkResource {
+    pub(crate) network: Network,
+}
+
+impl NetworkResource {
+    pub(crate) fn new(network: Network) -> Self {
+        Self { network }
+    }
+}
+
 #[async_trait]
-impl<D> Resource<D> for Network
+impl<D> Resource<D> for NetworkResource
 where
     D: Client + Sync + 'static,
 {
@@ -45,34 +56,34 @@ where
 }
 
 #[async_trait]
-impl<D> Create<D> for Network
+impl<D> Create<D> for NetworkResource
 where
     D: Client + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
-        let mut network =
-            ctx.store
-                .network_for_container(ctx.id)
-                .await?
-                .ok_or(ResourceError::Missing {
-                    id: ctx.id,
-                    resource: "network",
-                })?;
+        let mut resource = ctx
+            .store
+            .network(ctx.id)
+            .await?
+            .ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: "network",
+            })?;
 
-        let exists = network.inspect(ctx.client).await?.is_some();
+        let exists = resource.network.inspect(ctx.client).await?.is_some();
 
         if exists {
             ctx.store
-                .update_network_local_id(ctx.id, network.id.clone())
+                .update_network_local_id(ctx.id, resource.network.id.clone())
                 .await?;
 
-            Ok((State::Created, network))
+            Ok((State::Created, resource))
         } else {
-            Ok((State::Missing, network))
+            Ok((State::Missing, resource))
         }
     }
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.inspect_or_create(ctx.client).await?;
+        self.network.create(ctx.client).await?;
 
         AvailableNetwork::new(&ctx.id)
             .send(ctx.device, true)
@@ -86,7 +97,7 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.remove(ctx.client).await?;
+        self.network.remove(ctx.client).await?;
 
         AvailableNetwork::new(&ctx.id).unset(ctx.device).await?;
 

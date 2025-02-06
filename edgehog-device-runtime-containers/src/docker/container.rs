@@ -188,25 +188,6 @@ where
             .collect()
     }
 
-    /// Check if the container exists, if the id is set, otherwise it will try creating it.
-    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<bool, ContainerError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
-        // Check also a container with the same name
-        if let Some(container) = self.inspect(client).await? {
-            trace!("found container {container:?}");
-
-            return Ok(false);
-        }
-
-        debug!("container not found, creating it");
-
-        self.create(client).await?;
-
-        Ok(true)
-    }
-
     /// Create a new docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate)

@@ -29,7 +29,7 @@ use crate::{
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ContainerResource {
     pub(crate) container: Container,
 }
@@ -143,7 +143,7 @@ where
         }
     }
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.container.inspect_or_create(ctx.client).await?;
+        self.container.create(ctx.client).await?;
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Created)

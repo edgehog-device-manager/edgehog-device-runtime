@@ -26,8 +26,19 @@ use crate::{
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
 
+#[derive(Debug, Clone)]
+pub(crate) struct VolumeResource {
+    pub(crate) volume: Volume,
+}
+
+impl VolumeResource {
+    pub(crate) fn new(volume: Volume) -> Self {
+        Self { volume }
+    }
+}
+
 #[async_trait]
-impl<D> Resource<D> for Volume
+impl<D> Resource<D> for VolumeResource
 where
     D: Client + Sync + 'static,
 {
@@ -45,31 +56,31 @@ where
 }
 
 #[async_trait]
-impl<D> Create<D> for Volume
+impl<D> Create<D> for VolumeResource
 where
     D: Client + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
-        let volume =
-            ctx.store
-                .volume_for_container(ctx.id)
-                .await?
-                .ok_or(ResourceError::Missing {
-                    id: ctx.id,
-                    resource: "volume",
-                })?;
+        let resource = ctx
+            .store
+            .volume(ctx.id)
+            .await?
+            .ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: "volume",
+            })?;
 
-        let exists = volume.inspect(ctx.client).await?.is_some();
+        let exists = resource.volume.inspect(ctx.client).await?.is_some();
 
         if exists {
-            Ok((State::Created, volume))
+            Ok((State::Created, resource))
         } else {
-            Ok((State::Missing, volume))
+            Ok((State::Missing, resource))
         }
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.inspect_or_create(ctx.client).await?;
+        self.volume.create(ctx.client).await?;
 
         AvailableVolume::new(&ctx.id).send(ctx.device, true).await?;
 
@@ -81,7 +92,7 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.remove(ctx.client).await?;
+        self.volume.remove(ctx.client).await?;
 
         AvailableVolume::new(&ctx.id).unset(ctx.device).await?;
 

@@ -26,8 +26,19 @@ use crate::{
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
 
+#[derive(Debug, Clone)]
+pub(crate) struct ImageResource {
+    pub(crate) image: Image,
+}
+
+impl ImageResource {
+    pub(crate) fn new(image: Image) -> Self {
+        Self { image }
+    }
+}
+
 #[async_trait]
-impl<D> Resource<D> for Image
+impl<D> Resource<D> for ImageResource
 where
     D: Client + Sync + 'static,
 {
@@ -43,12 +54,12 @@ where
 }
 
 #[async_trait]
-impl<D> Create<D> for Image
+impl<D> Create<D> for ImageResource
 where
     D: Client + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
-        let image = ctx
+        let mut resource = ctx
             .store
             .image(ctx.id)
             .await?
@@ -57,26 +68,24 @@ where
                 resource: "image",
             })?;
 
-        let mut image = Image::from(image);
-
-        let exists = image.inspect(ctx.client).await?.is_some();
+        let exists = resource.image.inspect(ctx.client).await?.is_some();
 
         if exists {
             ctx.store
-                .update_image_local_id(ctx.id, image.id.clone())
+                .update_image_local_id(ctx.id, resource.image.id.clone())
                 .await?;
 
-            Ok((State::Created, image))
+            Ok((State::Created, resource))
         } else {
-            Ok((State::Missing, image))
+            Ok((State::Missing, resource))
         }
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.inspect_or_create(ctx.client).await?;
+        self.image.pull(ctx.client).await?;
 
         ctx.store
-            .update_image_local_id(ctx.id, self.id.clone())
+            .update_image_local_id(ctx.id, self.image.id.clone())
             .await?;
 
         AvailableImage::new(&ctx.id).send(ctx.device, true).await?;
@@ -89,7 +98,7 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.remove(ctx.client).await?;
+        self.image.remove(ctx.client).await?;
 
         AvailableImage::new(&ctx.id).unset(ctx.device).await?;
 

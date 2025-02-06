@@ -29,8 +29,9 @@ use edgehog_store::{
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::docker;
+use crate::docker::image::Image as ContainerImage;
 use crate::requests::image::CreateImage;
+use crate::resource::image::ImageResource;
 
 use super::{Result, StateStore};
 
@@ -141,7 +142,7 @@ impl StateStore {
 
     /// Fetches an image by id
     #[instrument(skip(self))]
-    pub(crate) async fn image(&mut self, id: Uuid) -> Result<Option<Image>> {
+    pub(crate) async fn image(&mut self, id: Uuid) -> Result<Option<ImageResource>> {
         let image = self
             .handle
             .for_read(move |reader| {
@@ -150,7 +151,8 @@ impl StateStore {
 
                 Ok(image)
             })
-            .await?;
+            .await?
+            .map(|img| ImageResource::new(ContainerImage::from(img)));
 
         Ok(image)
     }
@@ -224,7 +226,7 @@ impl From<CreateImage> for Image {
     }
 }
 
-impl From<Image> for docker::image::Image<String> {
+impl From<Image> for ContainerImage {
     fn from(value: Image) -> Self {
         Self {
             id: value.local_id,
@@ -244,6 +246,19 @@ mod tests {
 
     use crate::requests::image::tests::mock_image_req;
 
+    async fn find_image(store: &mut StateStore, id: Uuid) -> Option<Image> {
+        store
+            .handle
+            .for_read(move |reader| {
+                Image::find_id(&SqlUuid::new(id))
+                    .first::<Image>(reader)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn should_store() {
         let tmp = TempDir::with_prefix("store_image").unwrap();
@@ -257,7 +272,7 @@ mod tests {
         let image = mock_image_req(image_id, "postgres:15", "");
         store.create_image(image).await.unwrap();
 
-        let res = store.image(image_id).await.unwrap();
+        let res = find_image(&mut store, image_id).await.unwrap();
 
         let exp = Image {
             id: SqlUuid::new(image_id),
@@ -267,7 +282,7 @@ mod tests {
             registry_auth: None,
         };
 
-        assert_eq!(res, Some(exp))
+        assert_eq!(res, exp)
     }
 
     #[tokio::test]
@@ -331,7 +346,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = store.image(image_id).await.unwrap();
+        let res = find_image(&mut store, image_id).await.unwrap();
 
         let exp = Image {
             id: SqlUuid::new(image_id),
@@ -341,6 +356,6 @@ mod tests {
             registry_auth: None,
         };
 
-        assert_eq!(res, Some(exp))
+        assert_eq!(res, exp)
     }
 }

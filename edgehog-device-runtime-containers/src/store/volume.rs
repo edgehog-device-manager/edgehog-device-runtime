@@ -32,6 +32,7 @@ use uuid::Uuid;
 
 use crate::docker::volume::Volume as ContainerVolume;
 use crate::requests::volume::CreateVolume;
+use crate::resource::volume::VolumeResource;
 
 use super::{split_key_value, Result, StateStore, StoreError};
 
@@ -99,23 +100,6 @@ impl StateStore {
         Ok(())
     }
 
-    /// Fetches an volume by id
-    #[instrument(skip(self))]
-    pub(crate) async fn volume(&mut self, id: Uuid) -> Result<Option<Volume>> {
-        let volume = self
-            .handle
-            .for_read(move |reader| {
-                let volume = Volume::find_id(&SqlUuid::new(id))
-                    .first(reader)
-                    .optional()?;
-
-                Ok(volume)
-            })
-            .await?;
-
-        Ok(volume)
-    }
-
     #[instrument(skip(self))]
     pub(crate) async fn unpublished_volumes(&mut self) -> Result<Vec<SqlUuid>> {
         let volumes = self
@@ -135,10 +119,7 @@ impl StateStore {
 
     /// Fetches an volume by id
     #[instrument(skip(self))]
-    pub(crate) async fn volume_for_container(
-        &mut self,
-        id: Uuid,
-    ) -> Result<Option<ContainerVolume<String>>> {
+    pub(crate) async fn volume(&mut self, id: Uuid) -> Result<Option<VolumeResource>> {
         let volume = self
             .handle
             .for_read(move |reader| {
@@ -156,11 +137,11 @@ impl StateStore {
                     .map(|opt| (opt.name, opt.value))
                     .collect();
 
-                Ok(Some(ContainerVolume {
+                Ok(Some(VolumeResource::new(ContainerVolume {
                     name: volume.id.to_string(),
                     driver: volume.driver,
                     driver_opts,
-                }))
+                })))
             })
             .await?;
 
@@ -237,6 +218,19 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
+    async fn find_volume(store: &mut StateStore, id: Uuid) -> Option<Volume> {
+        store
+            .handle
+            .for_read(move |reader| {
+                Volume::find_id(&SqlUuid::new(id))
+                    .first(reader)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn should_store() {
         let tmp = TempDir::with_prefix("store_volume").unwrap();
@@ -256,7 +250,7 @@ mod tests {
         };
         store.create_volume(volume).await.unwrap();
 
-        let res = store.volume(volume_id).await.unwrap();
+        let res = find_volume(&mut store, volume_id).await.unwrap();
 
         let exp = Volume {
             id: SqlUuid::new(volume_id),
@@ -264,7 +258,7 @@ mod tests {
             driver: "local".to_string(),
         };
 
-        assert_eq!(res, Some(exp));
+        assert_eq!(res, exp);
 
         let volume_opts = store.volume_opts(volume_id).await.unwrap();
 
@@ -314,7 +308,7 @@ mod tests {
         };
         store.create_volume(volume).await.unwrap();
 
-        let res = store.volume(volume_id).await.unwrap();
+        let res = find_volume(&mut store, volume_id).await.unwrap();
 
         let exp = Volume {
             id: SqlUuid::new(volume_id),
@@ -322,7 +316,7 @@ mod tests {
             driver: "local".to_string(),
         };
 
-        assert_eq!(res, Some(exp));
+        assert_eq!(res, exp);
 
         let volume_opts = store.volume_opts(volume_id).await.unwrap();
 
@@ -377,7 +371,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = store.volume(volume_id).await.unwrap();
+        let res = find_volume(&mut store, volume_id).await.unwrap();
 
         let exp = Volume {
             id: SqlUuid::new(volume_id),
@@ -385,6 +379,6 @@ mod tests {
             driver: "local".to_string(),
         };
 
-        assert_eq!(res, Some(exp));
+        assert_eq!(res, exp);
     }
 }

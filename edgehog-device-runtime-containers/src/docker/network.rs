@@ -128,26 +128,6 @@ impl<S> Network<S> {
         }
     }
 
-    /// Check if the network exists if the id is set, otherwise it will try creating it.
-    ///
-    /// Returns true if the network was created.
-    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<bool, NetworkError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
-        if let Some(net) = self.inspect(client).await? {
-            trace!("found network {net:?}");
-
-            return Ok(false);
-        }
-
-        debug!("network not found, creating it");
-
-        self.create(client).await?;
-
-        Ok(true)
-    }
-
     /// Create a new docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkCreate)
@@ -302,10 +282,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        docker_mock,
-        tests::{not_found_response, random_name},
-    };
+    use crate::{docker_mock, tests::random_name};
 
     use super::*;
 
@@ -445,59 +422,5 @@ mod tests {
             .await
             .expect("error removing")
             .expect("none response");
-    }
-
-    #[tokio::test]
-    async fn should_inspect_or_create_network() {
-        let name = random_name("inspect_or_create");
-
-        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            let mut mock = Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            let network = bollard::models::Network {
-                name: Some(name.clone()),
-                id: Some("id".to_string()),
-                driver: Some("bridge".to_string()),
-                ..Default::default()
-            };
-
-            let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
-            };
-
-            let name_cl = name.clone();
-            mock.expect_inspect_network()
-                .withf(move |name, _| name == name_cl)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_, _| Err(not_found_response()));
-
-            let name_cl = name.clone();
-            mock.expect_create_network()
-                .withf(move |option| option.name == name_cl && option.driver == "bridge")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_| Ok(resp.clone()));
-
-            mock.expect_inspect_network()
-                .withf(|name, _| name == "id")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_, _| Ok(network.clone()));
-
-            mock
-        });
-
-        let mut network = new_network(name.as_str());
-
-        let created = network.inspect_or_create(&docker).await.unwrap();
-
-        assert!(created);
-
-        let created = network.inspect_or_create(&docker).await.unwrap();
-
-        assert!(!created);
     }
 }

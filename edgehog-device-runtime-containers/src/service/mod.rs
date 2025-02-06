@@ -31,19 +31,17 @@ use uuid::Uuid;
 use crate::{
     error::DockerError,
     events::{DeploymentEvent, EventStatus},
-    image::Image,
-    network::Network,
     properties::{deployment::AvailableDeployment, AvailableProp, Client},
     requests::{
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
         ReqError,
     },
     resource::{
-        container::ContainerResource, deployment::Deployment, Context, Create, Resource,
-        ResourceError, State,
+        container::ContainerResource, deployment::Deployment, image::ImageResource,
+        network::NetworkResource, volume::VolumeResource, Context, Create, Resource, ResourceError,
+        State,
     },
     store::{StateStore, StoreError},
-    volume::Volume,
     Docker,
 };
 
@@ -147,15 +145,15 @@ impl<D> Service<D> {
         D: Client + Sync + 'static,
     {
         for id in self.store.unpublished_images().await? {
-            Image::publish(self.context(id)).await?;
+            ImageResource::publish(self.context(id)).await?;
         }
 
         for id in self.store.unpublished_volumes().await? {
-            Volume::publish(self.context(id)).await?;
+            VolumeResource::publish(self.context(id)).await?;
         }
 
         for id in self.store.unpublished_networks().await? {
-            Network::publish(self.context(id)).await?;
+            NetworkResource::publish(self.context(id)).await?;
         }
 
         for id in self.store.unpublished_containers().await? {
@@ -265,9 +263,9 @@ impl<D> Service<D> {
     {
         // TODO: error handling with a DeploymentEvent
         let res = match id.resource_type() {
-            ResourceType::Image => Image::publish(self.context(*id.uuid())).await,
-            ResourceType::Volume => Volume::publish(self.context(*id.uuid())).await,
-            ResourceType::Network => Network::publish(self.context(*id.uuid())).await,
+            ResourceType::Image => ImageResource::publish(self.context(*id.uuid())).await,
+            ResourceType::Volume => VolumeResource::publish(self.context(*id.uuid())).await,
+            ResourceType::Network => NetworkResource::publish(self.context(*id.uuid())).await,
             ResourceType::Container => ContainerResource::publish(self.context(*id.uuid())).await,
             ResourceType::Deployment => Deployment::publish(self.context(*id.uuid())).await,
         };
@@ -336,15 +334,15 @@ impl<D> Service<D> {
         D: Client + Sync + 'static,
     {
         for id in deployment.images {
-            Image::up(self.context(id)).await?;
+            ImageResource::up(self.context(id)).await?;
         }
 
         for id in deployment.volumes {
-            Volume::up(self.context(id)).await?;
+            VolumeResource::up(self.context(id)).await?;
         }
 
         for id in deployment.networks {
-            Network::up(self.context(id)).await?;
+            NetworkResource::up(self.context(id)).await?;
         }
 
         for id in deployment.containers {
@@ -498,15 +496,15 @@ impl<D> Service<D> {
         }
 
         for id in deployment.volumes {
-            Volume::down(self.context(id)).await?;
+            VolumeResource::down(self.context(id)).await?;
         }
 
         for id in deployment.networks {
-            Network::down(self.context(id)).await?;
+            NetworkResource::down(self.context(id)).await?;
         }
 
         for id in deployment.images {
-            Image::down(self.context(id)).await?;
+            ImageResource::down(self.context(id)).await?;
         }
 
         AvailableDeployment::new(&deployment_id)
@@ -682,6 +680,7 @@ mod tests {
     use uuid::uuid;
 
     use crate::container::{Binding, Container, PortBindingMap};
+    use crate::image::Image;
     use crate::network::Network;
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
@@ -724,6 +723,12 @@ mod tests {
         let mut device = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
 
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<SqliteStore>::new);
+
         let image_path = format!("/{id}/pulled");
         device
             .expect_send::<bool>()
@@ -748,9 +753,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let (state, image) = Image::fetch(&mut service.context(id)).await.unwrap();
-
-        assert_eq!(state, State::Missing);
+        let resource = service.store.image(id).await.unwrap().unwrap();
 
         let exp = Image {
             id: None,
@@ -758,7 +761,7 @@ mod tests {
             registry_auth: None,
         };
 
-        assert_eq!(image, exp);
+        assert_eq!(resource.image, exp);
     }
 
     #[tokio::test]
@@ -770,6 +773,12 @@ mod tests {
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<SqliteStore>::new);
 
         let endpoint = format!("/{id}/created");
         device
@@ -793,9 +802,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let (state, volume) = Volume::fetch(&mut service.context(id)).await.unwrap();
-
-        assert_eq!(state, State::Missing);
+        let resource = service.store.volume(id).await.unwrap().unwrap();
 
         let exp = Volume {
             name: id.to_string(),
@@ -806,7 +813,7 @@ mod tests {
             ]),
         };
 
-        assert_eq!(volume, exp);
+        assert_eq!(resource.volume, exp);
     }
 
     #[tokio::test]
@@ -818,6 +825,12 @@ mod tests {
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<SqliteStore>::new);
 
         let endpoint = format!("/{id}/created");
         device
@@ -842,9 +855,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let (state, network) = Network::fetch(&mut service.context(id)).await.unwrap();
-
-        assert_eq!(state, State::Missing);
+        let resource = service.store.network(id).await.unwrap().unwrap();
 
         let exp = Network {
             id: None,
@@ -855,18 +866,50 @@ mod tests {
             driver_opts: HashMap::new(),
         };
 
-        assert_eq!(network, exp);
+        assert_eq!(resource.network, exp);
     }
 
     #[tokio::test]
     async fn should_add_a_container() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
+        let id = Uuid::new_v4();
+        let image_id = Uuid::new_v4();
+        let network_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<SqliteStore>::new);
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableImages"
+                    && path == (image_path)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{network_id}/created");
+        device
+            .expect_send::<bool>()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
+                    && path == (endpoint)
+                    && !*value
+            })
+            .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{id}/status");
         device
@@ -882,13 +925,25 @@ mod tests {
 
         let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
-        let image_id = Uuid::new_v4().to_string();
-        let create_container_req = create_container_request_event(
-            id,
-            &image_id,
-            "image",
-            &["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
-        );
+        // Image
+        let reference = "docker.io/nginx:stable-alpine-slim";
+        let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
+
+        let req = ContainerRequest::from_event(create_image_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Network
+        let create_network_req = create_network_request_event(network_id, "bridged", &[]);
+        let req = ContainerRequest::from_event(create_network_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Container
+        let create_container_req =
+            create_container_request_event(id, &image_id.to_string(), "image", &[network_id]);
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
@@ -897,18 +952,14 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let (state, resource) = ContainerResource::fetch(&mut service.context(id))
-            .await
-            .unwrap();
-
-        assert_eq!(state, State::Missing);
+        let resource = service.store.container_resource(id).await.unwrap().unwrap();
 
         let exp = Container {
             id: None,
             name: id.to_string(),
-            image: "image".to_string(),
+            image: "docker.io/nginx:stable-alpine-slim".to_string(),
             network_mode: "bridge".to_string(),
-            networks: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196".to_string()],
+            networks: vec![network_id.to_string()],
             hostname: Some("hostname".to_string()),
             restart_policy: RestartPolicy::No,
             env: vec!["env".to_string()],
@@ -923,7 +974,7 @@ mod tests {
             privileged: false,
         };
 
-        assert_eq!(resource.container, exp);
+        assert_eq!(resource, exp);
     }
 
     #[tokio::test]
@@ -937,10 +988,17 @@ mod tests {
         let reference = "docker.io/nginx:stable-alpine-slim";
 
         let client = docker_mock!(docker::Client::connect_with_local_defaults().unwrap(), {
+            use self::docker::tests::not_found_response;
             use futures::StreamExt;
 
             let mut mock = docker::Client::new();
             let mut seq = mockall::Sequence::new();
+
+            mock.expect_inspect_image()
+                .withf(move |name| name == reference)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| Err(not_found_response()));
 
             mock.expect_create_image()
                 .withf(move |option, _, _| {
@@ -997,6 +1055,12 @@ mod tests {
         });
         let mut device = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<SqliteStore>::new);
 
         let image_path = format!("/{image_id}/pulled");
         device
