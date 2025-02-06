@@ -229,25 +229,8 @@ impl StateStore {
         Ok(())
     }
 
-    /// Fetches an container by id
     #[instrument(skip(self))]
-    pub(crate) async fn container(&mut self, id: Uuid) -> Result<Option<Container>> {
-        let container = self
-            .handle
-            .for_read(move |reader| {
-                let container: Option<Container> = Container::find_id(&SqlUuid::new(id))
-                    .first(reader)
-                    .optional()?;
-
-                Ok(container)
-            })
-            .await?;
-
-        Ok(container)
-    }
-
-    #[instrument(skip(self))]
-    pub(crate) async fn unpublished_containers(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_containers_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
         let container = self
             .handle
             .for_read(move |reader| {
@@ -265,10 +248,7 @@ impl StateStore {
 
     /// Fetches an container by id, only if all the resources are present
     #[instrument(skip(self))]
-    pub(crate) async fn container_resource(
-        &mut self,
-        id: Uuid,
-    ) -> Result<Option<ContainerResource>> {
+    pub(crate) async fn find_container(&mut self, id: Uuid) -> Result<Option<ContainerResource>> {
         let container = self
             .handle
             .for_read(move |reader| {
@@ -340,63 +320,6 @@ impl StateStore {
             .await?;
 
         Ok(container)
-    }
-
-    /// Fetches an container environments by the container id
-    #[instrument(skip(self))]
-    pub(crate) async fn container_env(&mut self, container_id: Uuid) -> Result<Vec<ContainerEnv>> {
-        let env = self
-            .handle
-            .for_read(move |reader| {
-                let env: Vec<ContainerEnv> = container_env::table
-                    .filter(container_env::container_id.eq(SqlUuid::new(container_id)))
-                    .load(reader)?;
-
-                Ok(env)
-            })
-            .await?;
-
-        Ok(env)
-    }
-
-    /// Fetches an container binds by the container id
-    #[instrument(skip(self))]
-    pub(crate) async fn container_binds(
-        &mut self,
-        container_id: Uuid,
-    ) -> Result<Vec<ContainerBind>> {
-        let binds = self
-            .handle
-            .for_read(move |reader| {
-                let env: Vec<ContainerBind> = container_binds::table
-                    .filter(container_binds::container_id.eq(SqlUuid::new(container_id)))
-                    .load(reader)?;
-
-                Ok(env)
-            })
-            .await?;
-
-        Ok(binds)
-    }
-
-    /// Fetches an container port binds by the container id
-    #[instrument(skip(self))]
-    pub(crate) async fn container_port_binds(
-        &mut self,
-        container_id: Uuid,
-    ) -> Result<Vec<ContainerPortBind>> {
-        let port_binds = self
-            .handle
-            .for_read(move |reader| {
-                let port_binds: Vec<ContainerPortBind> = container_port_bindings::table
-                    .filter(container_port_bindings::container_id.eq(SqlUuid::new(container_id)))
-                    .load(reader)?;
-
-                Ok(port_binds)
-            })
-            .await?;
-
-        Ok(port_binds)
     }
 }
 
@@ -544,6 +467,77 @@ mod tests {
 
     use super::*;
 
+    async fn find_container(store: &mut StateStore, id: Uuid) -> Option<Container> {
+        store
+            .handle
+            .for_read(move |reader| {
+                Container::find_id(&SqlUuid::new(id))
+                    .first::<Container>(reader)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await
+            .unwrap()
+    }
+
+    impl StateStore {
+        pub(crate) async fn container_env(
+            &mut self,
+            container_id: Uuid,
+        ) -> Result<Vec<ContainerEnv>> {
+            let env = self
+                .handle
+                .for_read(move |reader| {
+                    let env: Vec<ContainerEnv> = container_env::table
+                        .filter(container_env::container_id.eq(SqlUuid::new(container_id)))
+                        .load(reader)?;
+
+                    Ok(env)
+                })
+                .await?;
+
+            Ok(env)
+        }
+
+        pub(crate) async fn container_binds(
+            &mut self,
+            container_id: Uuid,
+        ) -> Result<Vec<ContainerBind>> {
+            let binds = self
+                .handle
+                .for_read(move |reader| {
+                    let env: Vec<ContainerBind> = container_binds::table
+                        .filter(container_binds::container_id.eq(SqlUuid::new(container_id)))
+                        .load(reader)?;
+
+                    Ok(env)
+                })
+                .await?;
+
+            Ok(binds)
+        }
+
+        pub(crate) async fn container_port_binds(
+            &mut self,
+            container_id: Uuid,
+        ) -> Result<Vec<ContainerPortBind>> {
+            let port_binds = self
+                .handle
+                .for_read(move |reader| {
+                    let port_binds: Vec<ContainerPortBind> = container_port_bindings::table
+                        .filter(
+                            container_port_bindings::container_id.eq(SqlUuid::new(container_id)),
+                        )
+                        .load(reader)?;
+
+                    Ok(port_binds)
+                })
+                .await?;
+
+            Ok(port_binds)
+        }
+    }
+
     #[tokio::test]
     async fn should_create_full() {
         let tmp = TempDir::with_prefix("create_full_deployment").unwrap();
@@ -596,7 +590,7 @@ mod tests {
         };
         store.create_container(container).await.unwrap();
 
-        let container = store.container(container_id).await.unwrap();
+        let container = find_container(&mut store, container_id).await.unwrap();
         let exp = Container {
             id: SqlUuid::new(container_id),
             local_id: None,
@@ -607,7 +601,7 @@ mod tests {
             restart_policy: ContainerRestartPolicy::UnlessStopped,
             privileged: false,
         };
-        assert_eq!(container, Some(exp));
+        assert_eq!(container, exp);
 
         let mut env = store.container_env(container_id).await.unwrap();
         env.sort_unstable();
@@ -677,7 +671,7 @@ mod tests {
             .await
             .unwrap();
 
-        let container = store.container(container_id).await.unwrap();
+        let container = find_container(&mut store, container_id).await.unwrap();
         let exp = Container {
             id: SqlUuid::new(container_id),
             local_id: None,
@@ -688,6 +682,6 @@ mod tests {
             restart_policy: ContainerRestartPolicy::UnlessStopped,
             privileged: false,
         };
-        assert_eq!(container, Some(exp));
+        assert_eq!(container, exp);
     }
 }

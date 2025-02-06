@@ -122,7 +122,7 @@ where
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let mut container =
             ctx.store
-                .container_resource(ctx.id)
+                .find_container(ctx.id)
                 .await?
                 .ok_or(ResourceError::Missing {
                     id: ctx.id,
@@ -142,6 +142,7 @@ where
             Ok((State::Missing, resource))
         }
     }
+
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.container.create(ctx.client).await?;
 

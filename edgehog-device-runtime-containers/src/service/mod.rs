@@ -21,7 +21,7 @@
 use std::fmt::{Debug, Display};
 
 use astarte_device_sdk::event::FromEventError;
-use edgehog_store::models::containers::deployment::DeploymentStatus;
+use edgehog_store::{conversions::SqlUuid, models::containers::deployment::DeploymentStatus};
 use events::ServiceHandle;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -144,25 +144,25 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        for id in self.store.unpublished_images().await? {
+        for id in self.store.load_images_to_publish().await? {
             ImageResource::publish(self.context(id)).await?;
         }
 
-        for id in self.store.unpublished_volumes().await? {
+        for id in self.store.load_volumes_to_publish().await? {
             VolumeResource::publish(self.context(id)).await?;
         }
 
-        for id in self.store.unpublished_networks().await? {
+        for id in self.store.load_networks_to_publish().await? {
             NetworkResource::publish(self.context(id)).await?;
         }
 
-        for id in self.store.unpublished_containers().await? {
+        for id in self.store.load_containers_to_publish().await? {
             ContainerResource::publish(self.context(id)).await?;
         }
 
         for id in self
             .store
-            .deployments_in(DeploymentStatus::Received)
+            .load_deployments_in(DeploymentStatus::Received)
             .await?
         {
             Deployment::publish(self.context(id)).await?;
@@ -176,7 +176,11 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        for id in self.store.deployments_in(DeploymentStatus::Started).await? {
+        for id in self
+            .store
+            .load_deployments_in(DeploymentStatus::Started)
+            .await?
+        {
             self.start(*id).await;
         }
 
@@ -188,7 +192,11 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        for id in self.store.deployments_in(DeploymentStatus::Stopped).await? {
+        for id in self
+            .store
+            .load_deployments_in(DeploymentStatus::Stopped)
+            .await?
+        {
             self.stop(*id).await;
         }
 
@@ -200,7 +208,11 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        for id in self.store.deployments_in(DeploymentStatus::Deleted).await? {
+        for id in self
+            .store
+            .load_deployments_in(DeploymentStatus::Deleted)
+            .await?
+        {
             self.delete(*id).await;
         }
 
@@ -288,7 +300,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let deployment = match self.store.complete_deployment(id).await {
+        let deployment = match self.store.find_complete_deployment(id).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{id} not found");
@@ -368,7 +380,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let containers = match self.store.deployment_containers(id).await {
+        let containers = match self.store.load_deployment_containers(id).await {
             Ok(Some(containers)) => containers,
             Ok(None) => {
                 error!("{id} not found");
@@ -409,7 +421,7 @@ impl<D> Service<D> {
         }
     }
 
-    async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<Uuid>) -> Result<()>
+    async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<SqlUuid>) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
@@ -446,7 +458,7 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let deployment = match self.store.deployment_for_delete(id).await {
+        let deployment = match self.store.find_deployment_for_delete(id).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{id} not found");
@@ -523,7 +535,11 @@ impl<D> Service<D> {
     where
         D: Client + Sync + 'static,
     {
-        let from_deployment = match self.store.deployment_update_from(from, to).await {
+        let from_deployment = match self
+            .store
+            .load_deployment_containers_update_from(from, to)
+            .await
+        {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{from} not found");
@@ -547,7 +563,7 @@ impl<D> Service<D> {
             }
         };
 
-        let to_deployment = match self.store.complete_deployment(to).await {
+        let to_deployment = match self.store.find_complete_deployment(to).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{to} not found");
@@ -595,7 +611,7 @@ impl<D> Service<D> {
     async fn update_deployment(
         &mut self,
         from: Uuid,
-        from_deployment: Vec<Uuid>,
+        from_deployment: Vec<SqlUuid>,
         to: Uuid,
         to_deployment: Deployment,
     ) -> Result<()>
@@ -753,7 +769,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.image(id).await.unwrap().unwrap();
+        let resource = service.store.find_image(id).await.unwrap().unwrap();
 
         let exp = Image {
             id: None,
@@ -802,7 +818,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.volume(id).await.unwrap().unwrap();
+        let resource = service.store.find_volume(id).await.unwrap().unwrap();
 
         let exp = Volume {
             name: id.to_string(),
@@ -855,7 +871,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.network(id).await.unwrap().unwrap();
+        let resource = service.store.find_network(id).await.unwrap().unwrap();
 
         let exp = Network {
             id: None,
@@ -952,7 +968,7 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.container_resource(id).await.unwrap().unwrap();
+        let resource = service.store.find_container(id).await.unwrap().unwrap();
 
         let exp = Container {
             id: None,

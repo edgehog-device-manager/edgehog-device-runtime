@@ -19,8 +19,7 @@
 use diesel::dsl::exists;
 use diesel::{
     delete, insert_or_ignore_into, select, update, CombineDsl, ExpressionMethods,
-    NullableExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
-    SqliteConnection,
+    NullableExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper, SqliteConnection,
 };
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
@@ -121,7 +120,7 @@ impl StateStore {
         Ok(())
     }
 
-    /// Updates the status of a deployment
+    /// Updates the status of two deployment atomically
     #[instrument(skip(self))]
     pub(crate) async fn deployment_update(&self, from: Uuid, to: Uuid) -> Result<()> {
         self.handle
@@ -161,25 +160,8 @@ impl StateStore {
         Ok(())
     }
 
-    /// Fetches an deployment by id
     #[instrument(skip(self))]
-    pub(crate) async fn deployment(&mut self, id: Uuid) -> Result<Option<Deployment>> {
-        let deployment = self
-            .handle
-            .for_read(move |reader| {
-                let deployment: Option<Deployment> = Deployment::find_id(&SqlUuid::new(id))
-                    .first(reader)
-                    .optional()?;
-
-                Ok(deployment)
-            })
-            .await?;
-
-        Ok(deployment)
-    }
-
-    #[instrument(skip(self))]
-    pub(crate) async fn deployments_in(
+    pub(crate) async fn load_deployments_in(
         &mut self,
         status: DeploymentStatus,
     ) -> Result<Vec<SqlUuid>> {
@@ -200,7 +182,10 @@ impl StateStore {
 
     /// Fetches the containers for a deployment
     #[instrument(skip(self))]
-    pub(crate) async fn deployment_containers(&mut self, id: Uuid) -> Result<Option<Vec<Uuid>>> {
+    pub(crate) async fn load_deployment_containers(
+        &mut self,
+        id: Uuid,
+    ) -> Result<Option<Vec<SqlUuid>>> {
         let containers = self
             .handle
             .for_read(move |reader| {
@@ -212,10 +197,7 @@ impl StateStore {
                 let containers = deployment_containers::table
                     .select(deployment_containers::container_id)
                     .filter(deployment_containers::deployment_id.eq(id))
-                    .load::<SqlUuid>(reader)?
-                    .into_iter()
-                    .map(Uuid::from)
-                    .collect_vec();
+                    .load::<SqlUuid>(reader)?;
 
                 Ok(Some(containers))
             })
@@ -224,7 +206,7 @@ impl StateStore {
         Ok(containers)
     }
 
-    pub(crate) async fn complete_deployment(
+    pub(crate) async fn find_complete_deployment(
         &mut self,
         id: Uuid,
     ) -> Result<Option<DeploymentResource>> {
@@ -263,7 +245,7 @@ impl StateStore {
         Ok(deployment)
     }
 
-    pub(crate) async fn deployment_for_delete(
+    pub(crate) async fn find_deployment_for_delete(
         &mut self,
         id: Uuid,
     ) -> Result<Option<DeploymentResource>> {
@@ -304,13 +286,13 @@ impl StateStore {
         Ok(deployment)
     }
 
-    /// Fetches the containers for a deployment
+    /// Fetches the containers for a deployment to be stopped for an update
     #[instrument(skip(self))]
-    pub(crate) async fn deployment_update_from(
+    pub(crate) async fn load_deployment_containers_update_from(
         &mut self,
         from: Uuid,
         to: Uuid,
-    ) -> Result<Option<Vec<Uuid>>> {
+    ) -> Result<Option<Vec<SqlUuid>>> {
         let containers = self
             .handle
             .for_read(move |reader| {
@@ -330,10 +312,7 @@ impl StateStore {
                             .select(deployment_containers::container_id)
                             .filter(deployment_containers::deployment_id.eq(to)),
                     )
-                    .load::<SqlUuid>(reader)?
-                    .into_iter()
-                    .map(Uuid::from)
-                    .collect_vec();
+                    .load::<SqlUuid>(reader)?;
 
                 Ok(Some(containers))
             })
@@ -381,6 +360,7 @@ impl From<CreateDeployment> for Deployment {
 
 #[cfg(test)]
 mod tests {
+    use diesel::OptionalExtension;
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
@@ -391,6 +371,19 @@ mod tests {
     };
 
     use super::*;
+
+    pub(crate) async fn find_deployment(store: &mut StateStore, id: Uuid) -> Option<Deployment> {
+        store
+            .handle
+            .for_read(move |reader| {
+                Deployment::find_id(&SqlUuid::new(id))
+                    .first::<Deployment>(reader)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await
+            .unwrap()
+    }
 
     #[tokio::test]
     async fn should_create() {
@@ -451,15 +444,19 @@ mod tests {
         };
         store.create_deployment(deployment).await.unwrap();
 
-        let deployment = store.deployment(deployment_id).await.unwrap();
+        let deployment = find_deployment(&mut store, deployment_id).await.unwrap();
         let exp = Deployment {
             id: SqlUuid::new(deployment_id),
             status: DeploymentStatus::Received,
         };
-        assert_eq!(deployment, Some(exp));
+        assert_eq!(deployment, exp);
 
-        let containers = store.deployment_containers(deployment_id).await.unwrap();
-        let exp = Some(vec![container_id]);
+        let containers = store
+            .load_deployment_containers(deployment_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let exp = vec![SqlUuid::new(container_id)];
         assert_eq!(containers, exp);
     }
 
@@ -485,11 +482,11 @@ mod tests {
             .await
             .unwrap();
 
-        let deployment = store.deployment(deployment_id).await.unwrap();
+        let deployment = find_deployment(&mut store, deployment_id).await.unwrap();
         let exp = Deployment {
             id: SqlUuid::new(deployment_id),
             status: DeploymentStatus::Stopped,
         };
-        assert_eq!(deployment, Some(exp));
+        assert_eq!(deployment, exp);
     }
 }

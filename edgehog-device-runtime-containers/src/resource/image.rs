@@ -61,7 +61,7 @@ where
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let mut resource = ctx
             .store
-            .image(ctx.id)
+            .find_image(ctx.id)
             .await?
             .ok_or(ResourceError::Missing {
                 id: ctx.id,

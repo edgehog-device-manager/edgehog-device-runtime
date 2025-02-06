@@ -127,7 +127,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn unpublished_networks(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_networks_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
         let networks = self
             .handle
             .for_read(move |reader| {
@@ -144,7 +144,10 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn network(&mut self, network_id: Uuid) -> Result<Option<NetworkResource>> {
+    pub(crate) async fn find_network(
+        &mut self,
+        network_id: Uuid,
+    ) -> Result<Option<NetworkResource>> {
         let network = self
             .handle
             .for_read(move |reader| {
@@ -169,25 +172,6 @@ impl StateStore {
                     enable_ipv6: network.enable_ipv6,
                     driver_opts,
                 })))
-            })
-            .await?;
-
-        Ok(network)
-    }
-
-    #[instrument(skip(self))]
-    pub(crate) async fn network_opts(
-        &mut self,
-        network_id: Uuid,
-    ) -> Result<Vec<NetworkDriverOpts>> {
-        let network = self
-            .handle
-            .for_read(move |reader| {
-                let network: Vec<NetworkDriverOpts> = network_driver_opts::table
-                    .filter(network_driver_opts::network_id.eq(SqlUuid::new(network_id)))
-                    .load(reader)?;
-
-                Ok(network)
             })
             .await?;
 
@@ -263,6 +247,26 @@ mod tests {
             })
             .await
             .unwrap()
+    }
+
+    impl StateStore {
+        pub(crate) async fn network_opts(
+            &mut self,
+            network_id: Uuid,
+        ) -> Result<Vec<NetworkDriverOpts>> {
+            let network = self
+                .handle
+                .for_read(move |reader| {
+                    let network: Vec<NetworkDriverOpts> = network_driver_opts::table
+                        .filter(network_driver_opts::network_id.eq(SqlUuid::new(network_id)))
+                        .load(reader)?;
+
+                    Ok(network)
+                })
+                .await?;
+
+            Ok(network)
+        }
     }
 
     #[tokio::test]

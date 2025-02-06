@@ -63,7 +63,7 @@ where
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let mut resource = ctx
             .store
-            .network(ctx.id)
+            .find_network(ctx.id)
             .await?
             .ok_or(ResourceError::Missing {
                 id: ctx.id,

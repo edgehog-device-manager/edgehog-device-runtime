@@ -101,7 +101,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn unpublished_volumes(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_volumes_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
         let volumes = self
             .handle
             .for_read(move |reader| {
@@ -119,7 +119,7 @@ impl StateStore {
 
     /// Fetches an volume by id
     #[instrument(skip(self))]
-    pub(crate) async fn volume(&mut self, id: Uuid) -> Result<Option<VolumeResource>> {
+    pub(crate) async fn find_volume(&mut self, id: Uuid) -> Result<Option<VolumeResource>> {
         let volume = self
             .handle
             .for_read(move |reader| {
@@ -142,22 +142,6 @@ impl StateStore {
                     driver: volume.driver,
                     driver_opts,
                 })))
-            })
-            .await?;
-
-        Ok(volume)
-    }
-
-    #[instrument(skip(self))]
-    pub(crate) async fn volume_opts(&mut self, volume_id: Uuid) -> Result<Vec<VolumeDriverOpts>> {
-        let volume = self
-            .handle
-            .for_read(move |reader| {
-                let volume: Vec<VolumeDriverOpts> = volume_driver_opts::table
-                    .filter(volume_driver_opts::volume_id.eq(SqlUuid::new(volume_id)))
-                    .load(reader)?;
-
-                Ok(volume)
             })
             .await?;
 
@@ -229,6 +213,26 @@ mod tests {
             })
             .await
             .unwrap()
+    }
+
+    impl StateStore {
+        pub(crate) async fn volume_opts(
+            &mut self,
+            volume_id: Uuid,
+        ) -> Result<Vec<VolumeDriverOpts>> {
+            let volume = self
+                .handle
+                .for_read(move |reader| {
+                    let volume: Vec<VolumeDriverOpts> = volume_driver_opts::table
+                        .filter(volume_driver_opts::volume_id.eq(SqlUuid::new(volume_id)))
+                        .load(reader)?;
+
+                    Ok(volume)
+                })
+                .await?;
+
+            Ok(volume)
+        }
     }
 
     #[tokio::test]

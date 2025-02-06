@@ -63,7 +63,7 @@ where
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let resource = ctx
             .store
-            .volume(ctx.id)
+            .find_volume(ctx.id)
             .await?
             .ok_or(ResourceError::Missing {
                 id: ctx.id,
