@@ -86,10 +86,7 @@ mod tests {
     use crate::{AstarteLibrary, DeviceManagerOptions};
 
     #[cfg(feature = "forwarder")]
-    fn mock_forwarder<'a>(
-        publisher: &'a mut MockPubSub,
-        seq: &'a mut Sequence,
-    ) -> &'a mut crate::data::tests::__mock_MockPubSub_Clone::__clone::Expectation {
+    fn mock_forwarder(publisher: &mut MockPubSub, seq: &mut Sequence) {
         // define an expectation for the cloned MockPublisher due to the `init` method of the
         // Forwarder struct
         publisher
@@ -107,7 +104,7 @@ mod tests {
                     .returning(|_: &str| Ok(Vec::new()));
 
                 publisher_clone
-            })
+            });
     }
 
     #[tokio::test]
@@ -182,13 +179,14 @@ mod tests {
         let mut pub_sub = MockPubSub::new();
         let mut seq = Sequence::new();
 
+        #[cfg(feature = "zbus")]
         pub_sub
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
             .returning(MockPubSub::new);
 
-        #[cfg(feature = "zbus")]
+        // telemetry
         pub_sub
             .expect_clone()
             .once()
@@ -200,7 +198,18 @@ mod tests {
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockPubSub::new);
+            .returning(|| {
+                let mut client = MockPubSub::new();
+                let mut seq = Sequence::new();
+
+                client
+                    .expect_clone()
+                    .once()
+                    .in_sequence(&mut seq)
+                    .returning(MockPubSub::new);
+
+                client
+            });
 
         #[cfg(feature = "forwarder")]
         mock_forwarder(&mut pub_sub, &mut seq);
