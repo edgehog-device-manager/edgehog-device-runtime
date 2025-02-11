@@ -132,7 +132,7 @@ impl<D> Service<D> {
 
         // Delete and stop must be before the start to ensure the ports and other resources are
         // freed before starting the containers.
-        self.delete_deployments().await?;
+        self.init_delete_deployments().await?;
         self.init_stop_deployments().await?;
         self.init_start_deployments().await?;
 
@@ -206,7 +206,7 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    async fn delete_deployments(&mut self) -> Result<()>
+    async fn init_delete_deployments(&mut self) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
@@ -340,7 +340,11 @@ impl<D> Service<D> {
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &self.device)
                 .await;
+
+            return;
         }
+
+        info!("deployment started");
     }
 
     async fn start_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
@@ -406,7 +410,7 @@ impl<D> Service<D> {
             }
         };
 
-        info!("starting deployment");
+        info!("stopping deployment");
 
         DeploymentEvent::new(EventStatus::Stopping, "")
             .send(&id, &self.device)
@@ -420,7 +424,11 @@ impl<D> Service<D> {
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &self.device)
                 .await;
+
+            return;
         }
+
+        info!("deployment stopped");
     }
 
     #[instrument(skip(self, containers))]
@@ -487,7 +495,7 @@ impl<D> Service<D> {
             }
         };
 
-        info!("starting deployment");
+        info!("deleting deployment");
 
         DeploymentEvent::new(EventStatus::Deleting, "")
             .send(&id, &self.device)
@@ -501,7 +509,11 @@ impl<D> Service<D> {
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &self.device)
                 .await;
+
+            return;
         }
+
+        info!("deployment deleted");
     }
 
     async fn delete_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
@@ -594,7 +606,7 @@ impl<D> Service<D> {
             }
         };
 
-        info!("update deployment");
+        info!("updating deployment");
 
         DeploymentEvent::new(EventStatus::Updating, "")
             .send(&bundle.from, &self.device)
@@ -612,7 +624,11 @@ impl<D> Service<D> {
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&bundle.from, &self.device)
                 .await;
+
+            return;
         }
+
+        info!("deployment updated");
     }
 
     async fn update_deployment(
