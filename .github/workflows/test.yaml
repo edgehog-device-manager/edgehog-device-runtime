@@ -28,6 +28,9 @@ env:
   RUSTC_WRAPPER: "sccache"
   # Enable logging otherwise the logging lines will count as not covered in the test coverage
   RUST_LOG: trace
+defaults:
+  run:
+    shell: bash
 jobs:
   required:
     runs-on: ubuntu-24.04
@@ -51,32 +54,33 @@ jobs:
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
       - name: Run cargo test --locked
-        run: cargo test --locked --all-features --all-targets --workspace
+        run: cargo test --locked --all-features --workspace
       # https://github.com/rust-lang/cargo/issues/6669
       - name: Run cargo test --doc
         run: cargo test --locked --all-features --doc --workspace
   coverage:
     runs-on: ubuntu-24.04
-    name: ubuntu / stable / coverage
+    name: ubuntu / nightly / coverage
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install nightly
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.7
-      - name: cargo install cargo-tarpaulin
-        uses: taiki-e/install-action@cargo-tarpaulin
+      - name: Install grcov
+        uses: taiki-e/install-action@grcov
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
-      - name: Run cargo-tarpaulin with xml output
-        run: cargo +stable tarpaulin --engine llvm --locked --all-features --ignore-tests --packages edgehog-device-runtime edgehog-device-runtime-containers edgehog-device-runtime-forwarder --exclude-files src/main.rs --out xml -- --test-threads 1
+      - name: Generate coverage
+        run: |
+          EXPORT_FOR_CI=1 ./scripts/coverage.sh
       # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
         if: ${{ github.event_name == 'push' }}
@@ -98,4 +102,6 @@ jobs:
           name: coverage
           path: |
             pr_number
-            cobertura.xml
+            coverage-edgehog-device-runtime.info
+            coverage-edgehog-device-runtime-containers.info
+            coverage-edgehog-device-runtime-forwarder.info
