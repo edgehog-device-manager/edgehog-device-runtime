@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentUpdate",
+      "path": "/deployment",
+      "data": {
+        "from": "b25dcb96-bafd-41a3-8a4b-4712eb3da81e",
+        "to": "6a9b6d3c-4894-4fd0-af1d-44b326282c19"
+      }
+    }
+  ]
+}

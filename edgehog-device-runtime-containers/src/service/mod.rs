@@ -25,7 +25,7 @@ use edgehog_store::{conversions::SqlUuid, models::containers::deployment::Deploy
 use events::ServiceHandle;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -130,9 +130,11 @@ impl<D> Service<D> {
     {
         self.publish_received().await?;
 
-        self.init_start_deployments().await?;
-        self.init_stop_deployments().await?;
+        // Delete and stop must be before the start to ensure the ports and other resources are
+        // freed before starting the containers.
         self.delete_deployments().await?;
+        self.init_stop_deployments().await?;
+        self.init_start_deployments().await?;
 
         info!("init completed");
 
@@ -262,8 +264,8 @@ impl<D> Service<D> {
             }) => {
                 self.delete(id).await;
             }
-            AstarteEvent::DeploymentUpdate(DeploymentUpdate { from, to }) => {
-                self.update(from, to).await;
+            AstarteEvent::DeploymentUpdate(from_to) => {
+                self.update(from_to).await;
             }
         }
     }
@@ -421,11 +423,14 @@ impl<D> Service<D> {
         }
     }
 
+    #[instrument(skip(self, containers))]
     async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<SqlUuid>) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
         for id in containers {
+            debug!(%id, "stopping container");
+
             let mut ctx = self.context(id);
             let (state, mut container) = ContainerResource::fetch(&mut ctx).await?;
 
@@ -531,21 +536,22 @@ impl<D> Service<D> {
 
     /// Will update an application between deployments
     #[instrument(skip(self))]
-    pub async fn update(&mut self, from: Uuid, to: Uuid)
+    pub async fn update(&mut self, bundle: DeploymentUpdate)
     where
         D: Client + Sync + 'static,
     {
         let from_deployment = match self
             .store
-            .load_deployment_containers_update_from(from, to)
+            .load_deployment_containers_update_from(bundle)
             .await
         {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
-                error!("{from} not found");
+                let msg = format!("{} not found", bundle.from);
+                error!("{msg}");
 
-                DeploymentEvent::new(EventStatus::Error, format!("{from} not found"))
-                    .send(&to, &self.device)
+                DeploymentEvent::new(EventStatus::Error, msg)
+                    .send(&bundle.from, &self.device)
                     .await;
 
                 return;
@@ -556,20 +562,21 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't update deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&to, &self.device)
+                    .send(&bundle.from, &self.device)
                     .await;
 
                 return;
             }
         };
 
-        let to_deployment = match self.store.find_complete_deployment(to).await {
+        let to_deployment = match self.store.find_complete_deployment(bundle.to).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
-                error!("{to} not found");
+                let msg = format!("{} not found", bundle.to);
+                error!("{msg}");
 
-                DeploymentEvent::new(EventStatus::Error, format!("{to} not found"))
-                    .send(&to, &self.device)
+                DeploymentEvent::new(EventStatus::Error, msg)
+                    .send(&bundle.to, &self.device)
                     .await;
 
                 return;
@@ -580,7 +587,7 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't update deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&to, &self.device)
+                    .send(&bundle.to, &self.device)
                     .await;
 
                 return;
@@ -590,12 +597,12 @@ impl<D> Service<D> {
         info!("update deployment");
 
         DeploymentEvent::new(EventStatus::Updating, "")
-            .send(&from, &self.device)
+            .send(&bundle.from, &self.device)
             .await;
 
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
         if let Err(err) = self
-            .update_deployment(from, from_deployment, to, to_deployment)
+            .update_deployment(bundle, from_deployment, to_deployment)
             .await
         {
             let err = format!("{:#}", eyre::Report::new(err));
@@ -603,24 +610,23 @@ impl<D> Service<D> {
             error!(error = err, "couldn't update deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(&from, &self.device)
+                .send(&bundle.from, &self.device)
                 .await;
         }
     }
 
     async fn update_deployment(
         &mut self,
-        from: Uuid,
-        from_deployment: Vec<SqlUuid>,
-        to: Uuid,
-        to_deployment: Deployment,
+        bundle: DeploymentUpdate,
+        to_stop: Vec<SqlUuid>,
+        to_start: Deployment,
     ) -> Result<()>
     where
         D: Client + Sync + 'static,
     {
-        self.stop_deployment(from, from_deployment).await?;
+        self.stop_deployment(bundle.from, to_stop).await?;
 
-        self.start_deployment(to, to_deployment).await?;
+        self.start_deployment(bundle.to, to_start).await?;
 
         Ok(())
     }

@@ -28,31 +28,31 @@ use edgehog_containers::{
 };
 use edgehog_store::db::Handle;
 use tokio::task::JoinSet;
-use tracing::error;
+use tracing::{error, info};
 
 async fn receive_events<D>(device: D, handle: ServiceHandle<D>) -> color_eyre::Result<()>
 where
     D: Debug + Client + Send + Sync + 'static,
 {
-    let event = device.recv().await?;
+    loop {
+        let event = device.recv().await?;
 
-    match ContainerRequest::from_event(event) {
-        Ok(req) => {
-            handle.on_event(req).await.inspect_err(|err| {
-                error!(error = format!("{:#}", err), "couldn't handle the event");
-            })?;
-        }
-        Err(err) => {
-            error!(
-                error = format!("{:#}", color_eyre::Report::new(err)),
-                "couldn't parse the event"
-            );
+        match ContainerRequest::from_event(event) {
+            Ok(req) => {
+                handle.on_event(req).await.inspect_err(|err| {
+                    error!(error = format!("{:#}", err), "couldn't handle the event");
+                })?;
+            }
+            Err(err) => {
+                error!(
+                    error = format!("{:#}", color_eyre::Report::new(err)),
+                    "couldn't parse the event"
+                );
 
-            bail!("invalid event received");
+                bail!("invalid event received");
+            }
         }
     }
-
-    Ok(())
 }
 
 async fn handle_events<D>(mut service: Service<D>) -> color_eyre::Result<()>
@@ -85,6 +85,8 @@ where
     while let Some(res) = tasks.join_next().await {
         match res {
             Ok(Ok(())) => {
+                info!("task exited");
+
                 tasks.abort_all();
             }
             Ok(Err(err)) => {
@@ -96,10 +98,10 @@ where
             Err(err) => {
                 error!(
                     error = format!("{:#}", color_eyre::Report::new(err)),
-                    "tasks panicked"
+                    "task panicked"
                 );
 
-                bail!("taks panicked");
+                bail!("task panicked");
             }
         }
     }

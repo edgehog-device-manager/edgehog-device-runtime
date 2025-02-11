@@ -36,7 +36,7 @@ use itertools::Itertools;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
-use crate::requests::deployment::CreateDeployment;
+use crate::requests::deployment::{CreateDeployment, DeploymentUpdate};
 use crate::resource::deployment::{Deployment as DeploymentResource, DeploymentRow};
 
 use super::{Result, StateStore};
@@ -290,8 +290,7 @@ impl StateStore {
     #[instrument(skip(self))]
     pub(crate) async fn load_deployment_containers_update_from(
         &mut self,
-        from: Uuid,
-        to: Uuid,
+        DeploymentUpdate { from, to }: DeploymentUpdate,
     ) -> Result<Option<Vec<SqlUuid>>> {
         let containers = self
             .handle
@@ -301,7 +300,7 @@ impl StateStore {
                     return Ok(None);
                 }
 
-                let to = SqlUuid::new(from);
+                let to = SqlUuid::new(to);
 
                 let containers = deployment_containers::table
                     .select(deployment_containers::container_id)
