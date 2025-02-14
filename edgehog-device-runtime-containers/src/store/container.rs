@@ -84,19 +84,21 @@ impl StateStore {
                 if !image_exists {
                     debug!("image is missing, storing image_id into container_missing_images");
 
-                    insert_or_ignore_into(container_missing_images::table)
-                        .values(ContainerMissingImage {
-                            container_id: container.id,
-                            image_id,
-                        })
-                        .execute(writer)?;
-
                     container.image_id.take();
                 }
 
                 insert_or_ignore_into(containers::table)
                     .values(&container)
                     .execute(writer)?;
+
+                if !image_exists {
+                    insert_or_ignore_into(container_missing_images::table)
+                        .values(ContainerMissingImage {
+                            container_id: container.id,
+                            image_id,
+                        })
+                        .execute(writer)?;
+                }
 
                 insert_or_ignore_into(container_env::table)
                     .values(envs)
@@ -637,7 +639,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_status() {
-        let tmp = TempDir::with_prefix("create_full_deployment").unwrap();
+        let tmp = TempDir::with_prefix("update_status").unwrap();
         let db_file = tmp.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
 
