@@ -139,6 +139,7 @@ petgraph = "0.6.5"
 pretty_assertions = "1.4.1"
 procfs = "0.16.0"
 reqwest = "0.12.9"
+rusqlite = "0.29.0"
 rustc_version = "0.4.1"
 rustls = { version = "0.23.17", default-features = false }
 rustls-native-certs = "0.8.0"
@@ -167,7 +168,3 @@ zbus = { version = "3.15.2", default-features = false }
 
 # Transitive dependencies
 hyperlocal = "=0.9.0"
-
-# Slow fall into CI Hell
-libsqlite3-sys = { version = "0.26.0", features = ["bundled"] }
-openssl-sys = { version = "0.9.104", features = ["vendored"] }

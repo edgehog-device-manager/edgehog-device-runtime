@@ -33,7 +33,7 @@ use std::{
     sync::Arc,
 };
 
-use diesel::{sql_query, Connection, ConnectionError, RunQueryDsl, SqliteConnection};
+use diesel::{connection::SimpleConnection, Connection, ConnectionError, SqliteConnection};
 use diesel_migrations::MigrationHarness;
 use sync_wrapper::SyncWrapper;
 use tokio::{sync::Mutex, task::JoinError};
@@ -222,9 +222,7 @@ async fn establish(
     })?;
 
     tokio::task::spawn_blocking(move || {
-        sql_query(pragma)
-            .execute(&mut conn)
-            .map_err(HandleError::Query)?;
+        conn.batch_execute(pragma).map_err(HandleError::Query)?;
 
         Ok(conn)
     })
