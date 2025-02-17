@@ -75,7 +75,9 @@ where
     let handle = Handle::open(store_path.join("state.db")).await?;
     let store = StateStore::new(handle);
 
-    let (service, handle) = Service::new(client, store, device.clone());
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let handle = ServiceHandle::new(device.clone(), store.clone_lazy(), tx);
+    let service = Service::new(client, device.clone(), rx, store);
 
     let mut tasks = JoinSet::new();
 

@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{path::Path, time::Duration};
+use std::{future::Future, path::Path, time::Duration};
 
 use astarte_device_sdk::Client;
 use async_trait::async_trait;
@@ -30,6 +30,7 @@ use edgehog_containers::{
     Docker,
 };
 use edgehog_store::db::Handle;
+use futures::TryFutureExt;
 use serde::Deserialize;
 use stable_eyre::eyre::eyre;
 use stable_eyre::eyre::WrapErr;
@@ -68,33 +69,60 @@ impl Default for ContainersConfig {
     }
 }
 
-async fn handle_events<D>(
-    mut service: Service<D>,
-    config: ContainersConfig,
-) -> stable_eyre::Result<()>
+/// Trait used since a FnMut is not enough to return a Future for the `service.init` case
+#[async_trait]
+trait TryRun {
+    type Out;
+
+    async fn run(&mut self) -> stable_eyre::Result<Self::Out>;
+}
+
+#[async_trait]
+impl<F, Fut, O> TryRun for F
 where
-    D: Client + Send + Sync + 'static,
+    F: FnMut() -> Fut + Send,
+    Fut: Future<Output = stable_eyre::Result<O>> + Send,
 {
-    let mut retries = 0usize;
+    type Out = O;
+
+    async fn run(&mut self) -> stable_eyre::Result<Self::Out> {
+        (self)().await
+    }
+}
+
+#[async_trait]
+impl<D> TryRun for &mut Service<D>
+where
+    D: Client + Sync + Send + 'static,
+{
+    type Out = ();
+
+    async fn run(&mut self) -> stable_eyre::Result<()> {
+        self.init().await?;
+
+        Ok(())
+    }
+}
+
+async fn retry<S, O>(config: &ContainersConfig, mut init: S) -> stable_eyre::Result<Option<O>>
+where
+    S: TryRun<Out = O>,
+    O: 'static,
+{
     let mut timeout = Duration::from_secs(2);
 
     // retry with an exponential back off
-    while let Err(err) = service.init().await {
+    for _ in 0..config.max_retries {
+        let res = init.run().await;
+        let err = match res {
+            Ok(out) => return Ok(Some(out)),
+            Err(err) => err,
+        };
+
         error!(
-            error = format!("{:#}", stable_eyre::Report::new(err)),
+            error = format!("{err:#}"),
             "couldn't init container service"
         );
-
-        // Increase the times we tried
-        retries += retries.saturating_add(1);
-
-        if config.required && retries >= config.max_retries {
-            return Err(
-                eyre!("couldn't initialize the container service").wrap_err(eyre!(
-                    "tried to start the runtime {retries} times, but reached the maximum"
-                )),
-            );
-        }
 
         tokio::time::sleep(timeout).await;
 
@@ -102,9 +130,18 @@ where
         timeout = Duration::from_secs(timeout.as_secs().saturating_mul(2));
     }
 
-    service.handle_events().await;
+    error!("retried too many times, returning");
 
-    Ok(())
+    if config.required {
+        return Err(
+            eyre!("couldn't initialize the container service").wrap_err(eyre!(
+                "tried to start the runtime {} times",
+                config.max_retries
+            )),
+        );
+    }
+
+    Ok(None)
 }
 
 #[derive(Debug)]
@@ -122,17 +159,34 @@ impl<D> ContainerService<D> {
     where
         D: Client + Clone + Send + Sync + 'static,
     {
-        // TODO: run this logic with the retry
-        let client = Docker::connect().await?;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let handle = Handle::open(store_dir.join("state.db"))
             .await
             .map_err(|err| ServiceError::Store(StoreError::Handle(err)))?;
-        let store = StateStore::new(handle);
+        // Use a lazy clone since the handle will only write to the database
+        let handle_cl = handle.clone_lazy();
+        let device_cl = device.clone();
 
-        let (service, handle) = Service::new(client, store, device);
+        tasks.spawn(async move {
+            let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
+            let Some(client) = maybe_client else {
+                return Ok(());
+            };
 
-        tasks.spawn(handle_events(service, config));
+            let mut service = Service::new(client, device, rx, StateStore::new(handle));
+
+            let should_exit = retry(&config, &mut service).await?.is_none();
+            if should_exit {
+                return Ok(());
+            };
+
+            service.handle_events().await;
+
+            Ok(())
+        });
+
+        let handle = ServiceHandle::new(device_cl, StateStore::new(handle_cl), tx);
 
         Ok(Self { handle })
     }

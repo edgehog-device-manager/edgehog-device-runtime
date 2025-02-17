@@ -22,7 +22,6 @@ use std::fmt::{Debug, Display};
 
 use astarte_device_sdk::event::FromEventError;
 use edgehog_store::{conversions::SqlUuid, models::containers::deployment::DeploymentStatus};
-use events::ServiceHandle;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
@@ -93,24 +92,20 @@ pub struct Service<D> {
 
 impl<D> Service<D> {
     /// Create a new service
+    #[doc(hidden)]
     #[must_use]
-    pub fn new(client: Docker, store: StateStore, device: D) -> (Self, ServiceHandle<D>)
-    where
-        D: Clone,
-    {
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        // Clone the store lazily since the service handle will only write to the database.
-        let handle = ServiceHandle::new(tx, device.clone(), store.clone_lazy());
-
-        let service = Self {
+    pub fn new(
+        client: Docker,
+        device: D,
+        events: mpsc::UnboundedReceiver<AstarteEvent>,
+        store: StateStore,
+    ) -> Self {
+        Self {
             client,
             device,
-            events: rx,
+            events,
             store,
-        };
-
-        (service, handle)
+        }
     }
 
     fn context(&mut self, id: impl Into<Uuid>) -> Context<D> {
@@ -650,7 +645,7 @@ impl<D> Service<D> {
 
 /// Id of the nodes in the Service graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub(crate) struct Id {
+pub struct Id {
     rt: ResourceType,
     id: Uuid,
 }
@@ -732,6 +727,7 @@ mod tests {
     use crate::volume::Volume;
     use crate::{docker, docker_mock};
 
+    use super::events::ServiceHandle;
     use super::*;
 
     async fn mock_service(
@@ -748,7 +744,12 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        Service::new(client, store, device)
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let handle = ServiceHandle::new(device.clone(), store.clone_lazy(), tx);
+        let service = Service::new(client, device, rx, store);
+
+        (service, handle)
     }
 
     #[tokio::test]

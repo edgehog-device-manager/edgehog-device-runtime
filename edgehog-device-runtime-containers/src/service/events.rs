@@ -56,14 +56,10 @@ pub struct ServiceHandle<D> {
 
 impl<D> ServiceHandle<D> {
     /// Create the handle from the [channel](mpsc::UnboundedSender) shared with the [`Service`](super::Service).
-    pub(crate) fn new(
-        events: mpsc::UnboundedSender<AstarteEvent>,
-        client: D,
-        store: StateStore,
-    ) -> Self {
+    pub fn new(device: D, store: StateStore, events: mpsc::UnboundedSender<AstarteEvent>) -> Self {
         Self {
             events,
-            device: client,
+            device,
             store,
         }
     }
@@ -135,14 +131,20 @@ impl<D> ServiceHandle<D> {
     }
 }
 
+/// Event sent by the [`ServiceHandle`] to the [`Service`](crate::service::Service)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AstarteEvent {
+pub enum AstarteEvent {
+    /// Resource creation request event.
     Resource {
+        /// Unique ID of the resource
         resource: Id,
+        /// Deployment ID of the request
         // FIXME: this need to be added to the interface for all the resources
         deployment: Option<Uuid>,
     },
+    /// Deployment command event.
     DeploymentCmd(DeploymentCommand),
+    /// Deployment update event.
     DeploymentUpdate(DeploymentUpdate),
 }
 

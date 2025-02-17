@@ -64,7 +64,8 @@ impl StateStore {
         Self { handle }
     }
 
-    pub(crate) fn clone_lazy(&self) -> Self {
+    /// Clone the underlying handle lazily
+    pub fn clone_lazy(&self) -> Self {
         Self {
             handle: self.handle.clone_lazy(),
         }
