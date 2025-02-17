@@ -82,6 +82,7 @@ mod tests {
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
     use crate::data::tests::create_tmp_store;
     use crate::data::tests::MockPubSub;
+    use crate::telemetry::tests::mock_initial_telemetry_client;
     use crate::Runtime;
     use crate::{AstarteLibrary, DeviceManagerOptions};
 
@@ -191,7 +192,7 @@ mod tests {
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockPubSub::new);
+            .returning(mock_initial_telemetry_client);
 
         #[cfg(feature = "containers")]
         pub_sub

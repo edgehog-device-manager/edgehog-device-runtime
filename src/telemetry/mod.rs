@@ -455,13 +455,13 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use crate::data::tests::MockPubSub;
 
     use event::TelemetryPeriod;
-    use mockall::Sequence;
+    use mockall::{predicate, Sequence};
     use storage_usage::DiskUsage;
     use tempdir::TempDir;
 
@@ -488,6 +488,93 @@ mod tests {
             },
             dir,
         )
+    }
+
+    pub(crate) fn mock_initial_telemetry_client() -> MockPubSub {
+        let mut client = MockPubSub::new();
+        let mut seq = Sequence::new();
+
+        client
+            .expect_send()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.OSInfo"),
+                predicate::eq("/osName"),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.OSInfo"),
+                predicate::eq("/osVersion"),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(..)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                predicate::always(),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(..)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
+                predicate::always(),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send_object::<DiskUsage>()
+            .times(..)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.StorageUsage"),
+                predicate::always(),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .times(..)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::always(),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.SystemInfo"),
+                predicate::always(),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.BaseImage"),
+                predicate::always(),
+                predicate::always(),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
     }
 
     #[tokio::test]
@@ -610,56 +697,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_initial_telemetry_success() {
-        let mut client = MockPubSub::new();
-
-        client
-            .expect_send()
-            .times(1)
-            .withf(|interface, _, _| interface == "io.edgehog.devicemanager.OSInfo")
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_send()
-            .times(..)
-            .withf(move |interface_name, _, _| {
-                interface_name == "io.edgehog.devicemanager.HardwareInfo"
-            })
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_send()
-            .times(..)
-            .withf(|interface_name, _, _| interface_name == "io.edgehog.devicemanager.RuntimeInfo")
-            .returning(|_, _, _| Ok(()));
-        client
-            .expect_send()
-            .once()
-            .withf(|interface_name, _, _| interface_name == "io.edgehog.devicemanager.OSInfo")
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_send_object::<DiskUsage>()
-            .times(..)
-            .withf(|interface, _, _| interface == "io.edgehog.devicemanager.StorageUsage")
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_send()
-            .times(..)
-            .withf(|interface_name, _, _| {
-                interface_name == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-            })
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_send()
-            .withf(|interface_name, _, _| interface_name == "io.edgehog.devicemanager.SystemInfo")
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_send()
-            .withf(|interface_name, _, _| interface_name == "io.edgehog.devicemanager.BaseImage")
-            .returning(|_, _, _| Ok(()));
+        let client = mock_initial_telemetry_client();
 
         let (telemetry, _dir) = mock_telemetry(client);
 
