@@ -39,3 +39,4 @@ tempfile = { workspace = true }
 
 [features]
 containers = []
+vendored = ["rusqlite/bundled"]

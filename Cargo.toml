@@ -106,6 +106,9 @@ systemd = ["dep:systemd"]
 udev = ["dep:udev"]
 wifiscanner = ["dep:wifiscanner"]
 zbus = ["dep:zbus"]
+# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
+# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
+vendored = ["edgehog-store/vendored"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.9.1"
