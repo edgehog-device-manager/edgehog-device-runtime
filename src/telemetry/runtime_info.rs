@@ -63,3 +63,69 @@ impl RuntimeInfo<'static> {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use astarte_device_sdk::AstarteType;
+    use mockall::{predicate, Sequence};
+
+    use crate::data::tests::MockPubSub;
+
+    use super::*;
+
+    pub(crate) fn mock_runtime_info_telemtry(client: &mut MockPubSub, seq: &mut Sequence) {
+        client
+            .expect_send()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
+                predicate::eq("/name"),
+                predicate::eq(AstarteType::from(env!("CARGO_PKG_NAME"))),
+            )
+            .once()
+            .in_sequence(seq)
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
+                predicate::eq("/url"),
+                predicate::eq(AstarteType::from(env!("CARGO_PKG_HOMEPAGE"))),
+            )
+            .once()
+            .in_sequence(seq)
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
+                predicate::eq("/version"),
+                predicate::eq(AstarteType::from(env!("CARGO_PKG_VERSION"))),
+            )
+            .once()
+            .in_sequence(seq)
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_send()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
+                predicate::eq("/environment"),
+                predicate::eq(AstarteType::from(env!("EDGEHOG_RUSTC_VERSION"))),
+            )
+            .once()
+            .in_sequence(seq)
+            .returning(|_, _, _| Ok(()));
+    }
+
+    #[tokio::test]
+    async fn should_send_runtime_info() {
+        let mut client = MockPubSub::new();
+        let mut seq = Sequence::new();
+
+        mock_runtime_info_telemtry(&mut client, &mut seq);
+
+        RUNTIME_INFO.send(&client).await;
+    }
+}

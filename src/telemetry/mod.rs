@@ -284,6 +284,8 @@ impl<T> Telemetry<T> {
         crate::systemd_wrapper::systemd_notify_status("Sending initial telemetry");
 
         if let Some(os_release) = OsRelease::read().await {
+            debug!("couldn't read os release information");
+
             os_release.send(&self.client).await;
         }
 
@@ -462,6 +464,7 @@ pub(crate) mod tests {
 
     use event::TelemetryPeriod;
     use mockall::{predicate, Sequence};
+    use runtime_info::tests::mock_runtime_info_telemtry;
     use storage_usage::DiskUsage;
     use tempdir::TempDir;
 
@@ -526,15 +529,7 @@ pub(crate) mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        client
-            .expect_send()
-            .times(..)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
-                predicate::always(),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
+        mock_runtime_info_telemtry(&mut client, &mut seq);
 
         client
             .expect_send_object::<DiskUsage>()
