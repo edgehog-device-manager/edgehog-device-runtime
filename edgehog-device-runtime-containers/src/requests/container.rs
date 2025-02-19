@@ -24,12 +24,9 @@ use astarte_device_sdk::FromEvent;
 use bollard::secret::RestartPolicyNameEnum;
 use tracing::{instrument, trace};
 
-use crate::{
-    container::{Binding, Container, PortBindingMap},
-    requests::BindingError,
-};
+use crate::{container::Binding, requests::BindingError};
 
-use super::{ReqError, ReqUuid, VecReqUuid};
+use super::{ReqUuid, VecReqUuid};
 
 /// couldn't parse restart policy {value}
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
@@ -49,8 +46,6 @@ pub struct CreateContainer {
     pub(crate) image_id: ReqUuid,
     pub(crate) network_ids: VecReqUuid,
     pub(crate) volume_ids: VecReqUuid,
-    // TODO: remove this image, use the image id
-    pub(crate) image: String,
     pub(crate) hostname: String,
     pub(crate) restart_policy: String,
     pub(crate) env: Vec<String>,
@@ -58,36 +53,6 @@ pub struct CreateContainer {
     pub(crate) network_mode: String,
     pub(crate) port_bindings: Vec<String>,
     pub(crate) privileged: bool,
-}
-
-impl TryFrom<CreateContainer> for Container<String> {
-    type Error = ReqError;
-
-    fn try_from(value: CreateContainer) -> Result<Self, Self::Error> {
-        let hostname = if value.hostname.is_empty() {
-            None
-        } else {
-            Some(value.hostname)
-        };
-
-        let restart_policy = RestartPolicy::from_str(&value.restart_policy)?;
-        let port_bindings = PortBindingMap::try_from(value.port_bindings.as_slice())?;
-
-        Ok(Container {
-            id: None,
-            name: value.id.to_string(),
-            image: value.image,
-            hostname,
-            restart_policy,
-            env: value.env,
-            network_mode: value.network_mode,
-            // Use the network ids
-            networks: value.network_ids.iter().map(|id| id.to_string()).collect(),
-            binds: value.binds,
-            port_bindings,
-            privileged: value.privileged,
-        })
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -229,10 +194,9 @@ impl From<RestartPolicy> for RestartPolicyNameEnum {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use std::{collections::HashMap, fmt::Display};
+    use std::fmt::Display;
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
-    use itertools::Itertools;
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
@@ -290,7 +254,6 @@ pub(crate) mod tests {
             image_id,
             network_ids,
             volume_ids: VecReqUuid(vec![]),
-            image: "image".to_string(),
             hostname: "hostname".to_string(),
             restart_policy: "no".to_string(),
             env: vec!["env".to_string()],
@@ -301,38 +264,6 @@ pub(crate) mod tests {
         };
 
         assert_eq!(request, expect);
-
-        let container = Container::try_from(request).unwrap();
-
-        let network_ids = expect
-            .network_ids
-            .iter()
-            .map(|s| s.to_string())
-            .collect_vec();
-        let network_ids = network_ids.iter().map(|s| s.as_str()).collect_vec();
-        let name = id.to_string();
-
-        let exp = Container {
-            id: None,
-            name: name.as_str(),
-            image: "image",
-            network_mode: "bridge",
-            networks: network_ids,
-            hostname: Some("hostname"),
-            restart_policy: RestartPolicy::No,
-            env: vec!["env"],
-            binds: vec!["binds"],
-            port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
-                "80/tcp".to_string(),
-                vec![Binding {
-                    host_ip: None,
-                    host_port: Some(80),
-                }],
-            )])),
-            privileged: false,
-        };
-
-        assert_eq!(container, exp);
     }
 
     #[test]

@@ -423,7 +423,6 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
-            image: "postgres:15".to_string(),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]

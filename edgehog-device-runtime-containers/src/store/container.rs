@@ -360,7 +360,6 @@ impl TryFrom<CreateContainer> for Container {
             privileged,
             network_ids: _,
             volume_ids: _,
-            image: _,
             env: _,
             binds: _,
             port_bindings: _,
@@ -579,7 +578,6 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
-            image: "postgres:15".to_string(),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -655,7 +653,6 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
-            image: "postgres:15".to_string(),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
