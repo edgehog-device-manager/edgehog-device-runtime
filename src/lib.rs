@@ -220,7 +220,7 @@ mod tests {
         let _dm = Runtime::new(&mut tasks, options, pub_sub).await.unwrap();
 
         // Sleep to pass the execution to the telemetry task, this is somewhat of a bad test
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         tasks.abort_all();
 

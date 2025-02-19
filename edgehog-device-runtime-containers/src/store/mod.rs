@@ -92,7 +92,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::requests::{
-        container::CreateContainer, deployment::CreateDeployment, image::tests::mock_image_req,
+        container::CreateContainer, deployment::CreateDeployment, image::CreateImage,
         network::CreateNetwork, volume::CreateVolume, ReqUuid, VecReqUuid,
     };
 
@@ -136,6 +136,7 @@ mod tests {
 
         let container = CreateContainer {
             id: container_id,
+            deployment_id: ReqUuid(image_id),
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
@@ -153,6 +154,7 @@ mod tests {
 
         let network = CreateNetwork {
             id: network_id,
+            deployment_id,
             driver: "bridge".to_string(),
             internal: true,
             enable_ipv6: false,
@@ -162,6 +164,7 @@ mod tests {
 
         let volume = CreateVolume {
             id: volume_id,
+            deployment_id,
             driver: "local".to_string(),
             options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
                 .map(str::to_string)
@@ -169,7 +172,12 @@ mod tests {
         };
         store.create_volume(volume).await.unwrap();
 
-        let image = mock_image_req(image_id, "postgres:15", "");
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id,
+            reference: "postgres:15".to_string(),
+            registry_auth: String::new(),
+        };
         store.create_image(image).await.unwrap();
     }
 }

@@ -266,11 +266,10 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all, fields(%id))]
-    async fn resource_req(&mut self, id: Id, deployment: Option<Uuid>)
+    async fn resource_req(&mut self, id: Id, deployment_id: Uuid)
     where
         D: Client + Sync + 'static,
     {
-        // TODO: error handling with a DeploymentEvent
         let res = match id.resource_type() {
             ResourceType::Image => ImageResource::publish(self.context(*id.uuid())).await,
             ResourceType::Volume => VolumeResource::publish(self.context(*id.uuid())).await,
@@ -283,11 +282,9 @@ impl<D> Service<D> {
             let error = format!("{:#}", eyre::Report::new(err));
             error!(error, "failed to create resource");
 
-            if let Some(deployment_id) = deployment {
-                DeploymentEvent::new(EventStatus::Error, error)
-                    .send(&deployment_id, &self.device)
-                    .await;
-            }
+            DeploymentEvent::new(EventStatus::Error, error)
+                .send(&deployment_id, &self.device)
+                .await;
         }
     }
 
@@ -710,7 +707,6 @@ mod tests {
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
-    use uuid::uuid;
 
     use crate::container::{Binding, Container, PortBindingMap};
     use crate::image::Image;
@@ -756,7 +752,8 @@ mod tests {
     async fn should_add_an_image() {
         let tmpdir = TempDir::new().unwrap();
 
-        let id = uuid!("5b705c7b-e6c7-4455-ba9b-a081be020c43");
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -783,7 +780,7 @@ mod tests {
         let (mut service, handle) = mock_service(&tmpdir, client, device).await;
 
         let reference = "docker.io/nginx:stable-alpine-slim";
-        let create_image_req = create_image_request_event(id.to_string(), reference, "");
+        let create_image_req = create_image_request_event(id, deployment_id, reference, "");
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
 
@@ -807,7 +804,8 @@ mod tests {
     async fn should_add_a_volume() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -833,7 +831,8 @@ mod tests {
 
         let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
-        let create_volume_req = create_volume_request_event(id, "local", &["foo=bar", "some="]);
+        let create_volume_req =
+            create_volume_request_event(id, deployment_id, "local", &["foo=bar", "some="]);
 
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
 
@@ -859,7 +858,8 @@ mod tests {
     async fn should_add_a_network() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = uuid!("e605c1bf-a168-4878-a7cb-41a57847bbca");
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -885,7 +885,7 @@ mod tests {
 
         let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
-        let create_network_req = create_network_request_event(id, "bridged", &[]);
+        let create_network_req = create_network_request_event(id, deployment_id, "bridged", &[]);
 
         let req = ContainerRequest::from_event(create_network_req).unwrap();
 
@@ -915,6 +915,7 @@ mod tests {
         let id = Uuid::new_v4();
         let image_id = Uuid::new_v4();
         let network_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<SqliteStore>::new();
@@ -966,7 +967,7 @@ mod tests {
 
         // Image
         let reference = "docker.io/nginx:stable-alpine-slim";
-        let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
+        let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
         handle.on_event(req).await.unwrap();
@@ -974,7 +975,8 @@ mod tests {
         service.on_event(event).await;
 
         // Network
-        let create_network_req = create_network_request_event(network_id, "bridged", &[]);
+        let create_network_req =
+            create_network_request_event(network_id, deployment_id, "bridged", &[]);
         let req = ContainerRequest::from_event(create_network_req).unwrap();
         handle.on_event(req).await.unwrap();
         let event = service.events.recv().await.unwrap();
@@ -982,7 +984,7 @@ mod tests {
 
         // Container
         let create_container_req =
-            create_container_request_event(id, &image_id.to_string(), "image", &[network_id]);
+            create_container_request_event(id, deployment_id, image_id, "image", &[network_id]);
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
@@ -1199,13 +1201,14 @@ mod tests {
 
         let (mut service, handle) = mock_service(&tempdir, client, device).await;
 
-        let create_image_req = create_image_request_event(image_id.to_string(), reference, "");
+        let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
 
         let image_req = ContainerRequest::from_event(create_image_req).unwrap();
 
         let create_container_req = create_container_request_event(
             container_id,
-            &image_id.to_string(),
+            deployment_id,
+            image_id,
             reference,
             &Vec::<Uuid>::new(),
         );

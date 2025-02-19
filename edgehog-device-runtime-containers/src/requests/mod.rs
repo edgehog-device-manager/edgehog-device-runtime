@@ -18,7 +18,7 @@
 
 //! Container requests sent from Astarte.
 
-use std::{borrow::Borrow, collections::HashMap, fmt::Display, num::ParseIntError, ops::Deref};
+use std::{borrow::Borrow, fmt::Display, num::ParseIntError, ops::Deref};
 
 use astarte_device_sdk::{
     event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
@@ -128,22 +128,6 @@ impl FromEvent for ContainerRequest {
     }
 }
 
-/// Split a key=value slice into an [`HashMap`].
-fn parse_kv_map<S>(input: &[S]) -> Result<HashMap<String, String>, ReqError>
-where
-    S: AsRef<str>,
-{
-    input
-        .iter()
-        .map(|k_v| {
-            k_v.as_ref()
-                .split_once('=')
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .ok_or_else(|| ReqError::Option(k_v.as_ref().to_string()))
-        })
-        .collect()
-}
-
 /// Wrapper to convert an [`AstarteType`] to [`Uuid`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ReqUuid(pub(crate) Uuid);
@@ -238,67 +222,42 @@ impl TryFrom<AstarteType> for VecReqUuid {
 mod tests {
     use super::*;
 
-    use astarte_device_sdk::Value;
-    use image::tests::mock_image_req;
+    use image::tests::create_image_request_event;
     use network::{tests::create_network_request_event, CreateNetwork};
+    use pretty_assertions::assert_eq;
 
     use crate::requests::ContainerRequest;
 
     #[test]
     fn from_event_image() {
         let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
 
-        let fields = [
-            ("id", id.to_string().as_str()),
-            ("reference", "reference"),
-            ("registryAuth", "registry_auth"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.into()))
-        .collect();
-        let event = DeviceEvent {
-            interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
-            path: "/image".to_string(),
-            data: Value::Object(fields),
-        };
+        let event = create_image_request_event(id, deployment_id, "reference", "registry_auth");
 
         let request = ContainerRequest::from_event(event).unwrap();
 
-        let expect = ContainerRequest::Image(mock_image_req(
-            id,
-            "reference".to_string(),
-            "registry_auth".to_string(),
-        ));
+        let expect = ContainerRequest::Image(CreateImage {
+            id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "reference".to_string(),
+            registry_auth: "registry_auth".to_string(),
+        });
 
         assert_eq!(request, expect);
     }
 
     #[test]
-    fn should_parse_kv_map() {
-        let values = ["foo=bar", "some="];
-
-        let map = parse_kv_map(&values).unwrap();
-
-        assert_eq!(map.len(), 2);
-        assert_eq!(map.get("foo").unwrap(), "bar");
-        assert_eq!(map.get("some").unwrap(), "");
-
-        let invalid = ["nope"];
-
-        let err = parse_kv_map(&invalid).unwrap_err();
-
-        assert!(matches!(err, ReqError::Option(opt) if opt == "nope"))
-    }
-
-    #[test]
     fn from_event_network() {
         let id = Uuid::new_v4();
-        let event = create_network_request_event(id.to_string(), "driver", &[]);
+        let deployment_id = Uuid::new_v4();
+        let event = create_network_request_event(id, deployment_id, "driver", &[]);
 
         let request = ContainerRequest::from_event(event).unwrap();
 
         let expect = CreateNetwork {
             id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "driver".to_string(),
             internal: false,
             enable_ipv6: false,

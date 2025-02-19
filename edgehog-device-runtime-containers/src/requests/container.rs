@@ -43,6 +43,7 @@ pub struct RestartPolicyError {
 )]
 pub struct CreateContainer {
     pub(crate) id: ReqUuid,
+    pub(crate) deployment_id: ReqUuid,
     pub(crate) image_id: ReqUuid,
     pub(crate) network_ids: VecReqUuid,
     pub(crate) volume_ids: VecReqUuid,
@@ -204,12 +205,17 @@ pub(crate) mod tests {
 
     pub fn create_container_request_event<S: Display>(
         id: impl Display,
-        image_id: &str,
+        deployment_id: impl Display,
+        image_id: impl Display,
         image: &str,
         network_ids: &[S],
     ) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
+            (
+                "deploymentId",
+                AstarteType::String(deployment_id.to_string()),
+            ),
             ("imageId", AstarteType::String(image_id.to_string())),
             ("volumeIds", AstarteType::StringArray(vec![])),
             ("image", AstarteType::String(image.to_string())),
@@ -242,15 +248,17 @@ pub(crate) mod tests {
     #[test]
     fn create_container_request() {
         let id = ReqUuid(Uuid::new_v4());
+        let deployment_id = ReqUuid(Uuid::new_v4());
         let image_id = ReqUuid(Uuid::new_v4());
         let network_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
         let event =
-            create_container_request_event(id, &image_id.to_string(), "image", &network_ids);
+            create_container_request_event(id, deployment_id, image_id, "image", &network_ids);
 
         let request = CreateContainer::from_event(event).unwrap();
 
         let expect = CreateContainer {
             id,
+            deployment_id,
             image_id,
             network_ids,
             volume_ids: VecReqUuid(vec![]),

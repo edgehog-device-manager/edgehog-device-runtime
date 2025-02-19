@@ -183,6 +183,7 @@ impl From<CreateNetwork> for Network {
     fn from(
         CreateNetwork {
             id,
+            deployment_id: _,
             driver,
             internal,
             enable_ipv6,
@@ -279,8 +280,10 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let network_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
         let network = CreateNetwork {
             id: ReqUuid(network_id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "bridge".to_string(),
             internal: true,
             enable_ipv6: false,
@@ -323,8 +326,10 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let network_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
         let network = CreateNetwork {
             id: ReqUuid(network_id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "bridge".to_string(),
             internal: true,
             enable_ipv6: false,
