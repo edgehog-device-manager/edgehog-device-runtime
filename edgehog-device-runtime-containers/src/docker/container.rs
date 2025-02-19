@@ -64,12 +64,9 @@ pub enum ContainerError {
     Image,
 }
 
-/// Docker container struct.
-#[derive(Debug, Clone, Eq)]
-pub(crate) struct Container<S = String>
-where
-    S: Hash + Eq,
-{
+/// Identifies a container univocally.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContainerId {
     /// Id of the docker container.
     ///
     /// The id of the image is optional since it will be available only when the image is created.
@@ -77,53 +74,13 @@ where
     /// Assign the specified name to the container.
     ///
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
-    pub(crate) name: S,
-    /// The name (or reference) of the image to use.
-    ///
-    /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
-    /// square brackets optional.
-    pub(crate) image: S,
-    /// Network mode to use for this container.
-    pub(crate) network_mode: S,
-    /// Network to connect the container to.
-    pub(crate) networks: Vec<S>,
-    /// The hostname to use for the container.
-    ///
-    /// Defaults to the container name.
-    pub(crate) hostname: Option<S>,
-    /// The behaviour to apply when the container exits.
-    ///
-    /// See the [create container
-    /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
-    /// possible values.
-    pub(crate) restart_policy: RestartPolicy,
-    /// A list of environment variables to set inside the container.
-    ///
-    /// In the form of `NAME=VALUE`.
-    pub(crate) env: Vec<S>,
-    /// A list of volume bindings for this container.
-    pub(crate) binds: Vec<S>,
-    /// Describes the mapping of container ports to host ports.
-    ///
-    /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
-    /// example, 80/udp.
-    pub(crate) port_bindings: PortBindingMap<S>,
-    /// Gives the container full access to the host.
-    ///
-    /// Defaults to false.
-    pub(crate) privileged: bool,
+    pub(crate) name: String,
 }
 
-impl<S> Container<S>
-where
-    S: Hash + Eq,
-{
+impl ContainerId {
     /// Get the container id or name if it's missing.
     #[instrument(skip_all)]
-    pub fn container(&self) -> &str
-    where
-        S: AsRef<str> + Debug,
-    {
+    pub fn container(&self) -> &str {
         match &self.id {
             Some(id) => {
                 trace!("returning id");
@@ -140,22 +97,68 @@ where
 
     /// Set the id from docker.
     #[instrument(skip_all)]
-    fn update_id(&mut self, id: String)
-    where
-        S: Display + Debug,
-    {
+    fn update(&mut self, id: String) {
         info!("using id {id} for container {}", self.name);
 
         let old_id = self.id.replace(id);
 
         trace!(?old_id);
     }
+}
 
+impl Display for ContainerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(id) = &self.id {
+            write!(f, "id: {id}, ")?;
+        }
+
+        write!(f, "name: {}", self.name)
+    }
+}
+
+/// Docker container struct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Container {
+    pub(crate) id: ContainerId,
+    /// The name (or reference) of the image to use.
+    ///
+    /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
+    /// square brackets optional.
+    pub(crate) image: String,
+    /// Network mode to use for this container.
+    pub(crate) network_mode: String,
+    /// Network to connect the container to.
+    pub(crate) networks: Vec<String>,
+    /// The hostname to use for the container.
+    ///
+    /// Defaults to the container name.
+    pub(crate) hostname: Option<String>,
+    /// The behaviour to apply when the container exits.
+    ///
+    /// See the [create container
+    /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
+    /// possible values.
+    pub(crate) restart_policy: RestartPolicy,
+    /// A list of environment variables to set inside the container.
+    ///
+    /// In the form of `NAME=VALUE`.
+    pub(crate) env: Vec<String>,
+    /// A list of volume bindings for this container.
+    pub(crate) binds: Vec<String>,
+    /// Describes the mapping of container ports to host ports.
+    ///
+    /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
+    /// example, 80/udp.
+    pub(crate) port_bindings: PortBindingMap<String>,
+    /// Gives the container full access to the host.
+    ///
+    /// Defaults to false.
+    pub(crate) privileged: bool,
+}
+
+impl Container {
     /// Convert the port bindings to be used in [`HostConfig`].
-    fn as_port_bindings(&self) -> HashMap<String, Option<Vec<PortBinding>>>
-    where
-        S: AsRef<str>,
-    {
+    fn as_port_bindings(&self) -> HashMap<String, Option<Vec<PortBinding>>> {
         self.port_bindings
             .iter()
             .map(|(port_proto, binds)| {
@@ -171,10 +174,7 @@ where
     }
 
     /// Convert the networks into [`NetworkingConfig`]
-    fn as_network_config(&self) -> HashMap<&str, EndpointSettings>
-    where
-        S: AsRef<str>,
-    {
+    fn as_network_config(&self) -> HashMap<&str, EndpointSettings> {
         self.networks
             .iter()
             .map(|net_id| {
@@ -192,18 +192,17 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate)
     #[instrument(skip_all)]
-    pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError> {
         debug!("creating the {}", self);
 
+        let options = CreateContainerOptions::<&str>::from(&*self);
+        let config = Config::<&str>::from(&*self);
         let res = client
-            .create_container(Some((&*self).into()), (&*self).into())
+            .create_container(Some(options), config)
             .await
             .map_err(ContainerError::Create)?;
 
-        self.update_id(res.id);
+        self.id.update(res.id);
 
         for warning in res.warnings {
             warn!("container created with working: {warning}");
@@ -219,14 +218,11 @@ where
     pub async fn inspect(
         &mut self,
         client: &Client,
-    ) -> Result<Option<ContainerInspectResponse>, ContainerError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    ) -> Result<Option<ContainerInspectResponse>, ContainerError> {
         debug!("Inspecting the {}", self);
 
         let res = client
-            .inspect_container(self.container(), None::<InspectContainerOptions>)
+            .inspect_container(self.id.container(), None::<InspectContainerOptions>)
             .await;
 
         let container = match res {
@@ -245,7 +241,7 @@ where
         trace!("container info: {container:?}");
 
         if let Some(id) = &container.id {
-            self.update_id(id.clone());
+            self.id.update(id.clone());
         }
 
         Ok(Some(container))
@@ -255,19 +251,19 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("deleting {}", self);
 
         let opts = RemoveContainerOptions {
             v: false,
-            force: true,
+            // TODO: there is no way to force the remove from astarte
+            force: false,
             link: false,
         };
 
-        let res = client.remove_container(self.container(), Some(opts)).await;
+        let res = client
+            .remove_container(self.id.container(), Some(opts))
+            .await;
 
         match res {
             Ok(()) => Ok(Some(())),
@@ -287,14 +283,11 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
     #[instrument(skip_all)]
-    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
+    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("starting {self}");
 
         let res = client
-            .start_container(self.container(), None::<StartContainerOptions<&str>>)
+            .start_container(self.id.container(), None::<StartContainerOptions<&str>>)
             .await;
 
         match res {
@@ -315,13 +308,10 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
     #[instrument(skip_all)]
-    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
+    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("stopping {self}");
 
-        let res = client.stop_container(self.container(), None).await;
+        let res = client.stop_container(self.id.container(), None).await;
 
         match res {
             Ok(()) => Ok(Some(())),
@@ -346,41 +336,27 @@ where
     }
 }
 
-impl<S> Display for Container<S>
-where
-    S: Display + Hash + Eq,
-{
+impl Display for Container {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Container")?;
-
-        if let Some(id) = &self.id {
-            write!(f, " ({id})")?;
-        }
-
-        write!(f, " {}", self.name)
+        // brackets go brrrrrr
+        write!(f, "Container {{{}}}", self.id)
     }
 }
 
-impl<'a, S> From<&'a Container<S>> for CreateContainerOptions<&'a str>
-where
-    S: AsRef<str> + Hash + Eq,
-{
-    fn from(value: &'a Container<S>) -> Self {
+impl<'a> From<&'a Container> for CreateContainerOptions<&'a str> {
+    fn from(value: &'a Container) -> Self {
         CreateContainerOptions {
-            name: value.name.as_ref(),
+            name: value.id.name.as_ref(),
             platform: None,
         }
     }
 }
 
-impl<'a, S> From<&'a Container<S>> for Config<&'a str>
-where
-    S: AsRef<str> + Hash + Eq,
-{
-    fn from(value: &'a Container<S>) -> Self {
-        let hostname = value.hostname.as_ref().map(S::as_ref);
-        let env = value.env.iter().map(S::as_ref).collect();
-        let binds = value.binds.iter().map(|s| s.as_ref().to_string()).collect();
+impl<'a> From<&'a Container> for Config<&'a str> {
+    fn from(value: &'a Container) -> Self {
+        let hostname = value.hostname.as_deref();
+        let env = value.env.iter().map(String::as_str).collect();
+        let binds = value.binds.clone();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
 
@@ -420,47 +396,6 @@ where
         (None, None) => true,
         (None, Some(_)) | (Some(_), None) => false,
         (Some(v1), Some(v2)) => *v1 == *v2,
-    }
-}
-
-impl<S1, S2> PartialEq<Container<S2>> for Container<S1>
-where
-    S1: PartialEq<S2> + Eq + Hash,
-    S2: Eq + Hash,
-{
-    fn eq(
-        &self,
-        Container {
-            id,
-            name,
-            image,
-            network_mode,
-            networks,
-            hostname,
-            restart_policy,
-            env,
-            binds,
-            port_bindings,
-            privileged,
-        }: &Container<S2>,
-    ) -> bool {
-        let eq_port_bindings = self.port_bindings.len() == port_bindings.len()
-            && self
-                .port_bindings
-                .iter()
-                .all(|(k, v1)| port_bindings.get(k).is_some_and(|v2| *v1 == *v2));
-
-        self.id.eq(id)
-            && self.name.eq(name)
-            && self.image.eq(image)
-            && self.network_mode.eq(network_mode)
-            && self.networks.eq(networks)
-            && opt_eq(&self.hostname, hostname)
-            && self.restart_policy.eq(restart_policy)
-            && self.env.eq(env)
-            && self.binds.eq(binds)
-            && eq_port_bindings
-            && self.privileged.eq(privileged)
     }
 }
 
@@ -591,11 +526,13 @@ mod tests {
 
     use super::*;
 
-    impl Container<String> {
+    impl Container {
         fn new(name: impl Into<String>, image: impl Into<String>) -> Self {
             Self {
-                id: None,
-                name: name.into(),
+                id: ContainerId {
+                    id: None,
+                    name: name.into(),
+                },
                 image: image.into(),
                 hostname: None,
                 restart_policy: RestartPolicy::Empty,
@@ -659,10 +596,10 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference);
+        let mut container = Container::new(name.as_str(), image.reference.clone());
 
         container.create(&docker).await.unwrap();
     }
@@ -729,10 +666,10 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference);
+        let mut container = Container::new(name.as_str(), image.reference.clone());
 
         container.create(&docker).await.unwrap();
 
@@ -820,10 +757,10 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference);
+        let mut container = Container::new(name.as_str(), image.reference.clone());
 
         container.create(&docker).await.unwrap();
 

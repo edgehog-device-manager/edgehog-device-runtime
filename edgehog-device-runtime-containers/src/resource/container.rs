@@ -134,7 +134,7 @@ where
         let resource = ContainerResource::new(container);
         if exists {
             ctx.store
-                .update_container_local_id(ctx.id, resource.container.id.clone())
+                .update_container_local_id(ctx.id, resource.container.id.id.clone())
                 .await?;
 
             Ok((State::Created, resource))

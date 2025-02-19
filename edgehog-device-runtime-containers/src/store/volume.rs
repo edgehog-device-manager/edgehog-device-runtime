@@ -137,11 +137,11 @@ impl StateStore {
                     .map(|opt| (opt.name, opt.value))
                     .collect();
 
-                Ok(Some(VolumeResource::new(ContainerVolume {
-                    name: volume.id.to_string(),
-                    driver: volume.driver,
+                Ok(Some(VolumeResource::new(ContainerVolume::new(
+                    volume.id.to_string(),
+                    volume.driver,
                     driver_opts,
-                })))
+                ))))
             })
             .await?;
 

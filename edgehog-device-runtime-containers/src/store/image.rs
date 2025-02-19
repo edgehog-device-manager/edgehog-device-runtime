@@ -181,11 +181,7 @@ impl From<CreateImage> for Image {
 
 impl From<Image> for ContainerImage {
     fn from(value: Image) -> Self {
-        Self {
-            id: value.local_id,
-            reference: value.reference,
-            registry_auth: value.registry_auth,
-        }
+        Self::new(value.local_id, value.reference, value.registry_auth)
     }
 }
 

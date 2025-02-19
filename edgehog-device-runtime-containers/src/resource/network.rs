@@ -74,7 +74,7 @@ where
 
         if exists {
             ctx.store
-                .update_network_local_id(ctx.id, resource.network.id.clone())
+                .update_network_local_id(ctx.id, resource.network.id.id.clone())
                 .await?;
 
             Ok((State::Created, resource))

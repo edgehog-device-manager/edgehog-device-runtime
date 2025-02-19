@@ -54,7 +54,7 @@ use itertools::Itertools;
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
-use crate::container::{Binding, PortBindingMap};
+use crate::container::{Binding, ContainerId, PortBindingMap};
 use crate::docker::container::Container as ContainerResource;
 use crate::requests::container::{
     parse_port_binding, CreateContainer, RestartPolicy, RestartPolicyError,
@@ -306,8 +306,10 @@ impl StateStore {
                     });
 
                 Ok(Some(ContainerResource {
-                    id: container.local_id,
-                    name: container.id.to_string(),
+                    id: ContainerId {
+                        id: container.local_id,
+                        name: container.id.to_string(),
+                    },
                     image,
                     network_mode: container.network_mode,
                     networks,

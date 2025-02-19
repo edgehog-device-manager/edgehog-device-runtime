@@ -21,6 +21,7 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
 };
 
 use bollard::{
@@ -46,28 +47,40 @@ pub enum VolumeError {
     List(#[source] BollardError),
 }
 
+/// Unique identifier for the Volume
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VolumeId {
+    /// The volume's name. If not specified (empty), Docker generates a name.
+    pub name: String,
+}
+
+impl Display for VolumeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "name: {}", self.name)
+    }
+}
+
 /// Docker volume struct.
 ///
 /// Persistent storage that can be attached to containers.
-#[derive(Debug, Clone, Eq)]
-pub struct Volume<S = String> {
-    /// The volume's name. If not specified (empty), Docker generates a name.
-    pub name: S,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Volume {
+    pub(crate) id: VolumeId,
     /// Name of the volume driver to use.
     ///
     /// Defaults to "local".
-    pub driver: S,
+    pub driver: String,
     /// A mapping of driver options and values.
     ///
     /// These options are passed directly to the driver and are driver specific.
-    pub driver_opts: HashMap<String, S>,
+    pub driver_opts: HashMap<String, String>,
 }
 
-impl<S> Volume<S> {
+impl Volume {
     /// Create a new volume.
-    pub fn new(name: S, driver: S, driver_opts: HashMap<String, S>) -> Self {
+    pub fn new(name: String, driver: String, driver_opts: HashMap<String, String>) -> Self {
         Self {
-            name,
+            id: VolumeId { name },
             driver,
             driver_opts,
         }
@@ -77,10 +90,7 @@ impl<S> Volume<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
     #[instrument(skip_all)]
-    pub async fn create(&self, client: &Client) -> Result<(), VolumeError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn create(&self, client: &Client) -> Result<(), VolumeError> {
         debug!("Create the Volume {}", self);
 
         client
@@ -95,10 +105,7 @@ impl<S> Volume<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeInspect)
     #[instrument(skip_all)]
-    pub async fn inspect(&self, client: &Client) -> Result<Option<DockerVolume>, VolumeError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn inspect(&self, client: &Client) -> Result<Option<DockerVolume>, VolumeError> {
         debug!("inspecting volume {}", self.name);
 
         let res = client.inspect_volume(self.name.as_ref()).await;
@@ -125,10 +132,7 @@ impl<S> Volume<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, VolumeError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, VolumeError> {
         debug!("deleting volume {}", self.name);
 
         let res = client.remove_volume(self.name.as_ref(), None).await;
@@ -161,42 +165,28 @@ impl<S> Volume<S> {
     }
 }
 
-impl<S> Display for Volume<S>
-where
-    S: Display,
-{
+impl Display for Volume {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Volume {}/{}", self.name, self.driver)
+        write!(f, "Volume{{{}}}", self.id)
     }
 }
 
-impl<S1, S2> PartialEq<Volume<S2>> for Volume<S1>
-where
-    S1: PartialEq<S2>,
-{
-    fn eq(
-        &self,
-        Volume {
-            name,
-            driver,
-            driver_opts,
-        }: &Volume<S2>,
-    ) -> bool {
-        let eq_driver_opts = self.driver_opts.len() == driver_opts.len()
-            && self
-                .driver_opts
-                .iter()
-                .all(|(k, v1)| driver_opts.get(k).is_some_and(|v2| *v1 == *v2));
+impl Deref for Volume {
+    type Target = VolumeId;
 
-        self.name.eq(name) && self.driver.eq(driver) && eq_driver_opts
+    fn deref(&self) -> &Self::Target {
+        &self.id
     }
 }
 
-impl<'a, S> From<&'a Volume<S>> for CreateVolumeOptions<&'a str>
-where
-    S: AsRef<str>,
-{
-    fn from(value: &'a Volume<S>) -> Self {
+impl DerefMut for Volume {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.id
+    }
+}
+
+impl<'a> From<&'a Volume> for CreateVolumeOptions<&'a str> {
+    fn from(value: &'a Volume) -> Self {
         CreateVolumeOptions {
             name: value.name.as_ref(),
             driver: value.driver.as_ref(),
@@ -232,7 +222,7 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name.to_string(), "local".to_string(), HashMap::new());
         volume.create(&docker).await.unwrap();
     }
 
@@ -265,7 +255,7 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name.to_string(), "local".to_string(), HashMap::new());
 
         volume.create(&docker).await.unwrap();
         let v = volume.inspect(&docker).await.unwrap().unwrap();
@@ -290,7 +280,7 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name.to_string(), "local".to_string(), HashMap::new());
 
         let res = volume.inspect(&docker).await.unwrap();
 
@@ -325,7 +315,7 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name.to_string(), "local".to_string(), HashMap::new());
         volume.create(&docker).await.unwrap();
         volume.remove(&docker).await.unwrap();
 

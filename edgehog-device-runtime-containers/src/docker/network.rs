@@ -21,6 +21,7 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
 };
 
 use bollard::{
@@ -54,52 +55,18 @@ pub enum ConversionError {
     MissingName,
 }
 
-/// Container network struct.
-///
-/// Networks are user-defined networks that containers can be attached to.
-#[derive(Debug, Clone, Eq)]
-pub struct Network<S = String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkId {
     /// Id of the container network.
     pub id: Option<String>,
     /// The network's name.
-    pub name: S,
-    /// Network driver plugin to use.
-    ///
-    /// Defaults to "bridge"
-    pub driver: S,
-    /// Restrict external access to the network.
-    pub internal: bool,
-    /// Enable IPv6 on the network.
-    pub enable_ipv6: bool,
-    /// Network specific options to be used by the drivers.
-    pub driver_opts: HashMap<String, S>,
+    pub name: String,
 }
 
-impl<S> Network<S> {
-    pub fn new(
-        id: Option<String>,
-        name: S,
-        driver: S,
-        internal: bool,
-        enable_ipv6: bool,
-        driver_options: HashMap<String, S>,
-    ) -> Self {
-        Self {
-            id,
-            name,
-            driver,
-            internal,
-            enable_ipv6,
-            driver_opts: driver_options,
-        }
-    }
-
+impl NetworkId {
     /// Get the network id or name if it's missing.
     #[instrument(skip_all)]
-    pub fn network(&self) -> &str
-    where
-        S: AsRef<str> + Debug,
-    {
+    pub fn network(&self) -> &str {
         match &self.id {
             Some(id) => {
                 trace!("returning id");
@@ -115,16 +82,58 @@ impl<S> Network<S> {
     }
 
     /// Set the id from docker.
-    fn update_id(&mut self, id: Option<String>)
-    where
-        S: Display,
-    {
-        if let Some(id) = id {
-            debug!("using id {id} for network {}", self.name);
+    fn update(&mut self, id: String) {
+        debug!("using id {id} for network {}", self.name);
 
-            let old_id = self.id.replace(id);
+        let old_id = self.id.replace(id);
 
-            trace!(?old_id);
+        trace!(?old_id);
+    }
+}
+
+impl Display for NetworkId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(id) = &self.id {
+            write!(f, "id: {id}, ")?;
+        }
+
+        write!(f, "name: {}", self.name)
+    }
+}
+
+/// Container network struct.
+///
+/// Networks are user-defined networks that containers can be attached to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Network {
+    pub(crate) id: NetworkId,
+    /// Network driver plugin to use.
+    ///
+    /// Defaults to "bridge"
+    pub driver: String,
+    /// Restrict external access to the network.
+    pub internal: bool,
+    /// Enable IPv6 on the network.
+    pub enable_ipv6: bool,
+    /// Network specific options to be used by the drivers.
+    pub driver_opts: HashMap<String, String>,
+}
+
+impl Network {
+    pub fn new(
+        id: Option<String>,
+        name: String,
+        driver: String,
+        internal: bool,
+        enable_ipv6: bool,
+        driver_options: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            id: NetworkId { id, name },
+            driver,
+            internal,
+            enable_ipv6,
+            driver_opts: driver_options,
         }
     }
 
@@ -132,18 +141,19 @@ impl<S> Network<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkCreate)
     #[instrument(skip_all, fields(name = %self.name))]
-    pub async fn create(&mut self, client: &Client) -> Result<(), NetworkError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn create(&mut self, client: &Client) -> Result<(), NetworkError> {
         debug!("Create the {}", self);
 
+        let options = CreateNetworkOptions::<&str>::from(&*self);
+
         let res = client
-            .create_network((&*self).into())
+            .create_network(options)
             .await
             .map_err(NetworkError::Create)?;
 
-        self.update_id(res.id);
+        if let Some(id) = res.id {
+            self.update(id);
+        }
 
         if let Some(warning) = res.warning {
             if !warning.is_empty() {
@@ -158,10 +168,10 @@ impl<S> Network<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
     #[instrument(skip_all, fields(name = %self.name))]
-    pub async fn inspect(&mut self, client: &Client) -> Result<Option<DockerNetwork>, NetworkError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<DockerNetwork>, NetworkError> {
         debug!("Inspecting the {}", self);
 
         let res = client
@@ -183,7 +193,9 @@ impl<S> Network<S> {
 
         trace!("network info: {network:?}");
 
-        self.update_id(network.id.clone());
+        if let Some(id) = &network.id {
+            self.update(id.clone());
+        }
 
         Ok(Some(network))
     }
@@ -192,11 +204,8 @@ impl<S> Network<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("deleting {}", self.name);
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError> {
+        debug!("deleting {}", self);
 
         let res = client.remove_network(self.network()).await;
 
@@ -215,56 +224,28 @@ impl<S> Network<S> {
     }
 }
 
-impl<S> Display for Network<S>
-where
-    S: Display,
-{
+impl Deref for Network {
+    type Target = NetworkId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl DerefMut for Network {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.id
+    }
+}
+
+impl Display for Network {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Network")?;
-
-        if let Some(id) = &self.id {
-            write!(f, " ({id})")?;
-        }
-
-        write!(f, " {}/{}", self.name, self.driver)
+        write!(f, "Network{{{}}}", self.id)
     }
 }
 
-impl<S1, S2> PartialEq<Network<S2>> for Network<S1>
-where
-    S1: PartialEq<S2>,
-{
-    fn eq(
-        &self,
-        Network {
-            id,
-            name,
-            driver,
-            internal,
-            enable_ipv6,
-            driver_opts,
-        }: &Network<S2>,
-    ) -> bool {
-        let eq_driver_opts = self.driver_opts.len() == driver_opts.len()
-            && self
-                .driver_opts
-                .iter()
-                .all(|(k, v1)| driver_opts.get(k).is_some_and(|v2| *v1 == *v2));
-
-        self.id.eq(id)
-            && self.name.eq(name)
-            && self.driver.eq(driver)
-            && self.internal.eq(internal)
-            && self.enable_ipv6.eq(enable_ipv6)
-            && eq_driver_opts
-    }
-}
-
-impl<'a, S> From<&'a Network<S>> for CreateNetworkOptions<&'a str>
-where
-    S: AsRef<str>,
-{
-    fn from(value: &'a Network<S>) -> Self {
+impl<'a> From<&'a Network> for CreateNetworkOptions<&'a str> {
+    fn from(value: &'a Network) -> Self {
         CreateNetworkOptions {
             name: value.name.as_ref(),
             driver: value.driver.as_ref(),
@@ -286,8 +267,15 @@ mod tests {
 
     use super::*;
 
-    fn new_network(name: &str) -> Network<&str> {
-        Network::new(None, name, "bridge", false, false, HashMap::new())
+    fn new_network(name: &str) -> Network {
+        Network::new(
+            None,
+            name.to_string(),
+            "bridge".to_string(),
+            false,
+            false,
+            HashMap::new(),
+        )
     }
 
     #[tokio::test]

@@ -164,14 +164,14 @@ impl StateStore {
                     .map(|opt| (opt.name, opt.value))
                     .collect();
 
-                Ok(Some(NetworkResource::new(ContainerNetwork {
-                    id: network.local_id,
-                    name: network.id.to_string(),
-                    driver: network.driver,
-                    internal: network.internal,
-                    enable_ipv6: network.enable_ipv6,
+                Ok(Some(NetworkResource::new(ContainerNetwork::new(
+                    network.local_id,
+                    network.id.to_string(),
+                    network.driver,
+                    network.internal,
+                    network.enable_ipv6,
                     driver_opts,
-                })))
+                ))))
             })
             .await?;
 
