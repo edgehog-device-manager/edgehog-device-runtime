@@ -322,6 +322,28 @@ impl StateStore {
 
         Ok(container)
     }
+
+    /// Finds the unique id of the container with the given local id
+    #[instrument(skip(self))]
+    pub(crate) async fn find_container_by_local_id(
+        &mut self,
+        local_id: String,
+    ) -> Result<Option<Uuid>> {
+        let id = self
+            .handle
+            .for_read(|reader| {
+                containers::table
+                    .filter(containers::local_id.eq(local_id))
+                    .select(containers::id)
+                    .first::<SqlUuid>(reader)
+                    .map(|id| *id)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await?;
+
+        Ok(id)
+    }
 }
 
 fn has_missing_networks(
@@ -693,5 +715,52 @@ mod tests {
             privileged: false,
         };
         assert_eq!(container, exp);
+    }
+
+    #[tokio::test]
+    async fn fetch_by_local_id() {
+        let tmp = TempDir::with_prefix("fetch_by_local_id").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let mut store = StateStore::new(handle);
+
+        let container_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let image_id = Uuid::new_v4();
+        let network_id = Uuid::new_v4();
+        let volume_id = Uuid::new_v4();
+        let container = CreateContainer {
+            id: ReqUuid(container_id),
+            deployment_id: ReqUuid(deployment_id),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
+            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            privileged: false,
+        };
+        store.create_container(container).await.unwrap();
+
+        let local_id = Uuid::new_v4();
+        store
+            .update_container_local_id(container_id, Some(local_id.to_string()))
+            .await
+            .unwrap();
+
+        let res = store
+            .find_container_by_local_id(local_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(res, container_id);
     }
 }

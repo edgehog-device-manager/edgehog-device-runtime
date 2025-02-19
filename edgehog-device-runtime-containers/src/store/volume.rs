@@ -147,6 +147,19 @@ impl StateStore {
 
         Ok(volume)
     }
+
+    /// Fetches an volume by id
+    #[instrument(skip(self))]
+    pub(crate) async fn check_volume_exists(&mut self, id: Uuid) -> Result<bool> {
+        self.handle
+            .for_read(move |reader| {
+                Volume::exists(&SqlUuid::new(id))
+                    .get_result::<bool>(reader)
+                    .map_err(HandleError::Query)
+            })
+            .await
+            .map_err(StoreError::Handle)
+    }
 }
 
 impl From<CreateVolume> for Volume {
@@ -391,5 +404,29 @@ mod tests {
         };
 
         assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn check_volume_exists() {
+        let tmp = TempDir::with_prefix("check_volume_exists").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let mut store = StateStore::new(handle);
+
+        let volume_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let volume = CreateVolume {
+            id: ReqUuid(volume_id),
+            deployment_id: ReqUuid(deployment_id),
+            driver: "local".to_string(),
+            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                .map(str::to_string)
+                .to_vec(),
+        };
+        store.create_volume(volume).await.unwrap();
+
+        assert!(store.check_volume_exists(volume_id).await.unwrap());
     }
 }

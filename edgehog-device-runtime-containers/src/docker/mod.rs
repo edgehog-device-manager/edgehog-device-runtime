@@ -23,6 +23,9 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use bollard::{secret::EventMessage, system::EventsOptions};
+use futures::{Stream, TryStreamExt};
+
 pub(crate) use crate::client::*;
 use crate::error::DockerError;
 
@@ -64,6 +67,24 @@ impl Docker {
         self.client.ping().await.map_err(DockerError::Ping)?;
 
         Ok(())
+    }
+
+    /// Ping the Docker daemon
+    pub fn events(&self) -> impl Stream<Item = Result<EventMessage, DockerError>> {
+        let types = vec!["container", "image", "volume", "network"];
+
+        let filters = [("type", types)].into_iter().collect();
+
+        let options = EventsOptions {
+            since: None,
+            until: None,
+            filters,
+        };
+
+        // Discard the result since it returns the string `OK`
+        self.client
+            .events(Some(options))
+            .map_err(DockerError::Envents)
     }
 }
 

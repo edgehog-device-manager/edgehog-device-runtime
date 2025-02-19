@@ -27,7 +27,7 @@ use tracing::{debug, error, instrument};
 use uuid::Uuid;
 
 use crate::{
-    events::{DeploymentEvent, EventStatus},
+    events::deployment::{DeploymentEvent, EventStatus},
     properties::Client,
     requests::{
         deployment::{DeploymentCommand, DeploymentUpdate},
