@@ -166,7 +166,7 @@ impl StateStore {
 
                 Ok(Some(NetworkResource::new(ContainerNetwork::new(
                     network.local_id,
-                    network.id.to_string(),
+                    *network.id,
                     network.driver,
                     network.internal,
                     network.enable_ipv6,

@@ -306,10 +306,7 @@ impl StateStore {
                     });
 
                 Ok(Some(ContainerResource {
-                    id: ContainerId {
-                        id: container.local_id,
-                        name: container.id.to_string(),
-                    },
+                    id: ContainerId::new(container.local_id, *container.id),
                     image,
                     network_mode: container.network_mode,
                     networks,

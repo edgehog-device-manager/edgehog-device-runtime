@@ -138,7 +138,7 @@ impl StateStore {
                     .collect();
 
                 Ok(Some(VolumeResource::new(ContainerVolume::new(
-                    volume.id.to_string(),
+                    *volume.id,
                     volume.driver,
                     driver_opts,
                 ))))

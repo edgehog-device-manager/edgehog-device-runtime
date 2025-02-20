@@ -101,8 +101,6 @@ impl DerefMut for Docker {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     use super::*;
 
     /// Returns a [Docker] instance, or a mocked version with the expect statements if the mock
@@ -131,15 +129,6 @@ pub(crate) mod tests {
 
             $crate::Docker::from(client)
         }};
-    }
-
-    /// Creates a random enough name
-    pub(crate) fn random_name(name: &str) -> String {
-        let time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        format!("{name}-{time}")
     }
 
     #[cfg(feature = "mock")]

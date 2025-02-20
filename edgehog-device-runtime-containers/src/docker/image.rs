@@ -322,9 +322,12 @@ impl<'a> From<&'a Image> for CreateImageOptions<'a, &'a str> {
 
 #[cfg(test)]
 mod tests {
+    use mockall::predicate;
+    use uuid::Uuid;
+
     use super::*;
 
-    use crate::{docker_mock, tests::random_name};
+    use crate::docker_mock;
 
     #[tokio::test]
     async fn pull_hello_world() {
@@ -429,15 +432,14 @@ mod tests {
     #[tokio::test]
     async fn inspect_not_found() {
         // Random image name
-        let name = random_name("not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
-            let img_name = name.clone();
             mock.expect_inspect_image()
-                .withf(move |img| img == img_name)
+                .with(predicate::eq(name.to_string()))
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_| Err(crate::tests::not_found_response()));
@@ -544,15 +546,18 @@ mod tests {
     #[tokio::test]
     async fn remove_image_not_found() {
         // Random image name
-        let name = random_name("remove-not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
-            let name_cl = name.clone();
             mock.expect_remove_image()
-                .withf(move |name, _, _| name == name_cl)
+                .with(
+                    predicate::eq(name.to_string()),
+                    predicate::eq(None),
+                    predicate::eq(None),
+                )
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_, _, _| Err(crate::tests::not_found_response()));

@@ -839,9 +839,7 @@ mod tests {
         let resource = service.store.find_volume(id).await.unwrap().unwrap();
 
         let exp = Volume {
-            id: VolumeId {
-                name: id.to_string(),
-            },
+            id: VolumeId::new(id),
             driver: "local".to_string(),
             driver_opts: HashMap::from([
                 ("foo".to_string(), "bar".to_string()),
@@ -895,10 +893,7 @@ mod tests {
         let resource = service.store.find_network(id).await.unwrap().unwrap();
 
         let exp = Network {
-            id: NetworkId {
-                id: None,
-                name: id.to_string(),
-            },
+            id: NetworkId::new(None, id),
             driver: "bridged".to_string(),
             internal: false,
             enable_ipv6: false,
@@ -996,10 +991,7 @@ mod tests {
         let resource = service.store.find_container(id).await.unwrap().unwrap();
 
         let exp = Container {
-            id: ContainerId {
-                id: None,
-                name: id.to_string(),
-            },
+            id: ContainerId::new(None, id),
             image: "docker.io/nginx:stable-alpine-slim".to_string(),
             network_mode: "bridge".to_string(),
             networks: vec![network_id.to_string()],

@@ -23,6 +23,7 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     ops::{Deref, DerefMut},
+    sync::OnceLock,
 };
 
 use bollard::{
@@ -37,6 +38,7 @@ use bollard::{
     },
 };
 use tracing::{debug, info, instrument, trace, warn};
+use uuid::Uuid;
 
 use crate::{
     client::*,
@@ -74,13 +76,31 @@ pub(crate) struct ContainerId {
     /// Assign the specified name to the container.
     ///
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
-    pub(crate) name: String,
+    pub(crate) name: Uuid,
+    /// Cache the name with a single allocation.
+    ///
+    /// Usually multiple functions are called in sequence.
+    name_cache: OnceLock<String>,
 }
 
 impl ContainerId {
+    pub(crate) fn new(id: Option<String>, name: Uuid) -> Self {
+        Self {
+            id,
+            name,
+            name_cache: OnceLock::new(),
+        }
+    }
+
+    pub(crate) fn name_as_str(&self) -> &str {
+        self.name_cache
+            .get_or_init(|| self.name.to_string())
+            .as_str()
+    }
+
     /// Get the container id or name if it's missing.
     #[instrument(skip_all)]
-    pub fn container(&self) -> &str {
+    pub(crate) fn container(&self) -> &str {
         match &self.id {
             Some(id) => {
                 trace!("returning id");
@@ -90,7 +110,7 @@ impl ContainerId {
             None => {
                 trace!("id missing, returning name");
 
-                self.name.as_ref()
+                self.name_as_str()
             }
         }
     }
@@ -343,10 +363,24 @@ impl Display for Container {
     }
 }
 
+impl Deref for Container {
+    type Target = ContainerId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl DerefMut for Container {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.id
+    }
+}
+
 impl<'a> From<&'a Container> for CreateContainerOptions<&'a str> {
     fn from(value: &'a Container) -> Self {
         CreateContainerOptions {
-            name: value.id.name.as_ref(),
+            name: value.name_as_str(),
             platform: None,
         }
     }
@@ -522,17 +556,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{docker_mock, image::Image, tests::random_name};
+    use mockall::predicate;
+
+    use crate::{docker_mock, image::Image};
 
     use super::*;
 
     impl Container {
-        fn new(name: impl Into<String>, image: impl Into<String>) -> Self {
+        fn new(name: Uuid, image: impl Into<String>) -> Self {
             Self {
-                id: ContainerId {
-                    id: None,
-                    name: name.into(),
-                },
+                id: ContainerId::new(None, name),
                 image: image.into(),
                 hostname: None,
                 restart_policy: RestartPolicy::Empty,
@@ -548,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_create() {
-        let name = random_name("create");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use futures::{stream, StreamExt};
@@ -583,10 +616,10 @@ mod tests {
                     })
                 });
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_str)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
@@ -599,14 +632,14 @@ mod tests {
         let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference.clone());
+        let mut container = Container::new(name, image.reference.clone());
 
         container.create(&docker).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_inspect() {
-        let name = random_name("inspect");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use futures::{stream, StreamExt};
@@ -641,7 +674,7 @@ mod tests {
                     })
                 });
 
-            let name_cl = name.clone();
+            let name_cl = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
                     option.as_ref().is_some_and(|opt| opt.name == name_cl)
@@ -669,7 +702,7 @@ mod tests {
         let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference.clone());
+        let mut container = Container::new(name, image.reference.clone());
 
         container.create(&docker).await.unwrap();
 
@@ -680,21 +713,20 @@ mod tests {
 
     #[tokio::test]
     async fn should_inspect_not_found() {
-        let name = random_name("inspect-not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
             mock.expect_inspect_container()
-                .withf(move |name, _option| name == name_cl)
+                .with(predicate::eq(name.to_string()), predicate::eq(None))
                 .once()
                 .returning(move |_, _| Err(crate::tests::not_found_response()));
 
             mock
         });
 
-        let mut container = Container::new(name.as_str(), "hello-world");
+        let mut container = Container::new(name, "hello-world");
 
         let resp = container.inspect(&docker).await.unwrap();
 
@@ -703,7 +735,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_remove() {
-        let name = random_name("remove");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use futures::{stream, StreamExt};
@@ -738,10 +770,10 @@ mod tests {
                     })
                 });
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_str)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
@@ -760,7 +792,7 @@ mod tests {
         let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference.clone());
+        let mut container = Container::new(name, image.reference.clone());
 
         container.create(&docker).await.unwrap();
 
@@ -769,21 +801,27 @@ mod tests {
 
     #[tokio::test]
     async fn should_remove_not_found() {
-        let name = random_name("remove-not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
             mock.expect_remove_container()
-                .withf(move |name, _options| name == name_cl)
+                .with(
+                    predicate::eq(name.to_string()),
+                    predicate::eq(Some(RemoveContainerOptions {
+                        v: false,
+                        force: false,
+                        link: false,
+                    })),
+                )
                 .once()
                 .returning(move |_, _| Err(crate::tests::not_found_response()));
 
             mock
         });
 
-        let container = Container::new(name.as_str(), "hello-world");
+        let container = Container::new(name, "hello-world");
 
         container.remove(&docker).await.unwrap();
     }
