@@ -125,18 +125,39 @@ impl ContainerId {
         trace!(?old_id);
     }
 
+    pub(crate) async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<ContainerInspectResponse>, ContainerError> {
+        // We need to account to the case that we have an incorrect id, but it exists another
+        // container with the correct name
+        if let Some(id) = self.id.clone() {
+            debug!("checkign the id");
+
+            let response = self.inspect_with(client, &id).await?;
+
+            if response.is_some() {
+                return Ok(response);
+            }
+        }
+        // Use a variable to circumvent a bug in clippy
+        let name = self.name_as_str().to_string();
+        self.inspect_with(client, &name).await
+    }
+
     /// Inspect a docker container.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerInspect)
     #[instrument(skip_all)]
-    pub async fn inspect(
+    async fn inspect_with(
         &mut self,
         client: &Client,
+        name: &str,
     ) -> Result<Option<ContainerInspectResponse>, ContainerError> {
         debug!("Inspecting the {}", self);
 
         let res = client
-            .inspect_container(self.container(), None::<InspectContainerOptions>)
+            .inspect_container(name, None::<InspectContainerOptions>)
             .await;
 
         let container = match res {
@@ -165,7 +186,7 @@ impl ContainerId {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError> {
+    pub(crate) async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("deleting {}", self);
 
         let opts = RemoveContainerOptions {
@@ -195,7 +216,7 @@ impl ContainerId {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
     #[instrument(skip_all)]
-    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
+    pub(crate) async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("starting {self}");
 
         let res = client
@@ -220,7 +241,7 @@ impl ContainerId {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
     #[instrument(skip_all)]
-    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
+    pub(crate) async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("stopping {self}");
 
         let res = client.stop_container(self.container(), None).await;
