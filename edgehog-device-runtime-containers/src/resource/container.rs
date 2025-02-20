@@ -146,6 +146,10 @@ where
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.container.create(ctx.client).await?;
 
+        ctx.store
+            .update_container_local_id(ctx.id, self.container.id.id.clone())
+            .await?;
+
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Created)
             .await?;
