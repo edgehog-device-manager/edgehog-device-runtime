@@ -108,6 +108,40 @@ impl ImageId {
 
         debug!(?old, "replaced");
     }
+
+    /// Inspect a docker image.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageInspect)
+    #[instrument(skip_all, fields(image = self.id_or_ref()))]
+    pub async fn inspect(&mut self, client: &Client) -> Result<Option<ImageInspect>, ImageError> {
+        let image_name = self.id_or_ref();
+
+        let res = client.inspect_image(image_name).await;
+
+        trace!("received response {res:?}");
+
+        // Check if the image was not found
+        let inspect = match res {
+            Ok(inspect) => inspect,
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                trace!("image not found: {message}");
+
+                return Ok(None);
+            }
+            Err(err) => return Err(ImageError::Inspect(err)),
+        };
+
+        if let Some(id) = &inspect.id {
+            self.update(id.clone());
+        }
+
+        trace!("inspected image: {inspect:?}");
+
+        Ok(Some(inspect))
+    }
 }
 
 impl Display for ImageId {
@@ -204,40 +238,6 @@ impl Image {
         info!("{} created", self);
 
         Ok(())
-    }
-
-    /// Inspect a docker image.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageInspect)
-    #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn inspect(&mut self, client: &Client) -> Result<Option<ImageInspect>, ImageError> {
-        let image_name = self.id_or_ref();
-
-        let res = client.inspect_image(image_name).await;
-
-        trace!("received response {res:?}");
-
-        // Check if the image was not found
-        let inspect = match res {
-            Ok(inspect) => inspect,
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                trace!("image not found: {message}");
-
-                return Ok(None);
-            }
-            Err(err) => return Err(ImageError::Inspect(err)),
-        };
-
-        if let Some(id) = &inspect.id {
-            self.image_id.update(id.clone());
-        }
-
-        trace!("inspected image: {inspect:?}");
-
-        Ok(Some(inspect))
     }
 
     /// Remove an image and it's parents.

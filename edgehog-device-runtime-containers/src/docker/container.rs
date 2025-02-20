@@ -124,6 +124,128 @@ impl ContainerId {
 
         trace!(?old_id);
     }
+
+    /// Inspect a docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerInspect)
+    #[instrument(skip_all)]
+    pub async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<ContainerInspectResponse>, ContainerError> {
+        debug!("Inspecting the {}", self);
+
+        let res = client
+            .inspect_container(self.container(), None::<InspectContainerOptions>)
+            .await;
+
+        let container = match res {
+            Ok(container) => container,
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                return Ok(None);
+            }
+            Err(err) => return Err(ContainerError::Inspect(err)),
+        };
+
+        trace!("container info: {container:?}");
+
+        if let Some(id) = &container.id {
+            self.update(id.clone());
+        }
+
+        Ok(Some(container))
+    }
+
+    /// Remove a docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerDelete)
+    #[instrument(skip_all)]
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError> {
+        debug!("deleting {}", self);
+
+        let opts = RemoveContainerOptions {
+            v: false,
+            // TODO: there is no way to force the remove from astarte
+            force: false,
+            link: false,
+        };
+
+        let res = client.remove_container(self.container(), Some(opts)).await;
+
+        match res {
+            Ok(()) => Ok(Some(())),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Remove(err)),
+        }
+    }
+
+    /// Start a docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
+    #[instrument(skip_all)]
+    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
+        debug!("starting {self}");
+
+        let res = client
+            .start_container(self.container(), None::<StartContainerOptions<&str>>)
+            .await;
+
+        match res {
+            Ok(()) => Ok(Some(())),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Start(err)),
+        }
+    }
+
+    /// Stop a docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
+    #[instrument(skip_all)]
+    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
+        debug!("stopping {self}");
+
+        let res = client.stop_container(self.container(), None).await;
+
+        match res {
+            Ok(()) => Ok(Some(())),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 304,
+                message,
+            }) => {
+                debug!("container already stopped: {message}");
+
+                Ok(Some(()))
+            }
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Start(err)),
+        }
+    }
 }
 
 impl Display for ContainerId {
@@ -229,130 +351,6 @@ impl Container {
         }
 
         Ok(())
-    }
-
-    /// Inspect a docker container.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerInspect)
-    #[instrument(skip_all)]
-    pub async fn inspect(
-        &mut self,
-        client: &Client,
-    ) -> Result<Option<ContainerInspectResponse>, ContainerError> {
-        debug!("Inspecting the {}", self);
-
-        let res = client
-            .inspect_container(self.id.container(), None::<InspectContainerOptions>)
-            .await;
-
-        let container = match res {
-            Ok(container) => container,
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                warn!("container not found: {message}");
-
-                return Ok(None);
-            }
-            Err(err) => return Err(ContainerError::Inspect(err)),
-        };
-
-        trace!("container info: {container:?}");
-
-        if let Some(id) = &container.id {
-            self.id.update(id.clone());
-        }
-
-        Ok(Some(container))
-    }
-
-    /// Remove a docker container.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerDelete)
-    #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError> {
-        debug!("deleting {}", self);
-
-        let opts = RemoveContainerOptions {
-            v: false,
-            // TODO: there is no way to force the remove from astarte
-            force: false,
-            link: false,
-        };
-
-        let res = client
-            .remove_container(self.id.container(), Some(opts))
-            .await;
-
-        match res {
-            Ok(()) => Ok(Some(())),
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                warn!("container not found: {message}");
-
-                Ok(None)
-            }
-            Err(err) => return Err(ContainerError::Remove(err)),
-        }
-    }
-
-    /// Start a docker container.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
-    #[instrument(skip_all)]
-    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
-        debug!("starting {self}");
-
-        let res = client
-            .start_container(self.id.container(), None::<StartContainerOptions<&str>>)
-            .await;
-
-        match res {
-            Ok(()) => Ok(Some(())),
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                warn!("container not found: {message}");
-
-                Ok(None)
-            }
-            Err(err) => return Err(ContainerError::Start(err)),
-        }
-    }
-
-    /// Stop a docker container.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
-    #[instrument(skip_all)]
-    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
-        debug!("stopping {self}");
-
-        let res = client.stop_container(self.id.container(), None).await;
-
-        match res {
-            Ok(()) => Ok(Some(())),
-            Err(BollardError::DockerResponseServerError {
-                status_code: 304,
-                message,
-            }) => {
-                debug!("container already stopped: {message}");
-
-                Ok(Some(()))
-            }
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                warn!("container not found: {message}");
-
-                Ok(None)
-            }
-            Err(err) => return Err(ContainerError::Start(err)),
-        }
     }
 }
 

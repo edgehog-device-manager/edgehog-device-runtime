@@ -109,6 +109,65 @@ impl NetworkId {
 
         trace!(?old_id);
     }
+
+    /// Inspect a docker network.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
+    #[instrument(skip_all, fields(name = %self.name))]
+    pub async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<DockerNetwork>, NetworkError> {
+        debug!("Inspecting the {}", self);
+
+        let res = client
+            .inspect_network(self.network(), None::<InspectNetworkOptions<String>>)
+            .await;
+
+        let network = match res {
+            Ok(network) => network,
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("network not found: {message}");
+
+                return Ok(None);
+            }
+            Err(err) => return Err(NetworkError::Inspect(err)),
+        };
+
+        trace!("network info: {network:?}");
+
+        if let Some(id) = &network.id {
+            self.update(id.clone());
+        }
+
+        Ok(Some(network))
+    }
+
+    /// Remove a docker network.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkDelete)
+    #[instrument(skip_all)]
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError> {
+        debug!("deleting {}", self);
+
+        let res = client.remove_network(self.network()).await;
+
+        match res {
+            Ok(()) => Ok(Some(())),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("network not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(NetworkError::Remove(err)),
+        }
+    }
 }
 
 impl Display for NetworkId {
@@ -182,65 +241,6 @@ impl Network {
         }
 
         Ok(())
-    }
-
-    /// Inspect a docker network.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
-    #[instrument(skip_all, fields(name = %self.name))]
-    pub async fn inspect(
-        &mut self,
-        client: &Client,
-    ) -> Result<Option<DockerNetwork>, NetworkError> {
-        debug!("Inspecting the {}", self);
-
-        let res = client
-            .inspect_network(self.network(), None::<InspectNetworkOptions<String>>)
-            .await;
-
-        let network = match res {
-            Ok(network) => network,
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                warn!("network not found: {message}");
-
-                return Ok(None);
-            }
-            Err(err) => return Err(NetworkError::Inspect(err)),
-        };
-
-        trace!("network info: {network:?}");
-
-        if let Some(id) = &network.id {
-            self.update(id.clone());
-        }
-
-        Ok(Some(network))
-    }
-
-    /// Remove a docker network.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkDelete)
-    #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError> {
-        debug!("deleting {}", self);
-
-        let res = client.remove_network(self.network()).await;
-
-        match res {
-            Ok(()) => Ok(Some(())),
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                warn!("network not found: {message}");
-
-                Ok(None)
-            }
-            Err(err) => return Err(NetworkError::Remove(err)),
-        }
     }
 }
 

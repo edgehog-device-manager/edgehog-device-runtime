@@ -73,54 +73,6 @@ impl VolumeId {
             .get_or_init(|| self.name.to_string())
             .as_str()
     }
-}
-
-impl Display for VolumeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "name: {}", self.name)
-    }
-}
-
-/// Docker volume struct.
-///
-/// Persistent storage that can be attached to containers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Volume {
-    pub(crate) id: VolumeId,
-    /// Name of the volume driver to use.
-    ///
-    /// Defaults to "local".
-    pub(crate) driver: String,
-    /// A mapping of driver options and values.
-    ///
-    /// These options are passed directly to the driver and are driver specific.
-    pub(crate) driver_opts: HashMap<String, String>,
-}
-
-impl Volume {
-    /// Create a new volume.
-    pub fn new(name: Uuid, driver: String, driver_opts: HashMap<String, String>) -> Self {
-        Self {
-            id: VolumeId::new(name),
-            driver,
-            driver_opts,
-        }
-    }
-
-    /// Create a new docker volume.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
-    #[instrument(skip_all)]
-    pub async fn create(&self, client: &Client) -> Result<(), VolumeError> {
-        debug!("createing {}", self);
-
-        client
-            .create_volume(self.into())
-            .await
-            .map_err(VolumeError::Create)?;
-
-        Ok(())
-    }
 
     /// Inspect a docker volume.
     ///
@@ -183,6 +135,54 @@ impl Volume {
             }
             Err(err) => Err(VolumeError::Remove(err)),
         }
+    }
+}
+
+impl Display for VolumeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "name: {}", self.name)
+    }
+}
+
+/// Docker volume struct.
+///
+/// Persistent storage that can be attached to containers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Volume {
+    pub(crate) id: VolumeId,
+    /// Name of the volume driver to use.
+    ///
+    /// Defaults to "local".
+    pub(crate) driver: String,
+    /// A mapping of driver options and values.
+    ///
+    /// These options are passed directly to the driver and are driver specific.
+    pub(crate) driver_opts: HashMap<String, String>,
+}
+
+impl Volume {
+    /// Create a new volume.
+    pub fn new(name: Uuid, driver: String, driver_opts: HashMap<String, String>) -> Self {
+        Self {
+            id: VolumeId::new(name),
+            driver,
+            driver_opts,
+        }
+    }
+
+    /// Create a new docker volume.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
+    #[instrument(skip_all)]
+    pub async fn create(&self, client: &Client) -> Result<(), VolumeError> {
+        debug!("createing {}", self);
+
+        client
+            .create_volume(self.into())
+            .await
+            .map_err(VolumeError::Create)?;
+
+        Ok(())
     }
 }
 
