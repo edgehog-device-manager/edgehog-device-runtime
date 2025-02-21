@@ -57,6 +57,9 @@ uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true }
 zbus = { workspace = true, default-features = false, features = ["tokio"] }
 
+# Pin transitive deps
+native-tls = { workspace = true }
+
 [dev-dependencies]
 astarte-message-hub-proto = { workspace = true }
 httpmock = { workspace = true }
@@ -73,47 +76,48 @@ forwarder = ["dep:edgehog-forwarder"]
 e2e_test = []
 
 [workspace.dependencies]
-astarte-device-sdk = "0.7.4"
+astarte-device-sdk = "0.8.4"
 astarte-message-hub-proto = "0.6.2"
-async-trait = "0.1.77"
+async-trait = "0.1.86"
 backoff = "0.4.0"
-base64 = "0.22.0"
-bollard = "0.16.0"
-bytes = "1.5.0"
-clap = "4.3.24"
+base64 = "0.22.1"
+bollard = "0.16.1"
+bytes = "1.10.0"
+clap = "=4.4.18"
 displaydoc = "0.2.5"
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
-env_logger = "0.11.3"
-futures = "0.3.30"
+env_logger = "0.11.6"
+futures = "0.3.31"
 hex = "0.4.3"
-http = "1.1.0"
+http = "1.2.0"
 httpmock = "0.7"
-hyper = "1.2.0"
-log = "0.4.20"
+hyper = "1.6.0"
+log = "0.4.26"
 mockall = "0.12.1"
+native-tls = "=0.2.13"
 pbjson-types = "0.6"
-petgraph = "0.6.4"
+petgraph = "0.6.5"
 procfs = "0.16.0"
-reqwest = "0.12.0"
+reqwest = "0.12.12"
 rustc_version_runtime = "0.3.0"
-rustls = "0.22.2"
-rustls-native-certs = "0.7.0"
-rustls-pemfile = "2.1.1"
-serde = "1.0.195"
-serde_json = "1.0.111"
+rustls = "0.22.4"
+rustls-native-certs = "0.7.3"
+rustls-pemfile = "2.2.0"
+serde = "1.0.218"
+serde_json = "1.0.139"
 sysinfo = "0.29.11"
 systemd = "0.10.0"
 tempdir = "0.3.7"
-thiserror = "1.0.58"
-tokio = "1.35.1"
-tokio-stream = "0.1.15"
+thiserror = "1.0.69"
+tokio = "1.43.0"
+tokio-stream = "0.1.17"
 tokio-tungstenite = "0.21.0"
-tokio-util = "0.7.10"
-toml = "0.8.2"
-tracing = "0.1.40"
+tokio-util = "0.7.13"
+toml = "0.8.20"
+tracing = "0.1.41"
 udev = "0.8.0"
-url = "2.4.1"
-uuid = "1.6.1"
+url = "=2.5.2"
+uuid = "1.14.0"
 wifiscanner = "0.5.1"
-zbus = { version = "3.14.1", default-features = false }
+zbus = { version = "3.15.2", default-features = false }

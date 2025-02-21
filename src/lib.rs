@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{Aggregation, AstarteDeviceDataEvent};
+use astarte_device_sdk::{DeviceEvent, Value};
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -75,8 +75,8 @@ pub struct DeviceManager<T: Publisher + Clone, U: Subscriber> {
     publisher: T,
     subscriber: U,
     // We pass all Astarte event through a channel, to avoid blocking the main loop
-    ota_event_channel: Sender<AstarteDeviceDataEvent>,
-    data_event_channel: Sender<AstarteDeviceDataEvent>,
+    ota_event_channel: Sender<DeviceEvent>,
+    data_event_channel: Sender<DeviceEvent>,
     telemetry: Arc<RwLock<telemetry::Telemetry>>,
     #[cfg(feature = "forwarder")]
     forwarder: forwarder::Forwarder<T>,
@@ -133,11 +133,7 @@ where
         Ok(device_runtime)
     }
 
-    fn init_ota_event(
-        &self,
-        ota_handler: OtaHandler,
-        mut ota_rx: Receiver<AstarteDeviceDataEvent>,
-    ) {
+    fn init_ota_event(&self, ota_handler: OtaHandler, mut ota_rx: Receiver<DeviceEvent>) {
         let publisher = self.publisher.clone();
         let ota_handler = Arc::new(ota_handler);
         tokio::spawn(async move {
@@ -151,7 +147,7 @@ where
                         .as_slice(),
                     &data_event.data,
                 ) {
-                    (["request"], Aggregation::Object(data)) => {
+                    (["request"], Value::Object(data)) => {
                         let publisher = publisher.clone();
                         let data = data.clone();
                         let ota_handler = ota_handler.clone();
@@ -169,7 +165,7 @@ where
         });
     }
 
-    fn init_data_event(&self, mut data_rx: Receiver<AstarteDeviceDataEvent>) {
+    fn init_data_event(&self, mut data_rx: Receiver<DeviceEvent>) {
         let self_telemetry = self.telemetry.clone();
         tokio::spawn(async move {
             while let Some(data_event) = data_rx.recv().await {
@@ -186,13 +182,24 @@ where
                     (
                         "io.edgehog.devicemanager.Commands",
                         ["request"],
-                        Aggregation::Individual(AstarteType::String(command)),
+                        Value::Individual(AstarteType::String(command)),
                     ) => commands::execute_command(command).await,
                     (
                         "io.edgehog.devicemanager.config.Telemetry",
                         ["request", interface_name, endpoint],
-                        Aggregation::Individual(data),
+                        value,
                     ) => {
+                        let data = match value {
+                            Value::Individual(astarte_type) => Some(astarte_type),
+                            Value::Object(_) => {
+                                warn!(
+                                    "Receiving data from an unknown path/interface: {data_event:?}"
+                                );
+                                continue;
+                            }
+                            Value::Unset => None,
+                        };
+
                         self_telemetry
                             .write()
                             .await
@@ -202,7 +209,7 @@ where
                     (
                         "io.edgehog.devicemanager.LedBehavior",
                         [led_id, "behavior"],
-                        Aggregation::Individual(AstarteType::String(behavior)),
+                        Value::Individual(AstarteType::String(behavior)),
                     ) => {
                         tokio::spawn(led_behavior::set_behavior(
                             led_id.to_string(),

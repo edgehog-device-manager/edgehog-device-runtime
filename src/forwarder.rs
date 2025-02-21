@@ -25,7 +25,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::data::Publisher;
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{AstarteDeviceDataEvent, FromEvent};
+use astarte_device_sdk::{DeviceEvent, FromEvent};
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use log::{debug, error, info};
@@ -94,13 +94,13 @@ impl SessionState {
     }
 }
 
-impl From<SessionState> for AstarteType {
+impl From<SessionState> for Option<AstarteType> {
     fn from(value: SessionState) -> Self {
         match value.status {
             SessionStatus::Connecting | SessionStatus::Connected => {
-                Self::String(value.status.to_string())
+                Some(AstarteType::String(value.status.to_string()))
             }
-            SessionStatus::Disconnected => Self::Unset,
+            SessionStatus::Disconnected => None,
         }
     }
 }
@@ -112,11 +112,20 @@ impl SessionState {
         P: Publisher + 'static + Send + Sync,
     {
         let ipath = format!("/{}/status", self.token);
-        let idata = self.into();
+        let idata: Option<AstarteType> = self.into();
 
-        publisher
-            .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
-            .await
+        match idata {
+            Some(idata) => {
+                publisher
+                    .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
+                    .await
+            }
+            None => {
+                publisher
+                    .unset(FORWARDER_SESSION_STATE_INTERFACE, &ipath)
+                    .await
+            }
+        }
     }
 }
 
@@ -156,7 +165,7 @@ impl<P> Forwarder<P> {
     }
 
     /// Start a device forwarder instance.
-    pub fn handle_sessions(&mut self, astarte_event: AstarteDeviceDataEvent)
+    pub fn handle_sessions(&mut self, astarte_event: DeviceEvent)
     where
         P: Publisher + 'static + Send + Sync,
     {
@@ -282,7 +291,8 @@ mod tests {
     use super::*;
     use crate::data::tests::MockPublisher;
     use astarte_device_sdk::store::StoredProp;
-    use astarte_device_sdk::{interface::def::Ownership, Aggregation};
+    use astarte_device_sdk::{interface::def::Ownership, Value};
+    use mockall::predicate;
     use std::net::Ipv4Addr;
 
     #[test]
@@ -335,15 +345,15 @@ mod tests {
             SessionState::connecting("abcd".to_string()),
             SessionState::disconnected("abcd".to_string()),
         ]
-        .map(AstarteType::from);
+        .map(Option::<AstarteType>::from);
         let exp_res = [
-            AstarteType::String("Connected".to_string()),
-            AstarteType::String("Connecting".to_string()),
-            AstarteType::Unset,
+            Some(AstarteType::String("Connected".to_string())),
+            Some(AstarteType::String("Connecting".to_string())),
+            None,
         ];
 
-        for (idx, el) in sstates.into_iter().enumerate() {
-            assert_eq!(&el, exp_res.get(idx).unwrap())
+        for (el, exp) in sstates.into_iter().zip(exp_res) {
+            assert_eq!(el, exp);
         }
     }
 
@@ -353,13 +363,12 @@ mod tests {
         let mut publisher = MockPublisher::new();
 
         publisher
-            .expect_send()
-            .withf(move |iface, ipath, idata| {
-                iface == FORWARDER_SESSION_STATE_INTERFACE
-                    && ipath == "/abcd/status"
-                    && idata == &AstarteType::Unset
-            })
-            .returning(|_, _, _| Ok(()));
+            .expect_unset()
+            .with(
+                predicate::eq(FORWARDER_SESSION_STATE_INTERFACE),
+                predicate::eq("/abcd/status"),
+            )
+            .returning(|_, _| Ok(()));
 
         let res = ss.send(&publisher).await;
 
@@ -458,10 +467,10 @@ mod tests {
             )]),
         };
 
-        let astarte_event = AstarteDeviceDataEvent {
+        let astarte_event = DeviceEvent {
             interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
             path: "/request".to_string(),
-            data: Aggregation::Object(HashMap::from([
+            data: Value::Object(HashMap::from([
                 (
                     "host".to_string(),
                     AstarteType::String("127.0.0.1".to_string()),

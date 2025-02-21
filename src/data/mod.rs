@@ -21,7 +21,7 @@
 use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::store::{SqliteStore, StoredProp};
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, AstarteDeviceDataEvent};
+use astarte_device_sdk::{error::Error as AstarteError, AstarteAggregate, DeviceEvent};
 use async_trait::async_trait;
 use log::{debug, info};
 use std::path::{Path, PathBuf};
@@ -53,7 +53,7 @@ pub trait Publisher: Clone {
 
 #[async_trait]
 pub trait Subscriber {
-    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
+    async fn on_event(&mut self) -> Option<Result<DeviceEvent, AstarteError>>;
 
     async fn exit(self) -> Result<(), AstarteError>;
 }
@@ -76,14 +76,14 @@ where
     let Some(db_path_str) = db_path.to_str() else {
         return Err(StoreError::PathUtf8(db_path));
     };
-    let store_path = format!("sqlite://{db_path_str}");
+    let store_uri = format!("sqlite://{db_path_str}");
 
-    debug!("connecting to store {store_path}");
-    let store = SqliteStore::new(&store_path)
+    debug!("connecting to store {store_uri}");
+    let store = SqliteStore::from_uri(&store_uri)
         .await
         .map_err(StoreError::Connect)?;
 
-    info!("connected to store {store_path}");
+    info!("connected to store {store_uri}");
     Ok(store)
 }
 
@@ -128,7 +128,7 @@ pub mod tests {
         pub Subscriber {}
         #[async_trait]
         impl Subscriber for Subscriber {
-             async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>>;
+             async fn on_event(&mut self) -> Option<Result<DeviceEvent, AstarteError>>;
              async fn exit(self) -> Result<(), AstarteError>;
         }
     }
