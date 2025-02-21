@@ -135,7 +135,7 @@ pub struct Test {
     e2e_token: String,
 }
 
-impl<'a> Test {
+impl Test {
     pub async fn run<F, T>(&self, f: F, fn_name: &str)
     where
         F: Fn(String, String, String, String) -> T + 'static,

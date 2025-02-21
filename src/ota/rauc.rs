@@ -298,7 +298,7 @@ where
     }
 }
 
-impl<'a, S> Stream for DeployStream<'a, S>
+impl<S> Stream for DeployStream<'_, S>
 where
     S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
 {
@@ -331,7 +331,7 @@ where
     }
 }
 
-impl<'a, S> FusedStream for DeployStream<'a, S>
+impl<S> FusedStream for DeployStream<'_, S>
 where
     S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
 {
