@@ -137,9 +137,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ec22c3154e59a9fe2afd7c00ea0e3f16ed9f72e7e840918c9c2cb42c961c97a"
+checksum = "8d476e1023cc78a05d90fc0fbdfd57943a31daa2d996ed5fa967a36490b24893"
 dependencies = [
  "ahash",
  "astarte-device-sdk-derive",
@@ -178,9 +178,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-derive"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f722e00acee168c0f2f666418d0f254540313e8aaeabeaf3c897b4323035c6a2"
+checksum = "5a5c4dcc86c4d14ec853206d9eb716952521290595e23b5239705b274145d6b2"
 dependencies = [
  "proc-macro2",
  "quote",
