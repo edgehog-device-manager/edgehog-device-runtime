@@ -21,16 +21,16 @@
 //! Contains the implementation for the Astarte message hub node.
 
 use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::store::StoredProp;
-use astarte_device_sdk::transport::grpc::Grpc;
 use astarte_device_sdk::transport::grpc::GrpcConfig;
+use astarte_device_sdk::transport::grpc::GrpcError;
 use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::AstarteDeviceDataEvent;
-use astarte_device_sdk::AstarteDeviceSdk;
+use astarte_device_sdk::DeviceClient;
+use astarte_device_sdk::DeviceEvent;
 use astarte_device_sdk::Error as AstarteError;
-use astarte_device_sdk::EventReceiver;
 use async_trait::async_trait;
 use log::error;
 use serde::Deserialize;
@@ -50,9 +50,11 @@ pub enum MessageHubError {
     /// missing configuration for the Astarte Message Hub
     MissingConfig,
     /// couldn't add interfaces directory
-    Interfaces(#[source] astarte_device_sdk::builder::BuilderError),
+    Interfaces(#[from] AddInterfaceError),
     /// couldn't connect to Astarte
     Connect(#[source] astarte_device_sdk::Error),
+    /// couldn't get the gRPC configuration
+    GrcpConfig(#[source] GrpcError),
 }
 
 /// Struct containing the configuration options for the Astarte message hub.
@@ -71,9 +73,10 @@ impl AstarteMessageHubOptions {
     where
         P: AsRef<Path>,
     {
-        let grpc_cfg = GrpcConfig::new(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone());
+        let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.clone())
+            .map_err(MessageHubError::GrcpConfig)?;
 
-        let (device, rx) = DeviceBuilder::new()
+        let (client, mut connection) = DeviceBuilder::new()
             .store(store)
             .interface_directory(interface_dir)
             .map_err(MessageHubError::Interfaces)?
@@ -82,19 +85,18 @@ impl AstarteMessageHubOptions {
             .map_err(MessageHubError::Connect)?
             .build();
 
-        let mut device_cl = device.clone();
-        let handle = tokio::spawn(async move { device_cl.handle_events().await });
+        let handle = tokio::spawn(async move { connection.handle_events().await });
 
         Ok((
-            MessageHubPublisher(device),
-            MessageHubSubscriber { rx, handle },
+            MessageHubPublisher(client.clone()),
+            MessageHubSubscriber { client, handle },
         ))
     }
 }
 
 /// Sender for the MessageHub
 #[derive(Debug, Clone)]
-pub struct MessageHubPublisher(AstarteDeviceSdk<SqliteStore, Grpc>);
+pub struct MessageHubPublisher(DeviceClient<SqliteStore>);
 
 #[async_trait]
 impl Publisher for MessageHubPublisher {
@@ -134,13 +136,19 @@ impl Publisher for MessageHubPublisher {
 #[derive(Debug)]
 pub struct MessageHubSubscriber {
     handle: JoinHandle<Result<(), AstarteError>>,
-    rx: EventReceiver,
+    client: DeviceClient<SqliteStore>,
 }
 
 #[async_trait]
 impl Subscriber for MessageHubSubscriber {
-    async fn on_event(&mut self) -> Option<Result<AstarteDeviceDataEvent, AstarteError>> {
-        self.rx.recv().await
+    async fn on_event(&mut self) -> Option<Result<DeviceEvent, AstarteError>> {
+        let event = self.client.recv().await;
+
+        if let Err(AstarteError::Disconnected) = event {
+            return None;
+        }
+
+        Some(event)
     }
 
     async fn exit(self) -> Result<(), AstarteError> {

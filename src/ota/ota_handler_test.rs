@@ -129,7 +129,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -141,7 +141,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -153,7 +153,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 100
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -259,7 +259,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -271,7 +271,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -283,7 +283,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 100
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -295,7 +295,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Deploying")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -403,7 +403,7 @@ async fn ota_event_fail_deployed() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -415,7 +415,7 @@ async fn ota_event_fail_deployed() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -427,7 +427,7 @@ async fn ota_event_fail_deployed() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Downloading")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 100
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -439,7 +439,7 @@ async fn ota_event_fail_deployed() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Deploying")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -562,7 +562,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Acknowledged")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -578,7 +578,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Downloading")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -594,7 +594,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Downloading")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -610,7 +610,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Deploying")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -626,7 +626,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Deployed")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -642,7 +642,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Rebooting")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -658,7 +658,7 @@ async fn ota_event_update_success() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Success")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -702,7 +702,7 @@ async fn ota_event_update_already_in_progress_same_uuid() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Acknowledged")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })
@@ -760,7 +760,7 @@ async fn ota_event_update_already_in_progress_different_uuid() {
                 && ota_event.statusCode.eq("UpdateAlreadyInProgress")
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid_1.to_string()
-                && ota_event.message.eq("")
+                && ota_event.message.is_empty()
         })
         .once()
         .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
@@ -996,7 +996,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Acknowledged")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1012,7 +1012,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Downloading")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1028,7 +1028,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Downloading")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 100
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1044,7 +1044,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Deploying")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1060,7 +1060,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Deployed")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1076,7 +1076,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Rebooting")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1092,7 +1092,7 @@ async fn ota_event_success_after_canceled_event() {
                 interface_name.eq("io.edgehog.devicemanager.OTAEvent")
                     && path.eq("/event")
                     && ota_event.status.eq("Success")
-                    && ota_event.statusCode.eq("")
+                    && ota_event.statusCode.is_empty()
                     && ota_event.statusProgress == 0
                     && ota_event.requestUUID == uuid.to_string()
             },
@@ -1339,7 +1339,7 @@ async fn ensure_pending_ota_is_done_ota_success() {
         .expect_send_object()
         .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
             ota_event.status.eq("Success")
-                && ota_event.statusCode.eq("")
+                && ota_event.statusCode.is_empty()
                 && ota_event.statusProgress == 0
                 && ota_event.requestUUID == uuid.to_string()
         })

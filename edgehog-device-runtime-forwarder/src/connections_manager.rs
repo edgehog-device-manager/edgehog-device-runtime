@@ -235,7 +235,7 @@ impl ConnectionsManager {
             next = self.rx_ws.recv() => match next {
                 Some(msg) => {
                     trace!("proto message received from a device connection: {msg:?}");
-                    WebSocketEvents::Send(msg)
+                    WebSocketEvents::Send(Box::new(msg))
                 }
                 None => unreachable!("BUG: tx_ws channel should never be closed"),
             }
@@ -341,5 +341,5 @@ pub(crate) fn get_token(url: &Url) -> Result<String, Error> {
 /// Possible events happening on a WebSocket connection.
 pub(crate) enum WebSocketEvents {
     Receive(Result<TungMessage, TungError>),
-    Send(ProtoMessage),
+    Send(Box<ProtoMessage>),
 }
