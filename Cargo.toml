@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.2"
+version = "0.8.3"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.72.0"
@@ -86,7 +86,7 @@ bytes = "1.10.0"
 clap = "=4.4.18"
 displaydoc = "0.2.5"
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.2" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.3" }
 env_logger = "0.11.6"
 futures = "0.3.31"
 hex = "0.4.3"
