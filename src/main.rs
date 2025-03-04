@@ -22,7 +22,8 @@ use std::convert::identity;
 use std::io::IsTerminal;
 
 use clap::Parser;
-use stable_eyre::eyre::{format_err, OptionExt, WrapErr};
+use eyre::eyre;
+use stable_eyre::eyre::{self, OptionExt, WrapErr};
 use tracing::{info, warn};
 
 use edgehog_device_runtime::data::connect_store;
@@ -60,7 +61,7 @@ async fn main() -> stable_eyre::Result<()> {
     // Use ring as default crypto provider
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .map_err(|_| format_err!("Failed to install rustls crypto provider"))?;
+        .map_err(|_| eyre!("failed to install default crypto provider"))?;
 
     #[cfg(feature = "systemd")]
     {

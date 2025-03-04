@@ -119,8 +119,8 @@ async fn main() -> color_eyre::Result<()> {
 
     let cli = Cli::parse();
 
-    let default_provider = rustls::crypto::aws_lc_rs::default_provider();
-    rustls::crypto::CryptoProvider::install_default(default_provider)
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
         .map_err(|_| eyre!("couldn't install default crypto provider"))?;
 
     wait_for_cluster(&cli.api_url).await?;
