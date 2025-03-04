@@ -75,6 +75,7 @@ impl<D> ContainerService<D> {
         config: ContainersConfig,
         store_dir: &Path,
     ) -> Result<Self, ServiceError> {
+        // TODO: run this logic with the retry
         let client = Docker::connect().await?;
 
         let handle = Handle::open(store_dir.join("state.db"))

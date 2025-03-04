@@ -72,7 +72,9 @@ pub struct DeviceManagerOptions {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::time::Duration;
 
+    use mockall::Sequence;
     use tempdir::TempDir;
     use tokio::task::JoinSet;
     use url::Url;
@@ -84,21 +86,28 @@ mod tests {
     use crate::{AstarteLibrary, DeviceManagerOptions};
 
     #[cfg(feature = "forwarder")]
-    fn mock_forwarder(
-        publisher: &mut MockPubSub,
-    ) -> &mut crate::data::tests::__mock_MockPubSub_Clone::__clone::Expectation {
+    fn mock_forwarder<'a>(
+        publisher: &'a mut MockPubSub,
+        seq: &'a mut Sequence,
+    ) -> &'a mut crate::data::tests::__mock_MockPubSub_Clone::__clone::Expectation {
         // define an expectation for the cloned MockPublisher due to the `init` method of the
         // Forwarder struct
-        publisher.expect_clone().once().returning(move || {
-            let mut publisher_clone = MockPubSub::new();
+        publisher
+            .expect_clone()
+            .once()
+            .in_sequence(seq)
+            .returning(move || {
+                let mut publisher_clone = MockPubSub::new();
 
-            publisher_clone
-                .expect_interface_props()
-                .withf(move |iface: &str| iface == "io.edgehog.devicemanager.ForwarderSessionState")
-                .returning(|_: &str| Ok(Vec::new()));
+                publisher_clone
+                    .expect_interface_props()
+                    .withf(move |iface: &str| {
+                        iface == "io.edgehog.devicemanager.ForwarderSessionState"
+                    })
+                    .returning(|_: &str| Ok(Vec::new()));
 
-            publisher_clone
-        })
+                publisher_clone
+            })
     }
 
     #[tokio::test]
@@ -171,22 +180,51 @@ mod tests {
         };
 
         let mut pub_sub = MockPubSub::new();
+        let mut seq = Sequence::new();
 
-        pub_sub.expect_clone().once().returning(MockPubSub::new);
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockPubSub::new);
 
         #[cfg(feature = "zbus")]
-        pub_sub.expect_clone().once().returning(MockPubSub::new);
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockPubSub::new);
 
         #[cfg(feature = "containers")]
-        pub_sub.expect_clone().once().returning(MockPubSub::new);
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockPubSub::new);
 
         #[cfg(feature = "forwarder")]
-        mock_forwarder(&mut pub_sub);
+        mock_forwarder(&mut pub_sub, &mut seq);
 
-        // TODO: the tasks are never joined so the error is never checked ¯\_(ツ)_/¯
         let mut tasks = JoinSet::new();
 
-        let dm = Runtime::new(&mut tasks, options, pub_sub).await;
-        assert!(dm.is_ok(), "error {}", dm.err().unwrap());
+        let _dm = Runtime::new(&mut tasks, options, pub_sub).await.unwrap();
+
+        tasks.abort_all();
+
+        while let Some(res) = tokio::time::timeout(Duration::from_secs(2), tasks.join_next())
+            .await
+            .unwrap()
+        {
+            match res {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    panic!("{err:#}");
+                }
+                Err(err) if err.is_cancelled() => {}
+                Err(err) => {
+                    panic!("{}", err);
+                }
+            }
+        }
     }
 }
