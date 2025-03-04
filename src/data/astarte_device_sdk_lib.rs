@@ -20,7 +20,8 @@
 
 use std::path::Path;
 
-use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::builder::{BuilderError, DeviceBuilder};
+use astarte_device_sdk::error::Error as AstarteError;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
@@ -50,11 +51,11 @@ pub enum DeviceSdkError {
     /// couldn't get credential secret or pairing token
     MissingCredentialSecret,
     /// couldn't add interfaces directory
-    Interfaces(#[source] AddInterfaceError),
+    Interfaces(#[from] AddInterfaceError),
     /// couldn't build Astarte device
-    Builder(#[source] astarte_device_sdk::builder::BuilderError),
+    Builder(#[from] BuilderError),
     /// couldn't connect to Astarte
-    Connect(#[source] astarte_device_sdk::Error),
+    Connect(#[source] AstarteError),
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -105,12 +106,12 @@ impl AstarteDeviceSdkConfigOptions {
             return registry
                 .read()
                 .await
-                .map_err(DeviceSdkError::ReadSecret)
-                .map(Credential::secret);
+                .map(Credential::secret)
+                .map_err(DeviceSdkError::ReadSecret);
         }
 
         if let Some(token) = &self.pairing_token {
-            return Ok(Credential::paring_token(token));
+            return Ok(Credential::secret(token));
         }
 
         Err(DeviceSdkError::MissingCredentialSecret)
@@ -134,7 +135,7 @@ impl AstarteDeviceSdkConfigOptions {
             &self.realm,
             &device_id,
             credentials_secret,
-            self.pairing_url.to_string(),
+            self.pairing_url.clone(),
         );
 
         if self.ignore_ssl {
@@ -143,10 +144,8 @@ impl AstarteDeviceSdkConfigOptions {
 
         let (client, connection) = DeviceBuilder::new()
             .store(store)
-            .interface_directory(interface_dir)
-            .map_err(DeviceSdkError::Interfaces)?
-            .writable_dir(&store_dir)
-            .map_err(DeviceSdkError::Builder)?
+            .interface_directory(interface_dir)?
+            .writable_dir(store_dir)?
             .connect(mqtt_cfg)
             .await
             .map_err(DeviceSdkError::Connect)?

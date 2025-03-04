@@ -116,8 +116,6 @@ jobs:
           toolchain: ${{ matrix.msrv }}
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.7
-      - name: Install cargo hack
-        uses: taiki-e/install-action@cargo-hack
       - name: cargo +${{ matrix.msrv }} check
         # the compatibility with the MSRV needs to be checked only for the binary
         run: cargo +${{ matrix.msrv }} check --all-features -p edgehog-device-runtime

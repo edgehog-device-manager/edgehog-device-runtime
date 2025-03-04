@@ -22,17 +22,19 @@ use std::convert::identity;
 use std::io::IsTerminal;
 
 use clap::Parser;
-use cli::Cli;
-use stable_eyre::eyre::{format_err, OptionExt, WrapErr};
+use eyre::eyre;
+use stable_eyre::eyre::{self, OptionExt, WrapErr};
 use tracing::{info, warn};
 
-use config::read_options;
 use edgehog_device_runtime::data::connect_store;
 use edgehog_device_runtime::AstarteLibrary;
 use tokio::task::JoinSet;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+
+use self::cli::Cli;
+use self::config::read_options;
 
 mod cli;
 mod config;
@@ -57,9 +59,9 @@ async fn main() -> stable_eyre::Result<()> {
         .try_init()?;
 
     // Use ring as default crypto provider
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .map_err(|_| format_err!("Failed to install rustls crypto provider"))?;
+        .map_err(|_| eyre!("failed to install default crypto provider"))?;
 
     #[cfg(feature = "systemd")]
     {

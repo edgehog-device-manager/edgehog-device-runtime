@@ -20,11 +20,11 @@
 
 use std::path::PathBuf;
 
-use data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use serde::Deserialize;
-use telemetry::TelemetryInterfaceConfig;
 
 pub use self::controller::Runtime;
+use self::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
+use self::telemetry::TelemetryInterfaceConfig;
 
 mod commands;
 #[cfg(feature = "containers")]

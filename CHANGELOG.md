@@ -21,6 +21,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   via the D-Bus service `CellularModems`
   [#402](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/402)
 
+[0.8.3] - 2025-02-28
+
+### Changed
+
+- Bump the `astarte-device-sdk-rust` version to `v0.8.5`.
+
+## [0.8.2] - 2025-02-27
+
+### Changed
+
+- Bump the `astarte-device-sdk-rust` version to `v0.8.4`.
+  [#493](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/493)
+
 ## [0.8.1] - 2024-06-10
 
 ### Changed
