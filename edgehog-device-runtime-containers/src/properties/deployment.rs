@@ -24,26 +24,24 @@ use astarte_device_sdk::AstarteType;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::service::Id;
-
 use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableDeployments";
 
 /// Available deployment property.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableDeployments<'a> {
-    id: &'a Id,
+pub(crate) struct AvailableDeployment<'a> {
+    id: &'a Uuid,
 }
 
-impl<'a> AvailableDeployments<'a> {
-    pub(crate) fn new(id: &'a Id) -> Self {
+impl<'a> AvailableDeployment<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
         Self { id }
     }
 }
 
 #[async_trait]
-impl AvailableProp for AvailableDeployments<'_> {
+impl AvailableProp for AvailableDeployment<'_> {
     type Data = DeploymentStatus;
 
     fn interface() -> &'static str {
@@ -55,7 +53,7 @@ impl AvailableProp for AvailableDeployments<'_> {
     }
 
     fn id(&self) -> &Uuid {
-        self.id.uuid()
+        self.id
     }
 }
 
@@ -86,16 +84,13 @@ mod tests {
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
     use uuid::Uuid;
 
-    use crate::service::ResourceType;
-
     use super::*;
 
     #[tokio::test]
     async fn should_store_deployment() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Deployment, uuid);
+        let id = Uuid::new_v4();
 
-        let deployment = AvailableDeployments { id: &id };
+        let deployment = AvailableDeployment { id: &id };
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -106,20 +101,22 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path, status: &DeploymentStatus| {
                 interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
-                    && path == format!("/{uuid}/status")
+                    && path == format!("/{id}/status")
                     && *status == DeploymentStatus::Stopped
             })
             .returning(|_, _, _| Ok(()));
 
-        deployment.send(&client, DeploymentStatus::Stopped).await;
+        deployment
+            .send(&client, DeploymentStatus::Stopped)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn should_unset_deployment() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Deployment, uuid);
+        let id = Uuid::new_v4();
 
-        let deployment = AvailableDeployments { id: &id };
+        let deployment = AvailableDeployment { id: &id };
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -130,10 +127,10 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path| {
                 interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
-                    && path == format!("/{uuid}/status")
+                    && path == format!("/{id}/status")
             })
             .returning(|_, _| Ok(()));
 
-        deployment.unset(&client).await;
+        deployment.unset(&client).await.unwrap();
     }
 }

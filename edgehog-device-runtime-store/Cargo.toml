@@ -27,6 +27,7 @@ rust-version.workspace = true
 diesel = { workspace = true, features = ["sqlite", "uuid"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 displaydoc = { workspace = true }
+rusqlite = { workspace = true, features = ["modern_sqlite", "buildtime_bindgen"] }
 sync_wrapper = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
@@ -38,3 +39,4 @@ tempfile = { workspace = true }
 
 [features]
 containers = []
+vendored = ["rusqlite/bundled"]

@@ -25,11 +25,12 @@ use diesel::{
     deserialize::{FromSql, FromSqlRow},
     dsl::exists,
     expression::AsExpression,
+    prelude::Identifiable,
     select,
     serialize::{IsNull, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
-    Associations, Insertable, Queryable, Selectable,
+    Insertable, Queryable, Selectable,
 };
 
 use crate::{
@@ -39,7 +40,7 @@ use crate::{
 };
 
 /// Container volume with driver configuration.
-#[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
+#[derive(Debug, Clone, Insertable, Identifiable, Queryable, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::volumes)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Volume {
@@ -64,9 +65,8 @@ impl QueryModel for Volume {
 }
 
 /// Container volume with driver configuration.
-#[derive(Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
+#[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::volume_driver_opts)]
-#[diesel(belongs_to(Volume))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(treat_none_as_default_value = false)]
 pub struct VolumeDriverOpts {
@@ -75,7 +75,7 @@ pub struct VolumeDriverOpts {
     /// Name of the driver option
     pub name: String,
     /// Value of the driver option
-    pub value: Option<String>,
+    pub value: String,
 }
 
 /// Status of a volume.

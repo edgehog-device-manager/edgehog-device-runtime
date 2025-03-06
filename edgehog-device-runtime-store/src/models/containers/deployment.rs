@@ -23,7 +23,7 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, Eq, Filter},
+    dsl::{exists, Eq, Filter, InnerJoin, IsNotNull, LeftJoin},
     expression::AsExpression,
     prelude::*,
     select,
@@ -37,7 +37,10 @@ use super::container::Container;
 use crate::{
     conversions::SqlUuid,
     models::{ExistsFilterById, QueryModel},
-    schema::containers::{deployment_missing_containers, deployments},
+    schema::containers::{
+        container_networks, container_volumes, containers, deployment_containers,
+        deployment_missing_containers, deployments,
+    },
 };
 
 /// Container deployment
@@ -49,6 +52,26 @@ pub struct Deployment {
     pub id: SqlUuid,
     /// Status of the deployment.
     pub status: DeploymentStatus,
+}
+
+type ContainerResources =
+    LeftJoin<LeftJoin<containers::table, container_networks::table>, container_volumes::table>;
+type DeploymentResources = InnerJoin<deployment_containers::table, ContainerResources>;
+type FilteredDeploymentJoin = Filter<DeploymentResources, IsNotNull<containers::image_id>>;
+// type SelectDeploymentResource = Select<FilterImageResource,TryFromCharError>;
+
+impl Deployment {
+    /// Join the deployment with all the resources
+    pub fn join_resources() -> FilteredDeploymentJoin {
+        deployment_containers::table
+            .inner_join(
+                // Join the container related tables
+                containers::table
+                    .left_join(container_networks::table)
+                    .left_join(container_volumes::table),
+            )
+            .filter(containers::image_id.is_not_null())
+    }
 }
 
 impl QueryModel for Deployment {
@@ -70,24 +93,24 @@ impl QueryModel for Deployment {
 )]
 #[diesel(sql_type = Integer)]
 pub enum DeploymentStatus {
-    /// Received from Edgehog.
+    /// The deployment was received, but not yet published
     #[default]
     Received = 0,
-    /// The deployment was acknowledged
-    Published = 1,
-    /// Up and running.
+    /// The deployment is stopped
+    Stopped = 1,
+    /// The deployment is started
     Started = 2,
-    /// Was stopped.
-    Stopped = 3,
+    /// The deployment is deleted
+    Deleted = 3,
 }
 
 impl Display for DeploymentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DeploymentStatus::Received => write!(f, "Received"),
-            DeploymentStatus::Published => write!(f, "Published"),
-            DeploymentStatus::Started => write!(f, "Started"),
             DeploymentStatus::Stopped => write!(f, "Stopped"),
+            DeploymentStatus::Started => write!(f, "Started"),
+            DeploymentStatus::Deleted => write!(f, "Deleted"),
         }
     }
 }
@@ -104,9 +127,9 @@ impl TryFrom<i32> for DeploymentStatus {
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(DeploymentStatus::Received),
-            1 => Ok(DeploymentStatus::Published),
+            1 => Ok(DeploymentStatus::Stopped),
             2 => Ok(DeploymentStatus::Started),
-            3 => Ok(DeploymentStatus::Stopped),
+            3 => Ok(DeploymentStatus::Deleted),
             _ => Err(format!("unrecognized status value {value}")),
         }
     }
@@ -185,9 +208,9 @@ mod tests {
     fn should_convert_status() {
         let variants = [
             DeploymentStatus::Received,
-            DeploymentStatus::Published,
-            DeploymentStatus::Started,
             DeploymentStatus::Stopped,
+            DeploymentStatus::Started,
+            DeploymentStatus::Deleted,
         ];
 
         for exp in variants {

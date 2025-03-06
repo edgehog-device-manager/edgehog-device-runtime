@@ -18,17 +18,34 @@
 
 //! Persistent stores of the request issued by Astarte and resources created.
 
-#![allow(dead_code)]
-
 use std::ops::Not;
 
 use edgehog_store::db::{self, HandleError};
+
+use crate::requests::{container::RestartPolicyError, BindingError};
+
+mod container;
+mod deployment;
+mod image;
+mod network;
+mod volume;
 
 type Result<T> = std::result::Result<T, StoreError>;
 
 /// Error returned by the [`StateStore`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum StoreError {
+    /// couldn't parse {ctx} key value {value}
+    ParseKeyValue {
+        /// Key that couldn't be parsed
+        ctx: &'static str,
+        /// Value that couldn't be parsed
+        value: String,
+    },
+    /// couldn't parse container port bindings
+    PortBinding(#[from] BindingError),
+    /// couldn't parse the container restart policy
+    RestartPolicy(#[from] RestartPolicyError),
     /// database operation failed
     Handle(#[from] HandleError),
 }
@@ -46,8 +63,16 @@ impl StateStore {
     pub fn new(handle: db::Handle) -> Self {
         Self { handle }
     }
+
+    /// Clone the underlying handle lazily
+    pub fn clone_lazy(&self) -> Self {
+        Self {
+            handle: self.handle.clone_lazy(),
+        }
+    }
 }
 
+#[allow(dead_code)]
 fn split_key_value(value: &str) -> Option<(&str, Option<&str>)> {
     value.split_once('=').and_then(|(k, v)| {
         if k.is_empty() {
@@ -63,6 +88,13 @@ fn split_key_value(value: &str) -> Option<(&str, Option<&str>)> {
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use tempfile::TempDir;
+    use uuid::Uuid;
+
+    use crate::requests::{
+        container::CreateContainer, deployment::CreateDeployment, image::tests::mock_image_req,
+        network::CreateNetwork, volume::CreateVolume, ReqUuid, VecReqUuid,
+    };
 
     use super::*;
 
@@ -79,5 +111,66 @@ mod tests {
 
             assert_eq!(res, exp);
         }
+    }
+
+    #[tokio::test]
+    async fn should_create_missing() {
+        let tmp = TempDir::with_prefix("create_full_deployment").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let image_id = Uuid::new_v4();
+        let volume_id = ReqUuid(Uuid::new_v4());
+        let network_id = ReqUuid(Uuid::new_v4());
+        let container_id = ReqUuid(Uuid::new_v4());
+        let deployment_id = ReqUuid(Uuid::new_v4());
+
+        let deployment = CreateDeployment {
+            id: deployment_id,
+            containers: VecReqUuid(vec![container_id]),
+        };
+        store.create_deployment(deployment).await.unwrap();
+
+        let container = CreateContainer {
+            id: container_id,
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![network_id]),
+            volume_ids: VecReqUuid(vec![volume_id]),
+            image: "postgres:15".to_string(),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            privileged: false,
+        };
+        store.create_container(container).await.unwrap();
+
+        let network = CreateNetwork {
+            id: network_id,
+            driver: "bridge".to_string(),
+            internal: true,
+            enable_ipv6: false,
+            options: vec!["isolate=true".to_string()],
+        };
+        store.create_network(network).await.unwrap();
+
+        let volume = CreateVolume {
+            id: volume_id,
+            driver: "local".to_string(),
+            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                .map(str::to_string)
+                .to_vec(),
+        };
+        store.create_volume(volume).await.unwrap();
+
+        let image = mock_image_req(image_id, "postgres:15", "");
+        store.create_image(image).await.unwrap();
     }
 }

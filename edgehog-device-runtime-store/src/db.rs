@@ -33,11 +33,11 @@ use std::{
     sync::Arc,
 };
 
-use diesel::{sql_query, Connection, ConnectionError, RunQueryDsl, SqliteConnection};
+use diesel::{connection::SimpleConnection, Connection, ConnectionError, SqliteConnection};
 use diesel_migrations::MigrationHarness;
 use sync_wrapper::SyncWrapper;
 use tokio::{sync::Mutex, task::JoinError};
-use tracing::warn;
+use tracing::debug;
 
 type DynError = Box<dyn Error + Send + Sync>;
 /// Result for the [`HandleError`] returned by the [`Handle`].
@@ -73,6 +73,16 @@ pub enum HandleError {
         /// Expected number or rows.
         exp: usize,
     },
+    /// error returned by the application
+    #[error(transparent)]
+    Application(DynError),
+}
+
+impl HandleError {
+    /// Creates an [`HandleError::Application`] error.
+    pub fn from_app(error: impl Into<DynError>) -> Self {
+        Self::Application(error.into())
+    }
 }
 
 impl HandleError {
@@ -149,6 +159,15 @@ impl Handle {
         })
     }
 
+    /// Create a new handle for the store, it will not initialize the reader connection.
+    pub fn clone_lazy(&self) -> Self {
+        Self {
+            db_file: self.db_file.clone(),
+            writer: Arc::clone(&self.writer),
+            reader: SyncWrapper::new(None),
+        }
+    }
+
     /// Passes the reader to a callback to execute a query.
     pub async fn for_read<F, O>(&mut self, f: F) -> Result<O>
     where
@@ -159,8 +178,8 @@ impl Handle {
         let mut reader = match self.reader.get_mut().take() {
             Some(reader) => reader,
             None => {
-                warn!(
-                    "connection missing task probably panicked, establishing a new one to {}",
+                debug!(
+                    "connection missing, establishing a new one to {}",
                     self.db_file
                 );
 
@@ -203,9 +222,7 @@ async fn establish(
     })?;
 
     tokio::task::spawn_blocking(move || {
-        sql_query(pragma)
-            .execute(&mut conn)
-            .map_err(HandleError::Query)?;
+        conn.batch_execute(pragma).map_err(HandleError::Query)?;
 
         Ok(conn)
     })

@@ -59,3 +59,6 @@ tracing-subscriber = { workspace = true }
 
 [features]
 mock = ["dep:mockall", "dep:hyper"]
+# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
+# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
+vendored = ["edgehog-store/vendored"]

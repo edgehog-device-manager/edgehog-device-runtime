@@ -82,14 +82,12 @@ mod tests {
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
     use crate::data::tests::create_tmp_store;
     use crate::data::tests::MockPubSub;
+    use crate::telemetry::tests::mock_initial_telemetry_client;
     use crate::Runtime;
     use crate::{AstarteLibrary, DeviceManagerOptions};
 
     #[cfg(feature = "forwarder")]
-    fn mock_forwarder<'a>(
-        publisher: &'a mut MockPubSub,
-        seq: &'a mut Sequence,
-    ) -> &'a mut crate::data::tests::__mock_MockPubSub_Clone::__clone::Expectation {
+    fn mock_forwarder(publisher: &mut MockPubSub, seq: &mut Sequence) {
         // define an expectation for the cloned MockPublisher due to the `init` method of the
         // Forwarder struct
         publisher
@@ -107,7 +105,7 @@ mod tests {
                     .returning(|_: &str| Ok(Vec::new()));
 
                 publisher_clone
-            })
+            });
     }
 
     #[tokio::test]
@@ -182,12 +180,6 @@ mod tests {
         let mut pub_sub = MockPubSub::new();
         let mut seq = Sequence::new();
 
-        pub_sub
-            .expect_clone()
-            .once()
-            .in_sequence(&mut seq)
-            .returning(MockPubSub::new);
-
         #[cfg(feature = "zbus")]
         pub_sub
             .expect_clone()
@@ -195,12 +187,30 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockPubSub::new);
 
+        // telemetry
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(mock_initial_telemetry_client);
+
         #[cfg(feature = "containers")]
         pub_sub
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockPubSub::new);
+            .returning(|| {
+                let mut client = MockPubSub::new();
+                let mut seq = Sequence::new();
+
+                client
+                    .expect_clone()
+                    .once()
+                    .in_sequence(&mut seq)
+                    .returning(MockPubSub::new);
+
+                client
+            });
 
         #[cfg(feature = "forwarder")]
         mock_forwarder(&mut pub_sub, &mut seq);
@@ -208,6 +218,9 @@ mod tests {
         let mut tasks = JoinSet::new();
 
         let _dm = Runtime::new(&mut tasks, options, pub_sub).await.unwrap();
+
+        // Sleep to pass the execution to the telemetry task, this is somewhat of a bad test
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         tasks.abort_all();
 

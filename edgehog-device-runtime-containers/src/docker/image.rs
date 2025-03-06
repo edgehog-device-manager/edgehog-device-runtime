@@ -79,7 +79,7 @@ pub enum ConversionError {
 
 /// Docker image struct.
 #[derive(Debug, Clone, Eq, Hash)]
-pub struct Image<S> {
+pub struct Image<S = String> {
     /// Id of the crated image.
     pub id: Option<String>,
     /// Reference to the image that we need to pull.
@@ -146,31 +146,11 @@ impl<S> Image<S> {
         }
     }
 
-    /// Create the image only if it doesn't already exists
-    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<bool, ImageError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        if self.id.is_some() {
-            if self.inspect(client).await?.is_some() {
-                debug!("{self} already exists, no need to create it");
-
-                return Ok(false);
-            }
-
-            warn!("{self} has id, but cannot inspect it");
-        }
-
-        self.create(client).await?;
-
-        Ok(true)
-    }
-
     /// Pull the docker image struct.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageCreate)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn create(&mut self, client: &Client) -> Result<(), ImageError>
+    pub async fn pull(&mut self, client: &Client) -> Result<(), ImageError>
     where
         S: AsRef<str> + Debug + Display,
     {
@@ -251,7 +231,7 @@ impl<S> Image<S> {
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageDelete)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
     pub async fn remove(
-        &self,
+        &mut self,
         client: &Client,
     ) -> Result<Option<Vec<ImageDeleteResponseItem>>, ImageError>
     where
@@ -268,6 +248,8 @@ impl<S> Image<S> {
         match res {
             Ok(delete_res) => {
                 info!("removed {self}");
+
+                self.id = None;
 
                 Ok(Some(delete_res))
             }
@@ -386,7 +368,7 @@ mod tests {
         let mut image = Image::new("hello-world:latest", None);
 
         image
-            .create(&docker)
+            .pull(&docker)
             .await
             .expect("error while pulling the image");
     }
@@ -439,7 +421,7 @@ mod tests {
 
         let mut image = Image::new("hello-world:latest", None);
 
-        image.create(&docker).await.expect("failed to poll image");
+        image.pull(&docker).await.expect("failed to poll image");
 
         let inspect = image
             .inspect(&docker)
@@ -538,7 +520,7 @@ mod tests {
 
         let mut image = Image::new("alpine:edge", None);
 
-        image.create(&docker).await.expect("failed to pull");
+        image.pull(&docker).await.expect("failed to pull");
 
         let res = image
             .clone()
@@ -584,7 +566,7 @@ mod tests {
             mock
         });
 
-        let image = Image::new(name, None);
+        let mut image = Image::new(name, None);
 
         let res = image.remove(&docker).await.expect("error removing");
         assert_eq!(res, None);
@@ -605,76 +587,5 @@ mod tests {
         };
         let cred = image.docker_credentials().unwrap().unwrap();
         assert_eq!(cred, exp)
-    }
-
-    #[tokio::test]
-    async fn inspect_or_create_hello_world() {
-        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
-            let mut mock = Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            mock.expect_remove_image()
-                .withf(|name, _, _| name == "docker.io/library/nginx:1.27.2-bookworm-perl")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_, _, _| Err(crate::tests::not_found_response()));
-
-            mock.expect_create_image()
-                .withf(|options, _, _| {
-                    options.as_ref().is_some_and(|opt| {
-                        opt.from_image == "docker.io/library/nginx:1.27.2-bookworm-perl"
-                    })
-                })
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_, _, _| stream::empty().boxed());
-
-            mock.expect_inspect_image()
-                .withf(|name| name == "docker.io/library/nginx:1.27.2-bookworm-perl")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| {
-                    Ok(ImageInspect {
-                        id: Some(
-                            "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
-                        ),
-                        ..Default::default()
-                    })
-                });
-
-            mock.expect_inspect_image()
-                .withf(|name| name == "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| {
-                    Ok(ImageInspect {
-                        id: Some(
-                            "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
-                        ),
-                        ..Default::default()
-                    })
-                });
-
-            mock
-        });
-
-        let mut image = Image::new("docker.io/library/nginx:1.27.2-bookworm-perl", None);
-
-        image.remove(&docker).await.unwrap();
-
-        let created = image
-            .inspect_or_create(&docker)
-            .await
-            .expect("failed to poll image");
-
-        assert!(created);
-
-        let created = image
-            .inspect_or_create(&docker)
-            .await
-            .expect("failed to poll image");
-
-        assert!(!created);
     }
 }

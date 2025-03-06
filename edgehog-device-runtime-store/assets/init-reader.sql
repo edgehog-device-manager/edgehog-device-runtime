@@ -17,6 +17,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 
 -- Reader config per connection
+PRAGMA foreign_keys = ON;
 PRAGMA temp_store = MEMORY;
 PRAGMA busy_timeout = 5000;
 PRAGMA cache_size = -2000;

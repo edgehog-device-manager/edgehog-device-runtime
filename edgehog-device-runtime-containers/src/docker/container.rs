@@ -66,7 +66,7 @@ pub enum ContainerError {
 
 /// Docker container struct.
 #[derive(Debug, Clone, Eq)]
-pub(crate) struct Container<S>
+pub(crate) struct Container<S = String>
 where
     S: Hash + Eq,
 {
@@ -171,7 +171,6 @@ where
     }
 
     /// Convert the networks into [`NetworkingConfig`]
-    // TODO: should test the network link from two containers
     fn as_network_config(&self) -> HashMap<&str, EndpointSettings>
     where
         S: AsRef<str>,
@@ -187,25 +186,6 @@ where
                 )
             })
             .collect()
-    }
-
-    /// Check if the container exists, if the id is set, otherwise it will try creating it.
-    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<bool, ContainerError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
-        // Check also a container with the same name
-        if let Some(container) = self.inspect(client).await? {
-            trace!("found container {container:?}");
-
-            return Ok(false);
-        }
-
-        debug!("container not found, creating it");
-
-        self.create(client).await?;
-
-        Ok(true)
     }
 
     /// Create a new docker container.
@@ -545,7 +525,7 @@ where
 
 /// Represents a binding between a host IP address and a host port.
 #[derive(Debug, Clone, Eq)]
-pub struct Binding<S> {
+pub struct Binding<S = String> {
     /// Host IP
     pub host_ip: Option<S>,
     /// Host port
@@ -680,7 +660,7 @@ mod tests {
         });
 
         let mut image = Image::new("hello-world:latest", None);
-        image.create(&docker).await.unwrap();
+        image.pull(&docker).await.unwrap();
 
         let mut container = Container::new(name.as_str(), image.reference);
 
@@ -750,7 +730,7 @@ mod tests {
         });
 
         let mut image = Image::new("hello-world:latest", None);
-        image.create(&docker).await.unwrap();
+        image.pull(&docker).await.unwrap();
 
         let mut container = Container::new(name.as_str(), image.reference);
 
@@ -841,7 +821,7 @@ mod tests {
         });
 
         let mut image = Image::new("hello-world:latest", None);
-        image.create(&docker).await.unwrap();
+        image.pull(&docker).await.unwrap();
 
         let mut container = Container::new(name.as_str(), image.reference);
 

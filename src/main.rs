@@ -18,13 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use std::convert::identity;
 use std::io::IsTerminal;
 
 use clap::Parser;
 use cli::Cli;
 use stable_eyre::eyre::{format_err, OptionExt, WrapErr};
-use tracing::{info, warn};
+use tracing::{debug, error, info, warn};
 
 use config::read_options;
 use edgehog_device_runtime::data::connect_store;
@@ -138,11 +137,24 @@ async fn main() -> stable_eyre::Result<()> {
     });
 
     while let Some(res) = tasks.join_next().await {
-        // Crash if one of the tasks failed
-        res.wrap_err("failed to join tasks").and_then(identity)?;
+        match res {
+            Ok(Ok(())) => {
+                info!("task exited");
+            }
+            Ok(Err(err)) => {
+                error!(error = format!("err:#"), "task exited");
 
-        // Otherwise abort all the tasks
-        tasks.abort_all();
+                return Err(err);
+            }
+            Err(err) if err.is_cancelled() => {
+                debug!(error = %err, "task exited");
+            }
+            Err(err) => {
+                error!(error = %err, "task exited");
+
+                return Err(err).wrap_err("task failed");
+            }
+        }
     }
 
     Ok(())
