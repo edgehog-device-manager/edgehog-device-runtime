@@ -164,18 +164,42 @@ impl StateStore {
                     .map(|opt| (opt.name, opt.value))
                     .collect();
 
-                Ok(Some(NetworkResource::new(ContainerNetwork {
-                    id: network.local_id,
-                    name: network.id.to_string(),
-                    driver: network.driver,
-                    internal: network.internal,
-                    enable_ipv6: network.enable_ipv6,
+                Ok(Some(NetworkResource::new(ContainerNetwork::new(
+                    network.local_id,
+                    *network.id,
+                    network.driver,
+                    network.internal,
+                    network.enable_ipv6,
                     driver_opts,
-                })))
+                ))))
             })
             .await?;
 
         Ok(network)
+    }
+
+    /// Finds the unique id of the network with the given local id
+    ///
+    /// Returns the id of the network and the reference.
+    #[instrument(skip(self))]
+    pub(crate) async fn find_network_by_local_id(
+        &mut self,
+        local_id: String,
+    ) -> Result<Option<Uuid>> {
+        let id = self
+            .handle
+            .for_read(|reader| {
+                networks::table
+                    .filter(networks::local_id.eq(local_id))
+                    .select(networks::id)
+                    .first::<SqlUuid>(reader)
+                    .map(|id| *id)
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await?;
+
+        Ok(id)
     }
 }
 
@@ -354,5 +378,41 @@ mod tests {
         };
 
         assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn find_network_by_local_id() {
+        let tmp = TempDir::with_prefix("find_network_by_local_id").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let mut store = StateStore::new(handle);
+
+        let network_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let local_id = Uuid::new_v4();
+        let network = CreateNetwork {
+            id: ReqUuid(network_id),
+            deployment_id: ReqUuid(deployment_id),
+            driver: "bridge".to_string(),
+            internal: true,
+            enable_ipv6: false,
+            options: vec!["isolate=true".to_string()],
+        };
+        store.create_network(network).await.unwrap();
+
+        store
+            .update_network_local_id(network_id, Some(local_id.to_string()))
+            .await
+            .unwrap();
+
+        let res = store
+            .find_network_by_local_id(local_id.to_string())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(res, network_id);
     }
 }

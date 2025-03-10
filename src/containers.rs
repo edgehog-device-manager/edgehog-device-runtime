@@ -21,6 +21,7 @@ use std::{future::Future, path::Path, time::Duration};
 use astarte_device_sdk::Client;
 use async_trait::async_trait;
 use edgehog_containers::{
+    events::RuntimeListener,
     requests::ContainerRequest,
     service::{
         events::{EventError, ServiceHandle},
@@ -104,6 +105,20 @@ where
     }
 }
 
+#[async_trait]
+impl<D> TryRun for &mut RuntimeListener<D>
+where
+    D: Client + Sync + Send + 'static,
+{
+    type Out = ();
+
+    async fn run(&mut self) -> stable_eyre::Result<()> {
+        self.handle_events().await?;
+
+        Ok(())
+    }
+}
+
 async fn retry<S, O>(config: &ContainersConfig, mut init: S) -> stable_eyre::Result<Option<O>>
 where
     S: TryRun<Out = O>,
@@ -144,6 +159,38 @@ where
     Ok(None)
 }
 
+#[cfg(not(test))]
+fn spawn_listener<D>(
+    config: ContainersConfig,
+    store: &StateStore,
+    device: &D,
+    tasks: &mut JoinSet<Result<(), stable_eyre::eyre::Error>>,
+) where
+    D: Client + Clone + Send + Sync + 'static,
+{
+    use tracing::warn;
+
+    // Use a lazy clone since the handle will only write to the database
+    let store_cl = store.clone_lazy();
+    let device_cl = device.clone();
+    tasks.spawn(async move {
+        let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
+        let Some(client) = maybe_client else {
+            return Ok(());
+        };
+
+        let mut listener = RuntimeListener::new(client, device_cl, store_cl);
+
+        // TODO: the retry should have a reset time
+        let should_exit = retry(&config, &mut listener).await?.is_none();
+        if should_exit {
+            warn!("listener retry limit reached");
+        }
+
+        Ok(())
+    });
+}
+
 #[derive(Debug)]
 pub(crate) struct ContainerService<D> {
     handle: ServiceHandle<D>,
@@ -161,20 +208,25 @@ impl<D> ContainerService<D> {
     {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let handle = Handle::open(store_dir.join("state.db"))
+        let store = Handle::open(store_dir.join("state.db"))
             .await
+            .map(StateStore::new)
             .map_err(|err| ServiceError::Store(StoreError::Handle(err)))?;
-        // Use a lazy clone since the handle will only write to the database
-        let handle_cl = handle.clone_lazy();
-        let device_cl = device.clone();
 
+        // fixes an issue with features normalization when testing with `--all-features --workspace`
+        #[cfg(not(test))]
+        spawn_listener(config, &store, &device, tasks);
+
+        // Use a lazy clone since the handle will only write to the database
+        let store_cl = store.clone_lazy();
+        let device_cl = device.clone();
         tasks.spawn(async move {
             let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
             let Some(client) = maybe_client else {
                 return Ok(());
             };
 
-            let mut service = Service::new(client, device, rx, StateStore::new(handle));
+            let mut service = Service::new(client, device_cl, rx, store_cl);
 
             let should_exit = retry(&config, &mut service).await?.is_none();
             if should_exit {
@@ -186,7 +238,7 @@ impl<D> ContainerService<D> {
             Ok(())
         });
 
-        let handle = ServiceHandle::new(device_cl, StateStore::new(handle_cl), tx);
+        let handle = ServiceHandle::new(device, store, tx);
 
         Ok(Self { handle })
     }

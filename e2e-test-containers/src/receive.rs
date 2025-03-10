@@ -21,6 +21,7 @@ use std::{fmt::Debug, path::Path};
 use astarte_device_sdk::{Client, FromEvent};
 use color_eyre::eyre::bail;
 use edgehog_containers::{
+    events::RuntimeListener,
     requests::ContainerRequest,
     service::{events::ServiceHandle, Service},
     store::StateStore,
@@ -66,6 +67,15 @@ where
     Ok(())
 }
 
+async fn runtime_listen<D>(mut listener: RuntimeListener<D>) -> color_eyre::Result<()>
+where
+    D: Debug + Client + Clone + Send + Sync + 'static,
+{
+    listener.handle_events().await?;
+
+    Ok(())
+}
+
 pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
     D: Debug + Client + Clone + Send + Sync + 'static,
@@ -76,12 +86,15 @@ where
     let store = StateStore::new(handle);
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone_lazy());
     let handle = ServiceHandle::new(device.clone(), store.clone_lazy(), tx);
     let service = Service::new(client, device.clone(), rx, store);
 
     let mut tasks = JoinSet::new();
 
     tasks.spawn(handle_events(service));
+    tasks.spawn(runtime_listen(listener));
     tasks.spawn(receive_events(device, handle));
 
     while let Some(res) = tasks.join_next().await {

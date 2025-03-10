@@ -23,6 +23,7 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     ops::{Deref, DerefMut},
+    sync::OnceLock,
 };
 
 use bollard::{
@@ -37,6 +38,7 @@ use bollard::{
     },
 };
 use tracing::{debug, info, instrument, trace, warn};
+use uuid::Uuid;
 
 use crate::{
     client::*,
@@ -64,12 +66,9 @@ pub enum ContainerError {
     Image,
 }
 
-/// Docker container struct.
-#[derive(Debug, Clone, Eq)]
-pub(crate) struct Container<S = String>
-where
-    S: Hash + Eq,
-{
+/// Identifies a container univocally.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContainerId {
     /// Id of the docker container.
     ///
     /// The id of the image is optional since it will be available only when the image is created.
@@ -77,53 +76,31 @@ where
     /// Assign the specified name to the container.
     ///
     /// Must match /?[a-zA-Z0-9][a-zA-Z0-9_.-]+.
-    pub(crate) name: S,
-    /// The name (or reference) of the image to use.
+    pub(crate) name: Uuid,
+    /// Cache the name with a single allocation.
     ///
-    /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
-    /// square brackets optional.
-    pub(crate) image: S,
-    /// Network mode to use for this container.
-    pub(crate) network_mode: S,
-    /// Network to connect the container to.
-    pub(crate) networks: Vec<S>,
-    /// The hostname to use for the container.
-    ///
-    /// Defaults to the container name.
-    pub(crate) hostname: Option<S>,
-    /// The behaviour to apply when the container exits.
-    ///
-    /// See the [create container
-    /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
-    /// possible values.
-    pub(crate) restart_policy: RestartPolicy,
-    /// A list of environment variables to set inside the container.
-    ///
-    /// In the form of `NAME=VALUE`.
-    pub(crate) env: Vec<S>,
-    /// A list of volume bindings for this container.
-    pub(crate) binds: Vec<S>,
-    /// Describes the mapping of container ports to host ports.
-    ///
-    /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
-    /// example, 80/udp.
-    pub(crate) port_bindings: PortBindingMap<S>,
-    /// Gives the container full access to the host.
-    ///
-    /// Defaults to false.
-    pub(crate) privileged: bool,
+    /// Usually multiple functions are called in sequence.
+    name_cache: OnceLock<String>,
 }
 
-impl<S> Container<S>
-where
-    S: Hash + Eq,
-{
+impl ContainerId {
+    pub(crate) fn new(id: Option<String>, name: Uuid) -> Self {
+        Self {
+            id,
+            name,
+            name_cache: OnceLock::new(),
+        }
+    }
+
+    pub(crate) fn name_as_str(&self) -> &str {
+        self.name_cache
+            .get_or_init(|| self.name.to_string())
+            .as_str()
+    }
+
     /// Get the container id or name if it's missing.
     #[instrument(skip_all)]
-    pub fn container(&self) -> &str
-    where
-        S: AsRef<str> + Debug,
-    {
+    pub(crate) fn container(&self) -> &str {
         match &self.id {
             Some(id) => {
                 trace!("returning id");
@@ -133,83 +110,19 @@ where
             None => {
                 trace!("id missing, returning name");
 
-                self.name.as_ref()
+                self.name_as_str()
             }
         }
     }
 
     /// Set the id from docker.
     #[instrument(skip_all)]
-    fn update_id(&mut self, id: String)
-    where
-        S: Display + Debug,
-    {
+    fn update(&mut self, id: String) {
         info!("using id {id} for container {}", self.name);
 
         let old_id = self.id.replace(id);
 
         trace!(?old_id);
-    }
-
-    /// Convert the port bindings to be used in [`HostConfig`].
-    fn as_port_bindings(&self) -> HashMap<String, Option<Vec<PortBinding>>>
-    where
-        S: AsRef<str>,
-    {
-        self.port_bindings
-            .iter()
-            .map(|(port_proto, binds)| {
-                let bindings = if binds.is_empty() {
-                    None
-                } else {
-                    Some(binds.iter().map(PortBinding::from).collect())
-                };
-
-                (port_proto.to_string(), bindings)
-            })
-            .collect()
-    }
-
-    /// Convert the networks into [`NetworkingConfig`]
-    fn as_network_config(&self) -> HashMap<&str, EndpointSettings>
-    where
-        S: AsRef<str>,
-    {
-        self.networks
-            .iter()
-            .map(|net_id| {
-                (
-                    net_id.as_ref(),
-                    EndpointSettings {
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect()
-    }
-
-    /// Create a new docker container.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate)
-    #[instrument(skip_all)]
-    pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("creating the {}", self);
-
-        let res = client
-            .create_container(Some((&*self).into()), (&*self).into())
-            .await
-            .map_err(ContainerError::Create)?;
-
-        self.update_id(res.id);
-
-        for warning in res.warnings {
-            warn!("container created with working: {warning}");
-        }
-
-        Ok(())
     }
 
     /// Inspect a docker container.
@@ -219,10 +132,7 @@ where
     pub async fn inspect(
         &mut self,
         client: &Client,
-    ) -> Result<Option<ContainerInspectResponse>, ContainerError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    ) -> Result<Option<ContainerInspectResponse>, ContainerError> {
         debug!("Inspecting the {}", self);
 
         let res = client
@@ -245,7 +155,7 @@ where
         trace!("container info: {container:?}");
 
         if let Some(id) = &container.id {
-            self.update_id(id.clone());
+            self.update(id.clone());
         }
 
         Ok(Some(container))
@@ -255,15 +165,13 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("deleting {}", self);
 
         let opts = RemoveContainerOptions {
             v: false,
-            force: true,
+            // TODO: there is no way to force the remove from astarte
+            force: false,
             link: false,
         };
 
@@ -287,10 +195,7 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStart)
     #[instrument(skip_all)]
-    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
+    pub async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("starting {self}");
 
         let res = client
@@ -315,10 +220,7 @@ where
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStop)
     #[instrument(skip_all)]
-    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
+    pub async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("stopping {self}");
 
         let res = client.stop_container(self.container(), None).await;
@@ -346,41 +248,147 @@ where
     }
 }
 
-impl<S> Display for Container<S>
-where
-    S: Display + Hash + Eq,
-{
+impl Display for ContainerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Container")?;
-
         if let Some(id) = &self.id {
-            write!(f, " ({id})")?;
+            write!(f, "id: {id}, ")?;
         }
 
-        write!(f, " {}", self.name)
+        write!(f, "name: {}", self.name)
     }
 }
 
-impl<'a, S> From<&'a Container<S>> for CreateContainerOptions<&'a str>
-where
-    S: AsRef<str> + Hash + Eq,
-{
-    fn from(value: &'a Container<S>) -> Self {
+/// Docker container struct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Container {
+    pub(crate) id: ContainerId,
+    /// The name (or reference) of the image to use.
+    ///
+    /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
+    /// square brackets optional.
+    pub(crate) image: String,
+    /// Network mode to use for this container.
+    pub(crate) network_mode: String,
+    /// Network to connect the container to.
+    pub(crate) networks: Vec<String>,
+    /// The hostname to use for the container.
+    ///
+    /// Defaults to the container name.
+    pub(crate) hostname: Option<String>,
+    /// The behaviour to apply when the container exits.
+    ///
+    /// See the [create container
+    /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
+    /// possible values.
+    pub(crate) restart_policy: RestartPolicy,
+    /// A list of environment variables to set inside the container.
+    ///
+    /// In the form of `NAME=VALUE`.
+    pub(crate) env: Vec<String>,
+    /// A list of volume bindings for this container.
+    pub(crate) binds: Vec<String>,
+    /// Describes the mapping of container ports to host ports.
+    ///
+    /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
+    /// example, 80/udp.
+    pub(crate) port_bindings: PortBindingMap<String>,
+    /// Gives the container full access to the host.
+    ///
+    /// Defaults to false.
+    pub(crate) privileged: bool,
+}
+
+impl Container {
+    /// Convert the port bindings to be used in [`HostConfig`].
+    fn as_port_bindings(&self) -> HashMap<String, Option<Vec<PortBinding>>> {
+        self.port_bindings
+            .iter()
+            .map(|(port_proto, binds)| {
+                let bindings = if binds.is_empty() {
+                    None
+                } else {
+                    Some(binds.iter().map(PortBinding::from).collect())
+                };
+
+                (port_proto.to_string(), bindings)
+            })
+            .collect()
+    }
+
+    /// Convert the networks into [`NetworkingConfig`]
+    fn as_network_config(&self) -> HashMap<&str, EndpointSettings> {
+        self.networks
+            .iter()
+            .map(|net_id| {
+                (
+                    net_id.as_ref(),
+                    EndpointSettings {
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Create a new docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate)
+    #[instrument(skip_all)]
+    pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError> {
+        debug!("creating the {}", self);
+
+        let options = CreateContainerOptions::<&str>::from(&*self);
+        let config = Config::<&str>::from(&*self);
+        let res = client
+            .create_container(Some(options), config)
+            .await
+            .map_err(ContainerError::Create)?;
+
+        self.id.update(res.id);
+
+        for warning in res.warnings {
+            warn!("container created with working: {warning}");
+        }
+
+        Ok(())
+    }
+}
+
+impl Display for Container {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // brackets go brrrrrr
+        write!(f, "Container {{{}}}", self.id)
+    }
+}
+
+impl Deref for Container {
+    type Target = ContainerId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl DerefMut for Container {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.id
+    }
+}
+
+impl<'a> From<&'a Container> for CreateContainerOptions<&'a str> {
+    fn from(value: &'a Container) -> Self {
         CreateContainerOptions {
-            name: value.name.as_ref(),
+            name: value.name_as_str(),
             platform: None,
         }
     }
 }
 
-impl<'a, S> From<&'a Container<S>> for Config<&'a str>
-where
-    S: AsRef<str> + Hash + Eq,
-{
-    fn from(value: &'a Container<S>) -> Self {
-        let hostname = value.hostname.as_ref().map(S::as_ref);
-        let env = value.env.iter().map(S::as_ref).collect();
-        let binds = value.binds.iter().map(|s| s.as_ref().to_string()).collect();
+impl<'a> From<&'a Container> for Config<&'a str> {
+    fn from(value: &'a Container) -> Self {
+        let hostname = value.hostname.as_deref();
+        let env = value.env.iter().map(String::as_str).collect();
+        let binds = value.binds.clone();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
 
@@ -420,47 +428,6 @@ where
         (None, None) => true,
         (None, Some(_)) | (Some(_), None) => false,
         (Some(v1), Some(v2)) => *v1 == *v2,
-    }
-}
-
-impl<S1, S2> PartialEq<Container<S2>> for Container<S1>
-where
-    S1: PartialEq<S2> + Eq + Hash,
-    S2: Eq + Hash,
-{
-    fn eq(
-        &self,
-        Container {
-            id,
-            name,
-            image,
-            network_mode,
-            networks,
-            hostname,
-            restart_policy,
-            env,
-            binds,
-            port_bindings,
-            privileged,
-        }: &Container<S2>,
-    ) -> bool {
-        let eq_port_bindings = self.port_bindings.len() == port_bindings.len()
-            && self
-                .port_bindings
-                .iter()
-                .all(|(k, v1)| port_bindings.get(k).is_some_and(|v2| *v1 == *v2));
-
-        self.id.eq(id)
-            && self.name.eq(name)
-            && self.image.eq(image)
-            && self.network_mode.eq(network_mode)
-            && self.networks.eq(networks)
-            && opt_eq(&self.hostname, hostname)
-            && self.restart_policy.eq(restart_policy)
-            && self.env.eq(env)
-            && self.binds.eq(binds)
-            && eq_port_bindings
-            && self.privileged.eq(privileged)
     }
 }
 
@@ -587,15 +554,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{docker_mock, image::Image, tests::random_name};
+    use mockall::predicate;
+
+    use crate::{docker_mock, image::Image};
 
     use super::*;
 
-    impl Container<String> {
-        fn new(name: impl Into<String>, image: impl Into<String>) -> Self {
+    impl Container {
+        fn new(name: Uuid, image: impl Into<String>) -> Self {
             Self {
-                id: None,
-                name: name.into(),
+                id: ContainerId::new(None, name),
                 image: image.into(),
                 hostname: None,
                 restart_policy: RestartPolicy::Empty,
@@ -611,7 +579,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_create() {
-        let name = random_name("create");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use futures::{stream, StreamExt};
@@ -646,10 +614,10 @@ mod tests {
                     })
                 });
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_str)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
@@ -659,17 +627,17 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference);
+        let mut container = Container::new(name, image.reference.clone());
 
         container.create(&docker).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_inspect() {
-        let name = random_name("inspect");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use futures::{stream, StreamExt};
@@ -704,7 +672,7 @@ mod tests {
                     })
                 });
 
-            let name_cl = name.clone();
+            let name_cl = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
                     option.as_ref().is_some_and(|opt| opt.name == name_cl)
@@ -729,10 +697,10 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference);
+        let mut container = Container::new(name, image.reference.clone());
 
         container.create(&docker).await.unwrap();
 
@@ -743,21 +711,20 @@ mod tests {
 
     #[tokio::test]
     async fn should_inspect_not_found() {
-        let name = random_name("inspect-not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
             mock.expect_inspect_container()
-                .withf(move |name, _option| name == name_cl)
+                .with(predicate::eq(name.to_string()), predicate::eq(None))
                 .once()
                 .returning(move |_, _| Err(crate::tests::not_found_response()));
 
             mock
         });
 
-        let mut container = Container::new(name.as_str(), "hello-world");
+        let mut container = Container::new(name, "hello-world");
 
         let resp = container.inspect(&docker).await.unwrap();
 
@@ -766,7 +733,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_remove() {
-        let name = random_name("remove");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             use futures::{stream, StreamExt};
@@ -801,10 +768,10 @@ mod tests {
                     })
                 });
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
+                    option.as_ref().is_some_and(|opt| opt.name == name_str)
                         && config.image == Some("hello-world:latest")
                 })
                 .once()
@@ -820,10 +787,10 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
         image.pull(&docker).await.unwrap();
 
-        let mut container = Container::new(name.as_str(), image.reference);
+        let mut container = Container::new(name, image.reference.clone());
 
         container.create(&docker).await.unwrap();
 
@@ -832,21 +799,27 @@ mod tests {
 
     #[tokio::test]
     async fn should_remove_not_found() {
-        let name = random_name("remove-not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
             mock.expect_remove_container()
-                .withf(move |name, _options| name == name_cl)
+                .with(
+                    predicate::eq(name.to_string()),
+                    predicate::eq(Some(RemoveContainerOptions {
+                        v: false,
+                        force: false,
+                        link: false,
+                    })),
+                )
                 .once()
                 .returning(move |_, _| Err(crate::tests::not_found_response()));
 
             mock
         });
 
-        let container = Container::new(name.as_str(), "hello-world");
+        let container = Container::new(name, "hello-world");
 
         container.remove(&docker).await.unwrap();
     }

@@ -74,7 +74,7 @@ where
 
         if exists {
             ctx.store
-                .update_network_local_id(ctx.id, resource.network.id.clone())
+                .update_network_local_id(ctx.id, resource.network.id.id.clone())
                 .await?;
 
             Ok((State::Created, resource))
@@ -84,6 +84,10 @@ where
     }
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.network.create(ctx.client).await?;
+
+        ctx.store
+            .update_network_local_id(ctx.id, self.network.id.id.clone())
+            .await?;
 
         AvailableNetwork::new(&ctx.id)
             .send(ctx.device, true)

@@ -56,6 +56,8 @@ astarte-device-sdk-mock = { workspace = true }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Generate random unique names for the containers
+uuid = { workspace = true, features = ["v7"] }
 
 [features]
 mock = ["dep:mockall", "dep:hyper"]

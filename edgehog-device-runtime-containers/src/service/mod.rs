@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::{
     error::DockerError,
-    events::{DeploymentEvent, EventStatus},
+    events::deployment::{DeploymentEvent, EventStatus},
     properties::{deployment::AvailableDeployment, AvailableProp, Client},
     requests::{
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
@@ -708,9 +708,9 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    use crate::container::{Binding, Container, PortBindingMap};
+    use crate::container::{Binding, Container, ContainerId, PortBindingMap};
     use crate::image::Image;
-    use crate::network::Network;
+    use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
     use crate::requests::container::tests::create_container_request_event;
@@ -720,7 +720,7 @@ mod tests {
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
     use crate::requests::ContainerRequest;
-    use crate::volume::Volume;
+    use crate::volume::{Volume, VolumeId};
     use crate::{docker, docker_mock};
 
     use super::events::ServiceHandle;
@@ -791,11 +791,7 @@ mod tests {
 
         let resource = service.store.find_image(id).await.unwrap().unwrap();
 
-        let exp = Image {
-            id: None,
-            reference: reference.to_string(),
-            registry_auth: None,
-        };
+        let exp = Image::new(None, reference.to_string(), None);
 
         assert_eq!(resource.image, exp);
     }
@@ -843,7 +839,7 @@ mod tests {
         let resource = service.store.find_volume(id).await.unwrap().unwrap();
 
         let exp = Volume {
-            name: id.to_string(),
+            id: VolumeId::new(id),
             driver: "local".to_string(),
             driver_opts: HashMap::from([
                 ("foo".to_string(), "bar".to_string()),
@@ -897,8 +893,7 @@ mod tests {
         let resource = service.store.find_network(id).await.unwrap().unwrap();
 
         let exp = Network {
-            id: None,
-            name: id.to_string(),
+            id: NetworkId::new(None, id),
             driver: "bridged".to_string(),
             internal: false,
             enable_ipv6: false,
@@ -996,8 +991,7 @@ mod tests {
         let resource = service.store.find_container(id).await.unwrap().unwrap();
 
         let exp = Container {
-            id: None,
-            name: id.to_string(),
+            id: ContainerId::new(None, id),
             image: "docker.io/nginx:stable-alpine-slim".to_string(),
             network_mode: "bridge".to_string(),
             networks: vec![network_id.to_string()],

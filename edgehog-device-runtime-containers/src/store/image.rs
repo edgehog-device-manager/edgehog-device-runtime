@@ -156,6 +156,30 @@ impl StateStore {
 
         Ok(image)
     }
+
+    /// Finds the unique id of the image with the given local id
+    ///
+    /// Returns the id of the image and the reference.
+    #[instrument(skip(self))]
+    pub(crate) async fn find_image_by_local_id(
+        &mut self,
+        local_id: String,
+    ) -> Result<Option<(Uuid, String)>> {
+        let id = self
+            .handle
+            .for_read(|reader| {
+                images::table
+                    .filter(images::local_id.eq(local_id))
+                    .select((images::id, images::reference))
+                    .first::<(SqlUuid, String)>(reader)
+                    .map(|(id, reference)| (*id, reference))
+                    .optional()
+                    .map_err(HandleError::Query)
+            })
+            .await?;
+
+        Ok(id)
+    }
 }
 
 impl From<CreateImage> for Image {
@@ -181,11 +205,7 @@ impl From<CreateImage> for Image {
 
 impl From<Image> for ContainerImage {
     fn from(value: Image) -> Self {
-        Self {
-            id: value.local_id,
-            reference: value.reference,
-            registry_auth: value.registry_auth,
-        }
+        Self::new(value.local_id, value.reference, value.registry_auth)
     }
 }
 
@@ -283,5 +303,39 @@ mod tests {
         };
 
         assert_eq!(res, exp)
+    }
+
+    #[tokio::test]
+    async fn find_by_local_id() {
+        let tmp = TempDir::with_prefix("find_by_local_id").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let mut store = StateStore::new(handle);
+
+        let image_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let reference = "postgres:15".to_string();
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: reference.clone(),
+            registry_auth: String::new(),
+        };
+        store.create_image(image).await.unwrap();
+        let local_id = Uuid::new_v4().to_string();
+        store
+            .update_image_local_id(image_id, Some(local_id.clone()))
+            .await
+            .unwrap();
+
+        let res = store
+            .find_image_by_local_id(local_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(res, (image_id, reference))
     }
 }

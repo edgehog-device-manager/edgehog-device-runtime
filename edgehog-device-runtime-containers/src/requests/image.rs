@@ -20,8 +20,6 @@
 
 use astarte_device_sdk::FromEvent;
 
-use crate::image::Image;
-
 use super::ReqUuid;
 
 /// Request to pull a Docker Image.
@@ -36,22 +34,6 @@ pub struct CreateImage {
     pub(crate) deployment_id: ReqUuid,
     pub(crate) reference: String,
     pub(crate) registry_auth: String,
-}
-
-impl From<CreateImage> for Image<String> {
-    fn from(value: CreateImage) -> Self {
-        let registry_auth = if value.registry_auth.is_empty() {
-            None
-        } else {
-            Some(value.registry_auth)
-        };
-
-        Image {
-            id: None,
-            reference: value.reference,
-            registry_auth,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -103,24 +85,5 @@ pub(crate) mod tests {
         };
 
         assert_eq!(request, expect);
-    }
-
-    #[test]
-    fn should_convert_to_image() {
-        let id = Uuid::new_v4();
-        let deployment_id = Uuid::new_v4();
-        let event = create_image_request_event(id, deployment_id, "reference", "registry_auth");
-
-        let request = CreateImage::from_event(event).unwrap();
-
-        let exp = Image {
-            id: None,
-            reference: "reference",
-            registry_auth: Some("registry_auth"),
-        };
-
-        let img = Image::from(request);
-
-        assert_eq!(img, exp);
     }
 }
