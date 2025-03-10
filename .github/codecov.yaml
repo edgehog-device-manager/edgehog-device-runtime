@@ -27,6 +27,8 @@ coverage:
       default:
         # Avoid false negatives
         threshold: 1%
+        branches:
+          - "!main"
 
 # Test files aren't important for coverage
 ignore:
@@ -36,5 +38,31 @@ ignore:
 
 # Make comments less noisy
 comment:
-  layout: "files"
+  layout: "header, diff, files, components"
   require_changes: yes
+
+component_management:
+  default_rules: # default rules that will be inherited by all components
+    statuses:
+      - type: project
+        target: auto
+        branches:
+          - "!main"
+  individual_components:
+    - component_id: edgehog-device-runtime
+      name: runtime
+      paths:
+        - src/**
+        - src/*
+      statuses: # the core component has its own statuses
+        - type: project
+          target: auto
+        - type: patch
+    - component_id: edgehog-device-runtime-containers
+      name: containers
+      paths:
+        - edgehog-device-runtime-containers/**
+    - component_id: edgehog-device-runtime-forwarder
+      name: forwarder
+      paths:
+        - edgehog-device-runtime-forwarder/**
