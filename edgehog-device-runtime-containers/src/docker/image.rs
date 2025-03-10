@@ -109,14 +109,35 @@ impl ImageId {
         debug!(?old, "replaced");
     }
 
+    pub(crate) async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<ImageInspect>, ImageError> {
+        // We need to account to the case that we have an incorrect id, but it exists another
+        // image with the correct reference
+        if let Some(id) = self.id.clone() {
+            debug!("inspecting by id");
+
+            let response = self.inspect_with(client, &id).await?;
+
+            if response.is_some() {
+                return Ok(response);
+            }
+        }
+
+        self.inspect_with(client, &self.reference.to_string()).await
+    }
+
     /// Inspect a docker image.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageInspect)
-    #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn inspect(&mut self, client: &Client) -> Result<Option<ImageInspect>, ImageError> {
-        let image_name = self.id_or_ref();
-
-        let res = client.inspect_image(image_name).await;
+    #[instrument(skip(self, client))]
+    async fn inspect_with(
+        &mut self,
+        client: &Client,
+        name: &str,
+    ) -> Result<Option<ImageInspect>, ImageError> {
+        let res = client.inspect_image(name).await;
 
         trace!("received response {res:?}");
 

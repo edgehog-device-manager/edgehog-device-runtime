@@ -110,18 +110,39 @@ impl NetworkId {
         trace!(?old_id);
     }
 
+    pub(crate) async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<DockerNetwork>, NetworkError> {
+        // We need to account to the case that we have an incorrect id, but it exists another
+        // network with the correct name
+        if let Some(id) = self.id.clone() {
+            debug!("checkign the id");
+
+            let response = self.inspect_with(client, &id).await?;
+
+            if response.is_some() {
+                return Ok(response);
+            }
+        }
+        // Use a variable to circumvent a bug in clippy
+        let name = self.name_as_str().to_string();
+        self.inspect_with(client, &name).await
+    }
+
     /// Inspect a docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
     #[instrument(skip_all, fields(name = %self.name))]
-    pub async fn inspect(
+    pub(crate) async fn inspect_with(
         &mut self,
         client: &Client,
+        name: &str,
     ) -> Result<Option<DockerNetwork>, NetworkError> {
-        debug!("Inspecting the {}", self);
+        debug!("inspecting the {}", self);
 
         let res = client
-            .inspect_network(self.network(), None::<InspectNetworkOptions<String>>)
+            .inspect_network(name, None::<InspectNetworkOptions<String>>)
             .await;
 
         let network = match res {
@@ -150,7 +171,7 @@ impl NetworkId {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError> {
+    pub(crate) async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError> {
         debug!("deleting {}", self);
 
         let res = client.remove_network(self.network()).await;
