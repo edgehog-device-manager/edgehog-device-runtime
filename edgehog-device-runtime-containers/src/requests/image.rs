@@ -33,6 +33,7 @@ use super::ReqUuid;
 )]
 pub struct CreateImage {
     pub(crate) id: ReqUuid,
+    pub(crate) deployment_id: ReqUuid,
     pub(crate) reference: String,
     pub(crate) registry_auth: String,
 }
@@ -62,25 +63,15 @@ pub(crate) mod tests {
 
     use super::*;
 
-    pub fn mock_image_req(
-        id: Uuid,
-        reference: impl Into<String>,
-        registry_auth: impl Into<String>,
-    ) -> CreateImage {
-        CreateImage {
-            id: ReqUuid(id),
-            reference: reference.into(),
-            registry_auth: registry_auth.into(),
-        }
-    }
-
     pub fn create_image_request_event(
         id: impl Display,
+        deployment_id: impl Display,
         reference: &str,
         auth: &str,
     ) -> DeviceEvent {
         let fields = [
             ("id", id.to_string()),
+            ("deploymentId", deployment_id.to_string()),
             ("reference", reference.to_string()),
             ("registryAuth", auth.to_string()),
         ]
@@ -98,12 +89,15 @@ pub(crate) mod tests {
     #[test]
     fn create_image_request() {
         let id = Uuid::new_v4();
-        let event = create_image_request_event(id.to_string(), "reference", "registry_auth");
+        let deployment_id = Uuid::new_v4();
+        let event =
+            create_image_request_event(id.to_string(), deployment_id, "reference", "registry_auth");
 
         let request = CreateImage::from_event(event).unwrap();
 
         let expect = CreateImage {
             id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
             reference: "reference".to_string(),
             registry_auth: "registry_auth".to_string(),
         };
@@ -114,7 +108,8 @@ pub(crate) mod tests {
     #[test]
     fn should_convert_to_image() {
         let id = Uuid::new_v4();
-        let event = create_image_request_event(id.to_string(), "reference", "registry_auth");
+        let deployment_id = Uuid::new_v4();
+        let event = create_image_request_event(id, deployment_id, "reference", "registry_auth");
 
         let request = CreateImage::from_event(event).unwrap();
 

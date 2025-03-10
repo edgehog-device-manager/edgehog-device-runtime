@@ -153,6 +153,7 @@ impl From<CreateVolume> for Volume {
     fn from(
         CreateVolume {
             id,
+            deployment_id: _,
             driver,
             options: _,
         }: CreateVolume,
@@ -245,8 +246,10 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
         let volume = CreateVolume {
             id: ReqUuid(volume_id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
             options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
                 .map(str::to_string)
@@ -298,8 +301,10 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
         let volume = CreateVolume {
             id: ReqUuid(volume_id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
             options: [
                 "device=tmpfs",
@@ -361,8 +366,10 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
         let volume = CreateVolume {
             id: ReqUuid(volume_id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
             options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
                 .map(str::to_string)

@@ -162,6 +162,7 @@ impl From<CreateImage> for Image {
     fn from(
         CreateImage {
             id,
+            deployment_id: _,
             reference,
             registry_auth,
         }: CreateImage,
@@ -190,13 +191,13 @@ impl From<Image> for ContainerImage {
 
 #[cfg(test)]
 mod tests {
+    use crate::requests::ReqUuid;
+
     use super::*;
 
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
-
-    use crate::requests::image::tests::mock_image_req;
 
     async fn find_image(store: &mut StateStore, id: Uuid) -> Option<Image> {
         store
@@ -221,7 +222,13 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let image_id = Uuid::new_v4();
-        let image = mock_image_req(image_id, "postgres:15", "");
+        let deployment_id = Uuid::new_v4();
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "postgres:15".to_string(),
+            registry_auth: String::new(),
+        };
         store.create_image(image).await.unwrap();
 
         let res = find_image(&mut store, image_id).await.unwrap();
@@ -247,7 +254,13 @@ mod tests {
         let mut store = StateStore::new(handle);
 
         let image_id = Uuid::new_v4();
-        let image = mock_image_req(image_id, "postgres:15", "");
+        let deployment_id = Uuid::new_v4();
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "postgres:15".to_string(),
+            registry_auth: String::new(),
+        };
         store.create_image(image).await.unwrap();
         store
             .update_image_status(image_id, ImageStatus::Published)

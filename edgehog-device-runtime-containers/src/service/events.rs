@@ -139,8 +139,7 @@ pub enum AstarteEvent {
         /// Unique ID of the resource
         resource: Id,
         /// Deployment ID of the request
-        // FIXME: this need to be added to the interface for all the resources
-        deployment: Option<Uuid>,
+        deployment: Uuid,
     },
     /// Deployment command event.
     DeploymentCmd(DeploymentCommand),
@@ -156,7 +155,7 @@ impl From<&ContainerRequest> for AstarteEvent {
 
                 AstarteEvent::Resource {
                     resource,
-                    deployment: None,
+                    deployment: create_image.deployment_id.0,
                 }
             }
             ContainerRequest::Volume(create_volume) => {
@@ -164,7 +163,7 @@ impl From<&ContainerRequest> for AstarteEvent {
 
                 AstarteEvent::Resource {
                     resource,
-                    deployment: None,
+                    deployment: create_volume.deployment_id.0,
                 }
             }
             ContainerRequest::Network(create_network) => {
@@ -172,7 +171,7 @@ impl From<&ContainerRequest> for AstarteEvent {
 
                 AstarteEvent::Resource {
                     resource,
-                    deployment: None,
+                    deployment: create_network.deployment_id.0,
                 }
             }
             ContainerRequest::Container(create_container) => {
@@ -180,7 +179,7 @@ impl From<&ContainerRequest> for AstarteEvent {
 
                 AstarteEvent::Resource {
                     resource,
-                    deployment: None,
+                    deployment: create_container.deployment_id.0,
                 }
             }
             ContainerRequest::Deployment(create_deployment) => {
@@ -188,7 +187,7 @@ impl From<&ContainerRequest> for AstarteEvent {
 
                 AstarteEvent::Resource {
                     resource,
-                    deployment: Some(create_deployment.id.0),
+                    deployment: create_deployment.id.0,
                 }
             }
             ContainerRequest::DeploymentCommand(cmd) => Self::DeploymentCmd(*cmd),
