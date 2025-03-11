@@ -37,6 +37,25 @@ pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
 
+/// Error returned when failing to publish a property
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+pub enum PropertyError {
+    /// couldn't send property {interface}{endpoint}
+    Send {
+        /// Interface of the property
+        interface: String,
+        /// Endpoint of the property
+        endpoint: String,
+    },
+    /// couldn't unset property {interface}{endpoint}
+    Unset {
+        /// Interface of the property
+        interface: String,
+        /// Endpoint of the property
+        endpoint: String,
+    },
+}
+
 #[async_trait]
 pub(crate) trait AvailableProp {
     type Data: Into<AstarteType> + Send + 'static;
@@ -47,14 +66,14 @@ pub(crate) trait AvailableProp {
 
     fn id(&self) -> &Uuid;
 
-    async fn send<D>(&self, device: &D, data: Self::Data)
+    async fn send<D>(&self, device: &D, data: Self::Data) -> Result<(), PropertyError>
     where
         D: Client + Sync + 'static,
     {
-        self.send_field(device, Self::field(), data).await;
+        self.send_field(device, Self::field(), data).await
     }
 
-    async fn send_field<D, T>(&self, device: &D, field: &str, data: T)
+    async fn send_field<D, T>(&self, device: &D, field: &str, data: T) -> Result<(), PropertyError>
     where
         D: Client + Sync + 'static,
         T: Into<AstarteType> + Send + 'static,
@@ -62,14 +81,23 @@ pub(crate) trait AvailableProp {
         let interface = Self::interface();
         let endpoint = format!("/{}/{}", self.id(), field);
 
-        let res = device.send(interface, &endpoint, data).await;
+        device
+            .send(interface, &endpoint, data)
+            .await
+            .map_err(|err| {
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "couldn't send data for {interface}{endpoint}"
+                );
 
-        if let Err(err) = res {
-            error!("couldn't send data for {interface}{endpoint}: {err}");
-        }
+                PropertyError::Send {
+                    interface: interface.to_string(),
+                    endpoint,
+                }
+            })
     }
 
-    async fn unset<D>(&self, device: &D)
+    async fn unset<D>(&self, device: &D) -> Result<(), PropertyError>
     where
         D: Client + Sync + 'static,
     {
@@ -77,10 +105,16 @@ pub(crate) trait AvailableProp {
         let field = Self::field();
         let endpoint = format!("/{}/{}", self.id(), field);
 
-        let res = device.unset(interface, &endpoint).await;
+        device.unset(interface, &endpoint).await.map_err(|err| {
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                "couldn't unset data for {interface}{endpoint}"
+            );
 
-        if let Err(err) = res {
-            error!("couldn't send data for {interface}{endpoint}: {err}");
-        }
+            PropertyError::Unset {
+                interface: interface.to_string(),
+                endpoint,
+            }
+        })
     }
 }

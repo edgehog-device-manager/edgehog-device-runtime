@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2022-2024 SECO Mind Srl
+# Copyright 2022 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,12 +33,8 @@ env:
   E2E_INTERFACE_DIR: "./edgehog/astarte-interfaces"
 jobs:
   e2e-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
       - name: Create Astarte Cluster
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1.2.0
@@ -50,6 +46,10 @@ jobs:
           # Update ref when updated interfaces are required.
           ref: v0.5.2
           path: ./edgehog/astarte-interfaces
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt-get -y install libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install interface
         run: |
           astartectl realm-management interfaces sync $GITHUB_WORKSPACE/edgehog/astarte-interfaces/*.json --non-interactive
@@ -67,5 +67,6 @@ jobs:
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.8
       - name: Run test
+        # use the full command to use the sccache
         run: |
-          cargo e2e-test
+          cargo run -p e2e-test

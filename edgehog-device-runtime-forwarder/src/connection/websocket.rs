@@ -3,7 +3,6 @@
 
 //! Define the necessary structs and traits to represent a WebSocket connection.
 
-use std::borrow::Cow;
 use std::ops::ControlFlow;
 
 use async_trait::async_trait;
@@ -13,6 +12,7 @@ use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::Utf8Bytes;
 use tokio_tungstenite::tungstenite::{
     error::ProtocolError as TungProtocolError, Error as TungError, Message as TungMessage,
 };
@@ -144,7 +144,7 @@ impl WebSocket {
                     id,
                     TungMessage::Close(Some(CloseFrame {
                         code: CloseCode::Protocol,
-                        reason: Cow::Owned("reset without closing handshake".to_string()),
+                        reason: Utf8Bytes::from_static("reset without closing handshake"),
                     })),
                 )?))
             }

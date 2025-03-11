@@ -42,8 +42,8 @@ async fn test_connect() {
         .expect("failed to receive from ws")
         .into_data();
 
-    let proto_res = ProtoMessage::decode(http_res.as_slice())
-        .expect("failed to decode tung message into protobuf");
+    let proto_res =
+        ProtoMessage::decode(http_res).expect("failed to decode tung message into protobuf");
 
     assert!(matches!(
         proto_res,

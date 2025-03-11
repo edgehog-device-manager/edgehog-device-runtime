@@ -16,6 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
 use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
 use edgehog_device_runtime::telemetry::hardware_info::HardwareInfo;
@@ -83,7 +84,7 @@ impl Cli {
 }
 
 /// Retry the future multiple times
-async fn retry<'a, F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
+async fn retry<F, T, U>(times: usize, mut f: F) -> color_eyre::Result<U>
 where
     F: FnMut() -> T,
     T: Future<Output = color_eyre::Result<U>>,
@@ -118,6 +119,10 @@ async fn main() -> color_eyre::Result<()> {
 
     let cli = Cli::parse();
 
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| eyre!("couldn't install default crypto provider"))?;
+
     wait_for_cluster(&cli.api_url).await?;
 
     let pairing_url = cli.pairing_url()?;
@@ -142,6 +147,8 @@ async fn main() -> color_eyre::Result<()> {
         telemetry_config: Some(Vec::new()),
         #[cfg(feature = "message-hub")]
         astarte_message_hub: None,
+        #[cfg(feature = "containers")]
+        containers: edgehog_device_runtime::containers::ContainersConfig::default(),
     };
 
     let store = connect_store(store_path.path())

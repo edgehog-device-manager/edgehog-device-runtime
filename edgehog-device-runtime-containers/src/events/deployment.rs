@@ -43,16 +43,19 @@ impl DeploymentEvent {
         }
     }
 
-    pub(crate) async fn send<D>(self, id: &Uuid, client: &D)
+    pub(crate) async fn send<D>(self, id: &Uuid, device: &D)
     where
         D: Client + Sync + 'static,
     {
-        let res = client
+        let res = device
             .send_object(INTERFACE, &format!("/{id}"), self.clone())
             .await;
 
         if let Err(err) = res {
-            error!(error = %err, "couldn't send {self}, with id {id}")
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                "couldn't send {self}, with id {id}"
+            )
         }
     }
 }

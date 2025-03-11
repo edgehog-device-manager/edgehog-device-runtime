@@ -18,13 +18,15 @@
 
 //! Container requests sent from Astarte.
 
-use std::{collections::HashMap, num::ParseIntError};
+use std::{borrow::Borrow, fmt::Display, num::ParseIntError, ops::Deref};
 
-use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
-use container::CreateContainer;
+use astarte_device_sdk::{
+    event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
+};
+use container::{CreateContainer, RestartPolicyError};
 use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
-
-use crate::store::container::RestartPolicyError;
+use tracing::error;
+use uuid::Uuid;
 
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
@@ -81,6 +83,20 @@ pub enum ContainerRequest {
     DeploymentUpdate(DeploymentUpdate),
 }
 
+impl ContainerRequest {
+    pub(crate) fn deployment_id(&self) -> Option<Uuid> {
+        match self {
+            ContainerRequest::Image(_)
+            | ContainerRequest::Volume(_)
+            | ContainerRequest::Network(_)
+            | ContainerRequest::Container(_) => None,
+            ContainerRequest::Deployment(create_deployment) => Some(create_deployment.id.0),
+            ContainerRequest::DeploymentCommand(deployment_command) => Some(deployment_command.id),
+            ContainerRequest::DeploymentUpdate(deployment_update) => Some(deployment_update.from),
+        }
+    }
+}
+
 impl FromEvent for ContainerRequest {
     type Err = FromEventError;
 
@@ -112,51 +128,118 @@ impl FromEvent for ContainerRequest {
     }
 }
 
-/// Split a key=value slice into an [`HashMap`].
-fn parse_kv_map<S>(input: &[S]) -> Result<HashMap<String, String>, ReqError>
-where
-    S: AsRef<str>,
-{
-    input
-        .iter()
-        .map(|k_v| {
-            k_v.as_ref()
-                .split_once('=')
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .ok_or_else(|| ReqError::Option(k_v.as_ref().to_string()))
+/// Wrapper to convert an [`AstarteType`] to [`Uuid`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ReqUuid(pub(crate) Uuid);
+
+impl Display for ReqUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Borrow<Uuid> for ReqUuid {
+    fn borrow(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl Deref for ReqUuid {
+    type Target = Uuid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&str> for ReqUuid {
+    type Error = TypeError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Uuid::parse_str(value).map(ReqUuid).map_err(|err| {
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                value, "couldn't parse uuid value"
+            );
+
+            TypeError::Conversion
         })
-        .collect()
+    }
+}
+
+impl TryFrom<AstarteType> for ReqUuid {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        Self::try_from(value.as_str())
+    }
+}
+
+impl From<ReqUuid> for Uuid {
+    fn from(value: ReqUuid) -> Self {
+        value.0
+    }
+}
+
+impl From<&ReqUuid> for Uuid {
+    fn from(value: &ReqUuid) -> Self {
+        value.0
+    }
+}
+
+/// Wrapper to convert an [`AstarteType`] to [`Vec<Uuid>`].
+///
+/// This is required because we cannot implement [`TryFrom<AstarteType>`] for [`Vec<ReqUuid>`], because
+/// of the orphan rule.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub(crate) struct VecReqUuid(pub(crate) Vec<ReqUuid>);
+
+impl Deref for VecReqUuid {
+    type Target = Vec<ReqUuid>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<AstarteType> for VecReqUuid {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+        let value = Vec::<String>::try_from(value)?;
+
+        value
+            .iter()
+            .map(|v| ReqUuid::try_from(v.as_str()))
+            .collect::<Result<Vec<ReqUuid>, TypeError>>()
+            .map(VecReqUuid)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use astarte_device_sdk::Value;
+    use image::tests::create_image_request_event;
     use network::{tests::create_network_request_event, CreateNetwork};
+    use pretty_assertions::assert_eq;
 
-    use crate::requests::{image::CreateImage, ContainerRequest};
+    use crate::requests::ContainerRequest;
 
     #[test]
     fn from_event_image() {
-        let fields = [
-            ("id", "id"),
-            ("reference", "reference"),
-            ("registryAuth", "registry_auth"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.into()))
-        .collect();
-        let event = DeviceEvent {
-            interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
-            path: "/image".to_string(),
-            data: Value::Object(fields),
-        };
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+
+        let event = create_image_request_event(id, deployment_id, "reference", "registry_auth");
 
         let request = ContainerRequest::from_event(event).unwrap();
 
         let expect = ContainerRequest::Image(CreateImage {
-            id: "id".to_string(),
+            id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
             reference: "reference".to_string(),
             registry_auth: "registry_auth".to_string(),
         });
@@ -165,30 +248,16 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_kv_map() {
-        let values = ["foo=bar", "some="];
-
-        let map = parse_kv_map(&values).unwrap();
-
-        assert_eq!(map.len(), 2);
-        assert_eq!(map.get("foo").unwrap(), "bar");
-        assert_eq!(map.get("some").unwrap(), "");
-
-        let invalid = ["nope"];
-
-        let err = parse_kv_map(&invalid).unwrap_err();
-
-        assert!(matches!(err, ReqError::Option(opt) if opt == "nope"))
-    }
-
-    #[test]
     fn from_event_network() {
-        let event = create_network_request_event("id", "driver", &[]);
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let event = create_network_request_event(id, deployment_id, "driver", &[]);
 
         let request = ContainerRequest::from_event(event).unwrap();
 
         let expect = CreateNetwork {
-            id: "id".to_string(),
+            id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "driver".to_string(),
             internal: false,
             enable_ipv6: false,

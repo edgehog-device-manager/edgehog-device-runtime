@@ -20,9 +20,7 @@
 
 use astarte_device_sdk::FromEvent;
 
-use crate::network::Network;
-
-use super::{parse_kv_map, ReqError};
+use super::ReqUuid;
 
 /// Request to pull a Docker Network.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,28 +30,12 @@ use super::{parse_kv_map, ReqError};
     rename_all = "camelCase"
 )]
 pub struct CreateNetwork {
-    pub(crate) id: String,
+    pub(crate) id: ReqUuid,
+    pub(crate) deployment_id: ReqUuid,
     pub(crate) driver: String,
     pub(crate) internal: bool,
     pub(crate) enable_ipv6: bool,
     pub(crate) options: Vec<String>,
-}
-
-impl TryFrom<CreateNetwork> for Network<String> {
-    type Error = ReqError;
-
-    fn try_from(value: CreateNetwork) -> Result<Self, Self::Error> {
-        let driver_opts = parse_kv_map(&value.options)?;
-
-        Ok(Network {
-            id: None,
-            name: value.id,
-            driver: value.driver,
-            internal: value.internal,
-            enable_ipv6: value.enable_ipv6,
-            driver_opts,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -63,11 +45,13 @@ pub(crate) mod tests {
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use itertools::Itertools;
+    use uuid::Uuid;
 
     use super::*;
 
     pub fn create_network_request_event(
         id: impl Display,
+        deployment_id: impl Display,
         driver: &str,
         options: &[&str],
     ) -> DeviceEvent {
@@ -75,6 +59,10 @@ pub(crate) mod tests {
 
         let fields = [
             ("id", AstarteType::String(id.to_string())),
+            (
+                "deploymentId",
+                AstarteType::String(deployment_id.to_string()),
+            ),
             ("driver", AstarteType::String(driver.to_string())),
             ("checkDuplicate", AstarteType::Boolean(false)),
             ("internal", AstarteType::Boolean(false)),
@@ -94,12 +82,16 @@ pub(crate) mod tests {
 
     #[test]
     fn create_network_request() {
-        let event = create_network_request_event("id", "driver", &["foo=bar", "some="]);
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let event =
+            create_network_request_event(id, deployment_id, "driver", &["foo=bar", "some="]);
 
         let request = CreateNetwork::from_event(event).unwrap();
 
         let expect = CreateNetwork {
-            id: "id".to_string(),
+            id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "driver".to_string(),
             internal: false,
             enable_ipv6: false,

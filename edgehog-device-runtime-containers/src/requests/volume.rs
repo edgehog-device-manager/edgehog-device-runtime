@@ -20,9 +20,7 @@
 
 use astarte_device_sdk::FromEvent;
 
-use crate::volume::Volume;
-
-use super::{parse_kv_map, ReqError};
+use super::ReqUuid;
 
 /// Request to pull a Docker Volume.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -32,42 +30,25 @@ use super::{parse_kv_map, ReqError};
     rename_all = "camelCase"
 )]
 pub struct CreateVolume {
-    pub(crate) id: String,
+    pub(crate) id: ReqUuid,
+    pub(crate) deployment_id: ReqUuid,
     pub(crate) driver: String,
     pub(crate) options: Vec<String>,
 }
 
-impl TryFrom<CreateVolume> for Volume<String> {
-    type Error = ReqError;
-
-    fn try_from(value: CreateVolume) -> Result<Self, Self::Error> {
-        let driver = if value.driver.is_empty() {
-            String::from("local")
-        } else {
-            value.driver
-        };
-
-        let driver_opts = parse_kv_map(&value.options)?;
-
-        Ok(Volume {
-            name: value.id,
-            driver,
-            driver_opts,
-        })
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{collections::HashMap, fmt::Display};
+    use std::fmt::Display;
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
     use itertools::Itertools;
+    use uuid::Uuid;
 
     use super::*;
 
     pub fn create_volume_request_event(
         id: impl Display,
+        deployment_id: impl Display,
         driver: &str,
         options: &[&str],
     ) -> DeviceEvent {
@@ -75,6 +56,10 @@ pub(crate) mod tests {
 
         let fields = [
             ("id".to_string(), AstarteType::String(id.to_string())),
+            (
+                "deploymentId".to_string(),
+                AstarteType::String(deployment_id.to_string()),
+            ),
             (
                 "driver".to_string(),
                 AstarteType::String(driver.to_string()),
@@ -93,33 +78,19 @@ pub(crate) mod tests {
 
     #[test]
     fn create_volume_request() {
-        let event = create_volume_request_event("id", "driver", &["foo=bar", "some="]);
+        let id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let event = create_volume_request_event(id, deployment_id, "driver", &["foo=bar", "some="]);
 
         let request = CreateVolume::from_event(event).unwrap();
 
         let expect = CreateVolume {
-            id: "id".to_string(),
+            id: ReqUuid(id),
+            deployment_id: ReqUuid(deployment_id),
             driver: "driver".to_string(),
             options: ["foo=bar", "some="].map(str::to_string).to_vec(),
         };
 
         assert_eq!(request, expect);
-    }
-
-    #[test]
-    fn volume_default_driver() {
-        let event = create_volume_request_event("id", "", &["foo=bar", "some="]);
-
-        let request = CreateVolume::from_event(event).unwrap();
-
-        let expect = Volume {
-            name: "id",
-            driver: "local",
-            driver_opts: HashMap::from([("foo".to_string(), "bar"), ("some".to_string(), "")]),
-        };
-
-        let vol = Volume::try_from(request).unwrap();
-
-        assert_eq!(vol, expect);
     }
 }

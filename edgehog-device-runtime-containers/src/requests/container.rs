@@ -21,16 +21,18 @@
 use std::str::FromStr;
 
 use astarte_device_sdk::FromEvent;
+use bollard::secret::RestartPolicyNameEnum;
 use tracing::{instrument, trace};
 
-use crate::{
-    container::{Binding, Container, PortBindingMap},
-    requests::BindingError,
-    service::{Id, ResourceType, ServiceError},
-    store::container::RestartPolicy,
-};
+use crate::{container::Binding, requests::BindingError};
 
-use super::ReqError;
+use super::{ReqUuid, VecReqUuid};
+
+/// couldn't parse restart policy {value}
+#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
+pub struct RestartPolicyError {
+    value: String,
+}
 
 /// Request to pull a Docker Container.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,12 +42,11 @@ use super::ReqError;
     rename_all = "camelCase"
 )]
 pub struct CreateContainer {
-    pub(crate) id: String,
-    pub(crate) image_id: String,
-    pub(crate) network_ids: Vec<String>,
-    pub(crate) volume_ids: Vec<String>,
-    // TODO: remove this image, use the image id
-    pub(crate) image: String,
+    pub(crate) id: ReqUuid,
+    pub(crate) deployment_id: ReqUuid,
+    pub(crate) image_id: ReqUuid,
+    pub(crate) network_ids: VecReqUuid,
+    pub(crate) volume_ids: VecReqUuid,
     pub(crate) hostname: String,
     pub(crate) restart_policy: String,
     pub(crate) env: Vec<String>,
@@ -53,53 +54,6 @@ pub struct CreateContainer {
     pub(crate) network_mode: String,
     pub(crate) port_bindings: Vec<String>,
     pub(crate) privileged: bool,
-}
-
-impl CreateContainer {
-    pub(crate) fn dependencies(&self) -> Result<Vec<Id>, ServiceError> {
-        std::iter::once(Id::try_from_str(ResourceType::Image, &self.image_id))
-            .chain(
-                self.network_ids
-                    .iter()
-                    .map(|id| Id::try_from_str(ResourceType::Network, id)),
-            )
-            .chain(
-                self.volume_ids
-                    .iter()
-                    .map(|id| Id::try_from_str(ResourceType::Volume, id)),
-            )
-            .collect()
-    }
-}
-
-impl TryFrom<CreateContainer> for Container<String> {
-    type Error = ReqError;
-
-    fn try_from(value: CreateContainer) -> Result<Self, Self::Error> {
-        let hostname = if value.hostname.is_empty() {
-            None
-        } else {
-            Some(value.hostname)
-        };
-
-        let restart_policy = RestartPolicy::from_str(&value.restart_policy)?.into();
-        let port_bindings = PortBindingMap::try_from(value.port_bindings)?;
-
-        Ok(Container {
-            id: None,
-            name: value.id,
-            image: value.image,
-            hostname,
-            restart_policy,
-            env: value.env,
-            network_mode: value.network_mode,
-            // Use the network ids
-            networks: value.network_ids,
-            binds: value.binds,
-            port_bindings,
-            privileged: value.privileged,
-        })
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -200,25 +154,68 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RestartPolicy {
+    Empty,
+    No,
+    Always,
+    UnlessStopped,
+    OnFailure,
+}
+
+impl FromStr for RestartPolicy {
+    type Err = RestartPolicyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Ok(RestartPolicy::Empty),
+            "no" => Ok(RestartPolicy::No),
+            "always" => Ok(RestartPolicy::Always),
+            "unless-stopped" => Ok(RestartPolicy::UnlessStopped),
+            "on-failure" => Ok(RestartPolicy::OnFailure),
+            _ => Err(RestartPolicyError {
+                value: s.to_string(),
+            }),
+        }
+    }
+}
+
+impl From<RestartPolicy> for RestartPolicyNameEnum {
+    fn from(value: RestartPolicy) -> Self {
+        match value {
+            RestartPolicy::Empty => RestartPolicyNameEnum::EMPTY,
+            RestartPolicy::No => RestartPolicyNameEnum::NO,
+            RestartPolicy::Always => RestartPolicyNameEnum::ALWAYS,
+            RestartPolicy::UnlessStopped => RestartPolicyNameEnum::UNLESS_STOPPED,
+            RestartPolicy::OnFailure => RestartPolicyNameEnum::ON_FAILURE,
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use std::{collections::HashMap, fmt::Display};
+    use std::fmt::Display;
 
     use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
-    use bollard::secret::RestartPolicyNameEnum;
     use pretty_assertions::assert_eq;
+    use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_container_request_event(
+    pub fn create_container_request_event<S: Display>(
         id: impl Display,
-        image_id: &str,
+        deployment_id: impl Display,
+        image_id: impl Display,
         image: &str,
-        network_ids: &[&str],
+        network_ids: &[S],
     ) -> DeviceEvent {
         let fields = [
             ("id", AstarteType::String(id.to_string())),
+            (
+                "deploymentId",
+                AstarteType::String(deployment_id.to_string()),
+            ),
             ("imageId", AstarteType::String(image_id.to_string())),
             ("volumeIds", AstarteType::StringArray(vec![])),
             ("image", AstarteType::String(image.to_string())),
@@ -250,21 +247,21 @@ pub(crate) mod tests {
 
     #[test]
     fn create_container_request() {
-        let event = create_container_request_event(
-            "id",
-            "image_id",
-            "image",
-            &["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
-        );
+        let id = ReqUuid(Uuid::new_v4());
+        let deployment_id = ReqUuid(Uuid::new_v4());
+        let image_id = ReqUuid(Uuid::new_v4());
+        let network_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
+        let event =
+            create_container_request_event(id, deployment_id, image_id, "image", &network_ids);
 
         let request = CreateContainer::from_event(event).unwrap();
 
         let expect = CreateContainer {
-            id: "id".to_string(),
-            image_id: "image_id".to_string(),
-            network_ids: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196".to_string()],
-            volume_ids: vec![],
-            image: "image".to_string(),
+            id,
+            deployment_id,
+            image_id,
+            network_ids,
+            volume_ids: VecReqUuid(vec![]),
             hostname: "hostname".to_string(),
             restart_policy: "no".to_string(),
             env: vec!["env".to_string()],
@@ -275,30 +272,6 @@ pub(crate) mod tests {
         };
 
         assert_eq!(request, expect);
-
-        let container = Container::try_from(request).unwrap();
-
-        let exp = Container {
-            id: None,
-            name: "id",
-            image: "image",
-            network_mode: "bridge",
-            networks: vec!["9808bbd5-2e81-4f99-83e7-7cc60623a196"],
-            hostname: Some("hostname"),
-            restart_policy: RestartPolicyNameEnum::NO,
-            env: vec!["env"],
-            binds: vec!["binds"],
-            port_bindings: PortBindingMap::<&str>(HashMap::from_iter([(
-                "80/tcp".to_string(),
-                vec![Binding {
-                    host_ip: None,
-                    host_port: Some(80),
-                }],
-            )])),
-            privileged: false,
-        };
-
-        assert_eq!(container, exp);
     }
 
     #[test]
@@ -331,5 +304,46 @@ pub(crate) mod tests {
 
             assert_eq!(parsed, expected, "failed to parse {case}");
         }
+    }
+
+    #[test]
+    fn parse_restart_policy() {
+        let cases = [
+            ("", RestartPolicy::Empty),
+            ("no", RestartPolicy::No),
+            ("unless-stopped", RestartPolicy::UnlessStopped),
+            ("on-failure", RestartPolicy::OnFailure),
+            ("on-failure", RestartPolicy::OnFailure),
+        ];
+
+        for (case, exp) in cases {
+            let policy = RestartPolicy::from_str(case).unwrap();
+
+            assert_eq!(policy, exp);
+        }
+
+        let err = RestartPolicy::from_str("bar").unwrap_err();
+        assert_eq!(
+            err,
+            RestartPolicyError {
+                value: "bar".to_string()
+            }
+        );
+
+        let err = RestartPolicy::from_str("NO").unwrap_err();
+        assert_eq!(
+            err,
+            RestartPolicyError {
+                value: "NO".to_string()
+            }
+        );
+
+        let err = RestartPolicy::from_str("on_failure").unwrap_err();
+        assert_eq!(
+            err,
+            RestartPolicyError {
+                value: "on_failure".to_string()
+            }
+        );
     }
 }
