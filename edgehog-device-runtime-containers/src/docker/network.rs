@@ -251,14 +251,10 @@ impl Network {
             .await
             .map_err(NetworkError::Create)?;
 
-        if let Some(id) = res.id {
-            self.update(id);
-        }
+        self.update(res.id);
 
-        if let Some(warning) = res.warning {
-            if !warning.is_empty() {
-                warn!("network created with warning: {warning}");
-            }
+        if !res.warning.is_empty() {
+            warn!("network created with warning: {}", res.warning);
         }
 
         Ok(())
@@ -329,8 +325,8 @@ mod tests {
             let mut mock = Client::new();
 
             let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
+                id: "id".to_string(),
+                warning: String::new(),
             };
 
             let name_str = name.to_string();
@@ -362,8 +358,8 @@ mod tests {
             };
 
             let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
+                id: "id".to_string(),
+                warning: String::new(),
             };
 
             let name_str = name.to_string();
@@ -426,8 +422,8 @@ mod tests {
             let mut mock = Client::new();
 
             let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
+                id: "id".to_string(),
+                warning: String::new(),
             };
 
             let name_str = name.to_string();

@@ -67,13 +67,14 @@ edgehog-store = { workspace = true, optional = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
-reqwest = { workspace = true, features = ["stream"] }
-rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider", "stream"] }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 stable-eyre = { workspace = true }
 sysinfo = { workspace = true }
 systemd = { workspace = true, optional = true }
+termtree = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
@@ -117,14 +118,14 @@ zbus = ["dep:zbus"]
 vendored = ["edgehog-store/vendored"]
 
 [workspace.dependencies]
-astarte-device-sdk = "0.9.1"
-astarte-device-sdk-mock = "0.9.1"
+astarte-device-sdk = "0.9.6"
+astarte-device-sdk-mock = "0.9.6"
 astarte-message-hub-proto = "0.7.0"
-async-trait = "0.1.83"
+async-trait = "0.1.87"
 backoff = "0.4.0"
 base64 = "0.22.1"
-bollard = "0.17.1"
-bytes = "1.10.0"
+bollard = "0.18.1"
+bytes = "1.10.1"
 cfg-if = "1.0.0"
 clap = "=4.4.18"
 color-eyre = "0.6.3"
@@ -141,42 +142,43 @@ hex = "0.4.3"
 http = "1.2.0"
 httpmock = "0.7"
 hyper = "1.6.0"
-indexmap = "2.6.0"
-itertools = "0.13.0"
+indexmap = "2.8.0"
+itertools = "0.14.0"
 mockall = "0.13.1"
 native-tls = "=0.2.13"
-petgraph = "0.6.5"
+petgraph = "0.7.1"
 pretty_assertions = "1.4.1"
-procfs = "0.16.0"
+procfs = "0.17.0"
 reqwest = "0.12.12"
 rusqlite = "0.29.0"
 rustc_version = "0.4.1"
-rustls = { version = "0.23.17", default-features = false }
-rustls-native-certs = "0.8.0"
+rustls = { version = "0.23.23" }
+rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
-serde = "1.0.218"
-serde_json = "1.0.139"
+serde = "1.0.219"
+serde_json = "1.0.140"
 stable-eyre = "0.2.2"
 sync_wrapper = "1.0.2"
 sysinfo = "0.30.13"
 systemd = "0.10.0"
 tempdir = "0.3.7"
-tempfile = "3.14.0"
-thiserror = "2.0.3"
-tokio = "1.43.0"
+tempfile = "3.18.0"
+thiserror = "2.0.12"
+tokio = "1.44.0"
 tokio-stream = "0.1.17"
-tokio-tungstenite = "0.24.0"
+tokio-tungstenite = "0.26.2"
 tokio-util = "0.7.13"
 toml = "0.8.20"
 tracing = "0.1.41"
-tracing-subscriber = "0.3.18"
-udev = "0.9.1"
-url = "2.5.3"
-uuid = "1.14.0"
+tracing-subscriber = "0.3.19"
+udev = "0.9.3"
+url = "2.5.4"
+uuid = "1.15.1"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
 
 # Transitive dependencies
 hyperlocal = "=0.9.0"
 litemap = "=0.7.4"
+termtree = "=0.4.1"
 zerofrom = "=0.1.5"
