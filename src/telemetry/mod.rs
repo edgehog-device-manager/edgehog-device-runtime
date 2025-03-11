@@ -650,7 +650,6 @@ pub(crate) mod tests {
         }];
 
         let (_dir, t_dir) = temp_dir();
-
         let mut client = MockPubSub::new();
         let mut seq = Sequence::new();
 

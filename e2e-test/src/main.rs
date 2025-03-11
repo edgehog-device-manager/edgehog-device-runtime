@@ -16,6 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
 use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
 use edgehog_device_runtime::telemetry::hardware_info::HardwareInfo;
@@ -117,6 +118,10 @@ async fn main() -> color_eyre::Result<()> {
         .try_init()?;
 
     let cli = Cli::parse();
+
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| eyre!("couldn't install default crypto provider"))?;
 
     wait_for_cluster(&cli.api_url).await?;
 

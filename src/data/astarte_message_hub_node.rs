@@ -23,6 +23,7 @@
 use std::path::Path;
 
 use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::error::Error as AstarteError;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
@@ -42,9 +43,9 @@ pub enum MessageHubError {
     /// missing configuration for the Astarte Message Hub
     MissingConfig,
     /// couldn't add interfaces directory
-    Interfaces(#[source] AddInterfaceError),
+    Interfaces(#[from] AddInterfaceError),
     /// couldn't connect to Astarte
-    Connect(#[source] astarte_device_sdk::Error),
+    Connect(#[source] AstarteError),
     /// Invalid endpoint
     Endpoint(#[source] GrpcError),
 }
@@ -71,8 +72,7 @@ impl AstarteMessageHubOptions {
 
         let (device, connection) = DeviceBuilder::new()
             .store(store)
-            .interface_directory(interface_dir)
-            .map_err(MessageHubError::Interfaces)?
+            .interface_directory(interface_dir)?
             .connect(grpc_cfg)
             .await
             .map_err(MessageHubError::Connect)?

@@ -39,7 +39,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.1"
+version = "0.8.3"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.72"
@@ -64,15 +64,17 @@ displaydoc = { workspace = true }
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-store = { workspace = true, optional = true }
+eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
-reqwest = { workspace = true, features = ["stream"] }
-rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider", "stream"] }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 stable-eyre = { workspace = true }
 sysinfo = { workspace = true }
 systemd = { workspace = true, optional = true }
+termtree = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
@@ -88,6 +90,11 @@ zbus = { workspace = true, optional = true, default-features = false, features =
 
 [build-dependencies]
 rustc_version = { workspace = true }
+
+# Pin transitive deps
+native-tls = { workspace = true }
+litemap = { workspace = true }
+zerofrom = { workspace = true }
 
 [dev-dependencies]
 astarte-message-hub-proto = { workspace = true }
@@ -111,63 +118,67 @@ zbus = ["dep:zbus"]
 vendored = ["edgehog-store/vendored"]
 
 [workspace.dependencies]
-astarte-device-sdk = "0.9.1"
-astarte-device-sdk-mock = "0.9.1"
+astarte-device-sdk = "0.9.6"
+astarte-device-sdk-mock = "0.9.6"
 astarte-message-hub-proto = "0.7.0"
-async-trait = "0.1.83"
+async-trait = "0.1.87"
 backoff = "0.4.0"
 base64 = "0.22.1"
-bollard = "0.17.1"
-bytes = "1.8.0"
+bollard = "0.18.1"
+bytes = "1.10.1"
 cfg-if = "1.0.0"
 clap = "=4.4.18"
 color-eyre = "0.6.3"
 diesel = "=2.1.6"
 diesel_migrations = "=2.1.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.8.1" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.8.3" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.8.1" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.3" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.8.3" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
-http = "1.1.0"
+http = "1.2.0"
 httpmock = "0.7"
-hyper = "1.5.0"
-indexmap = "2.6.0"
-itertools = "0.13.0"
+hyper = "1.6.0"
+indexmap = "2.8.0"
+itertools = "0.14.0"
 mockall = "0.13.1"
-petgraph = "0.6.5"
+native-tls = "=0.2.13"
+petgraph = "0.7.1"
 pretty_assertions = "1.4.1"
-procfs = "0.16.0"
-reqwest = "0.12.9"
+procfs = "0.17.0"
+reqwest = "0.12.12"
 rusqlite = "0.29.0"
 rustc_version = "0.4.1"
-rustls = { version = "0.23.17", default-features = false }
-rustls-native-certs = "0.8.0"
+rustls = { version = "0.23.23" }
+rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
-serde = "1.0.214"
-serde_json = "1.0.133"
+serde = "1.0.219"
+serde_json = "1.0.140"
 stable-eyre = "0.2.2"
 sync_wrapper = "1.0.2"
 sysinfo = "0.30.13"
 systemd = "0.10.0"
 tempdir = "0.3.7"
-tempfile = "3.14.0"
-thiserror = "2.0.3"
-tokio = "1.41.1"
-tokio-stream = "0.1.16"
-tokio-tungstenite = "0.24.0"
-tokio-util = "0.7.12"
-toml = "0.8.19"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-udev = "0.9.1"
-url = "2.5.3"
-uuid = "1.11.0"
+tempfile = "3.18.0"
+thiserror = "2.0.12"
+tokio = "1.44.0"
+tokio-stream = "0.1.17"
+tokio-tungstenite = "0.26.2"
+tokio-util = "0.7.13"
+toml = "0.8.20"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+udev = "0.9.3"
+url = "2.5.4"
+uuid = "1.15.1"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
 
 # Transitive dependencies
 hyperlocal = "=0.9.0"
+litemap = "=0.7.4"
+termtree = "=0.4.1"
+zerofrom = "=0.1.5"

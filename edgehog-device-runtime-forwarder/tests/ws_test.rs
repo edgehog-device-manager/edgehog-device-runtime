@@ -20,6 +20,8 @@ use edgehog_device_runtime_forwarder::test_utils::{
 #[tokio::test]
 async fn test_internal_ws() {
     // Mock server for ttyd
+
+    use tokio_tungstenite::tungstenite::Bytes;
     let mut test_connections = TestConnections::<MockWebSocket>::init().await;
 
     // Edgehog
@@ -50,7 +52,7 @@ async fn test_internal_ws() {
     // retrieve the ID of the connection and try sending a WebSocket message
     test_connections.mock(connection_handle).await;
 
-    let content = b"data".to_vec();
+    let content = Bytes::from_static(b"data");
     let data = TungMessage::Binary(content.clone());
     let ws_binary_msg = create_ws_msg(socket_id.clone(), data);
     let protobuf_res = send_ws_and_wait_next(&mut ws_bridge, ws_binary_msg).await;
@@ -59,14 +61,14 @@ async fn test_internal_ws() {
         protobuf_res,
         proto::Message {
             protocol: Some(ProtobufProtocol::Ws(ProtobufWebSocket {
-                message: Some(ProtobufWsMessage::Binary(content)),
+                message: Some(ProtobufWsMessage::Binary(content.to_vec())),
                 socket_id: socket_id.clone()
             }))
         }
     );
 
     // sending ping
-    let content = b"ping".to_vec();
+    let content = Bytes::from_static(b"ping");
     let data = TungMessage::Ping(content.clone());
     let ws_ping_msg = create_ws_msg(socket_id.clone(), data.clone());
     let protobuf_res = send_ws_and_wait_next(&mut ws_bridge, ws_ping_msg).await;
@@ -76,7 +78,7 @@ async fn test_internal_ws() {
         protobuf_res,
         proto::Message {
             protocol: Some(ProtobufProtocol::Ws(ProtobufWebSocket {
-                message: Some(ProtobufWsMessage::Pong(content)),
+                message: Some(ProtobufWsMessage::Pong(content.to_vec())),
                 socket_id: socket_id.clone()
             }))
         }
