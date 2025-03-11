@@ -21,12 +21,15 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
+    sync::OnceLock,
 };
 
 use bollard::{
     errors::Error as BollardError, models::Volume as DockerVolume, volume::CreateVolumeOptions,
 };
 use tracing::{debug, error, instrument, trace, warn};
+use uuid::Uuid;
 
 use crate::client::*;
 
@@ -46,82 +49,39 @@ pub enum VolumeError {
     List(#[source] BollardError),
 }
 
-/// Docker volume struct.
-///
-/// Persistent storage that can be attached to containers.
-#[derive(Debug, Clone, Eq)]
-pub struct Volume<S> {
+/// Unique identifier for the Volume
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VolumeId {
     /// The volume's name. If not specified (empty), Docker generates a name.
-    pub name: S,
-    /// Name of the volume driver to use.
+    pub(crate) name: Uuid,
+    /// Cache the name with a single allocation.
     ///
-    /// Defaults to "local".
-    pub driver: S,
-    /// A mapping of driver options and values.
-    ///
-    /// These options are passed directly to the driver and are driver specific.
-    pub driver_opts: HashMap<String, S>,
+    /// Usually multiple functions are called in sequence.
+    name_cache: OnceLock<String>,
 }
 
-impl<S> Volume<S> {
-    /// Create a new volume.
-    pub fn new(name: S, driver: S, driver_opts: HashMap<String, S>) -> Self {
+impl VolumeId {
+    pub(crate) fn new(name: Uuid) -> Self {
         Self {
             name,
-            driver,
-            driver_opts,
+            name_cache: OnceLock::new(),
         }
     }
 
-    /// Check if the volume exists if the id is set, otherwise it will try creating it.
-    ///
-    /// Returns true if the volume was created.
-    pub async fn inspect_or_create(&self, client: &Client) -> Result<bool, VolumeError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
-        if let Some(vol) = self.inspect(client).await? {
-            trace!("found volume {vol:?}");
-
-            return Ok(false);
-        }
-
-        debug!("volume not found, creating it");
-
-        self.create(client).await?;
-
-        Ok(true)
-    }
-
-    /// Create a new docker volume.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
-    #[instrument(skip_all)]
-    pub async fn create(&self, client: &Client) -> Result<(), VolumeError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("Create the Volume {}", self);
-
-        client
-            .create_volume(self.into())
-            .await
-            .map_err(VolumeError::Create)?;
-
-        Ok(())
+    pub(crate) fn name_as_str(&self) -> &str {
+        self.name_cache
+            .get_or_init(|| self.name.to_string())
+            .as_str()
     }
 
     /// Inspect a docker volume.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeInspect)
     #[instrument(skip_all)]
-    pub async fn inspect(&self, client: &Client) -> Result<Option<DockerVolume>, VolumeError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("inspecting volume {}", self.name);
+    pub async fn inspect(&self, client: &Client) -> Result<Option<DockerVolume>, VolumeError> {
+        debug!("inspecting {}", self);
 
-        let res = client.inspect_volume(self.name.as_ref()).await;
+        let res = client.inspect_volume(self.name_as_str()).await;
 
         match res {
             Ok(volume) => {
@@ -145,13 +105,10 @@ impl<S> Volume<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, VolumeError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("deleting volume {}", self.name);
+    pub async fn remove(&self, client: &Client) -> Result<Option<()>, VolumeError> {
+        debug!("deleting {}", self);
 
-        let res = client.remove_volume(self.name.as_ref(), None).await;
+        let res = client.remove_volume(self.name_as_str(), None).await;
 
         match res {
             Ok(()) => Ok(Some(())),
@@ -181,44 +138,78 @@ impl<S> Volume<S> {
     }
 }
 
-impl<S> Display for Volume<S>
-where
-    S: Display,
-{
+impl Display for VolumeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Volume {}/{}", self.name, self.driver)
+        write!(f, "name: {}", self.name)
     }
 }
 
-impl<S1, S2> PartialEq<Volume<S2>> for Volume<S1>
-where
-    S1: PartialEq<S2>,
-{
-    fn eq(
-        &self,
-        Volume {
-            name,
+/// Docker volume struct.
+///
+/// Persistent storage that can be attached to containers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Volume {
+    pub(crate) id: VolumeId,
+    /// Name of the volume driver to use.
+    ///
+    /// Defaults to "local".
+    pub(crate) driver: String,
+    /// A mapping of driver options and values.
+    ///
+    /// These options are passed directly to the driver and are driver specific.
+    pub(crate) driver_opts: HashMap<String, String>,
+}
+
+impl Volume {
+    /// Create a new volume.
+    pub fn new(name: Uuid, driver: String, driver_opts: HashMap<String, String>) -> Self {
+        Self {
+            id: VolumeId::new(name),
             driver,
             driver_opts,
-        }: &Volume<S2>,
-    ) -> bool {
-        let eq_driver_opts = self.driver_opts.len() == driver_opts.len()
-            && self
-                .driver_opts
-                .iter()
-                .all(|(k, v1)| driver_opts.get(k).is_some_and(|v2| *v1 == *v2));
+        }
+    }
 
-        self.name.eq(name) && self.driver.eq(driver) && eq_driver_opts
+    /// Create a new docker volume.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
+    #[instrument(skip_all)]
+    pub async fn create(&self, client: &Client) -> Result<(), VolumeError> {
+        debug!("createing {}", self);
+
+        client
+            .create_volume(self.into())
+            .await
+            .map_err(VolumeError::Create)?;
+
+        Ok(())
     }
 }
 
-impl<'a, S> From<&'a Volume<S>> for CreateVolumeOptions<&'a str>
-where
-    S: AsRef<str>,
-{
-    fn from(value: &'a Volume<S>) -> Self {
+impl Display for Volume {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Volume{{{}}}", self.id)
+    }
+}
+
+impl Deref for Volume {
+    type Target = VolumeId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl DerefMut for Volume {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.id
+    }
+}
+
+impl<'a> From<&'a Volume> for CreateVolumeOptions<&'a str> {
+    fn from(value: &'a Volume) -> Self {
         CreateVolumeOptions {
-            name: value.name.as_ref(),
+            name: value.name_as_str(),
             driver: value.driver.as_ref(),
             driver_opts: value
                 .driver_opts
@@ -232,79 +223,79 @@ where
 
 #[cfg(test)]
 mod tests {
+    use mockall::predicate;
+    use uuid::Uuid;
+
     use super::*;
 
-    use crate::{
-        docker_mock,
-        tests::{not_found_response, random_name},
-    };
+    use crate::docker_mock;
 
     #[tokio::test]
     async fn should_create_volume() {
-        let name = random_name("create");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_volume()
-                .withf(move |option| option.name == name_cl && option.driver == "local")
+                .withf(move |option| option.name == name_str && option.driver == "local")
                 .once()
                 .returning(|_| Ok(Default::default()));
 
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name, "local".to_string(), HashMap::new());
         volume.create(&docker).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_inspect_volume() {
-        let name = random_name("inspect");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
             let volume = bollard::models::Volume {
-                name: name.clone(),
+                name: name.to_string(),
                 driver: "local".to_string(),
                 ..Default::default()
             };
 
             let v_cl = volume.clone();
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_volume()
-                .withf(move |option| option.name == name_cl && option.driver == "local")
+                .withf(move |option| option.name == name_str && option.driver == "local")
                 .once()
                 .returning(move |_| Ok(v_cl.clone()));
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_inspect_volume()
-                .withf(move |name| name == name_cl)
+                .withf(move |name| name == name_str)
                 .once()
                 .returning(move |_| Ok(volume.clone()));
 
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name, "local".to_string(), HashMap::new());
 
         volume.create(&docker).await.unwrap();
         let v = volume.inspect(&docker).await.unwrap().unwrap();
 
-        assert_eq!(v.name, name)
+        assert_eq!(v.name, name.to_string())
     }
 
     #[tokio::test]
     async fn should_inspect_volume_not_found() {
         // Random volume name
-        let name = random_name("not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name = name.clone();
+            let name = name.to_string();
             mock.expect_inspect_volume()
                 .withf(move |v_name| v_name == name)
                 .once()
@@ -313,7 +304,7 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name, "local".to_string(), HashMap::new());
 
         let res = volume.inspect(&docker).await.unwrap();
 
@@ -322,24 +313,23 @@ mod tests {
 
     #[tokio::test]
     async fn should_remove_volume() {
-        let name = random_name("remove");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_volume()
-                .withf(move |option| option.name == name_cl && option.driver == "local")
+                .withf(move |option| option.name == name_str && option.driver == "local")
                 .once()
                 .returning(|_| Ok(Default::default()));
 
-            let name_cl = name.clone();
             mock.expect_remove_volume()
-                .withf(move |name, _| name == name_cl)
+                .with(predicate::eq(name.to_string()), predicate::eq(None))
                 .once()
                 .returning(|_, _| Ok(()));
 
-            let name_cl = name.clone();
+            let name_cl = name.to_string();
             mock.expect_inspect_volume()
                 .withf(move |v_name| v_name == name_cl)
                 .once()
@@ -348,56 +338,12 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
+        let volume = Volume::new(name, "local".to_string(), HashMap::new());
         volume.create(&docker).await.unwrap();
         volume.remove(&docker).await.unwrap();
 
         let v = volume.inspect(&docker).await.unwrap();
 
         assert_eq!(v, None);
-    }
-    #[tokio::test]
-    async fn should_inspect_or_create_volume() {
-        let name = random_name("inspect_or_create");
-
-        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            let mut mock = Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            let volume = bollard::models::Volume {
-                name: name.clone(),
-                driver: "local".to_string(),
-                ..Default::default()
-            };
-
-            let name_cl = name.clone();
-            mock.expect_inspect_volume()
-                .withf(move |name| name == name_cl)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| Err(not_found_response()));
-
-            let v_cl = volume.clone();
-            let name_cl = name.clone();
-            mock.expect_create_volume()
-                .withf(move |option| option.name == name_cl && option.driver == "local")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_| Ok(v_cl.clone()));
-
-            let name_cl = name.clone();
-            mock.expect_inspect_volume()
-                .withf(move |name| name == name_cl)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_| Ok(volume.clone()));
-
-            mock
-        });
-
-        let volume = Volume::new(name.as_str(), "local", HashMap::new());
-
-        assert!(volume.inspect_or_create(&docker).await.unwrap());
-        assert!(!volume.inspect_or_create(&docker).await.unwrap());
     }
 }

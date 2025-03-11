@@ -193,6 +193,7 @@ mod tests {
     use http::HeaderValue;
     use httpmock::MockServer;
     use tokio::sync::mpsc::channel;
+    use tokio_tungstenite::tungstenite::Bytes;
     use url::Url;
 
     async fn empty_task() {}
@@ -228,7 +229,7 @@ mod tests {
 
         let proto_msg = ProtoMessage::WebSocket(ProtoWebSocket {
             socket_id: Id::try_from(b"1234".to_vec()).unwrap(),
-            message: ProtoWebSocketMessage::Binary(b"message".to_vec()),
+            message: ProtoWebSocketMessage::Binary(Bytes::from_static(b"message")),
         });
 
         let res = con_handle.send(proto_msg).await;
@@ -236,7 +237,7 @@ mod tests {
         assert!(res.is_ok());
 
         let res = rx.recv().await.expect("channel error");
-        let expected_res = ProtoWebSocketMessage::Binary(b"message".to_vec());
+        let expected_res = ProtoWebSocketMessage::Binary(Bytes::from_static(b"message"));
 
         assert_eq!(res, expected_res);
     }
@@ -251,7 +252,7 @@ mod tests {
 
         let proto_msg = ProtoMessage::WebSocket(ProtoWebSocket {
             socket_id: Id::try_from(b"1234".to_vec()).unwrap(),
-            message: ProtoWebSocketMessage::Binary(b"message".to_vec()),
+            message: ProtoWebSocketMessage::Binary(Bytes::from_static(b"message")),
         });
 
         let res = con_handle.send(proto_msg).await;

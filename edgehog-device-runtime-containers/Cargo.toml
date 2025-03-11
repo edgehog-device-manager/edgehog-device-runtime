@@ -31,7 +31,9 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 bollard = { workspace = true }
 cfg-if = { workspace = true }
+diesel = { workspace = true }
 displaydoc = { workspace = true }
+edgehog-store = { workspace = true, features = ["containers"] }
 eyre = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
@@ -54,6 +56,11 @@ astarte-device-sdk-mock = { workspace = true }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Generate random unique names for the containers
+uuid = { workspace = true, features = ["v7"] }
 
 [features]
 mock = ["dep:mockall", "dep:hyper"]
+# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
+# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
+vendored = ["edgehog-store/vendored"]

@@ -21,6 +21,8 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
+    sync::OnceLock,
 };
 
 use bollard::{
@@ -29,6 +31,7 @@ use bollard::{
     network::{CreateNetworkOptions, InspectNetworkOptions},
 };
 use tracing::{debug, instrument, trace, warn};
+use uuid::Uuid;
 
 use crate::client::*;
 
@@ -54,52 +57,30 @@ pub enum ConversionError {
     MissingName,
 }
 
-/// Container network struct.
-///
-/// Networks are user-defined networks that containers can be attached to.
-#[derive(Debug, Clone, Eq)]
-pub struct Network<S> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NetworkId {
     /// Id of the container network.
-    pub id: Option<String>,
+    pub(crate) id: Option<String>,
     /// The network's name.
-    pub name: S,
-    /// Network driver plugin to use.
+    pub(crate) name: Uuid,
+    /// Cache the name with a single allocation.
     ///
-    /// Defaults to "bridge"
-    pub driver: S,
-    /// Restrict external access to the network.
-    pub internal: bool,
-    /// Enable IPv6 on the network.
-    pub enable_ipv6: bool,
-    /// Network specific options to be used by the drivers.
-    pub driver_opts: HashMap<String, S>,
+    /// Usually multiple functions are called in sequence.
+    name_cache: OnceLock<String>,
 }
 
-impl<S> Network<S> {
-    pub fn new(
-        id: Option<String>,
-        name: S,
-        driver: S,
-        internal: bool,
-        enable_ipv6: bool,
-        driver_options: HashMap<String, S>,
-    ) -> Self {
+impl NetworkId {
+    pub(crate) fn new(id: Option<String>, name: Uuid) -> Self {
         Self {
             id,
             name,
-            driver,
-            internal,
-            enable_ipv6,
-            driver_opts: driver_options,
+            name_cache: OnceLock::new(),
         }
     }
 
     /// Get the network id or name if it's missing.
     #[instrument(skip_all)]
-    pub fn network(&self) -> &str
-    where
-        S: AsRef<str> + Debug,
-    {
+    pub(crate) fn network(&self) -> &str {
         match &self.id {
             Some(id) => {
                 trace!("returning id");
@@ -109,83 +90,59 @@ impl<S> Network<S> {
             None => {
                 trace!("id missing, returning name");
 
-                self.name.as_ref()
+                self.name_as_str()
             }
         }
+    }
+
+    pub(crate) fn name_as_str(&self) -> &str {
+        self.name_cache
+            .get_or_init(|| self.name.to_string())
+            .as_str()
     }
 
     /// Set the id from docker.
-    fn update_id(&mut self, id: Option<String>)
-    where
-        S: Display,
-    {
-        if let Some(id) = id {
-            debug!("using id {id} for network {}", self.name);
+    fn update(&mut self, id: String) {
+        debug!("using id {id} for network {}", self.name);
 
-            let old_id = self.id.replace(id);
+        let old_id = self.id.replace(id);
 
-            trace!(?old_id);
-        }
+        trace!(?old_id);
     }
 
-    /// Check if the network exists if the id is set, otherwise it will try creating it.
-    ///
-    /// Returns true if the network was created.
-    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<bool, NetworkError>
-    where
-        S: AsRef<str> + Display + Debug,
-    {
-        if let Some(net) = self.inspect(client).await? {
-            trace!("found network {net:?}");
+    pub(crate) async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<DockerNetwork>, NetworkError> {
+        // We need to account to the case that we have an incorrect id, but it exists another
+        // network with the correct name
+        if let Some(id) = self.id.clone() {
+            debug!("checkign the id");
 
-            return Ok(false);
-        }
+            let response = self.inspect_with(client, &id).await?;
 
-        debug!("network not found, creating it");
-
-        self.create(client).await?;
-
-        Ok(true)
-    }
-
-    /// Create a new docker network.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkCreate)
-    #[instrument(skip_all, fields(name = %self.name))]
-    pub async fn create(&mut self, client: &Client) -> Result<(), NetworkError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("Create the {}", self);
-
-        let res = client
-            .create_network((&*self).into())
-            .await
-            .map_err(NetworkError::Create)?;
-
-        self.update_id(res.id);
-
-        if let Some(warning) = res.warning {
-            if !warning.is_empty() {
-                warn!("network created with warning: {warning}");
+            if response.is_some() {
+                return Ok(response);
             }
         }
-
-        Ok(())
+        // Use a variable to circumvent a bug in clippy
+        let name = self.name_as_str().to_string();
+        self.inspect_with(client, &name).await
     }
 
     /// Inspect a docker network.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkInspect)
     #[instrument(skip_all, fields(name = %self.name))]
-    pub async fn inspect(&mut self, client: &Client) -> Result<Option<DockerNetwork>, NetworkError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("Inspecting the {}", self);
+    pub(crate) async fn inspect_with(
+        &mut self,
+        client: &Client,
+        name: &str,
+    ) -> Result<Option<DockerNetwork>, NetworkError> {
+        debug!("inspecting the {}", self);
 
         let res = client
-            .inspect_network(self.network(), None::<InspectNetworkOptions<String>>)
+            .inspect_network(name, None::<InspectNetworkOptions<String>>)
             .await;
 
         let network = match res {
@@ -203,7 +160,9 @@ impl<S> Network<S> {
 
         trace!("network info: {network:?}");
 
-        self.update_id(network.id.clone());
+        if let Some(id) = &network.id {
+            self.update(id.clone());
+        }
 
         Ok(Some(network))
     }
@@ -212,11 +171,8 @@ impl<S> Network<S> {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkDelete)
     #[instrument(skip_all)]
-    pub async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        debug!("deleting {}", self.name);
+    pub(crate) async fn remove(&self, client: &Client) -> Result<Option<()>, NetworkError> {
+        debug!("deleting {}", self);
 
         let res = client.remove_network(self.network()).await;
 
@@ -235,58 +191,100 @@ impl<S> Network<S> {
     }
 }
 
-impl<S> Display for Network<S>
-where
-    S: Display,
-{
+impl Display for NetworkId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Network")?;
-
         if let Some(id) = &self.id {
-            write!(f, " ({id})")?;
+            write!(f, "id: {id}, ")?;
         }
 
-        write!(f, " {}/{}", self.name, self.driver)
+        write!(f, "name: {}", self.name)
     }
 }
 
-impl<S1, S2> PartialEq<Network<S2>> for Network<S1>
-where
-    S1: PartialEq<S2>,
-{
-    fn eq(
-        &self,
-        Network {
-            id,
-            name,
+/// Container network struct.
+///
+/// Networks are user-defined networks that containers can be attached to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Network {
+    pub(crate) id: NetworkId,
+    /// Network driver plugin to use.
+    ///
+    /// Defaults to "bridge"
+    pub(crate) driver: String,
+    /// Restrict external access to the network.
+    pub(crate) internal: bool,
+    /// Enable IPv6 on the network.
+    pub(crate) enable_ipv6: bool,
+    /// Network specific options to be used by the drivers.
+    pub(crate) driver_opts: HashMap<String, String>,
+}
+
+impl Network {
+    pub(crate) fn new(
+        id: Option<String>,
+        name: Uuid,
+        driver: String,
+        internal: bool,
+        enable_ipv6: bool,
+        driver_options: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            id: NetworkId::new(id, name),
             driver,
             internal,
             enable_ipv6,
-            driver_opts,
-        }: &Network<S2>,
-    ) -> bool {
-        let eq_driver_opts = self.driver_opts.len() == driver_opts.len()
-            && self
-                .driver_opts
-                .iter()
-                .all(|(k, v1)| driver_opts.get(k).is_some_and(|v2| *v1 == *v2));
+            driver_opts: driver_options,
+        }
+    }
 
-        self.id.eq(id)
-            && self.name.eq(name)
-            && self.driver.eq(driver)
-            && self.internal.eq(internal)
-            && self.enable_ipv6.eq(enable_ipv6)
-            && eq_driver_opts
+    /// Create a new docker network.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Network/operation/NetworkCreate)
+    #[instrument(skip_all, fields(name = %self.name))]
+    pub(crate) async fn create(&mut self, client: &Client) -> Result<(), NetworkError> {
+        debug!("Create the {}", self);
+
+        let options = CreateNetworkOptions::<&str>::from(&*self);
+
+        let res = client
+            .create_network(options)
+            .await
+            .map_err(NetworkError::Create)?;
+
+        self.update(res.id);
+
+        if !res.warning.is_empty() {
+            warn!("network created with warning: {}", res.warning);
+        }
+
+        Ok(())
     }
 }
 
-impl<'a, S> From<&'a Network<S>> for CreateNetworkOptions<&'a str>
-where
-    S: AsRef<str>,
-{
-    fn from(value: &'a Network<S>) -> Self {
+impl Deref for Network {
+    type Target = NetworkId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl DerefMut for Network {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.id
+    }
+}
+
+impl Display for Network {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Network{{{}}}", self.id)
+    }
+}
+
+impl<'a> From<&'a Network> for CreateNetworkOptions<&'a str> {
+    fn from(value: &'a Network) -> Self {
         CreateNetworkOptions {
-            name: value.name.as_ref(),
+            name: value.name_as_str(),
             driver: value.driver.as_ref(),
             internal: value.internal,
             enable_ipv6: value.enable_ipv6,
@@ -302,65 +300,71 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        docker_mock,
-        tests::{not_found_response, random_name},
-    };
+    use mockall::predicate;
+
+    use crate::docker_mock;
 
     use super::*;
 
-    fn new_network(name: &str) -> Network<&str> {
-        Network::new(None, name, "bridge", false, false, HashMap::new())
+    fn new_network(name: Uuid) -> Network {
+        Network::new(
+            None,
+            name,
+            "bridge".to_string(),
+            false,
+            false,
+            HashMap::new(),
+        )
     }
 
     #[tokio::test]
     async fn should_create_network() {
-        let name = random_name("create");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
             let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
+                id: "id".to_string(),
+                warning: String::new(),
             };
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_network()
-                .withf(move |option| option.name == name_cl && option.driver == "bridge")
+                .withf(move |option| option.name == name_str && option.driver == "bridge")
                 .once()
                 .returning(move |_| Ok(resp.clone()));
 
             mock
         });
 
-        let mut network = new_network(name.as_str());
+        let mut network = new_network(name);
         network.create(&docker).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_inspect_network() {
-        let name = random_name("inspect");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
             let network = bollard::models::Network {
-                name: Some(name.clone()),
+                name: Some(name.to_string()),
                 id: Some("id".to_string()),
                 driver: Some("bridge".to_string()),
                 ..Default::default()
             };
 
             let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
+                id: "id".to_string(),
+                warning: String::new(),
             };
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_network()
-                .withf(move |option| option.name == name_cl && option.driver == "bridge")
+                .withf(move |option| option.name == name_str && option.driver == "bridge")
                 .once()
                 .in_sequence(&mut seq)
                 .returning(move |_| Ok(resp.clone()));
@@ -374,33 +378,33 @@ mod tests {
             mock
         });
 
-        let mut network = new_network(name.as_str());
+        let mut network = new_network(name);
 
         network.create(&docker).await.unwrap();
         let net = network.inspect(&docker).await.unwrap().unwrap();
 
-        assert_eq!(net.name, Some(name));
+        assert_eq!(net.name, Some(name.to_string()));
         assert_eq!(net.driver, Some("bridge".to_string()));
     }
 
     #[tokio::test]
     async fn should_inspect_not_found() {
         // Random image name
-        let name = random_name("not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_inspect_network()
-                .withf(move |name, _| name == name_cl)
+                .with(predicate::eq(name_str), predicate::eq(None))
                 .once()
                 .returning(|_, _| Err(crate::tests::not_found_response()));
 
             mock
         });
 
-        let mut network = new_network(&name);
+        let mut network = new_network(name);
 
         let inspect = network
             .inspect(&docker)
@@ -412,19 +416,19 @@ mod tests {
 
     #[tokio::test]
     async fn remove_network() {
-        let name = random_name("remove");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
             let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
+                id: "id".to_string(),
+                warning: String::new(),
             };
 
-            let name_cl = name.clone();
+            let name_str = name.to_string();
             mock.expect_create_network()
-                .withf(move |option| option.name == name_cl && option.driver == "bridge")
+                .withf(move |option| option.name == name_str && option.driver == "bridge")
                 .once()
                 .returning(move |_| Ok(resp.clone()));
 
@@ -436,7 +440,7 @@ mod tests {
             mock
         });
 
-        let mut network = new_network(name.as_str());
+        let mut network = new_network(name);
 
         network.create(&docker).await.expect("failed to create");
 
@@ -445,59 +449,5 @@ mod tests {
             .await
             .expect("error removing")
             .expect("none response");
-    }
-
-    #[tokio::test]
-    async fn should_inspect_or_create_network() {
-        let name = random_name("inspect_or_create");
-
-        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            let mut mock = Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            let network = bollard::models::Network {
-                name: Some(name.clone()),
-                id: Some("id".to_string()),
-                driver: Some("bridge".to_string()),
-                ..Default::default()
-            };
-
-            let resp = bollard::models::NetworkCreateResponse {
-                id: Some("id".to_string()),
-                warning: None,
-            };
-
-            let name_cl = name.clone();
-            mock.expect_inspect_network()
-                .withf(move |name, _| name == name_cl)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_, _| Err(not_found_response()));
-
-            let name_cl = name.clone();
-            mock.expect_create_network()
-                .withf(move |option| option.name == name_cl && option.driver == "bridge")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_| Ok(resp.clone()));
-
-            mock.expect_inspect_network()
-                .withf(|name, _| name == "id")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_, _| Ok(network.clone()));
-
-            mock
-        });
-
-        let mut network = new_network(name.as_str());
-
-        let created = network.inspect_or_create(&docker).await.unwrap();
-
-        assert!(created);
-
-        let created = network.inspect_or_create(&docker).await.unwrap();
-
-        assert!(!created);
     }
 }

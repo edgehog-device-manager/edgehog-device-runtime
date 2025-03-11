@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Store the information into a SQLite database
 - Create the container service to manage and deploy containers
 - Added support for the following container interfaces:
   - `io.edgehog.devicemanager.apps.AvailableContainers`

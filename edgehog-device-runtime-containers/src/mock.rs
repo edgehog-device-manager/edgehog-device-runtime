@@ -66,9 +66,9 @@ pub trait DockerTrait: Sized {
         options: Option<CreateContainerOptions<&'a str>>,
         config: Config<&'a str>,
     ) -> Result<ContainerCreateResponse, Error>;
-    fn create_image(
+    fn create_image<'a>(
         &self,
-        options: Option<CreateImageOptions<'static, String>>,
+        options: Option<CreateImageOptions<'a, &'a str>>,
         root_fs: Option<Bytes>,
         credentials: Option<DockerCredentials>,
     ) -> DockerStream<CreateImageInfo>;
@@ -166,7 +166,7 @@ mock! {
         ) -> Result<ContainerCreateResponse, Error>;
         fn create_image<'a>(
             &self,
-            options: Option<CreateImageOptions<'a, String>>,
+            options: Option<CreateImageOptions<'a, &'a str>>,
             root_fs: Option<Bytes>,
             credentials: Option<DockerCredentials>,
         ) -> DockerStream<CreateImageInfo>;

@@ -21,26 +21,24 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::service::Id;
-
 use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableVolumes";
 
 /// Available volume property.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableVolumes<'a> {
-    id: &'a Id,
+pub(crate) struct AvailableVolume<'a> {
+    id: &'a Uuid,
 }
 
-impl<'a> AvailableVolumes<'a> {
-    pub(crate) fn new(id: &'a Id) -> Self {
+impl<'a> AvailableVolume<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
         Self { id }
     }
 }
 
 #[async_trait]
-impl AvailableProp for AvailableVolumes<'_> {
+impl AvailableProp for AvailableVolume<'_> {
     type Data = bool;
 
     fn interface() -> &'static str {
@@ -48,7 +46,7 @@ impl AvailableProp for AvailableVolumes<'_> {
     }
 
     fn id(&self) -> &Uuid {
-        self.id.uuid()
+        self.id
     }
 
     fn field() -> &'static str {
@@ -62,16 +60,13 @@ mod tests {
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
     use uuid::Uuid;
 
-    use crate::service::ResourceType;
-
     use super::*;
 
     #[tokio::test]
     async fn should_store_volume() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Image, uuid);
+        let id = Uuid::new_v4();
 
-        let volume = AvailableVolumes::new(&id);
+        let volume = AvailableVolume::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -82,20 +77,19 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path, pulled: &bool| {
                 interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
-                    && path == format!("/{uuid}/created")
+                    && path == format!("/{id}/created")
                     && *pulled
             })
             .returning(|_, _, _| Ok(()));
 
-        volume.send(&client, true).await;
+        volume.send(&client, true).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_unset_volume() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Image, uuid);
+        let id = Uuid::new_v4();
 
-        let volume = AvailableVolumes::new(&id);
+        let volume = AvailableVolume::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -106,10 +100,10 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path| {
                 interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
-                    && path == format!("/{uuid}/created")
+                    && path == format!("/{id}/created")
             })
             .returning(|_, _| Ok(()));
 
-        volume.unset(&client).await;
+        volume.unset(&client).await.unwrap();
     }
 }

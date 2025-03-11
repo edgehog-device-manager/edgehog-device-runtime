@@ -102,7 +102,7 @@ impl TryFrom<AstarteType> for CommandValue {
 }
 
 /// Request to update between two deployments.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DeploymentUpdate {
     pub(crate) from: Uuid,
     pub(crate) to: Uuid,

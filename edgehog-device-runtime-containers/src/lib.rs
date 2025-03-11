@@ -33,9 +33,10 @@
 pub(crate) mod client;
 pub mod docker;
 pub mod error;
-pub(crate) mod events;
-mod properties;
+pub mod events;
+pub mod properties;
 pub mod requests;
+pub mod resource;
 pub mod service;
 pub mod store;
 

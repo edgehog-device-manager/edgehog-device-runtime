@@ -72,7 +72,7 @@ pub fn create_http_req(request_id: Vec<u8>, url: &str, body: Vec<u8>) -> TungMes
     let mut buf = Vec::with_capacity(proto_msg.encoded_len());
     proto_msg.encode(&mut buf).unwrap();
 
-    TungMessage::Binary(buf)
+    TungMessage::Binary(buf.into())
 }
 
 /// Create an HTTP upgrade request and wrap it into a [`tungstenite`](tokio_tungstenite::tungstenite) message.
@@ -112,7 +112,7 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> Result<TungMes
     let mut buf = Vec::with_capacity(proto_msg.encoded_len());
     proto_msg.encode(&mut buf).expect("not enough capacity");
 
-    Ok(TungMessage::Binary(buf))
+    Ok(TungMessage::Binary(buf.into()))
 }
 
 /// Check if the protobuf message contains an HTTP response upgrade
@@ -131,10 +131,10 @@ pub fn create_ws_msg(socket_id: Vec<u8>, frame: TungMessage) -> TungMessage {
         protocol: Some(ProtobufProtocol::Ws(ProtobufWebSocket {
             socket_id,
             message: Some(match frame {
-                TungMessage::Text(data) => ProtobufWsMessage::Text(data),
-                TungMessage::Binary(data) => ProtobufWsMessage::Binary(data),
-                TungMessage::Ping(data) => ProtobufWsMessage::Ping(data),
-                TungMessage::Pong(data) => ProtobufWsMessage::Pong(data),
+                TungMessage::Text(data) => ProtobufWsMessage::Text(data.to_string()),
+                TungMessage::Binary(data) => ProtobufWsMessage::Binary(data.into()),
+                TungMessage::Ping(data) => ProtobufWsMessage::Ping(data.into()),
+                TungMessage::Pong(data) => ProtobufWsMessage::Pong(data.into()),
                 TungMessage::Close(c) => match c {
                     None => ProtobufWsMessage::Close(ProtobufClose {
                         code: 1000,
@@ -142,7 +142,7 @@ pub fn create_ws_msg(socket_id: Vec<u8>, frame: TungMessage) -> TungMessage {
                     }),
                     Some(c) => ProtobufWsMessage::Close(ProtobufClose {
                         code: u16::from(c.code) as u32,
-                        reason: c.reason.into_owned(),
+                        reason: c.reason.to_string(),
                     }),
                 },
                 TungMessage::Frame(_) => unreachable!("shouldn't be sent"),
@@ -153,7 +153,7 @@ pub fn create_ws_msg(socket_id: Vec<u8>, frame: TungMessage) -> TungMessage {
     let mut buf = Vec::with_capacity(proto_msg.encoded_len());
     proto_msg.encode(&mut buf).unwrap();
 
-    TungMessage::Binary(buf)
+    TungMessage::Binary(buf.into())
 }
 
 /// Send a message on a WebSocket stream, wait for a message on the stream and return it.
@@ -175,7 +175,7 @@ pub async fn send_ws_and_wait_next(
         .expect("failed to receive from ws")
         .into_data();
 
-    Message::decode(http_res.as_slice()).expect("failed to create protobuf message")
+    Message::decode(http_res).expect("failed to create protobuf message")
 }
 
 /// Utility struct to test a connection (HTTP or WebSocket) with the device

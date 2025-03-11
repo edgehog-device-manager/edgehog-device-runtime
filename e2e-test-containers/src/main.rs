@@ -20,6 +20,7 @@ use std::env::VarError;
 
 use astarte_device_sdk::{
     builder::{DeviceBuilder, DeviceSdkBuild},
+    introspection::AddInterfaceError,
     store::SqliteStore,
     transport::mqtt::{Credential, MqttConfig},
     DeviceClient, EventLoop,
@@ -51,7 +52,15 @@ async fn connect(
     mqtt_config.ignore_ssl_errors();
 
     let (client, connection) = DeviceBuilder::new()
-        .interface_directory(&astarte.interfaces_dir)?
+        .interface_directory(&astarte.interfaces_dir)
+        .map_err(|err| {
+            // TODO: remove when the #[source] macro is added to the error
+            if let AddInterfaceError::InterfaceFile { backtrace, .. } = err {
+                return color_eyre::Report::new(backtrace);
+            }
+
+            err.into()
+        })?
         .store_dir(&astarte.store_dir)
         .await?
         .connect(mqtt_config)

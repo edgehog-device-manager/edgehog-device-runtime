@@ -127,12 +127,12 @@ impl<T> Runtime<T> {
         DeviceManagerError,
     >
     where
-        T: Client + Send + Sync + 'static,
+        T: Client + Clone + Send + Sync + 'static,
     {
         let (container_tx, container_rx) = mpsc::unbounded_channel();
 
         let containers =
-            crate::containers::ContainerService::new(client, config, store_dir).await?;
+            crate::containers::ContainerService::new(client, config, store_dir, tasks).await?;
 
         tasks.spawn(async move { containers.spawn_unbounded(container_rx).await });
 
