@@ -39,7 +39,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.1"
+version = "0.8.3"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.72"
@@ -64,6 +64,7 @@ displaydoc = { workspace = true }
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-store = { workspace = true, optional = true }
+eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
@@ -88,6 +89,11 @@ zbus = { workspace = true, optional = true, default-features = false, features =
 
 [build-dependencies]
 rustc_version = { workspace = true }
+
+# Pin transitive deps
+native-tls = { workspace = true }
+litemap = { workspace = true }
+zerofrom = { workspace = true }
 
 [dev-dependencies]
 astarte-message-hub-proto = { workspace = true }
@@ -118,37 +124,38 @@ async-trait = "0.1.83"
 backoff = "0.4.0"
 base64 = "0.22.1"
 bollard = "0.17.1"
-bytes = "1.8.0"
+bytes = "1.10.0"
 cfg-if = "1.0.0"
 clap = "=4.4.18"
 color-eyre = "0.6.3"
 diesel = "=2.1.6"
 diesel_migrations = "=2.1.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.8.1" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.8.3" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.1" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.8.1" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.8.3" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.8.3" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
-http = "1.1.0"
+http = "1.2.0"
 httpmock = "0.7"
-hyper = "1.5.0"
+hyper = "1.6.0"
 indexmap = "2.6.0"
 itertools = "0.13.0"
 mockall = "0.13.1"
+native-tls = "=0.2.13"
 petgraph = "0.6.5"
 pretty_assertions = "1.4.1"
 procfs = "0.16.0"
-reqwest = "0.12.9"
+reqwest = "0.12.12"
 rusqlite = "0.29.0"
 rustc_version = "0.4.1"
 rustls = { version = "0.23.17", default-features = false }
 rustls-native-certs = "0.8.0"
 rustls-pemfile = "2.2.0"
-serde = "1.0.214"
-serde_json = "1.0.133"
+serde = "1.0.218"
+serde_json = "1.0.139"
 stable-eyre = "0.2.2"
 sync_wrapper = "1.0.2"
 sysinfo = "0.30.13"
@@ -156,18 +163,20 @@ systemd = "0.10.0"
 tempdir = "0.3.7"
 tempfile = "3.14.0"
 thiserror = "2.0.3"
-tokio = "1.41.1"
-tokio-stream = "0.1.16"
+tokio = "1.43.0"
+tokio-stream = "0.1.17"
 tokio-tungstenite = "0.24.0"
-tokio-util = "0.7.12"
-toml = "0.8.19"
-tracing = "0.1.40"
+tokio-util = "0.7.13"
+toml = "0.8.20"
+tracing = "0.1.41"
 tracing-subscriber = "0.3.18"
 udev = "0.9.1"
 url = "2.5.3"
-uuid = "1.11.0"
+uuid = "1.14.0"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
 
 # Transitive dependencies
 hyperlocal = "=0.9.0"
+litemap = "=0.7.4"
+zerofrom = "=0.1.5"

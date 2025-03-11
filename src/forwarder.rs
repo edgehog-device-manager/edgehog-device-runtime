@@ -93,6 +93,17 @@ impl SessionState {
     }
 }
 
+impl From<SessionState> for Option<AstarteType> {
+    fn from(value: SessionState) -> Self {
+        match value.status {
+            SessionStatus::Connecting | SessionStatus::Connected => {
+                Some(AstarteType::String(value.status.to_string()))
+            }
+            SessionStatus::Disconnected => None,
+        }
+    }
+}
+
 impl SessionState {
     /// Send a property to Astarte to update the session state.
     async fn send<P>(self, publisher: &P) -> Result<(), astarte_device_sdk::Error>
@@ -100,16 +111,15 @@ impl SessionState {
         P: Publisher + 'static + Send + Sync,
     {
         let ipath = format!("/{}/status", self.token);
+        let idata: Option<AstarteType> = self.into();
 
-        match self.status {
-            SessionStatus::Connecting | SessionStatus::Connected => {
-                let idata = AstarteType::String(self.status.to_string());
-
+        match idata {
+            Some(idata) => {
                 publisher
                     .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
                     .await
             }
-            SessionStatus::Disconnected => {
+            None => {
                 publisher
                     .unset(FORWARDER_SESSION_STATE_INTERFACE, &ipath)
                     .await
@@ -272,6 +282,7 @@ mod tests {
     use astarte_device_sdk::store::StoredProp;
     use astarte_device_sdk::{interface::def::Ownership, Value};
     use astarte_device_sdk::{DeviceEvent, FromEvent};
+    use mockall::{predicate, Sequence};
     use std::net::Ipv4Addr;
 
     #[test]
@@ -317,25 +328,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_astarte_type_from_session_state() {
+        let sstates = [
+            SessionState::connected("abcd".to_string()),
+            SessionState::connecting("abcd".to_string()),
+            SessionState::disconnected("abcd".to_string()),
+        ]
+        .map(Option::<AstarteType>::from);
+        let exp_res = [
+            Some(AstarteType::String("Connected".to_string())),
+            Some(AstarteType::String("Connecting".to_string())),
+            None,
+        ];
+
+        for (el, exp) in sstates.into_iter().zip(exp_res) {
+            assert_eq!(el, exp);
+        }
+    }
+
     #[tokio::test]
     async fn test_session_state_send() {
         let ss = SessionState::connected("abcd".to_string());
         let mut pub_sub = MockPubSub::new();
+        let mut seq = Sequence::new();
 
         pub_sub
             .expect_send()
-            .withf(move |iface, ipath, idata| {
-                iface == FORWARDER_SESSION_STATE_INTERFACE
-                    && ipath == "/abcd/status"
-                    && idata == &AstarteType::String("Connected".to_string())
-            })
+            .with(
+                predicate::eq(FORWARDER_SESSION_STATE_INTERFACE),
+                predicate::eq("/abcd/status"),
+                predicate::eq(AstarteType::String("Connected".to_string())),
+            )
+            .once()
+            .in_sequence(&mut seq)
             .returning(|_, _, _| Ok(()));
 
         pub_sub
             .expect_unset()
-            .withf(move |iface, ipath| {
-                iface == FORWARDER_SESSION_STATE_INTERFACE && ipath == "/abcd/status"
-            })
+            .with(
+                predicate::eq(FORWARDER_SESSION_STATE_INTERFACE),
+                predicate::eq("/abcd/status"),
+            )
+            .once()
+            .in_sequence(&mut seq)
             .returning(|_, _| Ok(()));
 
         let res = ss.send(&pub_sub).await;

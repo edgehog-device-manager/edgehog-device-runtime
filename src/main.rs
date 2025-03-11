@@ -1,37 +1,36 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022 - 2025 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 use std::io::IsTerminal;
 
 use clap::Parser;
-use cli::Cli;
-use stable_eyre::eyre::{format_err, OptionExt, WrapErr};
-use tracing::{debug, error, info, warn};
-
-use config::read_options;
-use edgehog_device_runtime::data::connect_store;
-use edgehog_device_runtime::AstarteLibrary;
+use eyre::{eyre, OptionExt, WrapErr};
 use tokio::task::JoinSet;
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+
+use edgehog_device_runtime::data::connect_store;
+use edgehog_device_runtime::AstarteLibrary;
+
+use self::cli::Cli;
+use self::config::read_options;
 
 mod cli;
 mod config;
@@ -56,9 +55,9 @@ async fn main() -> stable_eyre::Result<()> {
         .try_init()?;
 
     // Use ring as default crypto provider
-    rustls::crypto::ring::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .map_err(|_| format_err!("Failed to install rustls crypto provider"))?;
+        .map_err(|_| eyre!("failed to install default crypto provider"))?;
 
     #[cfg(feature = "systemd")]
     {
