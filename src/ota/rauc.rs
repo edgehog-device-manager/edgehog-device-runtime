@@ -18,6 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use std::collections::HashMap;
 use std::task::Poll;
 
 use async_trait::async_trait;
@@ -132,9 +133,8 @@ pub struct OTARauc<'a> {
 #[async_trait]
 impl SystemUpdate for OTARauc<'static> {
     async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError> {
-        self.rauc
-            .install_bundle(source, std::collections::HashMap::new())
-            .await?;
+        self.rauc.install_bundle(source, HashMap::new()).await?;
+
         Ok(())
     }
 
@@ -145,23 +145,9 @@ impl SystemUpdate for OTARauc<'static> {
             .map_err(DeviceManagerError::Zbus)
     }
 
-    async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError> {
-        self.rauc
-            .info(bundle)
-            .await
-            .map_err(DeviceManagerError::Zbus)
-    }
-
     async fn operation(&self) -> Result<String, DeviceManagerError> {
         self.rauc
             .operation()
-            .await
-            .map_err(DeviceManagerError::Zbus)
-    }
-
-    async fn compatible(&self) -> Result<String, DeviceManagerError> {
-        self.rauc
-            .compatible()
             .await
             .map_err(DeviceManagerError::Zbus)
     }

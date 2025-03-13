@@ -24,7 +24,6 @@ use crate::controller::actor::Actor;
 use crate::data::tests::MockPubSub;
 use crate::ota::event::{OtaOperation, OtaRequest};
 use futures::StreamExt;
-use httpmock::prelude::*;
 use mockall::Sequence;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -33,7 +32,6 @@ use uuid::Uuid;
 
 use crate::error::DeviceManagerError;
 use crate::ota::ota_handler::{OtaEvent, OtaHandler, OtaMessage};
-use crate::ota::rauc::BundleInfo;
 use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, ProgressStream};
 use crate::ota::{Ota, OtaId, OtaStatus, PersistentState};
 use crate::repository::MockStateRepository;
@@ -96,9 +94,6 @@ impl OtaHandler {
 async fn handle_ota_event_bundle_not_compatible() {
     let uuid = Uuid::new_v4();
 
-    let bundle_info = "rauc-demo-x86";
-    let system_info = "rauc-demo-arm";
-
     let mut state_mock = MockStateRepository::<PersistentState>::new();
     let mut seq = Sequence::new();
 
@@ -125,23 +120,6 @@ async fn handle_ota_event_bundle_not_compatible() {
     let mut seq = Sequence::new();
 
     system_update
-        .expect_info()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|_: &str| {
-            Ok(BundleInfo {
-                compatible: bundle_info.to_string(),
-                version: "1".to_string(),
-            })
-        });
-
-    system_update
-        .expect_compatible()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| Ok(system_info.to_string()));
-
-    system_update
         .expect_boot_slot()
         .once()
         .in_sequence(&mut seq)
@@ -153,20 +131,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .in_sequence(&mut seq)
         .returning(|_| Err(DeviceManagerError::Fatal("install fail".to_string())));
 
-    let binary_content = b"\x80\x02\x03";
-    let binary_size = binary_content.len();
-
-    let server = MockServer::start_async().await;
-    let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server
-        .mock_async(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        })
-        .await;
-
+    let ota_url = "https://example.com/ota_image.bin".to_string();
     let ota_req_map = OtaRequest {
         url: ota_url.clone(),
         operation: OtaOperation::Update,
@@ -184,12 +149,15 @@ async fn handle_ota_event_bundle_not_compatible() {
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
-        OtaStatus::Downloading(ota_id.clone(), 0),
-        OtaStatus::Downloading(ota_id.clone(), 100),
+        OtaStatus::Deploying(
+            ota_id.clone(),
+            DeployProgress {
+                percentage: 0,
+                message: "".to_string(),
+            },
+        ),
         OtaStatus::Failure(
-            OtaError::InvalidBaseImage(format!(
-                "bundle {bundle_info} is not compatible with system {system_info}"
-            )),
+            OtaError::InvalidBaseImage("Unable to install ota image".to_string()),
             Some(ota_id.clone()),
         ),
         OtaStatus::Idle,
@@ -203,8 +171,6 @@ async fn handle_ota_event_bundle_not_compatible() {
 
         assert_eq!(val, status);
     }
-
-    mock_ota_file_request.assert_async().await;
 }
 
 #[tokio::test]
@@ -243,23 +209,6 @@ async fn handle_ota_event_bundle_install_completed_fail() {
     let mut seq = Sequence::new();
 
     system_update
-        .expect_info()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|_: &str| {
-            Ok(BundleInfo {
-                compatible: "rauc-demo-x86".to_string(),
-                version: "1".to_string(),
-            })
-        });
-
-    system_update
-        .expect_compatible()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| Ok("rauc-demo-x86".to_string()));
-
-    system_update
         .expect_boot_slot()
         .once()
         .in_sequence(&mut seq)
@@ -289,19 +238,7 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         .in_sequence(&mut seq)
         .returning(|| Ok("Unable to deploy image".to_string()));
 
-    let binary_content = b"\x80\x02\x03";
-    let binary_size = binary_content.len();
-
-    let server = MockServer::start_async().await;
-    let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server
-        .mock_async(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        })
-        .await;
+    let ota_url = "https://example.com/ota.bin".to_string();
 
     let req = OtaRequest {
         operation: OtaOperation::Update,
@@ -320,8 +257,6 @@ async fn handle_ota_event_bundle_install_completed_fail() {
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
-        OtaStatus::Downloading(ota_id.clone(), 0),
-        OtaStatus::Downloading(ota_id.clone(), 100),
         OtaStatus::Deploying(
             ota_id.clone(),
             DeployProgress {
@@ -344,8 +279,6 @@ async fn handle_ota_event_bundle_install_completed_fail() {
 
         assert_eq!(val, status);
     }
-
-    mock_ota_file_request.assert_async().await;
 }
 
 #[tokio::test]
@@ -378,23 +311,6 @@ async fn ota_event_fail_deployed() {
     let mut seq = Sequence::new();
 
     system_update
-        .expect_info()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|_: &str| {
-            Ok(BundleInfo {
-                compatible: "rauc-demo-x86".to_string(),
-                version: "1".to_string(),
-            })
-        });
-
-    system_update
-        .expect_compatible()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| Ok("rauc-demo-x86".to_string()));
-
-    system_update
         .expect_boot_slot()
         .once()
         .in_sequence(&mut seq)
@@ -406,19 +322,7 @@ async fn ota_event_fail_deployed() {
         .in_sequence(&mut seq)
         .returning(|_| Err(DeviceManagerError::Fatal("install fail".to_string())));
 
-    let binary_content = b"\x80\x02\x03";
-    let binary_size = binary_content.len();
-
-    let server = MockServer::start_async().await;
-    let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server
-        .mock_async(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        })
-        .await;
+    let ota_url = "https://example.com/".to_string();
 
     let ota_req_map = OtaRequest {
         url: ota_url.clone(),
@@ -437,8 +341,6 @@ async fn ota_event_fail_deployed() {
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
-        OtaStatus::Downloading(ota_id.clone(), 0),
-        OtaStatus::Downloading(ota_id.clone(), 100),
         OtaStatus::Deploying(
             ota_id.clone(),
             DeployProgress {
@@ -461,8 +363,6 @@ async fn ota_event_fail_deployed() {
 
         assert_eq!(val, status);
     }
-
-    mock_ota_file_request.assert_async().await;
 }
 
 #[tokio::test]
@@ -512,23 +412,6 @@ async fn ota_event_update_success() {
     let mut seq = Sequence::new();
 
     system_update
-        .expect_info()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|_: &str| {
-            Ok(BundleInfo {
-                compatible: "rauc-demo-x86".to_string(),
-                version: "1".to_string(),
-            })
-        });
-
-    system_update
-        .expect_compatible()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| Ok("rauc-demo-x86".to_string()));
-
-    system_update
         .expect_boot_slot()
         .once()
         .in_sequence(&mut seq)
@@ -575,19 +458,7 @@ async fn ota_event_update_success() {
             ))
         });
 
-    let binary_content = b"\x80\x02\x03";
-    let binary_size = binary_content.len();
-
-    let server = MockServer::start_async().await;
-    let ota_url = server.url("/ota.bin");
-    let mock_ota_file_request = server
-        .mock_async(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("content-Length", binary_size.to_string())
-                .body(binary_content);
-        })
-        .await;
+    let ota_url = "https://example.com/ota.bin".to_string();
 
     let req = OtaRequest {
         operation: OtaOperation::Update,
@@ -606,8 +477,6 @@ async fn ota_event_update_success() {
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
-        OtaStatus::Downloading(ota_id.clone(), 0),
-        OtaStatus::Downloading(ota_id.clone(), 100),
         OtaStatus::Deploying(
             ota_id.clone(),
             DeployProgress {
@@ -633,8 +502,6 @@ async fn ota_event_update_success() {
 
         assert_eq!(val, status);
     }
-
-    mock_ota_file_request.assert_async().await;
 }
 
 #[tokio::test]
@@ -683,7 +550,6 @@ async fn ota_event_update_already_in_progress_same_uuid() {
         OtaStatus::Idle,
         OtaStatus::Init(ota_id.clone()),
         OtaStatus::Acknowledged(ota_id.clone()),
-        OtaStatus::Downloading(ota_id.clone(), 0),
     ];
 
     for status in exp {
@@ -834,222 +700,6 @@ async fn ota_event_canceled() {
     assert!(res.is_ok(), "ota cancel failed with: {}", res.unwrap_err());
 
     assert!(cancel_token.is_cancelled());
-}
-
-#[tokio::test]
-async fn ota_event_success_after_canceled_event() {
-    let uuid_1 = Uuid::new_v4();
-    let uuid_2 = Uuid::new_v4();
-    let slot = "A";
-
-    let mut state_mock = MockStateRepository::<PersistentState>::new();
-    let mut seq = Sequence::new();
-
-    // check first reboot
-    state_mock
-        .expect_exists()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| false);
-    // clear for no pending reboot
-    state_mock
-        .expect_exists()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| false);
-    // clear for cancel
-    state_mock
-        .expect_exists()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| false);
-    // Write success ota
-    state_mock
-        .expect_write()
-        .once()
-        .in_sequence(&mut seq)
-        .withf(move |ps| ps.uuid == uuid_2 && ps.slot == "B")
-        .returning(|_| Ok(()));
-    // reboot successful OTA
-    state_mock
-        .expect_exists()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| true);
-    state_mock
-        .expect_read()
-        .times(1)
-        .in_sequence(&mut seq)
-        .returning(move || {
-            Ok(PersistentState {
-                uuid: uuid_2,
-                slot: slot.to_owned(),
-            })
-        });
-    // clear
-    state_mock
-        .expect_exists()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| true);
-    state_mock
-        .expect_clear()
-        .once()
-        .in_sequence(&mut seq)
-        .returning(|| Ok(()));
-
-    let mut system_update = MockSystemUpdate::new();
-    system_update.expect_info().returning(|_: &str| {
-        Ok(BundleInfo {
-            compatible: "rauc-demo-x86".to_string(),
-            version: "1".to_string(),
-        })
-    });
-
-    system_update
-        .expect_compatible()
-        .returning(|| Ok("rauc-demo-x86".to_string()));
-
-    system_update
-        .expect_boot_slot()
-        .returning(|| Ok("B".to_owned()));
-    system_update
-        .expect_install_bundle()
-        .returning(|_: &str| Ok(()));
-    system_update
-        .expect_operation()
-        .returning(|| Ok("".to_string()));
-    system_update
-        .expect_receive_completed()
-        .returning(|| deploy_status_stream([DeployStatus::Completed { signal: 0 }]));
-    system_update
-        .expect_get_primary()
-        .returning(|| Ok("rootfs.0".to_owned()));
-    system_update.expect_mark().returning(|_: &str, _: &str| {
-        Ok((
-            "rootfs.0".to_owned(),
-            "marked slot rootfs.0 as good".to_owned(),
-        ))
-    });
-
-    let binary_content = b"\x80\x02\x03";
-    let binary_size = binary_content.len();
-
-    let server = MockServer::start_async().await;
-    let file_req = server
-        .mock_async(|when, then| {
-            when.method(GET).path("/ota.bin");
-            then.status(200)
-                .header("Content-Length", binary_size.to_string())
-                .body(binary_content);
-        })
-        .await;
-    let ota_url = server.url("/ota.bin");
-
-    let ota_update = OtaRequest {
-        operation: OtaOperation::Update,
-        uuid: uuid_1.into(),
-        url: ota_url.clone(),
-    };
-
-    let (publisher_tx, mut publisher_rx) = mpsc::channel(1);
-
-    let (mut ota_handler, _dir) =
-        OtaHandler::mock_new_with_path(system_update, state_mock, "after_cancelled", publisher_tx);
-
-    // Start the update but handle the flow, so we can cancel it.
-    ota_handler
-        .handle_event(ota_update)
-        .await
-        .expect("failed to start ota");
-
-    let to_cancel_id = OtaId {
-        uuid: uuid_1,
-        url: ota_url.clone(),
-    };
-    let exp = [
-        OtaStatus::Idle,
-        OtaStatus::Init(to_cancel_id.clone()),
-        OtaStatus::Acknowledged(to_cancel_id.clone()),
-    ];
-
-    for status in exp {
-        let val = tokio::time::timeout(Duration::from_secs(2), publisher_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(val, status);
-    }
-
-    // We send the cancel event in another thread and wait for the response
-    let ota_cancel = OtaRequest {
-        operation: OtaOperation::Cancel,
-        url: ota_url.clone(),
-        uuid: uuid_1.into(),
-    };
-    ota_handler.handle_event(ota_cancel).await.unwrap();
-
-    let exp = [
-        OtaStatus::Downloading(to_cancel_id.clone(), 0),
-        OtaStatus::Failure(OtaError::Canceled, Some(to_cancel_id.clone())),
-        OtaStatus::Idle,
-    ];
-
-    for status in exp {
-        let val = tokio::time::timeout(Duration::from_secs(2), publisher_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(val, status);
-    }
-
-    let ota_update = OtaRequest {
-        operation: OtaOperation::Update,
-        url: ota_url.clone(),
-        uuid: uuid_2.into(),
-    };
-
-    ota_handler.handle_event(ota_update.clone()).await.unwrap();
-
-    let ota_id = OtaId {
-        uuid: uuid_2,
-        url: ota_url,
-    };
-    let exp = [
-        OtaStatus::Init(ota_id.clone()),
-        OtaStatus::Acknowledged(ota_id.clone()),
-        OtaStatus::Downloading(ota_id.clone(), 0),
-        OtaStatus::Downloading(ota_id.clone(), 100),
-        OtaStatus::Deploying(
-            ota_id.clone(),
-            DeployProgress {
-                percentage: 0,
-                message: "".to_string(),
-            },
-        ),
-        OtaStatus::Deployed(ota_id.clone()),
-        OtaStatus::Rebooting(ota_id.clone()),
-        OtaStatus::Rebooted,
-        OtaStatus::Success(OtaId {
-            uuid: uuid_2,
-            url: "".to_string(),
-        }),
-        OtaStatus::Idle,
-    ];
-
-    for status in exp {
-        let val = tokio::time::timeout(Duration::from_secs(2), publisher_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(val, status);
-    }
-
-    // One for the cancelled and one for the successful
-    file_req.assert_async().await;
 }
 
 /// Try to cancel an OTA without a cancel token (OTA finished, same uuid)
