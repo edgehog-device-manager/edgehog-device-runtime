@@ -23,6 +23,9 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use bollard::{secret::EventMessage, system::EventsOptions};
+use futures::{Stream, TryStreamExt};
+
 pub(crate) use crate::client::*;
 use crate::error::DockerError;
 
@@ -65,6 +68,24 @@ impl Docker {
 
         Ok(())
     }
+
+    /// Ping the Docker daemon
+    pub fn events(&self) -> impl Stream<Item = Result<EventMessage, DockerError>> {
+        let types = vec!["container", "image", "volume", "network"];
+
+        let filters = [("type", types)].into_iter().collect();
+
+        let options = EventsOptions {
+            since: None,
+            until: None,
+            filters,
+        };
+
+        // Discard the result since it returns the string `OK`
+        self.client
+            .events(Some(options))
+            .map_err(DockerError::Envents)
+    }
 }
 
 impl From<Client> for Docker {
@@ -101,8 +122,6 @@ impl DerefMut for Docker {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     use super::*;
 
     /// Returns a [Docker] instance, or a mocked version with the expect statements if the mock
@@ -131,15 +150,6 @@ pub(crate) mod tests {
 
             $crate::Docker::from(client)
         }};
-    }
-
-    /// Creates a random enough name
-    pub(crate) fn random_name(name: &str) -> String {
-        let time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        format!("{name}-{time}")
     }
 
     #[cfg(feature = "mock")]

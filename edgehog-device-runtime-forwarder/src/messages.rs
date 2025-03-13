@@ -6,7 +6,6 @@
 //! The structures belonging to this module are used to serialize/deserialize to/from the protobuf
 //! data representation.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::num::TryFromIntError;
@@ -14,7 +13,7 @@ use std::ops::Not;
 use std::str::FromStr;
 
 use thiserror::Error as ThisError;
-use tokio_tungstenite::tungstenite::{Error as TungError, Message as TungMessage};
+use tokio_tungstenite::tungstenite::{Bytes, Error as TungError, Message as TungMessage};
 use tracing::{debug, error, instrument, warn};
 use url::ParseError;
 
@@ -200,25 +199,25 @@ pub(crate) struct Http {
     /// Unique ID.
     pub(crate) request_id: Id,
     /// Http message type.
-    pub(crate) http_msg: HttpMessage,
+    pub(crate) http_msg: Box<HttpMessage>,
 }
 
 impl Http {
     pub(crate) fn new(request_id: Id, http_msg: HttpMessage) -> Self {
         Self {
             request_id,
-            http_msg,
+            http_msg: Box::new(http_msg),
         }
     }
 
     pub(crate) fn bad_gateway(request_id: Id) -> Self {
         Self {
             request_id,
-            http_msg: HttpMessage::Response(HttpResponse {
+            http_msg: Box::new(HttpMessage::Response(HttpResponse {
                 status_code: http::StatusCode::BAD_GATEWAY,
                 headers: http::HeaderMap::new(),
                 body: Vec::new(),
-            }),
+            })),
         }
     }
 }
@@ -243,14 +242,14 @@ impl TryFrom<ProtobufHttp> for Http {
             })
             .map(|http_msg: HttpMessage| Http {
                 request_id,
-                http_msg,
+                http_msg: Box::new(http_msg),
             })
     }
 }
 
 impl From<Http> for ProtobufHttp {
     fn from(value: Http) -> Self {
-        let message = match value.http_msg {
+        let message = match *value.http_msg {
             HttpMessage::Request(req) => {
                 let proto_req = ProtobufHttpRequest::from(req);
                 ProtobufHttpMessage::Request(proto_req)
@@ -502,9 +501,9 @@ impl TryFrom<ProtobufWebSocket> for WebSocket {
 
         let message = match msg {
             ProtobufWsMessage::Text(data) => WebSocketMessage::Text(data),
-            ProtobufWsMessage::Binary(data) => WebSocketMessage::Binary(data),
-            ProtobufWsMessage::Ping(data) => WebSocketMessage::Ping(data),
-            ProtobufWsMessage::Pong(data) => WebSocketMessage::Pong(data),
+            ProtobufWsMessage::Binary(data) => WebSocketMessage::Binary(data.into()),
+            ProtobufWsMessage::Ping(data) => WebSocketMessage::Ping(data.into()),
+            ProtobufWsMessage::Pong(data) => WebSocketMessage::Pong(data.into()),
             ProtobufWsMessage::Close(close) => WebSocketMessage::close(
                 close.code.try_into()?,
                 close.reason.is_empty().not().then_some(close.reason),
@@ -522,9 +521,9 @@ impl From<WebSocket> for ProtobufWebSocket {
     fn from(ws: WebSocket) -> Self {
         let ws_message = match ws.message {
             WebSocketMessage::Text(data) => ProtobufWsMessage::Text(data),
-            WebSocketMessage::Binary(data) => ProtobufWsMessage::Binary(data),
-            WebSocketMessage::Ping(data) => ProtobufWsMessage::Ping(data),
-            WebSocketMessage::Pong(data) => ProtobufWsMessage::Pong(data),
+            WebSocketMessage::Binary(data) => ProtobufWsMessage::Binary(data.into()),
+            WebSocketMessage::Ping(data) => ProtobufWsMessage::Ping(data.into()),
+            WebSocketMessage::Pong(data) => ProtobufWsMessage::Pong(data.into()),
             WebSocketMessage::Close { code, reason } => ProtobufWsMessage::Close(ProtobufWsClose {
                 code: code.into(),
                 reason: reason.unwrap_or_default(),
@@ -542,9 +541,9 @@ impl From<WebSocket> for ProtobufWebSocket {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum WebSocketMessage {
     Text(String),
-    Binary(Vec<u8>),
-    Ping(Vec<u8>),
-    Pong(Vec<u8>),
+    Binary(Bytes),
+    Ping(Bytes),
+    Pong(Bytes),
     Close { code: u16, reason: Option<String> },
 }
 
@@ -560,21 +559,20 @@ impl TryFrom<TungMessage> for WebSocketMessage {
 
     fn try_from(tung_msg: TungMessage) -> Result<Self, Self::Error> {
         let msg = match tung_msg {
-            TungMessage::Text(data) => WebSocketMessage::Text(data),
+            TungMessage::Text(data) => WebSocketMessage::Text(data.to_string()),
             TungMessage::Binary(data) => WebSocketMessage::Binary(data),
             TungMessage::Ping(data) => WebSocketMessage::Ping(data),
             TungMessage::Pong(data) => WebSocketMessage::Pong(data),
             TungMessage::Close(data) => {
                 // instead of returning an error, here i build a default close frame in case no frame is passed
-                let (code, reason) = match data {
-                    Some(close_frame) => {
+                let (code, reason) = data
+                    .map(|close_frame| {
                         let code = close_frame.code.into();
-                        let reason =
-                            Some(close_frame.reason.into_owned()).filter(|s| !s.is_empty());
+                        let reason = (!close_frame.reason.is_empty())
+                            .then(|| close_frame.reason.to_string());
                         (code, reason)
-                    }
-                    None => (1000, None),
-                };
+                    })
+                    .unwrap_or((1000, None));
 
                 WebSocketMessage::close(code, reason)
             }
@@ -591,14 +589,14 @@ impl TryFrom<TungMessage> for WebSocketMessage {
 impl From<WebSocketMessage> for TungMessage {
     fn from(value: WebSocketMessage) -> Self {
         match value {
-            WebSocketMessage::Text(data) => Self::Text(data),
+            WebSocketMessage::Text(data) => Self::Text(data.into()),
             WebSocketMessage::Binary(data) => Self::Binary(data),
             WebSocketMessage::Ping(data) => Self::Ping(data),
             WebSocketMessage::Pong(data) => Self::Pong(data),
             WebSocketMessage::Close { code, reason } => {
                 Self::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                     code: code.into(),
-                    reason: Cow::Owned(reason.unwrap_or_default()),
+                    reason: reason.unwrap_or_default().into(),
                 }))
             }
         }
@@ -640,7 +638,7 @@ mod tests {
     fn empty_http(id: &[u8]) -> Http {
         Http {
             request_id: Id::try_from(id.to_vec()).unwrap(),
-            http_msg: http_message_req(),
+            http_msg: Box::new(http_message_req()),
         }
     }
 
@@ -743,7 +741,7 @@ mod tests {
 
         let proto_msg = ProtoMessage::WebSocket(WebSocket {
             socket_id: Id::try_from(b"test_id".to_vec()).unwrap(),
-            message: WebSocketMessage::Binary(b"test_data".to_vec()),
+            message: WebSocketMessage::Binary(Bytes::from_static(b"test_data")),
         });
 
         assert!(proto_msg.into_http().is_none());
@@ -758,7 +756,7 @@ mod tests {
 
         let exp = ProtoMessage::WebSocket(WebSocket {
             socket_id: Id::try_from(id).unwrap(),
-            message: WebSocketMessage::Binary(b"test_data".to_vec()),
+            message: WebSocketMessage::Binary(Bytes::from_static(b"test_data")),
         });
 
         assert_eq!(res, exp);
@@ -864,15 +862,15 @@ mod tests {
             ),
             (
                 ProtobufWsMessage::Binary(Vec::new()),
-                WebSocketMessage::Binary(Vec::new()),
+                WebSocketMessage::Binary(Bytes::new()),
             ),
             (
                 ProtobufWsMessage::Ping(Vec::new()),
-                WebSocketMessage::Ping(Vec::new()),
+                WebSocketMessage::Ping(Bytes::new()),
             ),
             (
                 ProtobufWsMessage::Pong(Vec::new()),
-                WebSocketMessage::Pong(Vec::new()),
+                WebSocketMessage::Pong(Bytes::new()),
             ),
             (
                 ProtobufWsMessage::Close(ProtobufWsClose {
@@ -912,15 +910,15 @@ mod tests {
                 ProtobufWsMessage::Text(String::new()),
             ),
             (
-                WebSocketMessage::Binary(Vec::new()),
+                WebSocketMessage::Binary(Bytes::new()),
                 ProtobufWsMessage::Binary(Vec::new()),
             ),
             (
-                WebSocketMessage::Ping(Vec::new()),
+                WebSocketMessage::Ping(Bytes::new()),
                 ProtobufWsMessage::Ping(Vec::new()),
             ),
             (
-                WebSocketMessage::Pong(Vec::new()),
+                WebSocketMessage::Pong(Bytes::new()),
                 ProtobufWsMessage::Pong(Vec::new()),
             ),
             (
@@ -957,25 +955,25 @@ mod tests {
         // check ok variants
         let tung_msgs = [
             (
-                TungMessage::Text(String::new()),
+                TungMessage::Text(String::new().into()),
                 WebSocketMessage::Text(String::new()),
             ),
             (
-                TungMessage::Binary(Vec::new()),
-                WebSocketMessage::Binary(Vec::new()),
+                TungMessage::Binary(Bytes::new()),
+                WebSocketMessage::Binary(Bytes::new()),
             ),
             (
-                TungMessage::Ping(Vec::new()),
-                WebSocketMessage::Ping(Vec::new()),
+                TungMessage::Ping(Bytes::new()),
+                WebSocketMessage::Ping(Bytes::new()),
             ),
             (
-                TungMessage::Pong(Vec::new()),
-                WebSocketMessage::Pong(Vec::new()),
+                TungMessage::Pong(Bytes::new()),
+                WebSocketMessage::Pong(Bytes::new()),
             ),
             (
                 TungMessage::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                     code: CloseCode::Normal,
-                    reason: Cow::Owned(String::new()),
+                    reason: String::new().into(),
                 })),
                 WebSocketMessage::Close {
                     code: 1000,
@@ -1009,19 +1007,19 @@ mod tests {
         let tung_msgs = [
             (
                 WebSocketMessage::Text(String::new()),
-                TungMessage::Text(String::new()),
+                TungMessage::Text(String::new().into()),
             ),
             (
-                WebSocketMessage::Binary(Vec::new()),
-                TungMessage::Binary(Vec::new()),
+                WebSocketMessage::Binary(Bytes::new()),
+                TungMessage::Binary(Bytes::new()),
             ),
             (
-                WebSocketMessage::Ping(Vec::new()),
-                TungMessage::Ping(Vec::new()),
+                WebSocketMessage::Ping(Bytes::new()),
+                TungMessage::Ping(Bytes::new()),
             ),
             (
-                WebSocketMessage::Pong(Vec::new()),
-                TungMessage::Pong(Vec::new()),
+                WebSocketMessage::Pong(Bytes::new()),
+                TungMessage::Pong(Bytes::new()),
             ),
             (
                 WebSocketMessage::Close {
@@ -1030,7 +1028,7 @@ mod tests {
                 },
                 TungMessage::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                     code: CloseCode::Normal,
-                    reason: Cow::Owned("test_reason".to_string()),
+                    reason: "test_reason".to_string().into(),
                 })),
             ),
         ];

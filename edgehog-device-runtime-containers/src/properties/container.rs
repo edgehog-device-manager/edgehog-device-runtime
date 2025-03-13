@@ -24,26 +24,24 @@ use astarte_device_sdk::AstarteType;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::service::Id;
-
 use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableContainers";
 
 /// Available
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AvailableContainers<'a> {
-    id: &'a Id,
+pub(crate) struct AvailableContainer<'a> {
+    id: &'a Uuid,
 }
 
-impl<'a> AvailableContainers<'a> {
-    pub(crate) fn new(id: &'a Id) -> Self {
+impl<'a> AvailableContainer<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
         Self { id }
     }
 }
 
 #[async_trait]
-impl AvailableProp for AvailableContainers<'_> {
+impl AvailableProp for AvailableContainer<'_> {
     type Data = ContainerStatus;
 
     fn interface() -> &'static str {
@@ -51,7 +49,7 @@ impl AvailableProp for AvailableContainers<'_> {
     }
 
     fn id(&self) -> &Uuid {
-        self.id.uuid()
+        self.id
     }
 
     fn field() -> &'static str {
@@ -95,14 +93,11 @@ mod tests {
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
     use uuid::Uuid;
 
-    use crate::service::ResourceType;
-
     use super::*;
 
     #[tokio::test]
     async fn should_store_container() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Container, uuid);
+        let id = Uuid::new_v4();
 
         let statuses = [
             ContainerStatus::Received,
@@ -111,7 +106,7 @@ mod tests {
             ContainerStatus::Stopped,
         ];
         for status in statuses {
-            let container = AvailableContainers::new(&id);
+            let container = AvailableContainer::new(&id);
 
             let mut client = MockDeviceClient::<SqliteStore>::new();
             let mut seq = Sequence::new();
@@ -122,21 +117,20 @@ mod tests {
                 .in_sequence(&mut seq)
                 .withf(move |interface, path, value: &ContainerStatus| {
                     interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                        && path == format!("/{uuid}/status")
+                        && path == format!("/{id}/status")
                         && *value == status
                 })
                 .returning(|_, _, _| Ok(()));
 
-            container.send(&client, status).await;
+            container.send(&client, status).await.unwrap();
         }
     }
 
     #[tokio::test]
     async fn should_unset_container() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Container, uuid);
+        let id = Uuid::new_v4();
 
-        let container = AvailableContainers::new(&id);
+        let container = AvailableContainer::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -147,10 +141,10 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path| {
                 interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == format!("/{uuid}/status")
+                    && path == format!("/{id}/status")
             })
             .returning(|_, _| Ok(()));
 
-        container.unset(&client).await;
+        container.unset(&client).await.unwrap();
     }
 }

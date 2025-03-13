@@ -20,15 +20,15 @@
 
 use std::path::PathBuf;
 
-use data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use serde::Deserialize;
-use telemetry::TelemetryInterfaceConfig;
 
 pub use self::controller::Runtime;
+use self::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
+use self::telemetry::TelemetryInterfaceConfig;
 
 mod commands;
 #[cfg(feature = "containers")]
-mod containers;
+pub mod containers;
 mod controller;
 pub mod data;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -61,6 +61,8 @@ pub struct DeviceManagerOptions {
     pub astarte_device_sdk: Option<AstarteDeviceSdkConfigOptions>,
     #[cfg(feature = "message-hub")]
     pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
+    #[cfg(feature = "containers")]
+    pub containers: containers::ContainersConfig,
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
@@ -70,7 +72,9 @@ pub struct DeviceManagerOptions {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::time::Duration;
 
+    use mockall::Sequence;
     use tempdir::TempDir;
     use tokio::task::JoinSet;
     use url::Url;
@@ -78,25 +82,30 @@ mod tests {
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
     use crate::data::tests::create_tmp_store;
     use crate::data::tests::MockPubSub;
+    use crate::telemetry::tests::mock_initial_telemetry_client;
     use crate::Runtime;
     use crate::{AstarteLibrary, DeviceManagerOptions};
 
     #[cfg(feature = "forwarder")]
-    fn mock_forwarder(
-        publisher: &mut MockPubSub,
-    ) -> &mut crate::data::tests::__mock_MockPubSub_Clone::__clone::Expectation {
+    fn mock_forwarder(publisher: &mut MockPubSub, seq: &mut Sequence) {
         // define an expectation for the cloned MockPublisher due to the `init` method of the
         // Forwarder struct
-        publisher.expect_clone().once().returning(move || {
-            let mut publisher_clone = MockPubSub::new();
+        publisher
+            .expect_clone()
+            .once()
+            .in_sequence(seq)
+            .returning(move || {
+                let mut publisher_clone = MockPubSub::new();
 
-            publisher_clone
-                .expect_interface_props()
-                .withf(move |iface: &str| iface == "io.edgehog.devicemanager.ForwarderSessionState")
-                .returning(|_: &str| Ok(Vec::new()));
+                publisher_clone
+                    .expect_interface_props()
+                    .withf(move |iface: &str| {
+                        iface == "io.edgehog.devicemanager.ForwarderSessionState"
+                    })
+                    .returning(|_: &str| Ok(Vec::new()));
 
-            publisher_clone
-        })
+                publisher_clone
+            });
     }
 
     #[tokio::test]
@@ -116,6 +125,8 @@ mod tests {
             }),
             #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
+            #[cfg(feature = "containers")]
+            containers: crate::containers::ContainersConfig::default(),
             interfaces_directory: PathBuf::new(),
             store_directory: store_dir.path().to_owned(),
             download_directory: PathBuf::new(),
@@ -158,6 +169,8 @@ mod tests {
             }),
             #[cfg(feature = "message-hub")]
             astarte_message_hub: None,
+            #[cfg(feature = "containers")]
+            containers: crate::containers::ContainersConfig::default(),
             interfaces_directory: PathBuf::new(),
             store_directory: tempdir.path().to_owned(),
             download_directory: PathBuf::new(),
@@ -165,16 +178,66 @@ mod tests {
         };
 
         let mut pub_sub = MockPubSub::new();
+        let mut seq = Sequence::new();
 
-        pub_sub.expect_clone().times(3).returning(MockPubSub::new);
+        #[cfg(feature = "zbus")]
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockPubSub::new);
+
+        // telemetry
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(mock_initial_telemetry_client);
+
+        #[cfg(feature = "containers")]
+        pub_sub
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| {
+                let mut client = MockPubSub::new();
+                let mut seq = Sequence::new();
+
+                client
+                    .expect_clone()
+                    .once()
+                    .in_sequence(&mut seq)
+                    .returning(MockPubSub::new);
+
+                client
+            });
 
         #[cfg(feature = "forwarder")]
-        mock_forwarder(&mut pub_sub);
+        mock_forwarder(&mut pub_sub, &mut seq);
 
-        // TODO: the tasks are never joined so the error is never checked ¯\_(ツ)_/¯
         let mut tasks = JoinSet::new();
 
-        let dm = Runtime::new(&mut tasks, options, pub_sub).await;
-        assert!(dm.is_ok(), "error {}", dm.err().unwrap());
+        let _dm = Runtime::new(&mut tasks, options, pub_sub).await.unwrap();
+
+        // Sleep to pass the execution to the telemetry task, this is somewhat of a bad test
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        tasks.abort_all();
+
+        while let Some(res) = tokio::time::timeout(Duration::from_secs(2), tasks.join_next())
+            .await
+            .unwrap()
+        {
+            match res {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    panic!("{err:#}");
+                }
+                Err(err) if err.is_cancelled() => {}
+                Err(err) => {
+                    panic!("{}", err);
+                }
+            }
+        }
     }
 }

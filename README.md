@@ -1,7 +1,21 @@
-<!---
-  Copyright 2022 SECO Mind Srl
+<!--
+This file is part of Edgehog.
 
-  SPDX-License-Identifier: Apache-2.0
+Copyright 2022 - 2025 SECO Mind Srl
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 -->
 
 # Edgehog Device Runtime
@@ -32,6 +46,7 @@ The following information are sent to remote Edgehog instance:
 - Base image (data is read from `/etc/os-release`)
 - Battery status data
 - Remote Terminal
+- Container service
 
 ## How it Works
 
@@ -128,6 +143,21 @@ Set the model and part number as environment variables:
 
 For example, in a systemd service file, refer to
 [this buildroot package](https://github.com/edgehog-device-manager/edgehog-buildroot-packages/blob/d3fdb188b7c683d3951c255d32ee2781be416e83/package/edgehog-device-runtime/edgehog-device-runtime.service#L17-L18).
+
+## Containers
+
+Edgehog Device Runtime can manage containerized applications when compiled with the features
+`containers`.
+
+The container service can be configured in the main `config.toml`, by adding the following map:
+
+```toml
+[containers]
+# If the container service cannot be initialized it will exit the device runtime with an error
+required = false
+# Maximum number of retries if the service is require.
+max_retires = 10
+```
 
 ## Contributing
 

@@ -5,6 +5,7 @@
       "path": "/image",
       "data": {
         "id": "fb28e4ff-006d-4688-947a-eb792d750484",
+        "deploymentId": "b25dcb96-bafd-41a3-8a4b-4712eb3da81e",
         "reference": "docker.io/library/httpd:alpine",
         "registryAuth": ""
       }
@@ -14,10 +15,10 @@
       "path": "/container",
       "data": {
         "id": "88d85d32-f2c0-4210-b0c9-f8f27700be5a",
+        "deploymentId": "b25dcb96-bafd-41a3-8a4b-4712eb3da81e",
         "imageId": "fb28e4ff-006d-4688-947a-eb792d750484",
         "networkIds": [],
         "volumeIds": [],
-        "image": "docker.io/library/httpd:alpine",
         "hostname": "",
         "restartPolicy": "",
         "env": [],

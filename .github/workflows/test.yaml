@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023-2024 SECO Mind Srl
+# Copyright 2023 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,19 +28,22 @@ env:
   RUSTC_WRAPPER: "sccache"
   # Enable logging otherwise the logging lines will count as not covered in the test coverage
   RUST_LOG: trace
+defaults:
+  run:
+    shell: bash
 jobs:
   required:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: ubuntu / ${{ matrix.toolchain }}
     strategy:
       matrix:
         toolchain: [stable, beta]
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -51,32 +54,34 @@ jobs:
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
       - name: Run cargo test --locked
-        run: cargo test --locked --all-features --all-targets --workspace
+        run: cargo test --locked --all-features --workspace
       # https://github.com/rust-lang/cargo/issues/6669
       - name: Run cargo test --doc
         run: cargo test --locked --all-features --doc --workspace
   coverage:
-    runs-on: ubuntu-latest
-    name: ubuntu / stable / coverage
+    runs-on: ubuntu-24.04
+    name: ubuntu / nightly / coverage
     steps:
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
           sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
+      - name: Install nightly
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          components: llvm-tools-preview
+          components: llvm-tools
       - name: Install sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.8
-      - name: cargo install cargo-tarpaulin
-        uses: taiki-e/install-action@cargo-tarpaulin
+      - name: Install grcov
+        uses: taiki-e/install-action@grcov
       - name: cargo generate-lockfile
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
-      - name: Run cargo-tarpaulin with xml output
-        run: cargo +stable tarpaulin --engine llvm --locked --all-features --ignore-tests --packages edgehog-device-runtime edgehog-device-runtime-containers edgehog-device-runtime-forwarder --exclude-files src/main.rs --out xml -- --test-threads 1
+      - name: Generate coverage
+        run: |
+          EXPORT_FOR_CI=1 ./scripts/coverage.sh
+      # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
         if: ${{ github.event_name == 'push' }}
         uses: codecov/codecov-action@v5
@@ -97,4 +102,6 @@ jobs:
           name: coverage
           path: |
             pr_number
-            cobertura.xml
+            coverage-edgehog-device-runtime.info
+            coverage-edgehog-device-runtime-containers.info
+            coverage-edgehog-device-runtime-forwarder.info

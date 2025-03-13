@@ -1,12 +1,12 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023-2024 SECO Mind Srl
+# Copyright 2023 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,7 @@
 
 [package]
 name = "edgehog-device-runtime-containers"
-version = "0.1.0"
+version = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 rust-version = { workspace = true }
@@ -31,7 +31,10 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 bollard = { workspace = true }
 cfg-if = { workspace = true }
+diesel = { workspace = true }
 displaydoc = { workspace = true }
+edgehog-store = { workspace = true, features = ["containers"] }
+eyre = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true, optional = true }
 indexmap = { workspace = true }
@@ -53,6 +56,11 @@ astarte-device-sdk-mock = { workspace = true }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Generate random unique names for the containers
+uuid = { workspace = true, features = ["v7"] }
 
 [features]
 mock = ["dep:mockall", "dep:hyper"]
+# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
+# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
+vendored = ["edgehog-store/vendored"]

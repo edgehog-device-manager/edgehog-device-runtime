@@ -21,6 +21,7 @@
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
+    ops::{Deref, DerefMut},
 };
 
 use base64::Engine;
@@ -77,61 +78,17 @@ pub enum ConversionError {
     MissingTag,
 }
 
-/// Docker image struct.
-#[derive(Debug, Clone, Eq, Hash)]
-pub struct Image<S> {
+/// Unique identifier for an image
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ImageId {
     /// Id of the crated image.
     pub id: Option<String>,
     /// Reference to the image that we need to pull.
-    pub reference: S,
-    /// Authentication to the registry.
-    ///
-    /// See <https://docs.docker.com/reference/api/engine/version/v1.43/#section/Authentication>
-    /// for more information.
-    pub registry_auth: Option<S>,
+    pub reference: String,
 }
 
-impl<S> Image<S> {
-    /// Create a new docker image.
-    pub fn new(reference: S, registry_auth: Option<S>) -> Self {
-        Self::with_id(None, reference, registry_auth)
-    }
-
-    /// Create an image with tag and repo.
-    pub fn with_id(id: Option<String>, reference: S, registry_auth: Option<S>) -> Self {
-        Self {
-            id,
-            reference,
-            registry_auth,
-        }
-    }
-
-    fn docker_credentials(&self) -> Result<Option<DockerCredentials>, RegistryAuthError>
-    where
-        S: AsRef<str>,
-    {
-        self.registry_auth
-            .as_ref()
-            .map(|auth| {
-                trace!("decoding registry credentials");
-
-                base64::engine::general_purpose::URL_SAFE
-                    .decode(auth.as_ref())
-                    .map_err(RegistryAuthError::Base64)
-                    .and_then(|json| {
-                        trace!("deserializing registry credentials");
-
-                        serde_json::from_slice::<DockerCredentials>(&json)
-                            .map_err(RegistryAuthError::Json)
-                    })
-            })
-            .transpose()
-    }
-
-    fn id_or_ref(&self) -> &str
-    where
-        S: AsRef<str> + Debug + Display,
-    {
+impl ImageId {
+    fn id_or_ref(&self) -> &str {
         match &self.id {
             Some(id) => {
                 debug!("using image id {id}");
@@ -146,34 +103,129 @@ impl<S> Image<S> {
         }
     }
 
-    /// Create the image only if it doesn't already exists
-    pub async fn inspect_or_create(&mut self, client: &Client) -> Result<bool, ImageError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        if self.id.is_some() {
-            if self.inspect(client).await?.is_some() {
-                debug!("{self} already exists, no need to create it");
+    fn update(&mut self, id: String) {
+        let old = self.id.replace(id);
 
-                return Ok(false);
+        debug!(?old, "replaced");
+    }
+
+    pub(crate) async fn inspect(
+        &mut self,
+        client: &Client,
+    ) -> Result<Option<ImageInspect>, ImageError> {
+        // We need to account to the case that we have an incorrect id, but it exists another
+        // image with the correct reference
+        if let Some(id) = self.id.clone() {
+            debug!("inspecting by id");
+
+            let response = self.inspect_with(client, &id).await?;
+
+            if response.is_some() {
+                return Ok(response);
             }
-
-            warn!("{self} has id, but cannot inspect it");
         }
 
-        self.create(client).await?;
+        self.inspect_with(client, &self.reference.to_string()).await
+    }
 
-        Ok(true)
+    /// Inspect a docker image.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageInspect)
+    #[instrument(skip(self, client))]
+    async fn inspect_with(
+        &mut self,
+        client: &Client,
+        name: &str,
+    ) -> Result<Option<ImageInspect>, ImageError> {
+        let res = client.inspect_image(name).await;
+
+        trace!("received response {res:?}");
+
+        // Check if the image was not found
+        let inspect = match res {
+            Ok(inspect) => inspect,
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                trace!("image not found: {message}");
+
+                return Ok(None);
+            }
+            Err(err) => return Err(ImageError::Inspect(err)),
+        };
+
+        if let Some(id) = &inspect.id {
+            self.update(id.clone());
+        }
+
+        trace!("inspected image: {inspect:?}");
+
+        Ok(Some(inspect))
+    }
+}
+
+impl Display for ImageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(id) = &self.id {
+            write!(f, "id: {id}, ")?;
+        }
+
+        write!(f, "reference: {}", self.reference)
+    }
+}
+
+/// Docker image struct.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Image {
+    image_id: ImageId,
+    /// Authentication to the registry.
+    ///
+    /// See <https://docs.docker.com/reference/api/engine/version/v1.43/#section/Authentication>
+    /// for more information.
+    pub(crate) registry_auth: Option<String>,
+}
+
+impl Image {
+    /// Create an image with tag and repo.
+    pub fn new(
+        id: Option<String>,
+        reference: impl Into<String>,
+        registry_auth: Option<String>,
+    ) -> Self {
+        Self {
+            image_id: ImageId {
+                id,
+                reference: reference.into(),
+            },
+            registry_auth,
+        }
+    }
+
+    fn docker_credentials(&self) -> Result<Option<DockerCredentials>, RegistryAuthError> {
+        self.registry_auth
+            .as_ref()
+            .map(|auth| {
+                trace!("decoding registry credentials");
+
+                base64::engine::general_purpose::URL_SAFE
+                    .decode(auth)
+                    .map_err(RegistryAuthError::Base64)
+                    .and_then(|json| {
+                        trace!("deserializing registry credentials");
+
+                        serde_json::from_slice::<DockerCredentials>(&json)
+                            .map_err(RegistryAuthError::Json)
+                    })
+            })
+            .transpose()
     }
 
     /// Pull the docker image struct.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageCreate)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn create(&mut self, client: &Client) -> Result<(), ImageError>
-    where
-        S: AsRef<str> + Debug + Display,
-    {
+    pub async fn pull(&mut self, client: &Client) -> Result<(), ImageError> {
         let options = CreateImageOptions::from(&*self);
 
         debug!("Creating the {}", self);
@@ -209,54 +261,14 @@ impl<S> Image<S> {
         Ok(())
     }
 
-    /// Inspect a docker image.
-    ///
-    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageInspect)
-    #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn inspect(&mut self, client: &Client) -> Result<Option<ImageInspect>, ImageError>
-    where
-        S: Debug + Display + AsRef<str>,
-    {
-        let image_name = self.id_or_ref();
-
-        let res = client.inspect_image(image_name).await;
-
-        debug!("received response {res:?}");
-
-        // Check if the image was not found
-        let inspect = match res {
-            Ok(inspect) => inspect,
-            Err(BollardError::DockerResponseServerError {
-                status_code: 404,
-                message,
-            }) => {
-                debug!("image not found: {message}");
-
-                return Ok(None);
-            }
-            Err(err) => return Err(ImageError::Inspect(err)),
-        };
-
-        if let Some(id) = &inspect.id {
-            self.id = Some(id.clone());
-        }
-
-        trace!("inspected image: {inspect:?}");
-
-        Ok(Some(inspect))
-    }
-
     /// Remove an image and it's parents.
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageDelete)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
     pub async fn remove(
-        &self,
+        &mut self,
         client: &Client,
-    ) -> Result<Option<Vec<ImageDeleteResponseItem>>, ImageError>
-    where
-        S: AsRef<str> + Debug + Display,
-    {
+    ) -> Result<Option<Vec<ImageDeleteResponseItem>>, ImageError> {
         let id = self.id_or_ref();
 
         debug!("removing {self}");
@@ -268,6 +280,8 @@ impl<S> Image<S> {
         match res {
             Ok(delete_res) => {
                 info!("removed {self}");
+
+                self.image_id.id = None;
 
                 Ok(Some(delete_res))
             }
@@ -298,47 +312,30 @@ impl<S> Image<S> {
     }
 }
 
-impl<S: Display> Display for Image<S> {
+impl Deref for Image {
+    type Target = ImageId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image_id
+    }
+}
+
+impl DerefMut for Image {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.image_id
+    }
+}
+
+impl Display for Image {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Image")?;
-
-        if let Some(id) = &self.id {
-            write!(f, " ({id})")?;
-        }
-
-        write!(f, " {}", self.reference)
+        write!(f, "Image{{{}}}", self.image_id)
     }
 }
 
-impl<S1, S2> PartialEq<Image<S2>> for Image<S1>
-where
-    S1: PartialEq<S2>,
-{
-    fn eq(
-        &self,
-        Image {
-            id,
-            reference,
-            registry_auth,
-        }: &Image<S2>,
-    ) -> bool {
-        let eq_registry_auth = match (&self.registry_auth, registry_auth) {
-            (Some(s1), Some(s2)) => *s1 == *s2,
-            (Some(_), None) | (None, Some(_)) => false,
-            (None, None) => true,
-        };
-
-        self.id.eq(id) && self.reference.eq(reference) && eq_registry_auth
-    }
-}
-
-impl<'a, S> From<&'a Image<S>> for CreateImageOptions<'static, String>
-where
-    S: Display,
-{
-    fn from(value: &'a Image<S>) -> Self {
+impl<'a> From<&'a Image> for CreateImageOptions<'a, &'a str> {
+    fn from(value: &'a Image) -> Self {
         CreateImageOptions {
-            from_image: value.reference.to_string(),
+            from_image: &value.reference,
             ..Default::default()
         }
     }
@@ -346,9 +343,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use mockall::predicate;
+    use uuid::Uuid;
+
     use super::*;
 
-    use crate::{docker_mock, tests::random_name};
+    use crate::docker_mock;
 
     #[tokio::test]
     async fn pull_hello_world() {
@@ -361,7 +361,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -383,10 +383,10 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
 
         image
-            .create(&docker)
+            .pull(&docker)
             .await
             .expect("error while pulling the image");
     }
@@ -402,7 +402,7 @@ mod tests {
                 .withf(|options, _, _| {
                     options
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -437,9 +437,9 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("hello-world:latest", None);
+        let mut image = Image::new(None, "hello-world:latest", None);
 
-        image.create(&docker).await.expect("failed to poll image");
+        image.pull(&docker).await.expect("failed to poll image");
 
         let inspect = image
             .inspect(&docker)
@@ -447,21 +447,20 @@ mod tests {
             .expect("failed to inspect image")
             .expect("image not found");
 
-        assert_eq!(inspect.id, image.id);
+        assert_eq!(inspect.id, image.image_id.id);
     }
 
     #[tokio::test]
     async fn inspect_not_found() {
         // Random image name
-        let name = random_name("not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
-            let img_name = name.clone();
             mock.expect_inspect_image()
-                .withf(move |img| img == img_name)
+                .with(predicate::eq(name.to_string()))
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_| Err(crate::tests::not_found_response()));
@@ -469,7 +468,7 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new(name, None);
+        let mut image = Image::new(None, name, None);
 
         let inspect = image
             .inspect(&docker)
@@ -491,7 +490,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .map_or(false, |opt| opt.from_image == "alpine:edge")
+                        .is_some_and(|opt| opt.from_image == "alpine:edge")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -536,9 +535,9 @@ mod tests {
             mock
         });
 
-        let mut image = Image::new("alpine:edge", None);
+        let mut image = Image::new(None, "alpine:edge", None);
 
-        image.create(&docker).await.expect("failed to pull");
+        image.pull(&docker).await.expect("failed to pull");
 
         let res = image
             .clone()
@@ -554,7 +553,7 @@ mod tests {
                     || untagged == "docker.io/library/alpine:edge"),
             "no untagged in {res:?}"
         );
-        let id = image.id.unwrap();
+        let id = image.image_id.id.unwrap();
         assert!(
             res.iter()
                 .filter_map(|i| i.deleted.as_deref())
@@ -568,15 +567,18 @@ mod tests {
     #[tokio::test]
     async fn remove_image_not_found() {
         // Random image name
-        let name = random_name("remove-not-found");
+        let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
-            let name_cl = name.clone();
             mock.expect_remove_image()
-                .withf(move |name, _, _| name == name_cl)
+                .with(
+                    predicate::eq(name.to_string()),
+                    predicate::eq(None),
+                    predicate::eq(None),
+                )
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_, _, _| Err(crate::tests::not_found_response()));
@@ -584,7 +586,7 @@ mod tests {
             mock
         });
 
-        let image = Image::new(name, None);
+        let mut image = Image::new(None, name, None);
 
         let res = image.remove(&docker).await.expect("error removing");
         assert_eq!(res, None);
@@ -593,9 +595,13 @@ mod tests {
     #[test]
     fn should_decode_auth() {
         let image = Image {
-            id: None,
-            reference: "alpine",
-            registry_auth: Some("eyJ1c2VybmFtZSI6InVzZXIiLCJwYXNzd29yZCI6InBhc3N3ZCJ9Cg=="),
+            image_id: ImageId {
+                id: None,
+                reference: "alpine".to_string(),
+            },
+            registry_auth: Some(
+                "eyJ1c2VybmFtZSI6InVzZXIiLCJwYXNzd29yZCI6InBhc3N3ZCJ9Cg==".to_string(),
+            ),
         };
 
         let exp = DockerCredentials {
@@ -605,76 +611,5 @@ mod tests {
         };
         let cred = image.docker_credentials().unwrap().unwrap();
         assert_eq!(cred, exp)
-    }
-
-    #[tokio::test]
-    async fn inspect_or_create_hello_world() {
-        let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
-            let mut mock = Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            mock.expect_remove_image()
-                .withf(|name, _, _| name == "docker.io/library/nginx:1.27.2-bookworm-perl")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_, _, _| Err(crate::tests::not_found_response()));
-
-            mock.expect_create_image()
-                .withf(|options, _, _| {
-                    options.as_ref().map_or(false, |opt| {
-                        opt.from_image == "docker.io/library/nginx:1.27.2-bookworm-perl"
-                    })
-                })
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_, _, _| stream::empty().boxed());
-
-            mock.expect_inspect_image()
-                .withf(|name| name == "docker.io/library/nginx:1.27.2-bookworm-perl")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| {
-                    Ok(ImageInspect {
-                        id: Some(
-                            "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
-                        ),
-                        ..Default::default()
-                    })
-                });
-
-            mock.expect_inspect_image()
-                .withf(|name| name == "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| {
-                    Ok(ImageInspect {
-                        id: Some(
-                            "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
-                        ),
-                        ..Default::default()
-                    })
-                });
-
-            mock
-        });
-
-        let mut image = Image::new("docker.io/library/nginx:1.27.2-bookworm-perl", None);
-
-        image.remove(&docker).await.unwrap();
-
-        let created = image
-            .inspect_or_create(&docker)
-            .await
-            .expect("failed to poll image");
-
-        assert!(created);
-
-        let created = image
-            .inspect_or_create(&docker)
-            .await
-            .expect("failed to poll image");
-
-        assert!(!created);
     }
 }

@@ -21,26 +21,24 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use crate::service::Id;
-
 use super::AvailableProp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.AvailableNetworks";
 
 /// Available network property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AvailableNetworks<'a> {
-    id: &'a Id,
+pub(crate) struct AvailableNetwork<'a> {
+    id: &'a Uuid,
 }
 
-impl<'a> AvailableNetworks<'a> {
-    pub(crate) fn new(id: &'a Id) -> Self {
+impl<'a> AvailableNetwork<'a> {
+    pub(crate) fn new(id: &'a Uuid) -> Self {
         Self { id }
     }
 }
 
 #[async_trait]
-impl AvailableProp for AvailableNetworks<'_> {
+impl AvailableProp for AvailableNetwork<'_> {
     type Data = bool;
 
     fn interface() -> &'static str {
@@ -48,7 +46,7 @@ impl AvailableProp for AvailableNetworks<'_> {
     }
 
     fn id(&self) -> &Uuid {
-        self.id.uuid()
+        self.id
     }
 
     fn field() -> &'static str {
@@ -62,16 +60,13 @@ mod tests {
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
     use uuid::Uuid;
 
-    use crate::service::ResourceType;
-
     use super::*;
 
     #[tokio::test]
     async fn should_store_network() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Network, uuid);
+        let id = Uuid::new_v4();
 
-        let network = AvailableNetworks::new(&id);
+        let network = AvailableNetwork::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -82,20 +77,19 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path, pulled: &bool| {
                 interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
-                    && path == format!("/{uuid}/created")
+                    && path == format!("/{id}/created")
                     && *pulled
             })
             .returning(|_, _, _| Ok(()));
 
-        network.send(&client, true).await;
+        network.send(&client, true).await.unwrap();
     }
 
     #[tokio::test]
     async fn should_unset_network() {
-        let uuid = Uuid::new_v4();
-        let id = Id::new(ResourceType::Network, uuid);
+        let id = Uuid::new_v4();
 
-        let network = AvailableNetworks::new(&id);
+        let network = AvailableNetwork::new(&id);
 
         let mut client = MockDeviceClient::<SqliteStore>::new();
         let mut seq = Sequence::new();
@@ -106,10 +100,10 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(move |interface, path| {
                 interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
-                    && path == format!("/{uuid}/created")
+                    && path == format!("/{id}/created")
             })
             .returning(|_, _| Ok(()));
 
-        network.unset(&client).await;
+        network.unset(&client).await.unwrap();
     }
 }

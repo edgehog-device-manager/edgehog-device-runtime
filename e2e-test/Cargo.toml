@@ -40,3 +40,6 @@ url = { workspace = true }
 
 [features]
 message-hub = ["edgehog-device-runtime/message-hub"]
+# It's not strictly required, but in development it will show an error in the device manager option
+# when compiling with the flags all-features and workspace enabled
+containers = ["edgehog-device-runtime/containers"]

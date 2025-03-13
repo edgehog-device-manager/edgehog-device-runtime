@@ -5,17 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2025-03-11
+
+### Added
+
+- Add support for the `edgehog-device-runtime-containers` [#504]
 
 ### Changed
 
 - Update OS requirements to specify ttyd minimum version
-- Update Astarte Device SDK to 0.8.3 release
-  [#367](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/367)
+- Update the astarte-device-sdk to v0.9.6 [#504]
 - Add support for the
   [`CellularConnectionProperties`](https://github.com/edgehog-device-manager/edgehog-astarte-interfaces/blob/ed3b0a413a3d5586267d88d10f85c310584cb80b/io.edgehog.devicemanager.CellularConnectionProperties.json)
   via the D-Bus service `CellularModems`
   [#402](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/402)
+
+[#504]: https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/504
+
+[0.8.3] - 2025-02-28
+
+### Changed
+
+- Bump the `astarte-device-sdk-rust` version to `v0.8.5`.
+
+## [0.8.2] - 2025-02-27
+
+### Changed
+
+- Bump the `astarte-device-sdk-rust` version to `v0.8.4`.
+  [#493](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/493)
 
 ## [0.8.1] - 2024-06-10
 

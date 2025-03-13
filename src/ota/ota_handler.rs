@@ -24,7 +24,6 @@ use std::sync::Arc;
 
 use astarte_device_sdk::AstarteAggregate;
 use async_trait::async_trait;
-use stable_eyre::Report;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -338,7 +337,10 @@ where
 
     async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
         if let Err(err) = self.send_ota_event(&msg).await {
-            error!(error = %Report::new(err), "couldn't send ota event");
+            error!(
+                error = format!("{:#}", stable_eyre::Report::new(err)),
+                "couldn't send ota event"
+            );
         }
 
         Ok(())

@@ -5,6 +5,7 @@
       "path": "/image",
       "data": {
         "id": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
         "reference": "docker.io/library/nginx:stable-alpine-slim",
         "registryAuth": ""
       }
@@ -14,6 +15,7 @@
       "path": "/network",
       "data": {
         "id": "78549b2b-3888-4976-8bfe-236afab0f91e",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
         "driver": "bridge",
         "checkDuplicate": false,
         "internal": true,
@@ -26,10 +28,10 @@
       "path": "/container",
       "data": {
         "id": "03aba87c-1ebe-45e9-ab8c-c4eb89752af9",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
         "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
         "networkIds": ["78549b2b-3888-4976-8bfe-236afab0f91e"],
         "volumeIds": [],
-        "image": "docker.io/library/nginx:stable-alpine-slim",
         "hostname": "",
         "restartPolicy": "",
         "env": [],

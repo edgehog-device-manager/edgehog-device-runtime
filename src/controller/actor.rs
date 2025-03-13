@@ -50,4 +50,26 @@ pub trait Actor: Sized {
 
         Ok(())
     }
+
+    #[cfg(feature = "containers")]
+    async fn spawn_unbounded(
+        mut self,
+        mut channel: mpsc::UnboundedReceiver<Self::Msg>,
+    ) -> stable_eyre::Result<()> {
+        self.init()
+            .await
+            .wrap_err_with(|| format!("init for {} task failed", Self::task()))?;
+
+        while let Some(msg) = channel.recv().await {
+            trace!("message received for {} task", Self::task());
+
+            self.handle(msg)
+                .await
+                .wrap_err_with(|| format!("handle for {} task failed", Self::task()))?;
+        }
+
+        debug!("task {} disconnected, closing", Self::task());
+
+        Ok(())
+    }
 }

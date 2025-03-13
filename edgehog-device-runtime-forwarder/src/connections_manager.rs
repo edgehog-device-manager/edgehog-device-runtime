@@ -202,7 +202,7 @@ impl ConnectionsManager {
             // receive data from a device connection (e.g., TTYD)
             WebSocketEvents::Send(tung_msg) => {
                 let msg = match tung_msg.encode() {
-                    Ok(msg) => TungMessage::Binary(msg),
+                    Ok(msg) => TungMessage::Binary(msg.into()),
                     Err(err) => {
                         error!("discard message due to {err:?}");
                         return Ok(ControlFlow::Continue(()));
