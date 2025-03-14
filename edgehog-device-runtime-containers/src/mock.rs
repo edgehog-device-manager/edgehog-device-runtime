@@ -25,28 +25,32 @@ use std::pin::Pin;
 use async_trait::async_trait;
 use bollard::{
     auth::DockerCredentials,
-    container::{
-        Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogOutput,
-        LogsOptions, RemoveContainerOptions, StartContainerOptions, Stats, StatsOptions,
-        StopContainerOptions, WaitContainerOptions,
-    },
     errors::Error,
-    image::{CreateImageOptions, ListImagesOptions, RemoveImageOptions},
     models::{
-        ContainerCreateResponse, ContainerInspectResponse, ContainerWaitResponse, CreateImageInfo,
-        EventMessage, ImageInspect, ImageSummary, Network, NetworkCreateResponse, Volume,
-        VolumeListResponse,
+        ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse,
+        ContainerStatsResponse, ContainerWaitResponse, CreateImageInfo, EventMessage, ImageInspect,
+        ImageSummary, Network, NetworkCreateRequest, NetworkCreateResponse, Volume,
+        VolumeCreateOptions, VolumeListResponse,
     },
-    network::{CreateNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
+    query_parameters::{
+        CreateContainerOptions, CreateImageOptions, EventsOptions, InspectContainerOptions,
+        InspectNetworkOptions, ListContainersOptions, ListImagesOptions, ListNetworksOptions,
+        ListVolumesOptions, RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
+        StartContainerOptions, StatsOptions, StopContainerOptions, WaitContainerOptions,
+    },
     service::{ContainerSummary, ImageDeleteResponseItem},
-    system::EventsOptions,
-    volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions},
 };
 use futures::Stream;
 use hyper::body::Bytes;
 use mockall::mock;
 
 type DockerStream<T> = Pin<Box<dyn Stream<Item = Result<T, Error>> + Send>>;
+type RootFs = http_body_util::Either<
+    http_body_util::Full<Bytes>,
+    http_body_util::StreamBody<
+        Pin<Box<dyn Stream<Item = Result<http_body::Frame<Bytes>, Error>> + Send>>,
+    >,
+>;
 
 #[async_trait]
 pub trait DockerTrait: Sized {
@@ -56,59 +60,55 @@ pub trait DockerTrait: Sized {
         container_name: &str,
         options: Option<RemoveContainerOptions>,
     ) -> Result<(), Error>;
-    async fn start_container<'a>(
+    async fn start_container(
         &self,
         container_name: &str,
-        options: Option<StartContainerOptions<&'a str>>,
+        options: Option<StartContainerOptions>,
     ) -> Result<(), Error>;
-    async fn create_container<'a>(
+    async fn create_container(
         &self,
-        options: Option<CreateContainerOptions<&'a str>>,
-        config: Config<&'a str>,
+        options: Option<CreateContainerOptions>,
+        config: ContainerCreateBody,
     ) -> Result<ContainerCreateResponse, Error>;
-    fn create_image<'a>(
+    fn create_image(
         &self,
-        options: Option<CreateImageOptions<'a, &'a str>>,
-        root_fs: Option<Bytes>,
+        options: Option<CreateImageOptions>,
+        root_fs: Option<RootFs>,
         credentials: Option<DockerCredentials>,
     ) -> DockerStream<CreateImageInfo>;
     async fn list_containers(
         &self,
-        options: Option<ListContainersOptions<String>>,
+        options: Option<ListContainersOptions>,
     ) -> Result<Vec<ContainerSummary>, Error>;
-    fn stats(&self, container_name: &str, options: Option<StatsOptions>) -> DockerStream<Stats>;
+    fn stats(
+        &self,
+        container_name: &str,
+        options: Option<StatsOptions>,
+    ) -> DockerStream<ContainerStatsResponse>;
     async fn stop_container(
         &self,
         container_name: &str,
         options: Option<StopContainerOptions>,
     ) -> Result<(), Error>;
-    fn logs<'a>(
-        &'a self,
-        container_name: &str,
-        options: Option<LogsOptions<&'a str>>,
-    ) -> DockerStream<LogOutput>;
     async fn remove_image(
         &self,
         image_name: &str,
         options: Option<RemoveImageOptions>,
         credentials: Option<DockerCredentials>,
     ) -> Result<Vec<ImageDeleteResponseItem>, Error>;
-    fn events<'a>(&'a self, options: Option<EventsOptions<&'a str>>) -> DockerStream<EventMessage>;
+    fn events(&self, options: Option<EventsOptions>) -> DockerStream<EventMessage>;
     async fn ping(&self) -> Result<String, Error>;
     async fn inspect_image(&self, image_name: &str) -> Result<ImageInspect, Error>;
-    fn wait_container<'a>(
-        &'a self,
+    fn wait_container(
+        &self,
         container_name: &str,
-        options: Option<WaitContainerOptions<&'a str>>,
+        options: Option<WaitContainerOptions>,
     ) -> DockerStream<ContainerWaitResponse>;
     async fn list_images(
         &self,
-        options: Option<ListImagesOptions<String>>,
+        options: Option<ListImagesOptions>,
     ) -> Result<Vec<ImageSummary>, Error>;
-    async fn create_volume<'a>(
-        &'a self,
-        options: CreateVolumeOptions<&'a str>,
-    ) -> Result<Volume, Error>;
+    async fn create_volume(&self, config: VolumeCreateOptions) -> Result<Volume, Error>;
     async fn inspect_volume(&self, volume_name: &str) -> Result<Volume, Error>;
     async fn remove_volume(
         &self,
@@ -117,21 +117,21 @@ pub trait DockerTrait: Sized {
     ) -> Result<(), Error>;
     async fn list_volumes(
         &self,
-        options: Option<ListVolumesOptions<String>>,
+        options: Option<ListVolumesOptions>,
     ) -> Result<VolumeListResponse, Error>;
-    async fn create_network<'a>(
+    async fn create_network(
         &self,
-        config: CreateNetworkOptions<&'a str>,
+        config: NetworkCreateRequest,
     ) -> Result<NetworkCreateResponse, Error>;
     async fn inspect_network(
         &self,
         network_name: &str,
-        options: Option<InspectNetworkOptions<String>>,
+        options: Option<InspectNetworkOptions>,
     ) -> Result<Network, Error>;
     async fn remove_network(&self, network_name: &str) -> Result<(), Error>;
     async fn list_networks(
         &self,
-        options: Option<ListNetworksOptions<String>>,
+        options: Option<ListNetworksOptions>,
     ) -> Result<Vec<Network>, Error>;
     async fn inspect_container(
         &self,
@@ -154,56 +154,55 @@ mock! {
             container_name: &str,
             options: Option<RemoveContainerOptions>,
         ) -> Result<(), Error>;
-        async fn start_container<'a>(
+        async fn start_container(
             &self,
             container_name: &str,
-            options: Option<StartContainerOptions<&'a str>>,
+            options: Option<StartContainerOptions>,
         ) -> Result<(), Error>;
-        async fn create_container<'a>(
+        async fn create_container(
             &self,
-            options: Option<CreateContainerOptions<&'a str>>,
-            config: Config<&'a str>,
+            options: Option<CreateContainerOptions>,
+            config: ContainerCreateBody,
         ) -> Result<ContainerCreateResponse, Error>;
-        fn create_image<'a>(
+        fn create_image(
             &self,
-            options: Option<CreateImageOptions<'a, &'a str>>,
-            root_fs: Option<Bytes>,
+            options: Option<CreateImageOptions>,
+            root_fs: Option<RootFs>,
             credentials: Option<DockerCredentials>,
         ) -> DockerStream<CreateImageInfo>;
         async fn list_containers(
             &self,
-            options: Option<ListContainersOptions<String>>,
+            options: Option<ListContainersOptions>,
         ) -> Result<Vec<ContainerSummary>, Error>;
-        fn stats(&self, container_name: &str, options: Option<StatsOptions>) -> DockerStream<Stats>;
+        fn stats(
+            &self,
+            container_name: &str,
+            options: Option<StatsOptions>,
+        ) -> DockerStream<ContainerStatsResponse>;
         async fn stop_container(
             &self,
             container_name: &str,
             options: Option<StopContainerOptions>,
         ) -> Result<(), Error>;
-        fn logs<'a>(
-            &'a self,
-            container_name: &str,
-            options: Option<LogsOptions<&'a str>>,
-        ) -> DockerStream<LogOutput>;
         async fn remove_image(
             &self,
             image_name: &str,
             options: Option<RemoveImageOptions>,
             credentials: Option<DockerCredentials>,
         ) -> Result<Vec<ImageDeleteResponseItem>, Error>;
-        fn events<'a>(&'a self, options: Option<EventsOptions<&'a str>>) -> DockerStream<EventMessage>;
+        fn events(&self, options: Option<EventsOptions>) -> DockerStream<EventMessage>;
         async fn ping(&self) -> Result<String, Error>;
         async fn inspect_image(&self, image_name: &str) -> Result<ImageInspect, Error>;
-        fn wait_container<'a>(
-            &'a self,
+        fn wait_container(
+            &self,
             container_name: &str,
-            options: Option<WaitContainerOptions<&'a str>>,
+            options: Option<WaitContainerOptions>,
         ) -> DockerStream<ContainerWaitResponse>;
         async fn list_images(
             &self,
-            options: Option<ListImagesOptions<String>>,
+            options: Option<ListImagesOptions>,
         ) -> Result<Vec<ImageSummary>, Error>;
-        async fn create_volume<'a>(&'a self, options: CreateVolumeOptions<&'a str>) -> Result<Volume, Error>;
+        async fn create_volume(&self, config: VolumeCreateOptions) -> Result<Volume, Error>;
         async fn inspect_volume(&self, volume_name: &str) -> Result<Volume, Error>;
         async fn remove_volume(
             &self,
@@ -212,21 +211,21 @@ mock! {
         ) -> Result<(), Error>;
         async fn list_volumes(
             &self,
-            options: Option<ListVolumesOptions<String>>,
+            options: Option<ListVolumesOptions>,
         ) -> Result<VolumeListResponse, Error>;
-        async fn create_network<'a>(
+        async fn create_network(
             &self,
-            config: CreateNetworkOptions<&'a str>,
+            config: NetworkCreateRequest,
         ) -> Result<NetworkCreateResponse, Error>;
         async fn inspect_network(
             &self,
             network_name: &str,
-            options: Option<InspectNetworkOptions<String>>,
+            options: Option<InspectNetworkOptions>,
         ) -> Result<Network, Error>;
         async fn remove_network(&self, network_name: &str) -> Result<(), Error>;
         async fn list_networks(
             &self,
-            options: Option<ListNetworksOptions<String>>,
+            options: Option<ListNetworksOptions>,
         ) -> Result<Vec<Network>, Error>;
         async fn inspect_container(
             &self,

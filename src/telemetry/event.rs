@@ -21,7 +21,7 @@
 use std::time::Duration;
 
 use astarte_device_sdk::{
-    event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
+    event::FromEventError, types::TypeError, AstarteData, DeviceEvent, FromEvent,
 };
 use tracing::warn;
 
@@ -49,6 +49,7 @@ impl FromEvent for TelemetryEvent {
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq)]
 #[from_event(
     interface = "io.edgehog.devicemanager.config.Telemetry",
+    interface_type = "properties",
     aggregation = "individual"
 )]
 pub enum TelemetryConfig {
@@ -72,10 +73,10 @@ impl TelemetryConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelemetryPeriod(pub Duration);
 
-impl TryFrom<AstarteType> for TelemetryPeriod {
+impl TryFrom<AstarteData> for TelemetryPeriod {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let secs = i64::try_from(value)?;
         let secs = u64::try_from(secs).unwrap_or_else(|_| {
             warn!("Telemetry period seconds value too big {secs}, capping to u64::MAX");
@@ -100,7 +101,7 @@ mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.config.Telemetry".to_string(),
             path: "/request/foo/enable".to_string(),
-            data: Value::Individual(true.into()),
+            data: Value::Property(Some(true.into())),
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();
@@ -116,7 +117,7 @@ mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.config.Telemetry".to_string(),
             path: "/request/foo/periodSeconds".to_string(),
-            data: Value::Individual(AstarteType::LongInteger(42)),
+            data: Value::Property(Some(AstarteData::LongInteger(42))),
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();

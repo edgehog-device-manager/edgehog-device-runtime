@@ -31,7 +31,7 @@ pub(crate) const CHANNEL_SIZE: usize = 50;
 #[non_exhaustive]
 pub enum Error {
     /// Error performing exponential backoff when trying to (re)connect with Edgehog.
-    WebSocket(#[from] TungError),
+    WebSocket(#[from] Box<TungError>),
     /// Protobuf error.
     Protobuf(#[from] ProtocolError),
     /// Connection error.
@@ -56,7 +56,7 @@ pub enum Error {
 
 /// WebSocket error causing disconnection.
 #[derive(displaydoc::Display, ThisError, Debug)]
-pub struct Disconnected(#[from] pub TungError);
+pub struct Disconnected(#[from] pub Box<TungError>);
 
 /// WebSocket stream alias.
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -88,6 +88,15 @@ impl ConnectionsManager {
         } else {
             Connector::Plain
         };
+
+        // TODO: in the feature this will change, for now just set the default to make the tests pass
+        // Set default crypto provider
+        #[cfg(test)]
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .inspect_err(|_| tracing::error!("couldn't install default crypto provider"));
+        }
 
         let ws_stream = Self::ws_connect(&url, connector).await?;
 
@@ -141,7 +150,7 @@ impl ConnectionsManager {
                         err => {
                             debug!("try reconnecting with backoff after tungstenite error: {err}");
                             BackoffError::Transient {
-                                err: Error::WebSocket(err),
+                                err: Error::WebSocket(Box::new(err)),
                                 retry_after: None,
                             }
                         }
@@ -175,7 +184,7 @@ impl ConnectionsManager {
                 // if the connection has been suddenly interrupted, try re-establishing it.
                 // only Tungstenite errors should be handled for device reconnection
                 Err(err) => {
-                    return Err(Disconnected(err));
+                    return Err(Disconnected(Box::new(err)));
                 }
             }
         }

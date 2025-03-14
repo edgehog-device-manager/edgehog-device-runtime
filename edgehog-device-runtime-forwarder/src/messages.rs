@@ -58,7 +58,7 @@ pub enum ProtocolError {
     /// Wrong HTTP method field, `{0}`.
     WrongHttpMethod(String),
     /// Error performing exponential backoff when trying to connect with TTYD, {0}
-    WebSocketConnect(#[from] TungError),
+    WebSocketConnect(#[from] Box<TungError>),
     /// Received a wrong WebSocket frame.
     WrongWsFrame,
     /// Couldn't build the request {0}
@@ -321,6 +321,15 @@ impl HttpRequest {
         );
         let url = url::Url::parse(&url_str)?;
         let method = http::method::Method::from_str(self.method.as_str())?;
+
+        // TODO: in the feature this will change, for now just set the default to make the tests pass
+        // Set default crypto provider
+        #[cfg(test)]
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .inspect_err(|_| error!("couldn't install default crypto provider"));
+        }
 
         let http_builder = reqwest::Client::new()
             .request(method, url)

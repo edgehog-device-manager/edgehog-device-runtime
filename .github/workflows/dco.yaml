@@ -30,6 +30,9 @@ on:
 permissions:
   actions: read
   pull-requests: read
+defaults:
+  run:
+    shell: bash
 env:
   GH_TOKEN: ${{ github.token }}
 jobs:

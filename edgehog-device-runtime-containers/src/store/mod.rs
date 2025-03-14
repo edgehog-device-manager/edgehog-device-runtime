@@ -26,6 +26,7 @@ use crate::requests::{container::RestartPolicyError, BindingError};
 
 mod container;
 mod deployment;
+mod device_mapping;
 mod image;
 mod network;
 mod volume;
@@ -48,6 +49,11 @@ pub enum StoreError {
     RestartPolicy(#[from] RestartPolicyError),
     /// database operation failed
     Handle(#[from] HandleError),
+    /// conversion failed, {ctx}
+    Conversion {
+        /// Context of the error
+        ctx: String,
+    },
 }
 
 /// Handle to persist the state.
@@ -125,6 +131,7 @@ mod tests {
         let image_id = Uuid::new_v4();
         let volume_id = ReqUuid(Uuid::new_v4());
         let network_id = ReqUuid(Uuid::new_v4());
+        let device_mapping_id = ReqUuid(Uuid::new_v4());
         let container_id = ReqUuid(Uuid::new_v4());
         let deployment_id = ReqUuid(Uuid::new_v4());
 
@@ -140,6 +147,7 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -148,9 +156,24 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let network = CreateNetwork {
             id: network_id,

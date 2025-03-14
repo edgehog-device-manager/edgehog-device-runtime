@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,20 +21,27 @@ use std::ops::Not;
 use std::str::FromStr;
 
 use diesel::dsl::exists;
-use diesel::query_dsl::methods::{FilterDsl, SelectDsl};
 use diesel::{
-    delete, insert_or_ignore_into, select, update, ExpressionMethods, OptionalExtension,
-    RunQueryDsl, SqliteConnection,
+    delete, insert_or_ignore_into, select, update, ExpressionMethods, OptionalExtension, QueryDsl,
+    RunQueryDsl, SelectableHelper, SqliteConnection,
 };
-use edgehog_store::conversions::SqlUuid;
+use edgehog_store::conversions::{QuotaValue, SqlUuid, Swappiness};
 use edgehog_store::db::HandleError;
 use edgehog_store::models::containers::container::{
-    ContainerBind, ContainerEnv, ContainerNetwork, ContainerPortBind, ContainerRestartPolicy,
-    ContainerStatus, ContainerVolume, HostPort,
+    ContainerAddCapability, ContainerBind, ContainerDeviceMapping, ContainerDropCapability,
+    ContainerEnv, ContainerExtraHost, ContainerMissingDeviceMapping, ContainerNetwork,
+    ContainerPortBind, ContainerRestartPolicy, ContainerStatus, ContainerStorageOptions,
+    ContainerTmpfs, ContainerVolume, HostPort,
 };
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
+use edgehog_store::models::containers::device_mapping::DeviceMapping;
 use edgehog_store::models::QueryModel;
-use edgehog_store::schema::containers::{deployment_containers, images};
+use edgehog_store::schema::containers::{
+    container_add_capabilities, container_device_mappings, container_drop_capabilities,
+    container_extra_hosts, container_storage_options, container_tmpfs, deployment_containers,
+    images,
+};
+use edgehog_store::schema::containers::{container_missing_device_mappings, device_mappings};
 use edgehog_store::{
     models::containers::{
         container::{
@@ -56,26 +63,81 @@ use uuid::Uuid;
 
 use crate::container::{Binding, ContainerId, PortBindingMap};
 use crate::docker::container::Container as ContainerResource;
-use crate::requests::container::{
-    parse_port_binding, CreateContainer, RestartPolicy, RestartPolicyError,
-};
+use crate::requests::container::{parse_port_binding, CreateContainer, RestartPolicy};
 use crate::requests::BindingError;
+use crate::store::StoreError;
 
 use super::{Result, StateStore};
 
 impl StateStore {
     /// Stores the container received from the CreateRequest
     #[instrument(skip_all, fields(id = %container.id))]
-    pub(crate) async fn create_container(&self, mut container: CreateContainer) -> Result<()> {
-        let image_id = SqlUuid::new(container.image_id);
-        let networks = container.network_ids.iter().map(SqlUuid::new).collect_vec();
-        let volumes = container.volume_ids.iter().map(SqlUuid::new).collect_vec();
+    pub(crate) async fn create_container(&self, container: Box<CreateContainer>) -> Result<()> {
+        // this will make sure all the fields are used
+        let CreateContainer {
+            id,
+            deployment_id: _,
+            image_id,
+            network_ids,
+            volume_ids,
+            device_mapping_ids,
+            hostname,
+            restart_policy,
+            env,
+            binds,
+            network_mode,
+            port_bindings,
+            extra_hosts,
+            cap_add,
+            cap_drop,
+            cpu_period,
+            cpu_quota,
+            cpu_realtime_period,
+            cpu_realtime_runtime,
+            memory,
+            memory_reservation,
+            memory_swap,
+            memory_swappiness,
+            volume_driver,
+            storage_opt,
+            read_only_rootfs,
+            tmpfs,
+            privileged,
+        } = *container;
 
-        let envs = Vec::<ContainerEnv>::from(&mut container);
-        let binds = Vec::<ContainerBind>::from(&mut container);
-        let port_bindings = Vec::<ContainerPortBind>::try_from(&container)?;
+        let container_id = SqlUuid::new(id);
+        let image_id = SqlUuid::new(image_id);
+        let networks = network_ids.iter().map(SqlUuid::new).collect_vec();
+        let volumes = volume_ids.iter().map(SqlUuid::new).collect_vec();
+        let device_mappings = device_mapping_ids.iter().map(SqlUuid::new).collect_vec();
 
-        let mut container = Container::try_from(container)?;
+        let envs = container_env_from_vec(&container_id, env);
+        let extra_hosts = container_extra_hosts_from_vec(&container_id, extra_hosts);
+        let binds = container_binds_from_vec(&container_id, binds);
+        let port_bindings = container_port_bindings_try_from_vec(&container_id, port_bindings)?;
+        let cap_add = container_cap_add_from_vec(&container_id, cap_add);
+        let cap_drop = container_cap_drop_from_vec(&container_id, cap_drop);
+        let storage_opt = container_storage_options_from_vec(&container_id, storage_opt)?;
+        let tmpfs = container_tmpfs_from_vec(&container_id, tmpfs)?;
+
+        let mut container = create_container(
+            container_id,
+            image_id,
+            network_mode,
+            hostname,
+            restart_policy,
+            cpu_period,
+            cpu_quota,
+            cpu_realtime_period,
+            cpu_realtime_runtime,
+            memory,
+            memory_reservation,
+            memory_swap,
+            memory_swappiness,
+            volume_driver.into(),
+            read_only_rootfs,
+            privileged,
+        )?;
 
         self.handle
             .for_write(move |writer| {
@@ -104,12 +166,32 @@ impl StateStore {
                     .values(envs)
                     .execute(writer)?;
 
+                insert_or_ignore_into(container_extra_hosts::table)
+                    .values(extra_hosts)
+                    .execute(writer)?;
+
                 insert_or_ignore_into(container_binds::table)
                     .values(binds)
                     .execute(writer)?;
 
                 insert_or_ignore_into(container_port_bindings::table)
                     .values(port_bindings)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_add_capabilities::table)
+                    .values(cap_add)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_drop_capabilities::table)
+                    .values(cap_drop)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_storage_options::table)
+                    .values(storage_opt)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_tmpfs::table)
+                    .values(tmpfs)
                     .execute(writer)?;
 
                 for network_id in networks {
@@ -122,16 +204,14 @@ impl StateStore {
                                 network_id,
                             })
                             .execute(writer)?;
-
-                        continue;
+                    } else {
+                        insert_or_ignore_into(container_networks::table)
+                            .values(ContainerNetwork {
+                                container_id: container.id,
+                                network_id,
+                            })
+                            .execute(writer)?;
                     }
-
-                    insert_or_ignore_into(container_networks::table)
-                        .values(ContainerNetwork {
-                            container_id: container.id,
-                            network_id,
-                        })
-                        .execute(writer)?;
                 }
 
                 for volume_id in volumes {
@@ -144,16 +224,35 @@ impl StateStore {
                                 volume_id,
                             })
                             .execute(writer)?;
-
-                        continue;
+                    } else {
+                        insert_or_ignore_into(container_volumes::table)
+                            .values(ContainerVolume {
+                                container_id: container.id,
+                                volume_id,
+                            })
+                            .execute(writer)?;
                     }
+                }
 
-                    insert_or_ignore_into(container_volumes::table)
-                        .values(ContainerVolume {
-                            container_id: container.id,
-                            volume_id,
-                        })
-                        .execute(writer)?;
+                for device_mapping_id in device_mappings {
+                    let device_mapping_exists: bool =
+                        DeviceMapping::exists(&device_mapping_id).get_result(writer)?;
+
+                    if !device_mapping_exists {
+                        insert_or_ignore_into(container_missing_device_mappings::table)
+                            .values(ContainerMissingDeviceMapping {
+                                container_id: container.id,
+                                device_mapping_id,
+                            })
+                            .execute(writer)?;
+                    } else {
+                        insert_or_ignore_into(container_device_mappings::table)
+                            .values(ContainerDeviceMapping {
+                                container_id: container.id,
+                                device_mapping_id,
+                            })
+                            .execute(writer)?;
+                    }
                 }
 
                 // Update deployment missing container
@@ -256,6 +355,7 @@ impl StateStore {
             .for_read(move |reader| {
                 let id = SqlUuid::new(id);
                 let Some(container) = Container::find_id(&id)
+                    .select(Container::as_select())
                     .first::<Container>(reader)
                     .optional()?
                 else {
@@ -272,6 +372,7 @@ impl StateStore {
                 };
                 debug_assert!(!has_missing_networks(reader, &id).unwrap());
                 debug_assert!(!has_missing_volumes(reader, &id).unwrap());
+                debug_assert!(!has_missing_device_mappings(reader, &id).unwrap());
 
                 // Error if not found (foreign key constraint is broken).
                 let image = images::table
@@ -304,6 +405,26 @@ impl StateStore {
                         });
                         acc
                     });
+                let extra_hosts = container_extra_hosts::table
+                    .select(container_extra_hosts::value)
+                    .filter(container_extra_hosts::container_id.eq(&id))
+                    .load::<String>(reader)?;
+                let cap_add = container_add_capabilities::table
+                    .select(container_add_capabilities::value)
+                    .filter(container_add_capabilities::container_id.eq(&id))
+                    .load::<String>(reader)?;
+                let cap_drop = container_drop_capabilities::table
+                    .select(container_drop_capabilities::value)
+                    .filter(container_drop_capabilities::container_id.eq(&id))
+                    .load::<String>(reader)?;
+                let device_mappings = device_mappings::table
+                    .select(DeviceMapping::as_select())
+                    .inner_join(container_device_mappings::table)
+                    .filter(container_device_mappings::container_id.eq(&id))
+                    .load::<DeviceMapping>(reader)?
+                    .into_iter()
+                    .map(crate::docker::container::DeviceMapping::from)
+                    .collect();
 
                 Ok(Some(ContainerResource {
                     id: ContainerId::new(container.local_id, *container.id),
@@ -315,6 +436,10 @@ impl StateStore {
                     env,
                     binds,
                     port_bindings: PortBindingMap(port_bindings),
+                    extra_hosts,
+                    cap_add,
+                    cap_drop,
+                    device_mappings,
                     privileged: container.privileged,
                 }))
             })
@@ -368,40 +493,87 @@ fn has_missing_volumes(
     .map_err(HandleError::from)
 }
 
-impl TryFrom<CreateContainer> for Container {
-    type Error = RestartPolicyError;
+fn has_missing_device_mappings(
+    connection: &mut SqliteConnection,
+    container_id: &SqlUuid,
+) -> std::result::Result<bool, HandleError> {
+    select(exists(container_missing_device_mappings::table.filter(
+        container_missing_device_mappings::container_id.eq(container_id),
+    )))
+    .get_result::<bool>(connection)
+    .map_err(HandleError::from)
+}
 
-    fn try_from(
-        CreateContainer {
-            id,
-            image_id,
-            deployment_id: _,
-            hostname,
-            restart_policy,
-            network_mode,
-            privileged,
-            network_ids: _,
-            volume_ids: _,
-            env: _,
-            binds: _,
-            port_bindings: _,
-        }: CreateContainer,
-    ) -> std::result::Result<Self, Self::Error> {
-        let restart_policy = RestartPolicy::from_str(&restart_policy)?;
-        let restart_policy = ContainerRestartPolicy::from(restart_policy);
-        let hostname = hostname.is_empty().not().then_some(hostname);
+#[allow(clippy::too_many_arguments)]
+fn create_container(
+    id: SqlUuid,
+    image_id: SqlUuid,
+    network_mode: String,
+    hostname: String,
+    restart_policy: String,
+    cpu_period: i64,
+    cpu_quota: i64,
+    cpu_realtime_period: i64,
+    cpu_realtime_runtime: i64,
+    memory: i64,
+    memory_reservation: i64,
+    memory_swap: i64,
+    memory_swappiness: i32,
+    volume_driver: Option<String>,
+    read_only_rootfs: bool,
+    privileged: bool,
+) -> std::result::Result<Container, StoreError> {
+    let restart_policy = RestartPolicy::from_str(&restart_policy)?;
+    let restart_policy = ContainerRestartPolicy::from(restart_policy);
+    let hostname = hostname.is_empty().not().then_some(hostname);
 
-        Ok(Self {
-            id: SqlUuid::new(id),
-            local_id: None,
-            image_id: Some(SqlUuid::new(image_id)),
-            status: ContainerStatus::default(),
-            network_mode,
-            hostname,
-            restart_policy,
-            privileged,
-        })
+    let cpu_period = QuotaValue::<-1>::new(cpu_period);
+    let cpu_quota = QuotaValue::<-1>::new(cpu_quota);
+    let cpu_realtime_period = QuotaValue::<-1>::new(cpu_realtime_period);
+    let cpu_realtime_runtime = QuotaValue::<-1>::new(cpu_realtime_runtime);
+    let memory = QuotaValue::<-1>::new(memory);
+    let memory_reservation = QuotaValue::<-1>::new(memory_reservation);
+    let memory_swap = QuotaValue::<-2>::new(memory_swap);
+    let memory_swappiness =
+        Swappiness::try_new(memory_swappiness).map_err(|err| StoreError::Conversion {
+            ctx: format!("invalid memory swappiness value {err}"),
+        })?;
+
+    // Make sure both are unset
+    match (cpu_period, cpu_quota) {
+        (None, None) | (Some(_), Some(_)) => {}
+        (None, Some(_)) => {
+            return Err(StoreError::Conversion {
+                ctx: "cpu period missing, while cpu quota is set".to_string(),
+            })
+        }
+        (Some(_), None) => {
+            return Err(StoreError::Conversion {
+                ctx: "cpu period was set, while cpu quota is missing".to_string(),
+            })
+        }
     }
+
+    Ok(Container {
+        id,
+        local_id: None,
+        image_id: Some(image_id),
+        status: ContainerStatus::default(),
+        network_mode,
+        hostname,
+        restart_policy,
+        privileged,
+        cpu_period,
+        cpu_quota,
+        cpu_realtime_period,
+        cpu_realtime_runtime,
+        memory,
+        memory_reservation,
+        memory_swap,
+        memory_swappiness,
+        volume_driver,
+        read_only_rootfs,
+    })
 }
 
 impl From<RestartPolicy> for ContainerRestartPolicy {
@@ -428,53 +600,124 @@ impl From<ContainerRestartPolicy> for RestartPolicy {
     }
 }
 
-impl From<&mut CreateContainer> for Vec<ContainerEnv> {
-    fn from(value: &mut CreateContainer) -> Self {
-        let container_id = SqlUuid::new(value.id);
-
-        std::mem::take(&mut value.env)
-            .into_iter()
-            .map(|value| ContainerEnv {
-                container_id,
-                value,
-            })
-            .collect_vec()
-    }
+fn container_env_from_vec(container_id: &SqlUuid, value: Vec<String>) -> Vec<ContainerEnv> {
+    value
+        .into_iter()
+        .map(|value| ContainerEnv {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
 }
 
-impl From<&mut CreateContainer> for Vec<ContainerBind> {
-    fn from(value: &mut CreateContainer) -> Self {
-        let container_id = SqlUuid::new(value.id);
-
-        std::mem::take(&mut value.binds)
-            .into_iter()
-            .map(|value| ContainerBind {
-                container_id,
-                value,
-            })
-            .collect_vec()
-    }
+fn container_extra_hosts_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Vec<ContainerExtraHost> {
+    value
+        .into_iter()
+        .map(|value| ContainerExtraHost {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
 }
 
-impl TryFrom<&CreateContainer> for Vec<ContainerPortBind> {
-    type Error = BindingError;
+fn container_binds_from_vec(container_id: &SqlUuid, value: Vec<String>) -> Vec<ContainerBind> {
+    value
+        .into_iter()
+        .map(|value| ContainerBind {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
+}
 
-    fn try_from(value: &CreateContainer) -> std::result::Result<Self, Self::Error> {
-        let container_id = SqlUuid::new(value.id);
+fn container_cap_add_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Vec<ContainerAddCapability> {
+    value
+        .into_iter()
+        .map(|value| ContainerAddCapability {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
+}
 
-        value
-            .port_bindings
-            .iter()
-            .map(|s| {
-                parse_port_binding(s).map(|bind| ContainerPortBind {
-                    container_id,
-                    port: bind.id(),
-                    host_ip: bind.host.host_ip.map(str::to_string),
-                    host_port: bind.host.host_port.map(HostPort),
+fn container_cap_drop_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Vec<ContainerDropCapability> {
+    value
+        .into_iter()
+        .map(|value| ContainerDropCapability {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
+}
+
+fn container_storage_options_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Result<Vec<ContainerStorageOptions>> {
+    value
+        .into_iter()
+        .map(|value| {
+            value
+                .split_once("=")
+                .map(|(k, v)| ContainerStorageOptions {
+                    container_id: *container_id,
+                    name: k.to_string(),
+                    value: v.is_empty().not().then(|| v.to_string()),
                 })
+                .ok_or_else(|| StoreError::ParseKeyValue {
+                    ctx: "container storage option",
+                    value,
+                })
+        })
+        .collect()
+}
+
+fn container_tmpfs_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Result<Vec<ContainerTmpfs>> {
+    value
+        .into_iter()
+        .map(|value| {
+            value
+                .split_once("=")
+                .map(|(k, v)| ContainerTmpfs {
+                    container_id: *container_id,
+                    path: k.to_string(),
+                    options: v.is_empty().not().then(|| v.to_string()),
+                })
+                .ok_or_else(|| StoreError::ParseKeyValue {
+                    ctx: "container tmpfs",
+                    value,
+                })
+        })
+        .collect()
+}
+
+fn container_port_bindings_try_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> std::result::Result<Vec<ContainerPortBind>, BindingError> {
+    value
+        .iter()
+        .map(|s| {
+            parse_port_binding(s).map(|bind| ContainerPortBind {
+                container_id: *container_id,
+                port: bind.id(),
+                host_ip: bind.host.host_ip.map(str::to_string),
+                host_port: bind.host.host_port.map(HostPort),
             })
-            .try_collect()
-    }
+        })
+        .try_collect()
 }
 
 #[cfg(test)]
@@ -483,6 +726,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
+    use crate::requests::device_mapping::CreateDeviceMapping;
+    use crate::requests::OptString;
     use crate::requests::{
         image::CreateImage, network::CreateNetwork, volume::CreateVolume, ReqUuid, VecReqUuid,
     };
@@ -494,6 +739,7 @@ mod tests {
             .handle
             .for_read(move |reader| {
                 Container::find_id(&SqlUuid::new(id))
+                    .select(Container::as_select())
                     .first::<Container>(reader)
                     .optional()
                     .map_err(HandleError::Query)
@@ -602,6 +848,16 @@ mod tests {
         };
         store.create_network(network).await.unwrap();
 
+        let device_mapping_id = ReqUuid(Uuid::new_v4());
+        let device_mapping = CreateDeviceMapping {
+            id: device_mapping_id,
+            deployment_id: ReqUuid(deployment_id),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "dev/tty12".to_string(),
+            c_group_permissions: OptString::from("msv".to_string()),
+        };
+        store.create_device_mapping(device_mapping).await.unwrap();
+
         let container_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
@@ -609,6 +865,7 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -617,9 +874,24 @@ mod tests {
             binds: vec!["/var/lib/postgres:/data".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let container = find_container(&mut store, container_id).await.unwrap();
         let exp = Container {
@@ -630,6 +902,16 @@ mod tests {
             network_mode: "bridge".to_string(),
             hostname: Some("database".to_string()),
             restart_policy: ContainerRestartPolicy::UnlessStopped,
+            cpu_period: QuotaValue::new(1000),
+            cpu_quota: QuotaValue::new(100),
+            cpu_realtime_period: QuotaValue::new(1000),
+            cpu_realtime_runtime: QuotaValue::new(100),
+            memory: QuotaValue::new(4096),
+            memory_reservation: QuotaValue::new(1024),
+            memory_swap: QuotaValue::new(8192),
+            memory_swappiness: Swappiness::try_new(50).unwrap(),
+            volume_driver: "local".to_string().into(),
+            read_only_rootfs: true,
             privileged: false,
         };
         assert_eq!(container, exp);
@@ -680,12 +962,14 @@ mod tests {
         let image_id = Uuid::new_v4();
         let network_id = Uuid::new_v4();
         let volume_id = Uuid::new_v4();
+        let device_mapping_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
+            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -694,9 +978,24 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         store
             .update_container_status(container_id, ContainerStatus::Published)
@@ -712,6 +1011,16 @@ mod tests {
             network_mode: "bridge".to_string(),
             hostname: Some("database".to_string()),
             restart_policy: ContainerRestartPolicy::UnlessStopped,
+            cpu_period: QuotaValue::new(1000),
+            cpu_quota: QuotaValue::new(100),
+            cpu_realtime_period: QuotaValue::new(1000),
+            cpu_realtime_runtime: QuotaValue::new(100),
+            memory: QuotaValue::new(4096),
+            memory_reservation: QuotaValue::new(1024),
+            memory_swap: QuotaValue::new(8192),
+            memory_swappiness: Swappiness::try_new(50).unwrap(),
+            volume_driver: "local".to_string().into(),
+            read_only_rootfs: true,
             privileged: false,
         };
         assert_eq!(container, exp);
@@ -731,12 +1040,14 @@ mod tests {
         let image_id = Uuid::new_v4();
         let network_id = Uuid::new_v4();
         let volume_id = Uuid::new_v4();
+        let device_mapping_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
+            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -745,9 +1056,24 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let local_id = Uuid::new_v4();
         store

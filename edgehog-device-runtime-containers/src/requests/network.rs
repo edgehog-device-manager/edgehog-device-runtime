@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Create image request
+//! Create network request
 
 use astarte_device_sdk::FromEvent;
 
@@ -27,7 +27,8 @@ use super::ReqUuid;
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateNetworkRequest",
     path = "/network",
-    rename_all = "camelCase"
+    rename_all = "camelCase",
+    aggregation = "object"
 )]
 pub struct CreateNetwork {
     pub(crate) id: ReqUuid,
@@ -43,7 +44,8 @@ pub(crate) mod tests {
 
     use std::fmt::Display;
 
-    use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
+    use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use itertools::Itertools;
     use uuid::Uuid;
 
@@ -58,16 +60,16 @@ pub(crate) mod tests {
         let options = options.iter().map(|s| s.to_string()).collect_vec();
 
         let fields = [
-            ("id", AstarteType::String(id.to_string())),
+            ("id", AstarteData::String(id.to_string())),
             (
                 "deploymentId",
-                AstarteType::String(deployment_id.to_string()),
+                AstarteData::String(deployment_id.to_string()),
             ),
-            ("driver", AstarteType::String(driver.to_string())),
-            ("checkDuplicate", AstarteType::Boolean(false)),
-            ("internal", AstarteType::Boolean(false)),
-            ("enableIpv6", AstarteType::Boolean(false)),
-            ("options", AstarteType::StringArray(options)),
+            ("driver", AstarteData::String(driver.to_string())),
+            ("checkDuplicate", AstarteData::Boolean(false)),
+            ("internal", AstarteData::Boolean(false)),
+            ("enableIpv6", AstarteData::Boolean(false)),
+            ("options", AstarteData::StringArray(options)),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -76,7 +78,10 @@ pub(crate) mod tests {
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateNetworkRequest".to_string(),
             path: "/network".to_string(),
-            data: Value::Object(fields),
+            data: Value::Object {
+                data: fields,
+                timestamp: Utc::now(),
+            },
         }
     }
 

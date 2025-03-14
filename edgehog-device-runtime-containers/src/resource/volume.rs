@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -40,7 +40,7 @@ impl VolumeResource {
 #[async_trait]
 impl<D> Resource<D> for VolumeResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn publish(ctx: Context<'_, D>) -> Result<()> {
         AvailableVolume::new(&ctx.id)
@@ -55,10 +55,9 @@ where
     }
 }
 
-#[async_trait]
 impl<D> Create<D> for VolumeResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let resource = ctx

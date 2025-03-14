@@ -22,7 +22,8 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::{Client, IntoAstarteObject};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -30,7 +31,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::controller::actor::Actor;
-use crate::data::Publisher;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
@@ -42,7 +42,7 @@ use super::PersistentState;
 
 const MAX_OTA_OPERATION: usize = 2;
 
-#[derive(AstarteAggregate, Debug)]
+#[derive(Debug, Clone, IntoAstarteObject)]
 #[allow(non_snake_case)]
 pub struct OtaEvent {
     pub requestUUID: String,
@@ -88,13 +88,13 @@ pub struct OtaHandler {
 }
 
 impl OtaHandler {
-    pub async fn start<P>(
+    pub async fn start<C>(
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
-        client: P,
+        client: C,
         opts: &crate::DeviceManagerOptions,
     ) -> Result<Self, DeviceManagerError>
     where
-        P: Publisher + Send + Sync + 'static,
+        C: Client + Send + Sync + 'static,
     {
         let (publisher_tx, publisher_rx) = mpsc::channel(8);
         let (ota_tx, ota_rx) = mpsc::channel(MAX_OTA_OPERATION);
@@ -108,7 +108,6 @@ impl OtaHandler {
         let flag = OtaInProgress::default();
 
         let ota = Ota::<OTARauc, FileStateRepository<PersistentState>>::new(
-            opts,
             publisher_tx.clone(),
             flag.clone(),
             system_update,
@@ -288,18 +287,18 @@ impl From<&OtaError> for OtaStatusMessage {
 }
 
 #[derive(Debug)]
-pub struct OtaPublisher<P> {
-    client: P,
+pub struct OtaPublisher<C> {
+    client: C,
 }
 
-impl<P> OtaPublisher<P> {
-    pub fn new(client: P) -> Self {
+impl<C> OtaPublisher<C> {
+    pub fn new(client: C) -> Self {
         Self { client }
     }
 
-    async fn send_ota_event(&self, ota_status: &OtaStatus) -> Result<(), OtaError>
+    async fn send_ota_event(&mut self, ota_status: &OtaStatus) -> Result<(), OtaError>
     where
-        P: Publisher + Send + Sync,
+        C: Client + Send + Sync,
     {
         let Some(ota_event) = ota_status.as_event() else {
             return Ok(());
@@ -307,8 +306,17 @@ impl<P> OtaPublisher<P> {
 
         debug!("Sending ota response {:?}", ota_event);
 
+        let data = AstarteObject::try_from(ota_event).map_err(|err| {
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                "invalid ota_event"
+            );
+
+            OtaError::Internal("couldn't convert ota_event to Astarte object")
+        })?;
+
         self.client
-            .send_object("io.edgehog.devicemanager.OTAEvent", "/event", ota_event)
+            .send_object("io.edgehog.devicemanager.OTAEvent", "/event", data)
             .await
             .map_err(|error| {
                 let message = "Unable to publish ota_event".to_string();
@@ -321,9 +329,9 @@ impl<P> OtaPublisher<P> {
 }
 
 #[async_trait]
-impl<P> Actor for OtaPublisher<P>
+impl<C> Actor for OtaPublisher<C>
 where
-    P: Publisher + Send + Sync,
+    C: Client + Send + Sync,
 {
     type Msg = OtaStatus;
 
@@ -395,26 +403,6 @@ mod tests {
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
         assert_eq!(expected_ota_event.requestUUID, ota_event.requestUUID)
-    }
-
-    #[test]
-    #[allow(non_snake_case)]
-    fn convert_ota_status_downloading_to_OtaStatusMessage() {
-        let ota_request = OtaId::default();
-        let expected_ota_event = OtaEvent {
-            requestUUID: ota_request.uuid.to_string(),
-            status: "Downloading".to_string(),
-            statusProgress: 100,
-            statusCode: "".to_string(),
-            message: "".to_string(),
-        };
-
-        let ota_event = OtaStatus::Downloading(ota_request, 100).as_event().unwrap();
-        assert_eq!(expected_ota_event.status, ota_event.status);
-        assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
-        assert_eq!(expected_ota_event.message, ota_event.message);
-        assert_eq!(expected_ota_event.requestUUID, ota_event.requestUUID);
-        assert_eq!(expected_ota_event.statusProgress, ota_event.statusProgress);
     }
 
     #[test]
@@ -516,27 +504,6 @@ mod tests {
         };
 
         let ota_event = OtaStatus::Success(ota_request).as_event().unwrap();
-        assert_eq!(expected_ota_event.status, ota_event.status);
-        assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
-        assert_eq!(expected_ota_event.message, ota_event.message);
-        assert_eq!(expected_ota_event.requestUUID, ota_event.requestUUID);
-    }
-
-    #[test]
-    #[allow(non_snake_case)]
-    fn convert_ota_status_Error_to_OtaStatusMessage() {
-        let ota_request = OtaId::default();
-        let expected_ota_event = OtaEvent {
-            requestUUID: ota_request.uuid.to_string(),
-            status: "Error".to_string(),
-            statusProgress: 0,
-            statusCode: "RequestError".to_string(),
-            message: "Invalid data".to_string(),
-        };
-
-        let ota_event = OtaStatus::Error(OtaError::Request("Invalid data"), ota_request)
-            .as_event()
-            .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);

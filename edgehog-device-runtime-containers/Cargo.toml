@@ -36,20 +36,18 @@ displaydoc = { workspace = true }
 edgehog-store = { workspace = true, features = ["containers"] }
 eyre = { workspace = true }
 futures = { workspace = true }
+http-body = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
 mockall = { workspace = true, optional = true }
-petgraph = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
 uuid = { workspace = true }
-
-# Transitive dependencies
-hyperlocal = { workspace = true }
 
 [dev-dependencies]
 astarte-device-sdk-mock = { workspace = true }
@@ -60,7 +58,8 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 
 [features]
-mock = ["dep:mockall", "dep:hyper"]
+# Used for mocking the container connection
+__mock = ["dep:mockall", "dep:hyper", "dep:http-body", "dep:http-body-util"]
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
 vendored = ["edgehog-store/vendored"]

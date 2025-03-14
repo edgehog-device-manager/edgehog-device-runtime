@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -41,7 +41,7 @@ impl ContainerResource {
 
     async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Received)
@@ -59,7 +59,7 @@ impl ContainerResource {
 
     pub(crate) async fn start<D>(&mut self, ctx: Context<'_, D>) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         if self.container.start(ctx.client).await?.is_none() {
             return self.mark_missing(ctx).await;
@@ -78,7 +78,7 @@ impl ContainerResource {
 
     pub(crate) async fn stop<D>(&mut self, ctx: Context<'_, D>) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         if self.container.stop(ctx.client).await?.is_none() {
             return self.mark_missing(ctx).await;
@@ -99,7 +99,7 @@ impl ContainerResource {
 #[async_trait]
 impl<D> Resource<D> for ContainerResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn publish(ctx: Context<'_, D>) -> Result<()> {
         AvailableContainer::new(&ctx.id)
@@ -114,10 +114,9 @@ where
     }
 }
 
-#[async_trait]
 impl<D> Create<D> for ContainerResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let mut container =

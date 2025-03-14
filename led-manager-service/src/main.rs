@@ -20,7 +20,7 @@
 
 use tracing::{debug, info, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use zbus::{dbus_interface, ConnectionBuilder};
+use zbus::interface;
 
 pub const SERVICE_NAME: &str = "io.edgehog.LedManager";
 
@@ -29,7 +29,7 @@ struct LedManager {
     leds: Vec<String>,
 }
 
-#[dbus_interface(name = "io.edgehog.LedManager1")]
+#[interface(name = "io.edgehog.LedManager1")]
 impl LedManager {
     fn list(&self) -> Vec<String> {
         debug!("listing {} leds", self.leds.len());
@@ -66,7 +66,7 @@ async fn main() -> stable_eyre::Result<()> {
 
     let leds = LedManager { leds: Vec::new() };
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = zbus::connection::Builder::session()?
         .name(SERVICE_NAME)?
         .serve_at("/io/edgehog/LedManager", leds)?
         .build()
