@@ -18,6 +18,7 @@
 
 use std::fmt::Debug;
 use std::fmt::Display;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use event::OtaRequest;
@@ -28,6 +29,7 @@ use ota_handler::{OtaEvent, OtaInProgress, OtaMessage, OtaStatusMessage};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::debug;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -83,6 +85,7 @@ pub trait SystemUpdate: Send + Sync {
         state: &str,
         slot_identifier: &str,
     ) -> Result<(String, String), DeviceManagerError>;
+    async fn reboot(&self) -> Result<(), DeviceManagerError>;
 }
 
 /// Edgehog OTA error.
@@ -504,16 +507,27 @@ where
             warn!("ota_status_publisher dropped before sending rebooting_status")
         };
 
-        info!("Rebooting the device");
+        info!("Waiting for device reboot");
 
-        #[cfg(not(test))]
-        if let Err(error) = crate::power_management::reboot().await {
-            let message = "Unable to run reboot command";
+        if let Err(error) = self.system_update.reboot().await {
+            let message = "Unable to reboot the device";
             error!("{message} : {error}");
             return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
         }
 
-        OtaStatus::Rebooted
+        // Wait for the reboot, till 5 minuts
+        const MAX_TIME_SECS: u64 = 130;
+        const SLEEP_TIME: u64 = 30;
+        const TIMES: usize = MAX_TIME_SECS.div_ceil(SLEEP_TIME) as usize;
+        for i in 0..TIMES {
+            info!("wait for reboot {i}/{TIMES}");
+            tokio::time::sleep(Duration::from_secs(SLEEP_TIME)).await;
+        }
+
+        OtaStatus::Failure(
+            OtaError::Internal("Reboot timeout reached"),
+            Some(ota_request),
+        )
     }
 
     /// Handle the transition to success status.
