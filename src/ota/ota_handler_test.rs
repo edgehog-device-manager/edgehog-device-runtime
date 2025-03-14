@@ -436,6 +436,12 @@ async fn ota_event_update_success() {
         .returning(|| deploy_status_stream([DeployStatus::Completed { signal: 0 }]));
 
     system_update
+        .expect_reboot()
+        .once()
+        .in_sequence(&mut seq)
+        .returning(|| Ok(()));
+
+    system_update
         .expect_boot_slot()
         .once()
         .in_sequence(&mut seq)
