@@ -44,6 +44,6 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
       - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.8
       - name: Build with all features
         run: cargo build --all-targets --all-features --workspace
