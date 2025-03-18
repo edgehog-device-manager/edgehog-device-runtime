@@ -7,21 +7,18 @@ use edgehog_device_forwarder_proto::{
     message::Protocol as ProtobufProtocol, web_socket::Message as ProtobufWsMessage,
     WebSocket as ProtobufWebSocket,
 };
+use tokio_tungstenite::tungstenite::Bytes;
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 
 use edgehog_device_runtime_forwarder::test_utils::create_ws_msg;
-#[cfg(feature = "_test-utils")]
 use edgehog_device_runtime_forwarder::test_utils::{
     create_http_upgrade_req, is_ws_upgrade_response, send_ws_and_wait_next, MockWebSocket,
     TestConnections,
 };
 
-#[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_internal_ws() {
     // Mock server for ttyd
-
-    use tokio_tungstenite::tungstenite::Bytes;
     let mut test_connections = TestConnections::<MockWebSocket>::init().await;
 
     // Edgehog
