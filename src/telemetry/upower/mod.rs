@@ -18,20 +18,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use zbus::dbus_proxy;
+use zbus::proxy;
 
 pub(crate) mod device;
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.UPower",
     default_service = "org.freedesktop.UPower",
     default_path = "/org/freedesktop/UPower"
 )]
-trait UPower {
+pub trait UPower {
     /// Enumerate all power objects on the system.
     fn enumerate_devices(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
     /// Indicates whether the system is running on battery power. This property is provided for convenience.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn on_battery(&self) -> zbus::Result<bool>;
 }

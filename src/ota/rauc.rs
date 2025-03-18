@@ -25,7 +25,7 @@ use futures::stream::FusedStream;
 use futures::{future, ready, Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
-use zbus::dbus_proxy;
+use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
 use crate::error::DeviceManagerError;
@@ -60,7 +60,7 @@ pub struct BundleInfo {
     pub version: String,
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "de.pengutronix.rauc.Installer",
     default_service = "de.pengutronix.rauc",
     default_path = "/"
@@ -88,40 +88,36 @@ trait Rauc {
     /// Get the current primary slot.
     fn get_primary(&self) -> zbus::Result<String>;
 
-    // properties
-
     /// Represents the current (global) operation RAUC performs. Possible values are idle or installing.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn operation(&self) -> zbus::Result<String>;
 
     /// Holds the last message of the last error that occurred.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn last_error(&self) -> zbus::Result<String>;
 
     /// Provides installation progress information in the form
     /// (percentage, message, nesting depth)
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn progress(&self) -> zbus::Result<(i32, String, i32)>;
 
     /// Represents the system’s compatible. This can be used to check for usable bundles.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn compatible(&self) -> zbus::Result<String>;
 
     /// Represents the system’s variant. This can be used to select parts of an bundle.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn variant(&self) -> zbus::Result<String>;
 
     /// Contains the information RAUC uses to identify the booted slot. It is derived from the
     ///  kernel command line. This can either be the slot name (e.g. rauc.slot=rootfs.0) or the
     ///  root device path (e.g. root=PARTUUID=0815). If the root= kernel command line option is
     ///  used, the symlink is resolved to the block device (e.g. /dev/mmcblk0p1).
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn boot_slot(&self) -> zbus::Result<String>;
 
-    // signal
-
     /// This signal is emitted when an installation completed, either successfully or with an error.
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn completed(&self, result: i32) -> Result<()>;
 }
 
@@ -227,17 +223,17 @@ impl<'a> OTARauc<'a> {
 }
 
 /// Progress of the Rauc deployment progress
-struct DeployStream<'a, S> {
+struct DeployStream<S> {
     progress_changed: S,
-    completed_stream: CompletedStream<'a>,
+    completed_stream: CompletedStream,
     completed: bool,
 }
 
-impl<'a, S> DeployStream<'a, S>
+impl<S> DeployStream<S>
 where
     S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
 {
-    fn new(progress_changed: S, completed_stream: CompletedStream<'a>) -> Self {
+    fn new(progress_changed: S, completed_stream: CompletedStream) -> Self {
         Self {
             progress_changed,
             completed_stream,
@@ -257,10 +253,7 @@ where
     ) -> Poll<Option<Result<DeployStatus, DeviceManagerError>>> {
         match ready!(self.completed_stream.poll_next_unpin(cx)) {
             Some(completed) => {
-                debug!(
-                    "deployment completed with signal: {}",
-                    completed.to_string()
-                );
+                debug!("deployment completed with signal: {:?}", completed);
 
                 self.completed = true;
 
@@ -298,7 +291,7 @@ where
     }
 }
 
-impl<S> Stream for DeployStream<'_, S>
+impl<S> Stream for DeployStream<S>
 where
     S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
 {
@@ -331,7 +324,7 @@ where
     }
 }
 
-impl<S> FusedStream for DeployStream<'_, S>
+impl<S> FusedStream for DeployStream<S>
 where
     S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
 {

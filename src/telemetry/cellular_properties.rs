@@ -23,7 +23,7 @@ use futures::StreamExt;
 use stable_eyre::eyre::WrapErr;
 use std::collections::HashMap;
 use tracing::{debug, error};
-use zbus::dbus_proxy;
+use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
 const INTERFACE: &str = "io.edgehog.devicemanager.CellularConnectionProperties";
@@ -36,7 +36,7 @@ pub struct ModemProperties {
     imsi: String,
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "io.edgehog.CellularModems1",
     default_service = "io.edgehog.CellularModems",
     default_path = "/io/edgehog/CellularModems"
