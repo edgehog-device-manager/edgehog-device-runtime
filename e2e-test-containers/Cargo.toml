@@ -30,7 +30,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 color-eyre = { workspace = true }
 edgehog-containers = { workspace = true }
 edgehog-store = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
