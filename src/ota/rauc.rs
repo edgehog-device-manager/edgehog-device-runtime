@@ -69,7 +69,7 @@ pub struct BundleInfo {
 trait Rauc {
     /// Triggers the installation of a bundle. This method call is non-blocking.
     /// After completion, the “Completed” signal will be emitted.
-    fn install_bundle(
+    async fn install_bundle(
         &self,
         source: &str,
         args: std::collections::HashMap<String, zbus::zvariant::Value<'_>>,
@@ -124,6 +124,13 @@ trait Rauc {
     /// This signal is emitted when an installation completed, either successfully or with an error.
     #[dbus_proxy(signal)]
     fn completed(&self, result: i32) -> Result<()>;
+
+    /// This signal is emitted when the device reboot process returned an error.
+    ///
+    /// The Edgehog Device Runtime should wait for this signal for either an error or the RAUC
+    /// service has exited for the reboot.
+    #[dbus_proxy(signal)]
+    fn rebooting(&self, result: i32) -> Result<()>;
 }
 
 pub struct OTARauc<'a> {
@@ -196,6 +203,32 @@ impl SystemUpdate for OTARauc<'static> {
             .mark(state, slot_identifier)
             .await
             .map_err(DeviceManagerError::Zbus)
+    }
+
+    async fn reboot(&self) -> Result<(), DeviceManagerError> {
+        // DBUS should never be stoped before us during a reboot, so a disconnection error here should
+        // not happen and an error is an actual dbus error
+        match self.rauc.receive_rebooting().await?.next().await {
+            Some(rebooting) => {
+                let args = rebooting.args()?;
+                let result = args.result();
+
+                if *result == 0 {
+                    info!("Device should reboot");
+
+                    Ok(())
+                } else {
+                    Err(DeviceManagerError::Fatal(format!(
+                        "Couldn't reboot the device, code {result}"
+                    )))
+                }
+            }
+            None => {
+                info!("Stream disconnected, device should reboot");
+
+                Ok(())
+            }
+        }
     }
 }
 
