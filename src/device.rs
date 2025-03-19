@@ -18,13 +18,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use zbus::dbus_proxy;
+use zbus::proxy;
 
-#[dbus_proxy(
+#[proxy(
     interface = "io.edgehog.Device1",
     default_service = "io.edgehog.Device",
     default_path = "/io/edgehog/Device"
 )]
-trait Device {
-    fn get_hardware_id(&self, namespace: &str) -> zbus::Result<String>;
+pub trait Device {
+    async fn get_hardware_id(&self, namespace: &str) -> zbus::Result<String>;
 }

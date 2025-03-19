@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use zbus::dbus_proxy;
+use zbus::proxy;
 use zbus::zvariant::OwnedValue;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
@@ -59,20 +59,20 @@ pub enum BatteryLevel {
     Full = 8,
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.UPower.Device",
     default_service = "org.freedesktop.UPower"
 )]
-trait Device {
+pub trait Device {
     /// The level of the battery for devices which do not report a percentage but rather a coarse battery level.
     /// If the value is None, then the device does not support coarse battery reporting, and the percentage should be used instead.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn battery_level(&self) -> zbus::Result<BatteryLevel>;
 
     ///If the power source is present in the bay. This field is required as some batteries are hot-removable, for example expensive UPS and most laptop batteries.
     //
     // This property is only valid if the property type has the value "battery".
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn is_present(&self) -> zbus::Result<bool>;
 
     /// The amount of energy left in the power source expressed as a percentage between 0 and 100.
@@ -82,26 +82,26 @@ trait Device {
     // This property is only valid if the property type has the value "battery".
     //
     // The percentage will be an approximation if the battery level is set to something other than None.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn percentage(&self) -> zbus::Result<f64>;
 
     /// If the power device is used to supply the system. This would be set TRUE for laptop batteries and UPS devices, but set FALSE for wireless mice or PDAs.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn power_supply(&self) -> zbus::Result<bool>;
 
     /// Refreshes the data collected from the power source.
     fn refresh(&self) -> zbus::Result<()>;
 
     ///Unique serial number of the battery.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn serial(&self) -> zbus::Result<String>;
 
     /// The battery power state.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn state(&self) -> zbus::Result<BatteryState>;
 
     /// If the value is set to "Battery", you will need to verify that the property power-supply has the value "true" before considering it as a laptop battery.
     /// Otherwise it will likely be the battery for a device of an unknown type.
-    #[dbus_proxy(property, name = "Type")]
+    #[zbus(property, name = "Type")]
     fn power_device_type(&self) -> zbus::Result<PowerDeviceType>;
 }

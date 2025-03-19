@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use uuid::Uuid;
-use zbus::{dbus_interface, ConnectionBuilder};
+use zbus::interface;
 
 const SERVICE_NAME: &str = "io.edgehog.Device";
 const DMI_SERIAL_FILE_PATH: &str = "/sys/class/dmi/id/board_serial";
@@ -62,7 +62,7 @@ struct Device {
     hw_id: String,
 }
 
-#[dbus_interface(name = "io.edgehog.Device1")]
+#[interface(name = "io.edgehog.Device1")]
 impl Device {
     // Get hardware id using starting parameter.
     fn get_hardware_id(&self, namespace: &str) -> String {
@@ -122,9 +122,9 @@ async fn main() -> stable_eyre::Result<()> {
     };
 
     let builder = if cli.session {
-        ConnectionBuilder::session()?
+        zbus::connection::Builder::session()?
     } else {
-        ConnectionBuilder::system()?
+        zbus::connection::Builder::system()?
     };
 
     let _conn = builder
