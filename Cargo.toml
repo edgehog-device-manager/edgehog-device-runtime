@@ -181,5 +181,5 @@ zbus = { version = "3.15.2", default-features = false }
 # Transitive dependencies
 hyperlocal = "=0.9.0"
 litemap = "=0.7.4"
-termtree = "=0.4.1"
+termtree = "=0.5.1"
 zerofrom = "=0.1.5"
