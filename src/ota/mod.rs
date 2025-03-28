@@ -839,6 +839,15 @@ pub async fn wget(
 
     info!("Downloading {:?}", url);
 
+    // TODO: in the feature this will change, for now just set the default to make the tests pass
+    // Set default crypto provider
+    #[cfg(test)]
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .inspect_err(|_| error!("couldn't install default crypto provider"));
+    }
+
     let result_response = reqwest::get(url).await;
 
     match result_response {

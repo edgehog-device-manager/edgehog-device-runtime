@@ -24,7 +24,7 @@ use astarte_device_sdk::{
 use async_trait::async_trait;
 use tokio::time::{sleep, Duration, Instant};
 use tracing::error;
-use zbus::dbus_proxy;
+use zbus::proxy;
 
 use crate::controller::actor::Actor;
 
@@ -92,13 +92,13 @@ impl TryFrom<AstarteType> for Blink {
     }
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "io.edgehog.LedManager1",
     default_service = "io.edgehog.LedManager",
     default_path = "/io/edgehog/LedManager"
 )]
 trait LedManager {
-    fn set(&self, id: String, status: bool) -> zbus::Result<bool>;
+    async fn set(&self, id: String, status: bool) -> zbus::Result<bool>;
 }
 
 #[derive(Debug, Clone, Copy)]

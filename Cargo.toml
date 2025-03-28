@@ -42,7 +42,7 @@ members = [
 version = "0.9.0"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
-rust-version = "1.72"
+rust-version = "1.78"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -68,14 +68,13 @@ edgehog-store = { workspace = true, optional = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
-reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider", "stream"] }
+reqwest = { workspace = true, default-features = false, features = ["rustls-tls-native-roots-no-provider", "stream"] }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 stable-eyre = { workspace = true }
 sysinfo = { workspace = true }
 systemd = { workspace = true, optional = true }
-termtree = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
@@ -91,11 +90,6 @@ zbus = { workspace = true, optional = true, default-features = false, features =
 
 [build-dependencies]
 rustc_version = { workspace = true }
-
-# Pin transitive deps
-native-tls = { workspace = true }
-litemap = { workspace = true }
-zerofrom = { workspace = true }
 
 [dev-dependencies]
 astarte-message-hub-proto = { workspace = true }
@@ -122,13 +116,13 @@ vendored = ["edgehog-store/vendored"]
 astarte-device-sdk = "0.9.6"
 astarte-device-sdk-mock = "0.9.6"
 astarte-message-hub-proto = "0.7.0"
-async-trait = "0.1.87"
+async-trait = "0.1.88"
 backoff = "0.4.0"
 base64 = "0.22.1"
 bollard = "0.18.1"
 bytes = "1.10.1"
 cfg-if = "1.0.0"
-clap = "=4.4.18"
+clap = "4.5.32"
 color-eyre = "0.6.3"
 diesel = "=2.1.6"
 diesel_migrations = "=2.1.0"
@@ -146,11 +140,9 @@ hyper = "1.6.0"
 indexmap = "2.8.0"
 itertools = "0.14.0"
 mockall = "0.13.1"
-native-tls = "=0.2.13"
-petgraph = "0.7.1"
 pretty_assertions = "1.4.1"
 procfs = "0.17.0"
-reqwest = "0.12.12"
+reqwest = { version = "0.12.14", default-features = false, features = ["charset", "http2", "macos-system-configuration"] }
 rusqlite = "0.29.0"
 rustc_version = "0.4.1"
 rustls = "0.23.25"
@@ -160,7 +152,7 @@ serde = "1.0.219"
 serde_json = "1.0.140"
 stable-eyre = "0.2.2"
 sync_wrapper = "1.0.2"
-sysinfo = "0.30.13"
+sysinfo = "0.33.1"
 systemd = "0.10.0"
 tempdir = "0.3.7"
 tempfile = "3.19.1"
@@ -174,12 +166,6 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 udev = "0.9.3"
 url = "2.5.4"
-uuid = "1.15.1"
+uuid = "1.16.0"
 wifiscanner = "0.5.1"
-zbus = { version = "3.15.2", default-features = false }
-
-# Transitive dependencies
-hyperlocal = "=0.9.0"
-litemap = "=0.7.4"
-termtree = "=0.4.1"
-zerofrom = "=0.1.5"
+zbus = { version = "5.5.0", default-features = false }

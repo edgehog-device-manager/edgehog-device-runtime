@@ -21,9 +21,8 @@ use std::collections::HashMap;
 use tracing::{debug, info, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use zbus::{
-    dbus_interface,
+    interface,
     zvariant::{DeserializeDict, SerializeDict, Type},
-    ConnectionBuilder,
 };
 
 pub const SERVICE_NAME: &str = "io.edgehog.CellularModems1";
@@ -40,7 +39,7 @@ struct CellularModems {
     modems: HashMap<String, ModemProperties>,
 }
 
-#[dbus_interface(name = "io.edgehog.CellularModems1")]
+#[interface(name = "io.edgehog.CellularModems1")]
 impl CellularModems {
     fn list(&self) -> Vec<String> {
         self.modems.keys().cloned().collect()
@@ -77,7 +76,7 @@ async fn main() -> stable_eyre::Result<()> {
         modems: HashMap::new(),
     };
 
-    let _conn = ConnectionBuilder::session()?
+    let _conn = zbus::connection::Builder::session()?
         .name(SERVICE_NAME)?
         .serve_at("/io/edgehog/CellularModems", cellular_modems)?
         .build()

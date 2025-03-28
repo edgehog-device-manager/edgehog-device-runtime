@@ -89,6 +89,15 @@ impl ConnectionsManager {
             Connector::Plain
         };
 
+        // TODO: in the feature this will change, for now just set the default to make the tests pass
+        // Set default crypto provider
+        #[cfg(test)]
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .inspect_err(|_| tracing::error!("couldn't install default crypto provider"));
+        }
+
         let ws_stream = Self::ws_connect(&url, connector).await?;
 
         // this channel is used by tasks associated with the current bridge-device session to exchange
