@@ -20,8 +20,8 @@ futures = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
 httpmock = { workspace = true, optional = true }
-reqwest = { workspace = true }
-rustls = { workspace = true , features = ["ring","logging","std","tls12"]}
+reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider"] }
+rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pemfile = { workspace = true }
 thiserror = { workspace = true }
@@ -37,3 +37,13 @@ tracing-subscriber = { workspace = true }
 
 [features]
 _test-utils = ["dep:httpmock", "tokio/test-util"]
+
+[[test]]
+name = "http-test"
+path = "tests/http_test.rs"
+required-features = ["_test-utils"]
+
+[[test]]
+name = "ws-test"
+path = "tests/ws_test.rs"
+required-features = ["_test-utils"]

@@ -54,7 +54,7 @@ async fn main() -> stable_eyre::Result<()> {
         )
         .try_init()?;
 
-    // Use ring as default crypto provider
+    // Set default crypto provider
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .map_err(|_| eyre!("failed to install default crypto provider"))?;

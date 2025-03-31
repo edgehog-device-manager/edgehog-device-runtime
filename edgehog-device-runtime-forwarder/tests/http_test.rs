@@ -9,10 +9,17 @@ use edgehog_device_forwarder_proto::{
 use edgehog_device_runtime_forwarder::test_utils::create_http_req;
 use futures::{SinkExt, StreamExt};
 
-#[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_connect() {
     use edgehog_device_runtime_forwarder::test_utils::TestConnections;
+
+    // TODO: in the feature this will change, for now just set the default to make the tests pass
+    // Set default crypto provider
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .inspect_err(|_| tracing::error!("couldn't install default crypto provider"));
+    }
 
     let test_connections = TestConnections::<httpmock::MockServer>::init().await;
     let endpoint = test_connections.endpoint();
@@ -64,7 +71,6 @@ async fn test_connect() {
     test_connections.assert().await;
 }
 
-#[cfg(feature = "_test-utils")]
 #[tokio::test]
 async fn test_max_sizes() {
     use edgehog_device_runtime_forwarder::test_utils::TestConnections;

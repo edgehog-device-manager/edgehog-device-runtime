@@ -26,7 +26,7 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
 
 ### Dependencies
 
-- **Rust** >= 1.72.0
+- **Rust** >= 1.78
 - **libsystemd** (optional)
 - **libudev**: Gathering information about network interfaces.
 - **ttyd** >= 1.7.4
