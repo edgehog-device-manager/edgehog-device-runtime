@@ -411,6 +411,8 @@ where
             binds: Some(binds),
             port_bindings: Some(port_bindings),
             privileged: Some(value.privileged),
+            // HACK: make host.docker.internal work on all systems
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
             ..Default::default()
         };
 
