@@ -19,10 +19,10 @@
 use std::env::VarError;
 
 use astarte_device_sdk::{
-    builder::{DeviceBuilder, DeviceSdkBuild},
+    builder::DeviceBuilder,
     introspection::AddInterfaceError,
     store::SqliteStore,
-    transport::mqtt::{Credential, MqttConfig},
+    transport::mqtt::{Credential, Mqtt, MqttConfig},
     DeviceClient, EventLoop,
 };
 use clap::Parser;
@@ -42,7 +42,7 @@ mod send;
 async fn connect(
     astarte: &AstarteConfig,
     tasks: &mut JoinSet<color_eyre::Result<()>>,
-) -> color_eyre::Result<DeviceClient<SqliteStore>> {
+) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore>>> {
     let mut mqtt_config = MqttConfig::new(
         &astarte.realm,
         &astarte.device_id,
@@ -63,10 +63,9 @@ async fn connect(
         })?
         .store_dir(&astarte.store_dir)
         .await?
-        .connect(mqtt_config)
-        .await?
+        .connection(mqtt_config)
         .build()
-        .await;
+        .await?;
 
     tasks.spawn(async move {
         connection.handle_events().await?;

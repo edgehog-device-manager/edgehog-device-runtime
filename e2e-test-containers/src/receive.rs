@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Debug, path::Path};
+use std::path::Path;
 
 use astarte_device_sdk::{Client, FromEvent};
 use color_eyre::eyre::bail;
@@ -31,9 +31,9 @@ use edgehog_store::db::Handle;
 use tokio::task::JoinSet;
 use tracing::{error, info};
 
-async fn receive_events<D>(device: D, handle: ServiceHandle<D>) -> color_eyre::Result<()>
+async fn receive_events<D>(device: D, mut handle: ServiceHandle<D>) -> color_eyre::Result<()>
 where
-    D: Debug + Client + Send + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     loop {
         let event = device.recv().await?;
@@ -58,7 +58,7 @@ where
 
 async fn handle_events<D>(mut service: Service<D>) -> color_eyre::Result<()>
 where
-    D: Debug + Client + Clone + Send + Sync + 'static,
+    D: Client + Clone + Send + Sync + 'static,
 {
     service.init().await?;
 
@@ -69,7 +69,7 @@ where
 
 async fn runtime_listen<D>(mut listener: RuntimeListener<D>) -> color_eyre::Result<()>
 where
-    D: Debug + Client + Clone + Send + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     listener.handle_events().await?;
 
@@ -78,7 +78,7 @@ where
 
 pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
-    D: Debug + Client + Clone + Send + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     let client = Docker::connect().await?;
 

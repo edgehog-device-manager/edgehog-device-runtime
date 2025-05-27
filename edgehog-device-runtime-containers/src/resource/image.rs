@@ -40,7 +40,7 @@ impl ImageResource {
 #[async_trait]
 impl<D> Resource<D> for ImageResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn publish(ctx: Context<'_, D>) -> Result<()> {
         AvailableImage::new(&ctx.id).send(ctx.device, false).await?;
@@ -56,7 +56,7 @@ where
 #[async_trait]
 impl<D> Create<D> for ImageResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let mut resource = ctx

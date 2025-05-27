@@ -59,7 +59,7 @@ pub enum ResourceError {
 pub(crate) struct Context<'a, D> {
     pub(crate) id: Uuid,
     pub(crate) store: &'a mut StateStore,
-    pub(crate) device: &'a D,
+    pub(crate) device: &'a mut D,
     pub(crate) client: &'a Docker,
 }
 
@@ -94,7 +94,7 @@ where
 #[async_trait]
 pub(crate) trait Create<D>: Resource<D>
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)>;
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()>;
