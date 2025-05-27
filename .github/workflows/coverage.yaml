@@ -17,9 +17,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 name: coverage
-defaults:
-  run:
-    shell: bash
 on:
   workflow_run:
     workflows: ["ci"]
@@ -27,6 +24,9 @@ on:
 permissions:
   contents: read
   actions: read
+defaults:
+  run:
+    shell: bash
 jobs:
   upload:
     runs-on: ubuntu-24.04

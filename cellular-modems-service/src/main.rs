@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, level_filters::LevelFilter};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use zbus::{
