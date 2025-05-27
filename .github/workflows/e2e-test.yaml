@@ -22,6 +22,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
@@ -48,8 +51,8 @@ jobs:
           path: ./edgehog/astarte-interfaces
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get -y install libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
       - name: Install interface
         run: |
           astartectl realm-management interfaces sync $GITHUB_WORKSPACE/edgehog/astarte-interfaces/*.json --non-interactive
@@ -58,15 +61,11 @@ jobs:
         run: |
           DEVICE_ID=$(astartectl utils device-id generate-random)
           echo "E2E_DEVICE_ID=$DEVICE_ID" >> $GITHUB_ENV
-          CREDENTIALS_SECRET=$(astartectl pairing agent register --compact-output -- "$DEVICE_ID")
-          echo "E2E_CREDENTIALS_SECRET=$CREDENTIALS_SECRET" >> $GITHUB_ENV
-          TOKEN=$(astartectl utils gen-jwt appengine)
-          echo "E2E_TOKEN=$TOKEN" >> $GITHUB_ENV
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.6
+          echo "E2E_TOKEN=$(astartectl utils gen-jwt all-realm-apis)" >> $GITHUB_ENV
+          echo "E2E_CREDENTIALS_SECRET=$(astartectl pairing agent register --compact-output -- "$DEVICE_ID")" >> $GITHUB_ENV
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Run test
         # use the full command to use the sccache
         run: |
-          cargo run -p e2e-test
+          cargo run --locked -p e2e-test
