@@ -23,9 +23,8 @@ use std::{fmt::Display, str::FromStr, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use crate::data::Publisher;
-
 use super::{storage_usage::StorageUsage, system_status::SystemStatus};
+use crate::Client;
 
 #[derive(Debug, thiserror::Error)]
 #[error("unsupported telemetry interface: {interface}")]
@@ -41,9 +40,9 @@ pub struct Task<T> {
     period: Duration,
 }
 
-impl<T> Task<T> {
+impl<C> Task<C> {
     pub fn new(
-        client: T,
+        client: C,
         interface: TelemetryInterface,
         cancel: CancellationToken,
         period: Duration,
@@ -56,21 +55,21 @@ impl<T> Task<T> {
         }
     }
 
-    pub async fn run(self)
+    pub async fn run(mut self)
     where
-        T: Publisher,
+        C: Client,
     {
         let mut interval = tokio::time::interval(self.period);
 
         loop {
             match self.cancel.run_until_cancelled(interval.tick()).await {
                 Some(_) => {
-                    info!("collecting telemetry for {}", self.interface);
+                    info!(interface = %self.interface, "collecting telemetry",);
 
                     self.send().await;
                 }
                 None => {
-                    debug!("telemetry task for {} cancelled", self.interface);
+                    debug!(interface = %self.interface, "telemetry task cancelled");
 
                     break;
                 }
@@ -78,9 +77,9 @@ impl<T> Task<T> {
         }
     }
 
-    async fn send(&self)
+    async fn send(&mut self)
     where
-        T: Publisher,
+        C: Client,
     {
         match self.interface {
             TelemetryInterface::SystemStatus => {
@@ -88,15 +87,15 @@ impl<T> Task<T> {
                     return;
                 };
 
-                sys_status.send(&self.client).await;
+                sys_status.send(&mut self.client).await;
             }
             TelemetryInterface::StorageUsage => {
-                StorageUsage::read().send(&self.client).await;
+                StorageUsage::read().send(&mut self.client).await;
             }
             TelemetryInterface::BatteryStatus => {
                 cfg_if::cfg_if! {
                     if #[cfg(all(feature = "zbus", target_os = "linux"))] {
-                        super::battery_status::send_battery_status(&self.client).await;
+                        super::battery_status::send_battery_status(&mut self.client).await;
                     } else {
                         tracing::warn!("The battery status telemetry interface is not supported because the zbus feature is missing")
                     }

@@ -40,7 +40,7 @@ pub mod resource;
 pub mod service;
 pub mod store;
 
-#[cfg(feature = "mock")]
+#[cfg(feature = "__mock")]
 mod mock;
 
 /// Re-export third parties dependencies

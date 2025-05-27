@@ -21,7 +21,7 @@
 use std::str::FromStr;
 
 use astarte_device_sdk::FromEvent;
-use bollard::secret::RestartPolicyNameEnum;
+use bollard::models::RestartPolicyNameEnum;
 use tracing::{instrument, trace};
 
 use crate::{container::Binding, requests::BindingError};
@@ -39,7 +39,8 @@ pub struct RestartPolicyError {
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateContainerRequest",
     path = "/container",
-    rename_all = "camelCase"
+    rename_all = "camelCase",
+    aggregation = "object"
 )]
 pub struct CreateContainer {
     pub(crate) id: ReqUuid,
@@ -90,7 +91,7 @@ impl<'a> ParsedBind<'a> {
 /// [ip:[hostPort:]]containerPort[/protocol]
 /// ```
 #[instrument]
-pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind, BindingError> {
+pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind<'_>, BindingError> {
     let (host_ip, host_port, rest) = parse_host_ip_port(input)?;
 
     let (container_port, protocol) = rest.split_once('/').map_or_else(
@@ -197,7 +198,8 @@ pub(crate) mod tests {
 
     use std::fmt::Display;
 
-    use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
+    use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
@@ -211,28 +213,28 @@ pub(crate) mod tests {
         network_ids: &[S],
     ) -> DeviceEvent {
         let fields = [
-            ("id", AstarteType::String(id.to_string())),
+            ("id", AstarteData::String(id.to_string())),
             (
                 "deploymentId",
-                AstarteType::String(deployment_id.to_string()),
+                AstarteData::String(deployment_id.to_string()),
             ),
-            ("imageId", AstarteType::String(image_id.to_string())),
-            ("volumeIds", AstarteType::StringArray(vec![])),
-            ("image", AstarteType::String(image.to_string())),
-            ("hostname", AstarteType::String("hostname".to_string())),
-            ("restartPolicy", AstarteType::String("no".to_string())),
-            ("env", AstarteType::StringArray(vec!["env".to_string()])),
-            ("binds", AstarteType::StringArray(vec!["binds".to_string()])),
-            ("networkMode", AstarteType::String("bridge".to_string())),
+            ("imageId", AstarteData::String(image_id.to_string())),
+            ("volumeIds", AstarteData::StringArray(vec![])),
+            ("image", AstarteData::String(image.to_string())),
+            ("hostname", AstarteData::String("hostname".to_string())),
+            ("restartPolicy", AstarteData::String("no".to_string())),
+            ("env", AstarteData::StringArray(vec!["env".to_string()])),
+            ("binds", AstarteData::StringArray(vec!["binds".to_string()])),
+            ("networkMode", AstarteData::String("bridge".to_string())),
             (
                 "networkIds",
-                AstarteType::StringArray(network_ids.iter().map(|s| s.to_string()).collect()),
+                AstarteData::StringArray(network_ids.iter().map(|s| s.to_string()).collect()),
             ),
             (
                 "portBindings",
-                AstarteType::StringArray(vec!["80:80".to_string()]),
+                AstarteData::StringArray(vec!["80:80".to_string()]),
             ),
-            ("privileged", AstarteType::Boolean(false)),
+            ("privileged", AstarteData::Boolean(false)),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -241,7 +243,10 @@ pub(crate) mod tests {
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateContainerRequest".to_string(),
             path: "/container".to_string(),
-            data: Value::Object(fields),
+            data: Value::Object {
+                data: fields,
+                timestamp: Utc::now(),
+            },
         }
     }
 

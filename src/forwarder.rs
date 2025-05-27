@@ -23,13 +23,15 @@
 use std::collections::{hash_map::Entry, HashMap};
 use std::fmt::{Display, Formatter};
 
-use crate::data::Publisher;
-use astarte_device_sdk::types::AstarteType;
+use astarte_device_sdk::prelude::PropAccess;
+use astarte_device_sdk::types::AstarteData;
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use reqwest::Url;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
+
+use crate::Client;
 
 const FORWARDER_SESSION_STATE_INTERFACE: &str = "io.edgehog.devicemanager.ForwarderSessionState";
 
@@ -93,11 +95,11 @@ impl SessionState {
     }
 }
 
-impl From<SessionState> for Option<AstarteType> {
+impl From<SessionState> for Option<AstarteData> {
     fn from(value: SessionState) -> Self {
         match value.status {
             SessionStatus::Connecting | SessionStatus::Connected => {
-                Some(AstarteType::String(value.status.to_string()))
+                Some(AstarteData::String(value.status.to_string()))
             }
             SessionStatus::Disconnected => None,
         }
@@ -106,22 +108,22 @@ impl From<SessionState> for Option<AstarteType> {
 
 impl SessionState {
     /// Send a property to Astarte to update the session state.
-    async fn send<P>(self, publisher: &P) -> Result<(), astarte_device_sdk::Error>
+    async fn send<C>(self, client: &mut C) -> Result<(), astarte_device_sdk::Error>
     where
-        P: Publisher + 'static + Send + Sync,
+        C: Client + Send + Sync + 'static,
     {
         let ipath = format!("/{}/status", self.token);
-        let idata: Option<AstarteType> = self.into();
+        let idata: Option<AstarteData> = self.into();
 
         match idata {
             Some(idata) => {
-                publisher
-                    .send(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
+                client
+                    .set_property(FORWARDER_SESSION_STATE_INTERFACE, &ipath, idata)
                     .await
             }
             None => {
-                publisher
-                    .unset(FORWARDER_SESSION_STATE_INTERFACE, &ipath)
+                client
+                    .unset_property(FORWARDER_SESSION_STATE_INTERFACE, &ipath)
                     .await
             }
         }
@@ -134,30 +136,30 @@ impl SessionState {
 /// the connection information and responsible for providing forwarder functionalities. For
 /// instance, a task could open a remote terminal between the device and a certain host.
 #[derive(Debug)]
-pub struct Forwarder<P> {
-    publisher: P,
+pub struct Forwarder<C> {
+    client: C,
     tasks: HashMap<SessionInfo, JoinHandle<()>>,
 }
 
-impl<P> Forwarder<P> {
-    pub async fn init(publisher: P) -> Result<Self, ForwarderError>
+impl<C> Forwarder<C> {
+    pub async fn init(mut client: C) -> Result<Self, ForwarderError>
     where
-        P: Publisher + 'static + Send + Sync,
+        C: Client + PropAccess + Send + Sync + 'static,
     {
         // unset all the existing sessions
         debug!("unsetting ForwarderSessionState property");
-        for prop in publisher
+        for prop in client
             .interface_props(FORWARDER_SESSION_STATE_INTERFACE)
             .await?
         {
             debug!("unset {}", &prop.path);
-            publisher
-                .unset(FORWARDER_SESSION_STATE_INTERFACE, &prop.path)
+            client
+                .unset_property(FORWARDER_SESSION_STATE_INTERFACE, &prop.path)
                 .await?;
         }
 
         Ok(Self {
-            publisher,
+            client,
             tasks: HashMap::default(),
         })
     }
@@ -165,7 +167,7 @@ impl<P> Forwarder<P> {
     /// Start a device forwarder instance.
     pub fn handle_sessions(&mut self, sinfo: SessionInfo)
     where
-        P: Publisher + Clone + 'static + Send + Sync,
+        C: Client + 'static + Send + Sync,
     {
         let edgehog_url = match Url::try_from(&sinfo) {
             Ok(url) => url,
@@ -180,7 +182,7 @@ impl<P> Forwarder<P> {
         // flag indicating whether the connection should use TLS, i.e. 'ws' or 'wss' scheme.
         let secure = sinfo.secure;
         let session_token = sinfo.session_token.clone();
-        let publisher = self.publisher.clone();
+        let publisher = self.client.clone();
         self.get_running(sinfo).or_insert_with(|| {
             info!("opening a new session");
             // spawn a new task responsible for handling the remote terminal operations
@@ -195,7 +197,7 @@ impl<P> Forwarder<P> {
     }
 
     /// Remove terminated sessions and return the searched one.
-    fn get_running(&mut self, sinfo: SessionInfo) -> Entry<SessionInfo, JoinHandle<()>> {
+    fn get_running(&mut self, sinfo: SessionInfo) -> Entry<'_, SessionInfo, JoinHandle<()>> {
         // remove all finished tasks
         self.tasks.retain(|_, jh| !jh.is_finished());
 
@@ -207,25 +209,25 @@ impl<P> Forwarder<P> {
         edgehog_url: Url,
         session_token: String,
         secure: bool,
-        publisher: P,
+        mut client: C,
     ) -> Result<(), ForwarderError>
     where
-        P: Publisher + 'static + Send + Sync,
+        C: Client + Send + Sync + 'static,
     {
         // update the session state to "Connecting"
         SessionState::connecting(session_token.clone())
-            .send(&publisher)
+            .send(&mut client)
             .await?;
 
         if let Err(err) =
-            Self::connect(edgehog_url, session_token.clone(), secure, &publisher).await
+            Self::connect(edgehog_url, session_token.clone(), secure, &mut client).await
         {
             error!("failed to connect, {err}");
         }
 
         // unset the session state, meaning that the device correctly disconnected itself
         SessionState::disconnected(session_token.clone())
-            .send(&publisher)
+            .send(&mut client)
             .await?;
 
         info!("forwarder correctly disconnected");
@@ -237,16 +239,16 @@ impl<P> Forwarder<P> {
         edgehog_url: Url,
         session_token: String,
         secure: bool,
-        publisher: &P,
+        client: &mut C,
     ) -> Result<(), ForwarderError>
     where
-        P: Publisher + 'static + Send + Sync,
+        C: Client + Send + Sync + 'static,
     {
         let mut con_manager = ConnectionsManager::connect(edgehog_url.clone(), secure).await?;
 
         // update the session state to "Connected"
         SessionState::connected(session_token.clone())
-            .send(publisher)
+            .send(client)
             .await?;
 
         // handle the connections
@@ -256,7 +258,7 @@ impl<P> Forwarder<P> {
             // in case of a websocket error, the connection has been lost, so update the session
             // state to "Connecting"
             SessionState::connecting(session_token.clone())
-                .send(publisher)
+                .send(client)
                 .await?;
 
             con_manager
@@ -266,7 +268,7 @@ impl<P> Forwarder<P> {
 
             // update the session state to "Connected" since connection has been re-established
             SessionState::connected(session_token.clone())
-                .send(publisher)
+                .send(client)
                 .await?;
         }
 
@@ -278,10 +280,14 @@ impl<P> Forwarder<P> {
 mod tests {
     use super::*;
 
-    use crate::data::tests::MockPubSub;
-    use astarte_device_sdk::store::StoredProp;
-    use astarte_device_sdk::{interface::def::Ownership, Value};
+    use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::astarte_interfaces::schema::Ownership;
+    use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::store::{SqliteStore, StoredProp};
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::Value;
     use astarte_device_sdk::{DeviceEvent, FromEvent};
+    use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::{predicate, Sequence};
     use std::net::Ipv4Addr;
 
@@ -335,10 +341,10 @@ mod tests {
             SessionState::connecting("abcd".to_string()),
             SessionState::disconnected("abcd".to_string()),
         ]
-        .map(Option::<AstarteType>::from);
+        .map(Option::<AstarteData>::from);
         let exp_res = [
-            Some(AstarteType::String("Connected".to_string())),
-            Some(AstarteType::String("Connecting".to_string())),
+            Some(AstarteData::String("Connected".to_string())),
+            Some(AstarteData::String("Connecting".to_string())),
             None,
         ];
 
@@ -350,22 +356,22 @@ mod tests {
     #[tokio::test]
     async fn test_session_state_send() {
         let ss = SessionState::connected("abcd".to_string());
-        let mut pub_sub = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
-        pub_sub
-            .expect_send()
+        client
+            .expect_set_property()
             .with(
                 predicate::eq(FORWARDER_SESSION_STATE_INTERFACE),
                 predicate::eq("/abcd/status"),
-                predicate::eq(AstarteType::String("Connected".to_string())),
+                predicate::eq(AstarteData::from("Connected")),
             )
             .once()
             .in_sequence(&mut seq)
             .returning(|_, _, _| Ok(()));
 
-        pub_sub
-            .expect_unset()
+        client
+            .expect_unset_property()
             .with(
                 predicate::eq(FORWARDER_SESSION_STATE_INTERFACE),
                 predicate::eq("/abcd/status"),
@@ -374,29 +380,29 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(|_, _| Ok(()));
 
-        let res = ss.send(&pub_sub).await;
+        let res = ss.send(&mut client).await;
 
         assert!(res.is_ok());
 
         // send unset in case of SessionState::disconnected
         let ss = SessionState::disconnected("abcd".to_string());
-        let res = ss.send(&pub_sub).await;
+        let res = ss.send(&mut client).await;
 
         assert!(res.is_ok());
     }
 
     #[tokio::test]
     async fn test_init_forwarder() {
-        let mut pub_sub = MockPubSub::new();
-        mock_forwarder_init(&mut pub_sub);
-        let f = Forwarder::init(pub_sub).await;
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        mock_forwarder_init(&mut client);
+        let f = Forwarder::init(client).await;
 
         assert!(f.is_ok());
 
         // test when an error is returned by the publisher
-        let mut pub_sub = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
-        pub_sub
+        client
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
             .returning(|_: &str| {
@@ -404,39 +410,39 @@ mod tests {
                 Err(astarte_device_sdk::error::Error::ConnectionTimeout)
             });
 
-        let f = Forwarder::init(pub_sub).await;
+        let f = Forwarder::init(client).await;
 
         assert!(f.is_err());
 
-        let mut pub_sub = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
-        pub_sub
+        client
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
             .returning(|_: &str| {
                 Ok(vec![StoredProp {
                     interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
                     path: "/abcd/status".to_string(),
-                    value: AstarteType::String("Connected".to_string()),
+                    value: AstarteData::String("Connected".to_string()),
                     interface_major: 0,
                     ownership: Ownership::Device,
                 }])
             });
 
-        pub_sub
-            .expect_unset()
+        client
+            .expect_unset_property()
             .withf(move |iface, ipath| {
                 iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
             })
             // the returned error is irrelevant, it is only necessary to the test
             .returning(|_, _| Err(astarte_device_sdk::error::Error::ConnectionTimeout));
 
-        let f = Forwarder::init(pub_sub).await;
+        let f = Forwarder::init(client).await;
 
         assert!(f.is_err());
     }
 
-    fn mock_forwarder_init(pub_sub: &mut MockPubSub) {
+    fn mock_forwarder_init(pub_sub: &mut MockDeviceClient<Mqtt<SqliteStore>>) {
         pub_sub
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
@@ -444,14 +450,14 @@ mod tests {
                 Ok(vec![StoredProp {
                     interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
                     path: "/abcd/status".to_string(),
-                    value: AstarteType::String("Connected".to_string()),
+                    value: AstarteData::String("Connected".to_string()),
                     interface_major: 0,
                     ownership: Ownership::Device,
                 }])
             });
 
         pub_sub
-            .expect_unset()
+            .expect_unset_property()
             .withf(move |iface, ipath| {
                 iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
             })
@@ -460,12 +466,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_sessions() {
-        let mut publisher = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
-        publisher.expect_clone().returning(MockPubSub::new);
+        client
+            .expect_clone()
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
         let mut f = Forwarder {
-            publisher,
+            client,
             tasks: HashMap::from([(
                 SessionInfo {
                     host: Ipv4Addr::LOCALHOST.to_string(),
@@ -477,21 +485,26 @@ mod tests {
             )]),
         };
 
+        let data = AstarteObject::from_iter([
+            (
+                "host".to_string(),
+                AstarteData::String("127.0.0.1".to_string()),
+            ),
+            ("port".to_string(), AstarteData::Integer(8080)),
+            (
+                "session_token".to_string(),
+                AstarteData::String("abcd".to_string()),
+            ),
+            ("secure".to_string(), AstarteData::Boolean(false)),
+        ]);
+
         let astarte_event = DeviceEvent {
             interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/request".to_string(),
-            data: Value::Object(HashMap::from([
-                (
-                    "host".to_string(),
-                    AstarteType::String("127.0.0.1".to_string()),
-                ),
-                ("port".to_string(), AstarteType::Integer(8080)),
-                (
-                    "session_token".to_string(),
-                    AstarteType::String("abcd".to_string()),
-                ),
-                ("secure".to_string(), AstarteType::Boolean(false)),
-            ])),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         };
 
         let session = SessionInfo::from_event(astarte_event).unwrap();

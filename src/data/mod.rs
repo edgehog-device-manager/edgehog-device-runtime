@@ -18,104 +18,29 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::client::RecvError;
-use astarte_device_sdk::properties::PropAccess;
+use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::store::sqlite::SqliteError;
-use astarte_device_sdk::store::{SqliteStore, StoredProp};
-use astarte_device_sdk::types::AstarteType;
-use astarte_device_sdk::{
-    error::Error as AstarteError, AstarteAggregate, Client, DeviceClient, DeviceEvent,
-};
-use async_trait::async_trait;
+use astarte_device_sdk::store::SqliteStore;
+use astarte_device_sdk::types::AstarteData;
+use futures::TryFutureExt;
 use std::path::Path;
 use tracing::{debug, error, info};
+
+use crate::Client;
 
 pub mod astarte_device_sdk_lib;
 #[cfg(feature = "message-hub")]
 pub mod astarte_message_hub_node;
 
-#[async_trait]
-pub trait Publisher {
-    async fn send_object<T>(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: T,
-    ) -> Result<(), AstarteError>
-    where
-        T: AstarteAggregate + Send + 'static;
-    async fn send(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: AstarteType,
-    ) -> Result<(), AstarteError>;
-    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError>;
-    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError>;
-}
-
-#[async_trait]
-pub trait Subscriber {
-    async fn recv(&self) -> Result<DeviceEvent, RecvError>;
-}
-
-#[async_trait]
-impl Publisher for DeviceClient<SqliteStore> {
-    async fn send_object<T: 'static>(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: T,
-    ) -> Result<(), AstarteError>
-    where
-        T: AstarteAggregate + Send,
-    {
-        Client::send_object(self, interface_name, interface_path, data).await
-    }
-
-    async fn send(
-        &self,
-        interface_name: &str,
-        interface_path: &str,
-        data: AstarteType,
-    ) -> Result<(), AstarteError> {
-        Client::send(self, interface_name, interface_path, data).await
-    }
-
-    async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError> {
-        PropAccess::interface_props(self, interface).await
-    }
-
-    async fn unset(&self, interface_name: &str, interface_path: &str) -> Result<(), AstarteError> {
-        Client::unset(self, interface_name, interface_path).await
-    }
-}
-
-#[async_trait]
-impl Subscriber for DeviceClient<SqliteStore> {
-    async fn recv(&self) -> Result<DeviceEvent, RecvError> {
-        Client::recv(self).await
-    }
-}
-
-/// Store errors
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum StoreError {
-    /// couldn't connect to Sqlite store
-    Connect(#[source] SqliteError),
-}
-
 /// Connect to the store.
-pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, StoreError>
+pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, SqliteError>
 where
     P: AsRef<Path>,
 {
     let db_path = store_dir.as_ref().join("database.db");
 
     debug!("connecting to store {}", db_path.display());
-    let store = SqliteStore::connect_db(&db_path)
-        .await
-        .map_err(StoreError::Connect)?;
+    let store = SqliteStore::connect_db(&db_path).await?;
 
     info!("connected to store {}", db_path.display());
     Ok(store)
@@ -124,19 +49,38 @@ where
 /// Publishes the value to Astarte and logs if an error happens.
 ///
 /// This is used to send telemetry data without returning an error.
-pub(crate) async fn publish<T>(
-    client: &T,
+pub(crate) async fn send_object<C, T>(client: &mut C, interface: &str, path: &str, data: T)
+where
+    C: Client,
+    T: TryInto<AstarteObject, Error = astarte_device_sdk::Error>,
+{
+    let res = futures::future::ready(data.try_into())
+        .and_then(|data| client.send_object(interface, path, data))
+        .await;
+
+    if let Err(err) = res {
+        error!(
+            error = format!("{:#}", stable_eyre::Report::new(err)),
+            interface, path, "failed to publish",
+        )
+    }
+}
+
+/// Sets the property and logs if an error happens.
+///
+/// This is used to send telemetry data without returning an error.
+pub(crate) async fn set_property<C>(
+    client: &mut C,
     interface: &str,
     path: &str,
-    data: impl Into<AstarteType>,
+    data: impl Into<AstarteData>,
 ) where
-    T: Publisher,
+    C: Client,
 {
-    if let Err(err) = client.send(interface, path, data.into()).await {
+    if let Err(err) = client.set_property(interface, path, data.into()).await {
         error!(
-            "failed to send {}{path}: {}",
-            interface,
-            stable_eyre::Report::new(err)
+            error = format!("{:#}", stable_eyre::Report::new(err)),
+            interface, path, "failed to set property",
         )
     }
 }
@@ -145,111 +89,7 @@ pub(crate) async fn publish<T>(
 pub mod tests {
     use super::*;
 
-    use mockall::mock;
     use tempdir::TempDir;
-
-    mock! {
-        pub PubSub {}
-
-        #[async_trait]
-        impl Publisher for PubSub {
-            async fn send_object<T>(
-                &self,
-                interface_name: &str,
-                interface_path: &str,
-                data: T,
-            ) -> Result<(), AstarteError>
-            where
-                T: AstarteAggregate + Send + 'static;
-            async fn send(
-                &self,
-                interface_name: &str,
-                interface_path: &str,
-                data: AstarteType,
-            ) -> Result<(), AstarteError>;
-            async fn interface_props(&self, interface: &str) -> Result<Vec<StoredProp>, AstarteError>;
-            async fn unset(
-                &self,
-                interface_name: &str,
-                interface_path: &str
-            ) -> Result<(), AstarteError>;
-        }
-
-        #[async_trait]
-        impl Subscriber for PubSub {
-             async fn recv(&self) -> Result<DeviceEvent, RecvError>;
-        }
-
-        impl Clone for PubSub {
-            fn clone(&self) -> Self;
-        }
-    }
-
-    // HACK: this is to make the mocks compatible with the Client
-    #[async_trait]
-    impl Client for MockPubSub {
-        async fn send_object_with_timestamp<D>(
-            &self,
-            _interface_name: &str,
-            _interface_path: &str,
-            _data: D,
-            _timestamp: astarte_device_sdk::chrono::DateTime<astarte_device_sdk::chrono::Utc>,
-        ) -> Result<(), AstarteError>
-        where
-            D: AstarteAggregate + Send,
-        {
-            unimplemented!()
-        }
-
-        async fn send_object<D>(
-            &self,
-            _interface_name: &str,
-            _interface_path: &str,
-            _data: D,
-        ) -> Result<(), astarte_device_sdk::Error>
-        where
-            D: AstarteAggregate + Send,
-        {
-            unimplemented!()
-        }
-
-        async fn send_with_timestamp<D>(
-            &self,
-            _interface_name: &str,
-            _interface_path: &str,
-            _data: D,
-            _timestamp: astarte_device_sdk::chrono::DateTime<astarte_device_sdk::chrono::Utc>,
-        ) -> Result<(), AstarteError>
-        where
-            D: TryInto<AstarteType> + Send,
-        {
-            unimplemented!()
-        }
-
-        async fn send<D>(
-            &self,
-            _interface_name: &str,
-            _interface_path: &str,
-            _data: D,
-        ) -> Result<(), AstarteError>
-        where
-            D: TryInto<AstarteType> + Send,
-        {
-            unimplemented!()
-        }
-
-        async fn unset(
-            &self,
-            _interface_name: &str,
-            _interface_path: &str,
-        ) -> Result<(), astarte_device_sdk::Error> {
-            unimplemented!()
-        }
-
-        async fn recv(&self) -> Result<DeviceEvent, RecvError> {
-            unimplemented!()
-        }
-    }
 
     /// Create tmp store and store dir.
     pub async fn create_tmp_store() -> (SqliteStore, TempDir) {

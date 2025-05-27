@@ -20,7 +20,7 @@
 
 use std::fmt::Display;
 
-use astarte_device_sdk::AstarteType;
+use astarte_device_sdk::AstarteData;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -72,16 +72,18 @@ impl Display for DeploymentStatus {
     }
 }
 
-impl From<DeploymentStatus> for AstarteType {
+impl From<DeploymentStatus> for AstarteData {
     fn from(value: DeploymentStatus) -> Self {
-        AstarteType::String(value.to_string())
+        AstarteData::String(value.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use mockall::predicate;
     use uuid::Uuid;
 
     use super::*;
@@ -92,22 +94,22 @@ mod tests {
 
         let deployment = AvailableDeployment { id: &id };
 
-        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, status: &DeploymentStatus| {
-                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
-                    && path == format!("/{id}/status")
-                    && *status == DeploymentStatus::Stopped
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
+                predicate::eq(format!("/{id}/status")),
+                predicate::eq(AstarteData::String(DeploymentStatus::Stopped.to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         deployment
-            .send(&client, DeploymentStatus::Stopped)
+            .send(&mut client, DeploymentStatus::Stopped)
             .await
             .unwrap();
     }
@@ -118,19 +120,19 @@ mod tests {
 
         let deployment = AvailableDeployment { id: &id };
 
-        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_unset()
+            .expect_unset_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path| {
-                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
-                    && path == format!("/{id}/status")
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
+                predicate::eq(format!("/{id}/status")),
+            )
             .returning(|_, _| Ok(()));
 
-        deployment.unset(&client).await.unwrap();
+        deployment.unset(&mut client).await.unwrap();
     }
 }

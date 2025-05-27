@@ -28,9 +28,10 @@ use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::Client;
+
 use crate::{
     controller::actor::Actor,
-    data::Publisher,
     repository::{file_state_repository::FileStateRepository, StateRepository},
 };
 
@@ -190,17 +191,17 @@ impl<T> Deref for Overridable<T> {
 }
 
 #[derive(Debug)]
-pub struct Telemetry<T> {
-    client: T,
+pub struct Telemetry<C> {
+    client: C,
     configs: HashMap<TelemetryInterface, TaskConfig>,
     cancellation: CancellationToken,
     tasks: HashMap<TelemetryInterface, CancellationToken>,
     file_state: FileStateRepository<Vec<TelemetryInterfaceConfig<'static>>>,
 }
 
-impl<T> Telemetry<T> {
+impl<C> Telemetry<C> {
     pub async fn from_config(
-        client: T,
+        client: C,
         configs: &[TelemetryInterfaceConfig<'_>],
         store_directory: PathBuf,
     ) -> Self {
@@ -276,9 +277,9 @@ impl<T> Telemetry<T> {
         }
     }
 
-    async fn initial_telemetry(&self)
+    async fn initial_telemetry(&mut self)
     where
-        T: Publisher,
+        C: Client,
     {
         #[cfg(feature = "systemd")]
         crate::systemd_wrapper::systemd_notify_status("Sending initial telemetry");
@@ -286,30 +287,33 @@ impl<T> Telemetry<T> {
         if let Some(os_release) = OsRelease::read().await {
             debug!("couldn't read os release information");
 
-            os_release.send(&self.client).await;
+            os_release.send(&mut self.client).await;
         }
 
-        HardwareInfo::read().await.send(&self.client).await;
+        HardwareInfo::read().await.send(&mut self.client).await;
 
-        RUNTIME_INFO.send(&self.client).await;
+        RUNTIME_INFO.send(&mut self.client).await;
 
         #[cfg(feature = "udev")]
-        net_interfaces::send_network_interface_properties(&self.client).await;
+        net_interfaces::send_network_interface_properties(&mut self.client).await;
 
-        SystemInfo::read().send(&self.client).await;
+        SystemInfo::read().send(&mut self.client).await;
 
-        StorageUsage::read().send(&self.client).await;
+        StorageUsage::read().send(&mut self.client).await;
 
         #[cfg(feature = "wifiscanner")]
-        wifi_scan::send_wifi_scan(&self.client).await;
+        wifi_scan::send_wifi_scan(&mut self.client).await;
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
-        CellularConnection::read().await.send(&self.client).await;
+        CellularConnection::read()
+            .await
+            .send(&mut self.client)
+            .await;
     }
 
     pub fn run_telemetry(&mut self)
     where
-        T: Publisher + Clone + Send + Sync + 'static,
+        C: Client + Send + Sync + 'static,
     {
         for (t_itf, task_config) in &self.configs {
             Self::spawn_task(
@@ -325,12 +329,12 @@ impl<T> Telemetry<T> {
     // Cursed arguments to borrow tasks mutably while iterating above
     fn spawn_task(
         tasks: &mut HashMap<TelemetryInterface, CancellationToken>,
-        client: &T,
+        client: &C,
         cancellation: &CancellationToken,
         t_itf: TelemetryInterface,
         task_config: TaskConfig,
     ) where
-        T: Publisher + Clone + Sync + Send + 'static,
+        C: Client + Sync + Send + 'static,
     {
         if !task_config.enabled.get() {
             debug!("task {} disabled", t_itf);
@@ -394,9 +398,9 @@ impl<T> Telemetry<T> {
 }
 
 #[async_trait]
-impl<T> Actor for Telemetry<T>
+impl<C> Actor for Telemetry<C>
 where
-    T: Publisher + Clone + Send + Sync + 'static,
+    C: Client + Send + Sync + 'static,
 {
     type Msg = TelemetryEvent;
 
@@ -460,12 +464,12 @@ where
 pub(crate) mod tests {
     use super::*;
 
-    use crate::data::tests::MockPubSub;
-
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk_mock::MockDeviceClient;
     use event::TelemetryPeriod;
     use mockall::{predicate, Sequence};
     use runtime_info::tests::mock_runtime_info_telemtry;
-    use storage_usage::DiskUsage;
     use tempdir::TempDir;
 
     const TELEMETRY_PATH: &str = "telemetry.json";
@@ -478,7 +482,9 @@ pub(crate) mod tests {
         (dir, path)
     }
 
-    fn mock_telemetry(client: MockPubSub) -> (Telemetry<MockPubSub>, TempDir) {
+    fn mock_telemetry(
+        client: MockDeviceClient<Mqtt<SqliteStore>>,
+    ) -> (Telemetry<MockDeviceClient<Mqtt<SqliteStore>>>, TempDir) {
         let (dir, path) = temp_dir();
 
         (
@@ -493,12 +499,12 @@ pub(crate) mod tests {
         )
     }
 
-    pub(crate) fn mock_initial_telemetry_client() -> MockPubSub {
-        let mut client = MockPubSub::new();
+    pub(crate) fn mock_initial_telemetry_client() -> MockDeviceClient<Mqtt<SqliteStore>> {
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .with(
@@ -509,7 +515,7 @@ pub(crate) mod tests {
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .with(
@@ -520,7 +526,7 @@ pub(crate) mod tests {
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .times(..)
             .with(
                 predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
@@ -532,7 +538,7 @@ pub(crate) mod tests {
         mock_runtime_info_telemtry(&mut client, &mut seq);
 
         client
-            .expect_send_object::<DiskUsage>()
+            .expect_send_object()
             .times(..)
             .with(
                 predicate::eq("io.edgehog.devicemanager.StorageUsage"),
@@ -542,7 +548,7 @@ pub(crate) mod tests {
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .times(..)
             .with(
                 predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
@@ -552,7 +558,7 @@ pub(crate) mod tests {
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .with(
                 predicate::eq("io.edgehog.devicemanager.SystemInfo"),
                 predicate::always(),
@@ -561,7 +567,7 @@ pub(crate) mod tests {
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .with(
                 predicate::eq("io.edgehog.devicemanager.BaseImage"),
                 predicate::always(),
@@ -583,7 +589,7 @@ pub(crate) mod tests {
 
         let (_dir, t_dir) = temp_dir();
 
-        let client = MockPubSub::new();
+        let client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         let tel = Telemetry::from_config(client, &configs, t_dir).await;
 
@@ -604,7 +610,7 @@ pub(crate) mod tests {
 
         let (_dir, t_dir) = temp_dir();
 
-        let client = MockPubSub::new();
+        let client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         let mut tel = Telemetry::from_config(client, &configs, t_dir.clone()).await;
 
@@ -650,14 +656,14 @@ pub(crate) mod tests {
         }];
 
         let (_dir, t_dir) = temp_dir();
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
             .expect_clone()
             .times(2)
             .in_sequence(&mut seq)
-            .returning(MockPubSub::new);
+            .returning(MockDeviceClient::new);
 
         let mut tel = Telemetry::from_config(client, &configs, t_dir.clone()).await;
 
@@ -693,7 +699,7 @@ pub(crate) mod tests {
     async fn send_initial_telemetry_success() {
         let client = mock_initial_telemetry_client();
 
-        let (telemetry, _dir) = mock_telemetry(client);
+        let (mut telemetry, _dir) = mock_telemetry(client);
 
         telemetry.initial_telemetry().await;
     }

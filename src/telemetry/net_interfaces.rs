@@ -23,10 +23,9 @@ use std::fmt::Display;
 use tracing::{debug, error};
 use udev::Device;
 
-use crate::{
-    data::{publish, Publisher},
-    error::DeviceManagerError,
-};
+use crate::data::set_property;
+use crate::error::DeviceManagerError;
+use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.NetworkInterfaceProperties";
 
@@ -92,11 +91,11 @@ impl NetworkInterface {
         })
     }
 
-    async fn send<T>(self, client: &T)
+    async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
-        publish(
+        set_property(
             client,
             INTERFACE,
             &format!("/{}/macAddress", self.interface),
@@ -104,7 +103,7 @@ impl NetworkInterface {
         )
         .await;
 
-        publish(
+        set_property(
             client,
             INTERFACE,
             &format!("/{}/technologyType", self.interface),
@@ -125,9 +124,9 @@ fn net_devices() -> Result<Vec<NetworkInterface>, DeviceManagerError> {
 }
 
 /// get structured data for `io.edgehog.devicemanager.NetworkInterfaceProperties` interface
-pub async fn send_network_interface_properties<T>(client: &T)
+pub async fn send_network_interface_properties<C>(client: &mut C)
 where
-    T: Publisher,
+    C: Client,
 {
     let devices = match net_devices() {
         Ok(devices) => devices,
@@ -148,12 +147,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::data::tests::MockPubSub;
-
     use super::*;
 
-    use astarte_device_sdk::types::AstarteType;
-    use mockall::Sequence;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::types::AstarteData;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::{predicate, Sequence};
 
     #[test]
     fn technology_type_to_string_test() {
@@ -182,106 +182,106 @@ mod tests {
             },
         ];
 
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         let mut seq = Sequence::new();
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-                    && path == "/wifi_test/macAddress"
-                    && *data == AstarteType::String("00:11:22:33:44:55".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::eq("/wifi_test/macAddress"),
+                predicate::eq(AstarteData::String("00:11:22:33:44:55".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-                    && path == "/wifi_test/technologyType"
-                    && *data == AstarteType::String("WiFi".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::eq("/wifi_test/technologyType"),
+                predicate::eq(AstarteData::String("WiFi".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-                    && path == "/eth_test/macAddress"
-                    && *data == AstarteType::String("11:22:33:44:55:66".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::eq("/eth_test/macAddress"),
+                predicate::eq(AstarteData::String("11:22:33:44:55:66".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-                    && path == "/eth_test/technologyType"
-                    && *data == AstarteType::String("Ethernet".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::eq("/eth_test/technologyType"),
+                predicate::eq(AstarteData::String("Ethernet".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-                    && path == "/cellular_test/macAddress"
-                    && *data == AstarteType::String("22:33:44:55:66:77".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::eq("/cellular_test/macAddress"),
+                predicate::eq(AstarteData::String("22:33:44:55:66:77".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
-                    && path == "/cellular_test/technologyType"
-                    && *data == AstarteType::String("Cellular".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                predicate::eq("/cellular_test/technologyType"),
+                predicate::eq(AstarteData::String("Cellular".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         for nt_if in eth_wifi {
-            nt_if.send(&client).await;
+            nt_if.send(&mut client).await;
         }
     }
 
     #[tokio::test]
     async fn get_supported_network_interfaces_run_test() {
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         client
-            .expect_send()
+            .expect_set_property()
             .times(..)
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
                     && path.ends_with("/macAddress")
-                    && matches!(data, AstarteType::String(_))
+                    && matches!(data, AstarteData::String(_))
             })
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .times(..)
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.NetworkInterfaceProperties"
                     && path.ends_with("/technologyType")
-                    && matches!(data, AstarteType::String(_))
+                    && matches!(data, AstarteData::String(_))
             })
             .returning(|_, _, _| Ok(()));
 
-        send_network_interface_properties(&client).await;
+        send_network_interface_properties(&mut client).await;
     }
 
     #[test]

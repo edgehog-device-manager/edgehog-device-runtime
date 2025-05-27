@@ -7,7 +7,7 @@
 
 use std::hash::Hash;
 
-use astarte_device_sdk::{AstarteAggregate, Error as SdkError, FromEvent};
+use astarte_device_sdk::{Error as SdkError, FromEvent, IntoAstarteObject};
 use url::{ParseError, Url};
 
 /// Astarte errors.
@@ -25,10 +25,11 @@ pub enum AstarteError {
 }
 
 /// Struct representing the fields of an aggregated object the Astarte server can send to the device.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, FromEvent, AstarteAggregate)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, FromEvent, IntoAstarteObject)]
 #[from_event(
     interface = "io.edgehog.devicemanager.ForwarderSessionRequest",
-    path = "/request"
+    path = "/request",
+    aggregation = "object"
 )]
 pub struct SessionInfo {
     /// Hostname or IP address.
@@ -65,9 +66,10 @@ impl TryFrom<&SessionInfo> for Url {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use astarte_device_sdk::types::AstarteType;
+    use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::types::AstarteData;
     use astarte_device_sdk::{DeviceEvent, Value};
-    use std::collections::HashMap;
     use std::net::Ipv4Addr;
     use url::Host;
 
@@ -86,20 +88,23 @@ mod tests {
         session_token: &str,
         secure: bool,
     ) -> DeviceEvent {
-        let mut hm = HashMap::new();
+        let mut data = AstarteObject::new();
 
-        hm.insert("host".to_string(), AstarteType::String(host.to_string()));
-        hm.insert("port".to_string(), AstarteType::Integer(port));
-        hm.insert(
+        data.insert("host".to_string(), AstarteData::String(host.to_string()));
+        data.insert("port".to_string(), AstarteData::Integer(port));
+        data.insert(
             "session_token".to_string(),
-            AstarteType::String(session_token.to_string()),
+            AstarteData::String(session_token.to_string()),
         );
-        hm.insert("secure".to_string(), AstarteType::Boolean(secure));
+        data.insert("secure".to_string(), AstarteData::Boolean(secure));
 
         DeviceEvent {
             interface: "io.edgehog.devicemanager.ForwarderSessionRequest".to_string(),
             path: "/request".to_string(),
-            data: Value::Object(hm),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         }
     }
 
@@ -108,15 +113,15 @@ mod tests {
         let sinfo = create_sinfo("test_token");
 
         let expected = [
-            ("host", AstarteType::String("127.0.0.1".to_string())),
-            ("port", AstarteType::Integer(8080)),
+            ("host", AstarteData::String("127.0.0.1".to_string())),
+            ("port", AstarteData::Integer(8080)),
             (
                 "session_token",
-                AstarteType::String("test_token".to_string()),
+                AstarteData::String("test_token".to_string()),
             ),
         ];
 
-        let res = sinfo.astarte_aggregate();
+        let res: Result<AstarteObject, astarte_device_sdk::Error> = sinfo.try_into();
 
         assert!(res.is_ok());
 

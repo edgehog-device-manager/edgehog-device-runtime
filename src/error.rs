@@ -68,7 +68,7 @@ pub enum DeviceManagerError {
     Disconnected,
 
     #[error("couldn't connect to the store")]
-    Store(#[from] crate::data::StoreError),
+    Store(#[from] astarte_device_sdk::store::sqlite::SqliteError),
 
     #[error("couldn't convert device event")]
     FromEvent(#[from] FromEventError),

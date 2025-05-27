@@ -18,7 +18,7 @@
 
 //! Create image request
 
-use astarte_device_sdk::{event::FromEventError, types::TypeError, AstarteType, FromEvent};
+use astarte_device_sdk::{event::FromEventError, types::TypeError, AstarteData, FromEvent};
 use tracing::error;
 use uuid::Uuid;
 
@@ -29,7 +29,8 @@ use super::{ReqUuid, VecReqUuid};
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
     path = "/deployment",
-    rename_all = "camelCase"
+    rename_all = "camelCase",
+    aggregation = "object"
 )]
 pub struct CreateDeployment {
     pub(crate) id: ReqUuid,
@@ -82,10 +83,10 @@ pub(crate) enum CommandValue {
     Delete,
 }
 
-impl TryFrom<AstarteType> for CommandValue {
+impl TryFrom<AstarteData> for CommandValue {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
 
         match value.as_str() {
@@ -95,7 +96,9 @@ impl TryFrom<AstarteType> for CommandValue {
             _ => {
                 error!("unrecognize DeploymentCommand command value {value}");
 
-                Err(TypeError::Conversion)
+                Err(TypeError::Conversion {
+                    ctx: format!("unrecognize DeploymentCommand command value {value}"),
+                })
             }
         }
     }
@@ -121,7 +124,9 @@ impl FromEvent for DeploymentUpdate {
                 "invalid deployment update 'from' uuid"
             );
 
-            FromEventError::Conversion(TypeError::Conversion)
+            FromEventError::Conversion(TypeError::Conversion {
+                ctx: "invalid deployment update 'from' uuid".to_string(),
+            })
         })?;
 
         let to = Uuid::parse_str(&event.to).map_err(|err| {
@@ -131,7 +136,9 @@ impl FromEvent for DeploymentUpdate {
                 "invalid deployment update 'to' uuid"
             );
 
-            FromEventError::Conversion(TypeError::Conversion)
+            FromEventError::Conversion(TypeError::Conversion {
+                ctx: "invalid deployment update 'to' uuid".to_string(),
+            })
         })?;
 
         Ok(Self { from, to })
@@ -142,7 +149,8 @@ impl FromEvent for DeploymentUpdate {
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.DeploymentUpdate",
     path = "/deployment",
-    rename_all = "camelCase"
+    rename_all = "camelCase",
+    aggregation = "object"
 )]
 struct DeploymentUpdateEvent {
     from: String,
@@ -152,19 +160,21 @@ struct DeploymentUpdateEvent {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use std::{collections::HashMap, fmt::Display};
+    use std::fmt::Display;
 
-    use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
+    use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
 
     use super::*;
 
     pub fn create_deployment_request_event<S: Display>(id: &str, containers: &[S]) -> DeviceEvent {
         let fields = [
-            ("id", AstarteType::String(id.to_string())),
+            ("id", AstarteData::String(id.to_string())),
             (
                 "containers",
-                AstarteType::StringArray(containers.iter().map(|s| s.to_string()).collect()),
+                AstarteData::StringArray(containers.iter().map(|s| s.to_string()).collect()),
             ),
         ]
         .into_iter()
@@ -174,7 +184,10 @@ pub(crate) mod tests {
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateDeploymentRequest".to_string(),
             path: "/deployment".to_string(),
-            data: Value::Object(fields),
+            data: Value::Object {
+                data: fields,
+                timestamp: Utc::now(),
+            },
         }
     }
 
@@ -198,7 +211,10 @@ pub(crate) mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.DeploymentCommand".to_string(),
             path: format!("/{id}/command"),
-            data: Value::Individual("Start".into()),
+            data: Value::Individual {
+                data: "Start".into(),
+                timestamp: Utc::now(),
+            },
         };
 
         let exp = DeploymentCommand {
@@ -212,7 +228,10 @@ pub(crate) mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.DeploymentCommand".to_string(),
             path: format!("/{id}/command"),
-            data: Value::Individual("Stop".into()),
+            data: Value::Individual {
+                data: "Stop".into(),
+                timestamp: Utc::now(),
+            },
         };
 
         let exp = DeploymentCommand {
@@ -229,13 +248,18 @@ pub(crate) mod tests {
         let from = Uuid::new_v4();
         let to = Uuid::new_v4();
 
+        let data = AstarteObject::from_iter([
+            ("from".to_string(), AstarteData::String(from.to_string())),
+            ("to".to_string(), AstarteData::String(to.to_string())),
+        ]);
+
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.DeploymentUpdate".to_string(),
             path: "/deployment".to_string(),
-            data: Value::Object(HashMap::from([
-                ("from".to_string(), AstarteType::String(from.to_string())),
-                ("to".to_string(), AstarteType::String(to.to_string())),
-            ])),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         };
 
         let exp = DeploymentUpdate { from, to };

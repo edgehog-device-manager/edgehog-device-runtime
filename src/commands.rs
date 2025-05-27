@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::{types::TypeError, AstarteType, FromEvent};
+use astarte_device_sdk::{types::TypeError, AstarteData, FromEvent};
 use tracing::error;
 
 use crate::error::DeviceManagerError;
@@ -49,10 +49,10 @@ pub enum CmdReq {
     Reboot,
 }
 
-impl TryFrom<AstarteType> for CmdReq {
+impl TryFrom<AstarteData> for CmdReq {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
 
         match value.as_str() {
@@ -60,7 +60,9 @@ impl TryFrom<AstarteType> for CmdReq {
             _ => {
                 error!("unrecognize Commands request value {value}");
 
-                Err(TypeError::Conversion)
+                Err(TypeError::Conversion {
+                    ctx: format!("unrecognize Commands request value {value}"),
+                })
             }
         }
     }
@@ -75,6 +77,7 @@ pub(crate) async fn execute_command(cmd: Commands) -> Result<(), DeviceManagerEr
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{DeviceEvent, Value};
 
     use crate::controller::event::RuntimeEvent;
@@ -86,7 +89,10 @@ mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.Commands".to_string(),
             path: "/request".to_string(),
-            data: Value::Individual("Reboot".into()),
+            data: Value::Individual {
+                data: "Reboot".into(),
+                timestamp: Utc::now(),
+            },
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();

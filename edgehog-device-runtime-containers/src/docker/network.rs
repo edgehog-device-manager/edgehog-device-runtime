@@ -26,9 +26,8 @@ use std::{
 };
 
 use bollard::{
-    errors::Error as BollardError,
-    models::Network as DockerNetwork,
-    network::{CreateNetworkOptions, InspectNetworkOptions},
+    errors::Error as BollardError, models::Network as DockerNetwork, models::NetworkCreateRequest,
+    query_parameters::InspectNetworkOptions,
 };
 use tracing::{debug, instrument, trace, warn};
 use uuid::Uuid;
@@ -142,7 +141,7 @@ impl NetworkId {
         debug!("inspecting the {}", self);
 
         let res = client
-            .inspect_network(name, None::<InspectNetworkOptions<String>>)
+            .inspect_network(name, None::<InspectNetworkOptions>)
             .await;
 
         let network = match res {
@@ -244,7 +243,7 @@ impl Network {
     pub(crate) async fn create(&mut self, client: &Client) -> Result<(), NetworkError> {
         debug!("Create the {}", self);
 
-        let options = CreateNetworkOptions::<&str>::from(&*self);
+        let options = NetworkCreateRequest::from(&*self);
 
         let res = client
             .create_network(options)
@@ -281,18 +280,14 @@ impl Display for Network {
     }
 }
 
-impl<'a> From<&'a Network> for CreateNetworkOptions<&'a str> {
-    fn from(value: &'a Network) -> Self {
-        CreateNetworkOptions {
-            name: value.name_as_str(),
-            driver: value.driver.as_ref(),
-            internal: value.internal,
-            enable_ipv6: value.enable_ipv6,
-            options: value
-                .driver_opts
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_ref()))
-                .collect(),
+impl From<&Network> for NetworkCreateRequest {
+    fn from(value: &Network) -> Self {
+        NetworkCreateRequest {
+            name: value.name_as_str().to_string(),
+            driver: Some(value.driver.clone()),
+            internal: Some(value.internal),
+            enable_ipv6: Some(value.enable_ipv6),
+            options: Some(value.driver_opts.clone()),
             ..Default::default()
         }
     }
@@ -329,9 +324,15 @@ mod tests {
                 warning: String::new(),
             };
 
-            let name_str = name.to_string();
+            let name_exp = name.to_string();
             mock.expect_create_network()
-                .withf(move |option| option.name == name_str && option.driver == "bridge")
+                .withf(move |option| {
+                    option.name == name_exp
+                        && option
+                            .driver
+                            .as_ref()
+                            .is_some_and(|driver| driver == "bridge")
+                })
                 .once()
                 .returning(move |_| Ok(resp.clone()));
 
@@ -362,9 +363,15 @@ mod tests {
                 warning: String::new(),
             };
 
-            let name_str = name.to_string();
+            let name_exp = name.to_string();
             mock.expect_create_network()
-                .withf(move |option| option.name == name_str && option.driver == "bridge")
+                .withf(move |option| {
+                    option.name == name_exp
+                        && option
+                            .driver
+                            .as_ref()
+                            .is_some_and(|driver| driver == "bridge")
+                })
                 .once()
                 .in_sequence(&mut seq)
                 .returning(move |_| Ok(resp.clone()));
@@ -428,7 +435,13 @@ mod tests {
 
             let name_str = name.to_string();
             mock.expect_create_network()
-                .withf(move |option| option.name == name_str && option.driver == "bridge")
+                .withf(move |option| {
+                    option.name == name_str
+                        && option
+                            .driver
+                            .as_ref()
+                            .is_some_and(|driver| driver == "bridge")
+                })
                 .once()
                 .returning(move |_| Ok(resp.clone()));
 

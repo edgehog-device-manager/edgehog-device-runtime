@@ -16,18 +16,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::{Client, IntoAstarteObject};
 use tracing::{debug, error};
 use zbus::zvariant::OwnedObjectPath;
 
-use crate::data::Publisher;
+use crate::data::send_object;
 use crate::telemetry::upower::device::{BatteryState, DeviceProxy, PowerDeviceType};
 use crate::telemetry::upower::UPowerProxy;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.BatteryStatus";
 
-#[derive(Debug, AstarteAggregate, PartialEq)]
-#[astarte_aggregate(rename_all = "camelCase")]
+#[derive(Debug, IntoAstarteObject, PartialEq)]
+#[astarte_object(rename_all = "camelCase")]
 pub struct BatteryStatus {
     level_percentage: f64,
     level_absolute_error: f64,
@@ -80,9 +80,9 @@ impl BatteryStatus {
     }
 }
 
-pub async fn send_battery_status<T>(client: &T)
+pub async fn send_battery_status<C>(client: &mut C)
 where
-    T: Publisher,
+    C: Client,
 {
     let connection = match zbus::Connection::system().await {
         Ok(conn) => conn,
@@ -121,16 +121,9 @@ where
             }
         };
 
-        debug!("found battery {battery_slot}: {status:?}");
+        debug!(battery_slot, ?status, "found battery");
 
-        if let Err(err) = client.send_object(INTERFACE, &battery_slot, status).await {
-            error!(
-                "couldn't send {}{}: {}",
-                INTERFACE,
-                battery_slot,
-                stable_eyre::Report::new(err)
-            );
-        }
+        send_object(client, INTERFACE, &battery_slot, status).await;
     }
 }
 
@@ -168,7 +161,10 @@ fn get_error_level(device_state: BatteryState) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::tests::MockPubSub;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::predicate;
 
     use super::*;
 
@@ -264,15 +260,19 @@ mod tests {
 
     #[tokio::test]
     async fn get_battery_status_test() {
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         client
-            .expect_send_object::<BatteryStatus>()
+            .expect_send_object()
             .times(..)
-            .withf(|interface, _, _| interface == "io.edgehog.devicemanager.BatteryStatus")
+            .with(
+                predicate::eq("io.edgehog.devicemanager.BatteryStatus"),
+                predicate::always(),
+                predicate::always(),
+            )
             .returning(|_, _, _| Ok(()));
 
-        send_battery_status(&client).await;
+        send_battery_status(&mut client).await;
     }
 
     #[test]

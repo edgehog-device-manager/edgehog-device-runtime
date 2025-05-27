@@ -57,7 +57,10 @@ impl AvailableProp for AvailableVolume<'_> {
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use mockall::predicate;
     use uuid::Uuid;
 
     use super::*;
@@ -68,21 +71,21 @@ mod tests {
 
         let volume = AvailableVolume::new(&id);
 
-        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, pulled: &bool| {
-                interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
-                    && path == format!("/{id}/created")
-                    && *pulled
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{id}/created")),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
             .returning(|_, _, _| Ok(()));
 
-        volume.send(&client, true).await.unwrap();
+        volume.send(&mut client, true).await.unwrap();
     }
 
     #[tokio::test]
@@ -91,19 +94,19 @@ mod tests {
 
         let volume = AvailableVolume::new(&id);
 
-        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_unset()
+            .expect_unset_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path| {
-                interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
-                    && path == format!("/{id}/created")
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{id}/created")),
+            )
             .returning(|_, _| Ok(()));
 
-        volume.unset(&client).await.unwrap();
+        volume.unset(&mut client).await.unwrap();
     }
 }

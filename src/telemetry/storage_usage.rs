@@ -18,17 +18,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::IntoAstarteObject;
 use std::collections::HashMap;
 use sysinfo::Disks;
 use tracing::{error, warn};
 
-use crate::data::Publisher;
+use crate::data::send_object;
+use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.StorageUsage";
 
-#[derive(Debug, AstarteAggregate)]
-#[astarte_aggregate(rename_all = "camelCase")]
+#[derive(Debug, IntoAstarteObject)]
+#[astarte_object(rename_all = "camelCase")]
 pub struct DiskUsage {
     pub total_bytes: i64,
     pub free_bytes: i64,
@@ -84,18 +85,12 @@ impl StorageUsage {
     }
 
     /// Sends all the disks.
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         for (path, v) in self.disks {
-            if let Err(err) = client.send_object(INTERFACE, &path, v).await {
-                error!(
-                    "couldn't send {}: {}",
-                    INTERFACE,
-                    stable_eyre::Report::new(err)
-                )
-            }
+            send_object(client, INTERFACE, &path, v).await;
         }
     }
 }

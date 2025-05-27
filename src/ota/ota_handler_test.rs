@@ -21,18 +21,22 @@
 use std::time::Duration;
 
 use crate::controller::actor::Actor;
-use crate::data::tests::MockPubSub;
 use crate::ota::event::{OtaOperation, OtaRequest};
+use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::store::SqliteStore;
+use astarte_device_sdk::transport::mqtt::Mqtt;
+use astarte_device_sdk::AstarteData;
+use astarte_device_sdk_mock::MockDeviceClient;
 use futures::StreamExt;
 use httpmock::prelude::*;
-use mockall::Sequence;
+use mockall::{predicate, Sequence};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::error::DeviceManagerError;
-use crate::ota::ota_handler::{OtaEvent, OtaHandler, OtaMessage};
+use crate::ota::ota_handler::{OtaHandler, OtaMessage};
 use crate::ota::rauc::BundleInfo;
 use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, ProgressStream};
 use crate::ota::{Ota, OtaId, OtaStatus, PersistentState};
@@ -47,9 +51,9 @@ where
     Ok(futures::stream::iter(iter.into_iter().map(Ok).collect::<Vec<_>>()).boxed())
 }
 
-impl OtaPublisher<MockPubSub> {
+impl OtaPublisher<MockDeviceClient<Mqtt<SqliteStore>>> {
     fn mock_new(
-        client: MockPubSub,
+        client: MockDeviceClient<Mqtt<SqliteStore>>,
         publisher_rx: mpsc::Receiver<OtaStatus>,
     ) -> JoinHandle<stable_eyre::Result<()>> {
         let publisher = Self::new(client);
@@ -789,18 +793,22 @@ async fn ota_event_canceled() {
     let uuid = Uuid::new_v4();
     let cancel_token = CancellationToken::new();
 
-    let mut client = MockPubSub::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
         .expect_send_object()
-        .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-            ota_event.status.eq("Failure")
-                && ota_event.statusCode.eq("Canceled")
-                && ota_event.statusProgress == 0
-                && ota_event.requestUUID == uuid.to_string()
-        })
+        .with(
+            predicate::eq("io.edgehog.devicemanager.OTAEvent"),
+            predicate::eq("/event"),
+            predicate::eq(AstarteObject::from_iter([
+                ("status".to_string(), "Failure".into()),
+                ("statusCode".to_string(), "Canceled".into()),
+                ("statusProgress".to_string(), AstarteData::Integer(0)),
+                ("requestUUID".to_string(), uuid.to_string().into()),
+            ])),
+        )
         .once()
-        .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+        .returning(|_, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1066,19 +1074,23 @@ async fn ota_event_not_canceled() {
         uuid: uuid.into(),
     };
 
-    let mut client = MockPubSub::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
         .expect_send_object()
-        .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-            ota_event.status.eq("Failure")
-                && ota_event.statusCode.eq("InternalError")
-                && ota_event.statusProgress == 0
-                && ota_event.requestUUID == uuid.to_string()
-                && ota_event.message.eq("Unable to cancel OTA request")
-        })
+        .with(
+            predicate::eq("io.edgehog.devicemanager.OTAEvent"),
+            predicate::eq("/event"),
+            predicate::eq(AstarteObject::from_iter([
+                ("status".to_string(), "Failure".into()),
+                ("statusCode".to_string(), "InternalError".into()),
+                ("statusProgress".to_string(), AstarteData::Integer(0)),
+                ("requestUUID".to_string(), uuid.to_string().into()),
+                ("message".to_string(), "Unable to cancel OTA request".into()),
+            ])),
+        )
         .once()
-        .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+        .returning(|_, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1114,21 +1126,26 @@ async fn ota_event_not_canceled_empty() {
         uuid: uuid.into(),
     };
 
-    let mut client = MockPubSub::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
         .expect_send_object()
-        .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-            ota_event.status.eq("Failure")
-                && ota_event.statusCode.eq("InternalError")
-                && ota_event.statusProgress == 0
-                && ota_event.requestUUID == uuid.to_string()
-                && ota_event
-                    .message
-                    .eq("Unable to cancel OTA request, internal request is empty")
-        })
+        .with(
+            predicate::eq("io.edgehog.devicemanager.OTAEvent"),
+            predicate::eq("/event"),
+            predicate::eq(AstarteObject::from_iter([
+                ("status".to_string(), "Failure".into()),
+                ("statusCode".to_string(), "InternalError".into()),
+                ("statusProgress".to_string(), AstarteData::Integer(0)),
+                ("requestUUID".to_string(), uuid.to_string().into()),
+                (
+                    "message".to_string(),
+                    "Unable to cancel OTA request, internal request is empty".into(),
+                ),
+            ])),
+        )
         .once()
-        .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+        .returning(|_, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1163,21 +1180,26 @@ async fn ota_event_not_canceled_different_uuid() {
         uuid: uuid.into(),
     };
 
-    let mut client = MockPubSub::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
         .expect_send_object()
-        .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-            ota_event.status.eq("Failure")
-                && ota_event.statusCode.eq("InternalError")
-                && ota_event.statusProgress == 0
-                && ota_event.requestUUID == uuid.to_string()
-                && ota_event
-                    .message
-                    .eq("Unable to cancel OTA request, they have different identifier")
-        })
+        .with(
+            predicate::eq("io.edgehog.devicemanager.OTAEvent"),
+            predicate::eq("/event"),
+            predicate::eq(AstarteObject::from_iter([
+                ("status".to_string(), "Failure".into()),
+                ("statusCode".to_string(), "InternalError".into()),
+                ("statusProgress".to_string(), AstarteData::Integer(0)),
+                ("requestUUID".to_string(), uuid.to_string().into()),
+                (
+                    "message".to_string(),
+                    "Unable to cancel OTA request, they have different identifier".into(),
+                ),
+            ])),
+        )
         .once()
-        .returning(|_: &str, _: &str, _: OtaEvent| Ok(()));
+        .returning(|_, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1280,19 +1302,23 @@ async fn ensure_pending_ota_is_done_ota_success() {
         ))
     });
 
-    let mut client = MockPubSub::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
     let mut seq = mockall::Sequence::new();
 
     client
         .expect_send_object()
-        .withf(move |_: &str, _: &str, ota_event: &OtaEvent| {
-            ota_event.status.eq("Success")
-                && ota_event.statusCode.is_empty()
-                && ota_event.statusProgress == 0
-                && ota_event.requestUUID == uuid.to_string()
-        })
+        .with(
+            predicate::eq("io.edgehog.devicemanager.OTAEvent"),
+            predicate::eq("/event"),
+            predicate::eq(AstarteObject::from_iter([
+                ("status".to_string(), "Success".into()),
+                ("statusCode".to_string(), "".into()),
+                ("statusProgress".to_string(), AstarteData::Integer(0)),
+                ("requestUUID".to_string(), uuid.to_string().into()),
+            ])),
+        )
         .once()
-        .returning(|_: &str, _: &str, _: OtaEvent| Ok(()))
+        .returning(|_, _, _| Ok(()))
         .in_sequence(&mut seq);
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
