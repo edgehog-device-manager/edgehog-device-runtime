@@ -18,10 +18,12 @@
 
 use std::{collections::HashMap, io};
 
-use crate::data::{publish, Publisher};
 use futures::TryFutureExt;
 use serde::Deserialize;
 use tracing::{debug, error};
+
+use crate::data::set_property;
+use crate::Client;
 
 const OS_INFO_INTERFACE: &str = "io.edgehog.devicemanager.OSInfo";
 
@@ -68,9 +70,9 @@ impl OsRelease {
         Some(Self::from(content.as_str()))
     }
 
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         self.os_info.send(client).await;
         self.base_image.send(client).await;
@@ -97,13 +99,13 @@ pub struct OsInfo {
 }
 
 impl OsInfo {
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         match self.os_name {
             Some(name) => {
-                publish(client, OS_INFO_INTERFACE, "/osName", name).await;
+                set_property(client, OS_INFO_INTERFACE, "/osName", name).await;
             }
             None => {
                 debug!("missing NAME in os-info");
@@ -112,7 +114,7 @@ impl OsInfo {
 
         match self.os_version {
             Some(version) => {
-                publish(client, OS_INFO_INTERFACE, "/osVersion", version).await;
+                set_property(client, OS_INFO_INTERFACE, "/osVersion", version).await;
             }
             None => {
                 debug!("missing VERSION_ID or BUILD_ID in os-info");
@@ -145,13 +147,13 @@ pub struct BaseImage {
 }
 
 impl BaseImage {
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         match self.name {
             Some(name) => {
-                publish(client, BASE_IMAGE_INTERFACE, "/name", name).await;
+                set_property(client, BASE_IMAGE_INTERFACE, "/name", name).await;
             }
             None => {
                 debug!("missing IMAGE_ID in os-info");
@@ -160,7 +162,7 @@ impl BaseImage {
 
         match self.version {
             Some(version) => {
-                publish(client, BASE_IMAGE_INTERFACE, "/version", version).await;
+                set_property(client, BASE_IMAGE_INTERFACE, "/version", version).await;
             }
             None => {
                 debug!("missing IMAGE_VERSION in os-info");
@@ -169,7 +171,7 @@ impl BaseImage {
 
         match self.build_id {
             Some(build_id) => {
-                publish(client, BASE_IMAGE_INTERFACE, "/buildId", build_id).await;
+                set_property(client, BASE_IMAGE_INTERFACE, "/buildId", build_id).await;
             }
             None => {
                 debug!("no build id set in IMAGE_VERSION");
@@ -203,9 +205,11 @@ impl From<&HashMap<&str, &str>> for BaseImage {
 
 #[cfg(test)]
 mod tests {
-    use astarte_device_sdk::AstarteType;
-
-    use crate::data::tests::MockPubSub;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::predicate;
 
     use super::*;
 
@@ -298,31 +302,31 @@ VERSION_ID="11""#;
 
     #[tokio::test]
     async fn should_send_os_info() {
-        let mut mock = MockPubSub::new();
+        let mut mock = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
-        mock.expect_send()
-            .times(1)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.OSInfo"
-                    && path == "/osName"
-                    && *data == AstarteType::String("name".to_string())
-            })
+        mock.expect_set_property()
+            .once()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.OSInfo"),
+                predicate::eq("/osName"),
+                predicate::eq(AstarteData::String("name".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
-        mock.expect_send()
-            .times(1)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.OSInfo"
-                    && path == "/osVersion"
-                    && *data == AstarteType::String("version".to_string())
-            })
+        mock.expect_set_property()
+            .once()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.OSInfo"),
+                predicate::eq("/osVersion"),
+                predicate::eq(AstarteData::String("version".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         OsInfo {
             os_name: Some("name".to_string()),
             os_version: Some("version".to_string()),
         }
-        .send(&mock)
+        .send(&mut mock)
         .await;
     }
 

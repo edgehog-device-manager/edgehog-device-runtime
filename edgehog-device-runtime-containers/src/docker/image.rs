@@ -28,8 +28,8 @@ use base64::Engine;
 use bollard::{
     auth::DockerCredentials,
     errors::Error as BollardError,
-    image::CreateImageOptions,
     models::{ImageDeleteResponseItem, ImageInspect},
+    query_parameters::{CreateImageOptions, RemoveImageOptions},
 };
 use futures::{future, TryStreamExt};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -274,7 +274,7 @@ impl Image {
         debug!("removing {self}");
 
         let res = client
-            .remove_image(id, None, self.docker_credentials()?)
+            .remove_image(id, None::<RemoveImageOptions>, self.docker_credentials()?)
             .await;
 
         match res {
@@ -332,10 +332,10 @@ impl Display for Image {
     }
 }
 
-impl<'a> From<&'a Image> for CreateImageOptions<'a, &'a str> {
-    fn from(value: &'a Image) -> Self {
+impl From<&Image> for CreateImageOptions {
+    fn from(value: &Image) -> Self {
         CreateImageOptions {
-            from_image: &value.reference,
+            from_image: Some(value.reference.clone()),
             ..Default::default()
         }
     }
@@ -361,7 +361,8 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
+                        .and_then(|opt| opt.from_image.as_ref())
+                        .is_some_and(|img| img == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -402,7 +403,8 @@ mod tests {
                 .withf(|options, _, _| {
                     options
                         .as_ref()
-                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
+                        .and_then(|opt| opt.from_image.as_ref())
+                        .is_some_and(|img| img == "hello-world:latest")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -490,7 +492,8 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .is_some_and(|opt| opt.from_image == "alpine:edge")
+                        .and_then(|opt| opt.from_image.as_ref())
+                        .is_some_and(|from_image| from_image == "alpine:edge")
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -559,8 +562,7 @@ mod tests {
                 .filter_map(|i| i.deleted.as_deref())
                 // This is different between docker and podman
                 .any(|deleted| id.ends_with(deleted)),
-            "no deleted {} in {res:?}",
-            id
+            "no deleted {id} in {res:?}"
         );
     }
 

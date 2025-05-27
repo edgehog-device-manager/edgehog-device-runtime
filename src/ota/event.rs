@@ -20,12 +20,16 @@
 
 use std::ops::Deref;
 
-use astarte_device_sdk::{types::TypeError, AstarteType, FromEvent};
+use astarte_device_sdk::{types::TypeError, AstarteData, FromEvent};
 use tracing::error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq)]
-#[from_event(interface = "io.edgehog.devicemanager.OTARequest", path = "/request")]
+#[from_event(
+    interface = "io.edgehog.devicemanager.OTARequest",
+    path = "/request",
+    aggregation = "object"
+)]
 pub struct OtaRequest {
     pub operation: OtaOperation,
     pub url: String,
@@ -49,16 +53,22 @@ impl Deref for OtaUuid {
     }
 }
 
-impl TryFrom<AstarteType> for OtaUuid {
+impl TryFrom<AstarteData> for OtaUuid {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let str = String::try_from(value)?;
 
         Uuid::try_parse(&str).map(OtaUuid).map_err(|err| {
-            error!("coudln't parse Ota UUID: {}", stable_eyre::Report::new(err));
+            error!(
+                value = str,
+                error = format!("{:#}", stable_eyre::Report::new(err)),
+                "coudln't parse Ota UUID",
+            );
 
-            TypeError::Conversion
+            TypeError::Conversion {
+                ctx: format!("couldn't parse Ota UUID: {str}"),
+            }
         })
     }
 }
@@ -69,19 +79,21 @@ pub enum OtaOperation {
     Cancel,
 }
 
-impl TryFrom<AstarteType> for OtaOperation {
+impl TryFrom<AstarteData> for OtaOperation {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
 
         match value.as_str() {
             "Update" => Ok(Self::Update),
             "Cancel" => Ok(Self::Cancel),
             _ => {
-                error!("unrecognize Ota operation value {value}");
+                error!(value, "unrecognize Ota operation value");
 
-                Err(TypeError::Conversion)
+                Err(TypeError::Conversion {
+                    ctx: format!("unrecognize Ota operation value {value}"),
+                })
             }
         }
     }
@@ -89,12 +101,12 @@ impl TryFrom<AstarteType> for OtaOperation {
 
 #[cfg(test)]
 mod tests {
-    use crate::controller::event::RuntimeEvent;
-
     use super::*;
 
-    use std::collections::HashMap;
+    use crate::controller::event::RuntimeEvent;
 
+    use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{event::FromEventError, DeviceEvent, Value};
 
     #[test]
@@ -103,15 +115,19 @@ mod tests {
         let url = "http://example.com";
         let uuid = Uuid::try_parse("04bf491c-af94-4e9d-813f-ebeebfb856a6").unwrap();
 
-        let mut data = HashMap::new();
-        data.insert("operation".to_string(), operation.into());
-        data.insert("url".to_string(), url.into());
-        data.insert("uuid".to_string(), uuid.to_string().into());
+        let data = AstarteObject::from_iter([
+            ("operation".to_string(), operation.into()),
+            ("url".to_string(), url.into()),
+            ("uuid".to_string(), uuid.to_string().into()),
+        ]);
 
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
-            data: Value::Object(data),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();
@@ -128,15 +144,18 @@ mod tests {
 
     #[test]
     fn telemetry_missing_uuid() {
-        let data = HashMap::from([(
+        let data = AstarteObject::from_iter([(
             "url".to_string(),
-            AstarteType::String("http://instance.ota.bin".to_string()),
+            AstarteData::String("http://instance.ota.bin".to_string()),
         )]);
 
         let err = OtaRequest::from_event(DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
-            data: Value::Object(data),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         })
         .unwrap_err();
 
@@ -148,25 +167,28 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_acknowledged_fail_data_with_one_key() {
-        let data = HashMap::from([
+        let data = AstarteObject::from_iter([
             (
                 "url".to_string(),
-                AstarteType::String("http://instance.ota.bin".to_string()),
+                AstarteData::String("http://instance.ota.bin".to_string()),
             ),
             (
                 "uuid".to_string(),
-                AstarteType::String("bad_uuid".to_string()),
+                AstarteData::String("bad_uuid".to_string()),
             ),
             (
                 "operation".to_string(),
-                AstarteType::String("Update".to_string()),
+                AstarteData::String("Update".to_string()),
             ),
         ]);
 
         let err = OtaRequest::from_event(DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
-            data: Value::Object(data),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         })
         .unwrap_err();
 
@@ -175,21 +197,25 @@ mod tests {
 
     #[tokio::test]
     async fn ota_event_fail_data_with_wrong_astarte_type() {
-        let mut data = HashMap::new();
-        data.insert(
-            "url".to_owned(),
-            AstarteType::String("http://ota.bin".to_owned()),
-        );
-        data.insert("uuid".to_owned(), AstarteType::Integer(0));
-        data.insert(
-            "operation".to_string(),
-            AstarteType::String("Update".to_string()),
-        );
+        let data = AstarteObject::from_iter([
+            (
+                "url".to_owned(),
+                AstarteData::String("http://ota.bin".to_owned()),
+            ),
+            ("uuid".to_owned(), AstarteData::Integer(0)),
+            (
+                "operation".to_string(),
+                AstarteData::String("Update".to_string()),
+            ),
+        ]);
 
         let err = OtaRequest::from_event(DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
-            data: Value::Object(data),
+            data: Value::Object {
+                data,
+                timestamp: Utc::now(),
+            },
         })
         .unwrap_err();
 

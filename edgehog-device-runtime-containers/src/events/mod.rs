@@ -18,7 +18,7 @@
 
 //! Send events to Astarte
 
-use bollard::secret::{ContainerStateStatusEnum, EventMessageTypeEnum};
+use bollard::models::{ContainerStateStatusEnum, EventMessageTypeEnum};
 use eyre::Context;
 use futures::{future, TryStreamExt};
 use tracing::{debug, error, instrument, warn};
@@ -52,7 +52,7 @@ pub struct RuntimeListener<D> {
 
 impl<D> RuntimeListener<D>
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     /// Creates a new instance.
     pub fn new(client: Docker, device: D, store: StateStore) -> Self {
@@ -114,7 +114,7 @@ where
             debug!("container deleted");
 
             AvailableContainer::new(&id)
-                .send(&self.device, ContainerStatus::Received)
+                .send(&mut self.device, ContainerStatus::Received)
                 .await?;
 
             return Ok(());
@@ -143,7 +143,7 @@ where
         };
 
         AvailableContainer::new(&id)
-            .send(&self.device, status)
+            .send(&mut self.device, status)
             .await?;
 
         Ok(())
@@ -165,7 +165,9 @@ where
 
         let pulled = image_id.inspect(&self.client).await?.is_some();
 
-        AvailableImage::new(&id).send(&self.device, pulled).await?;
+        AvailableImage::new(&id)
+            .send(&mut self.device, pulled)
+            .await?;
 
         Ok(())
     }
@@ -185,7 +187,7 @@ where
         let created = volume_id.inspect(&self.client).await?.is_some();
 
         AvailableVolume::new(&id)
-            .send(&self.device, created)
+            .send(&mut self.device, created)
             .await?;
 
         Ok(())
@@ -208,7 +210,7 @@ where
         let created = network_id.inspect(&self.client).await?.is_some();
 
         AvailableNetwork::new(&id)
-            .send(&self.device, created)
+            .send(&mut self.device, created)
             .await?;
 
         Ok(())
