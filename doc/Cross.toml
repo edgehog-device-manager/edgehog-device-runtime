@@ -1,0 +1,6 @@
+[target.armv7-unknown-linux-musleabi]
+pre-build = [
+  # additional commands to run prior to building the package
+  "dpkg --add-architecture armhf",
+  "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get --assume-yes install crossbuild-essential-armhf cmake clang",
+]

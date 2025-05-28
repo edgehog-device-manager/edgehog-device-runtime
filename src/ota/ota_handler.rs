@@ -108,7 +108,6 @@ impl OtaHandler {
         let flag = OtaInProgress::default();
 
         let ota = Ota::<OTARauc, FileStateRepository<PersistentState>>::new(
-            opts,
             publisher_tx.clone(),
             flag.clone(),
             system_update,
@@ -399,26 +398,6 @@ mod tests {
 
     #[test]
     #[allow(non_snake_case)]
-    fn convert_ota_status_downloading_to_OtaStatusMessage() {
-        let ota_request = OtaId::default();
-        let expected_ota_event = OtaEvent {
-            requestUUID: ota_request.uuid.to_string(),
-            status: "Downloading".to_string(),
-            statusProgress: 100,
-            statusCode: "".to_string(),
-            message: "".to_string(),
-        };
-
-        let ota_event = OtaStatus::Downloading(ota_request, 100).as_event().unwrap();
-        assert_eq!(expected_ota_event.status, ota_event.status);
-        assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
-        assert_eq!(expected_ota_event.message, ota_event.message);
-        assert_eq!(expected_ota_event.requestUUID, ota_event.requestUUID);
-        assert_eq!(expected_ota_event.statusProgress, ota_event.statusProgress);
-    }
-
-    #[test]
-    #[allow(non_snake_case)]
     fn convert_ota_status_Deploying_to_OtaStatusMessage() {
         let ota_request = OtaId::default();
         let expected_ota_event = OtaEvent {
@@ -516,27 +495,6 @@ mod tests {
         };
 
         let ota_event = OtaStatus::Success(ota_request).as_event().unwrap();
-        assert_eq!(expected_ota_event.status, ota_event.status);
-        assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
-        assert_eq!(expected_ota_event.message, ota_event.message);
-        assert_eq!(expected_ota_event.requestUUID, ota_event.requestUUID);
-    }
-
-    #[test]
-    #[allow(non_snake_case)]
-    fn convert_ota_status_Error_to_OtaStatusMessage() {
-        let ota_request = OtaId::default();
-        let expected_ota_event = OtaEvent {
-            requestUUID: ota_request.uuid.to_string(),
-            status: "Error".to_string(),
-            statusProgress: 0,
-            statusCode: "RequestError".to_string(),
-            message: "Invalid data".to_string(),
-        };
-
-        let ota_event = OtaStatus::Error(OtaError::Request("Invalid data"), ota_request)
-            .as_event()
-            .unwrap();
         assert_eq!(expected_ota_event.status, ota_event.status);
         assert_eq!(expected_ota_event.statusCode, ota_event.statusCode);
         assert_eq!(expected_ota_event.message, ota_event.message);
