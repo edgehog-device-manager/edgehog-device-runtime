@@ -88,13 +88,13 @@ uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
+# Pin transitive deps
+litemap = { workspace = true }
+native-tls = { workspace = true }
+zerofrom = { workspace = true }
+
 [build-dependencies]
 rustc_version = { workspace = true }
-
-# Pin transitive deps
-native-tls = { workspace = true }
-litemap = { workspace = true }
-zerofrom = { workspace = true }
 
 [dev-dependencies]
 astarte-message-hub-proto = { workspace = true }
