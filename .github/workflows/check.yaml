@@ -22,100 +22,83 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
 jobs:
   fmt:
     runs-on: ubuntu-24.04
-    name: stable / fmt
     steps:
       - uses: actions/checkout@v4
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
       - name: Check formatting
         run: cargo fmt --check --all
   clippy:
     runs-on: ubuntu-24.04
-    name: ${{ matrix.toolchain }} / clippy
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain: [stable, beta]
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-          components: clippy
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features --workspace
   doc:
     runs-on: ubuntu-24.04
-    name: nightly / doc
-    env:
-      RUSTDOCFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install nightly
-        uses: dtolnay/rust-toolchain@nightly
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
+        with:
+          toolchain: nightly
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install cargo-docs-rs
         uses: dtolnay/install@cargo-docs-rs
-      - run: cargo docs-rs
-
-  hack:
+      - run: cargo docs-rs --locked
+  features:
     runs-on: ubuntu-24.04
-    name: ubuntu / stable / features
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: cargo hack test
         # Doesn't test all combination of features, but the space is becoming too large and it takes
         # too long
-        run: cargo hack --each-feature test
+        run: cargo hack test --locked --each-feature
   msrv:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        msrv: [1.72]
-    name: ubuntu / ${{ matrix.msrv }}
+        msrv: [1.78]
+    name: msrv / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install ${{ matrix.msrv }}
-        uses: dtolnay/rust-toolchain@master
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
         with:
           toolchain: ${{ matrix.msrv }}
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: taiki-e/install-action@cargo-hack
       - name: cargo +${{ matrix.msrv }} check
         # the compatibility with the MSRV needs to be checked only for the binary
-        run: cargo +${{ matrix.msrv }} check --all-features -p edgehog-device-runtime
+        run: cargo +${{ matrix.msrv }} hack check --no-dev-deps --all-features -p edgehog-device-runtime

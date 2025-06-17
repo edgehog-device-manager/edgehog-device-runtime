@@ -19,7 +19,7 @@
 //! Models for all the resources.
 
 use diesel::{
-    dsl::{exists, BareSelect, Eq, Filter},
+    dsl::{Eq, Filter},
     query_dsl::methods::FilterDsl,
     sql_types::Binary,
     AppearsOnTable, Expression, ExpressionMethods, Table,
@@ -32,7 +32,10 @@ pub mod containers;
 
 type ById<'a, Id> = Eq<Id, &'a SqlUuid>;
 type FilterById<'a, Table, Id> = Filter<Table, ById<'a, Id>>;
-type ExistsFilterById<'a, Table, Id> = BareSelect<exists<FilterById<'a, Table, Id>>>;
+// Only used in containers for now
+#[cfg(feature = "containers")]
+type ExistsFilterById<'a, Table, Id> =
+    diesel::dsl::BareSelect<diesel::dsl::exists<FilterById<'a, Table, Id>>>;
 
 /// General implementation for utility functions on a model.
 pub trait QueryModel {

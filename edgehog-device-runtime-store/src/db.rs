@@ -34,7 +34,6 @@ use std::{
 };
 
 use diesel::{connection::SimpleConnection, Connection, ConnectionError, SqliteConnection};
-use diesel_migrations::MigrationHarness;
 use sync_wrapper::SyncWrapper;
 use tokio::{sync::Mutex, task::JoinError};
 use tracing::debug;
@@ -116,13 +115,19 @@ impl Handle {
             .to_str()
             .ok_or_else(|| HandleError::NonUtf8Path(db_path.to_path_buf()))?;
 
-        let mut writer = Self::establish_writer(db_str).await?;
+        let writer = Self::establish_writer(db_str).await?;
+        // We don't have migrations other than the containers for now
+        #[cfg(feature = "containers")]
+        let mut writer = writer;
 
         let writer = tokio::task::spawn_blocking(move || -> Result<SqliteConnection> {
             #[cfg(feature = "containers")]
-            writer
-                .run_pending_migrations(crate::schema::CONTAINER_MIGRATIONS)
-                .map_err(HandleError::Migrations)?;
+            {
+                use diesel_migrations::MigrationHarness;
+                writer
+                    .run_pending_migrations(crate::schema::CONTAINER_MIGRATIONS)
+                    .map_err(HandleError::Migrations)?;
+            }
 
             Ok(writer)
         })
