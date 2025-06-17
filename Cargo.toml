@@ -88,13 +88,17 @@ uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
-[build-dependencies]
-rustc_version = { workspace = true }
+# C dependencies
+aws-lc-rs = { version = "*", optional = true }
+openssl = { version = "*", optional = true }
 
 # Pin transitive deps
-native-tls = { workspace = true }
 litemap = { workspace = true }
+native-tls = { workspace = true }
 zerofrom = { workspace = true }
+
+[build-dependencies]
+rustc_version = { workspace = true }
 
 [dev-dependencies]
 astarte-message-hub-proto = { workspace = true }
@@ -115,7 +119,10 @@ wifiscanner = ["dep:wifiscanner"]
 zbus = ["dep:zbus"]
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
-vendored = ["edgehog-store/vendored"]
+vendored = ["edgehog-store/vendored", "dep:openssl", "openssl/vendored"]
+# Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
+# installed
+cross = ["vendored", "dep:aws-lc-rs", "aws-lc-rs/bindgen"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.9.6"
