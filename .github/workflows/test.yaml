@@ -22,62 +22,46 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
   # Enable logging otherwise the logging lines will count as not covered in the test coverage
   RUST_LOG: trace
-defaults:
-  run:
-    shell: bash
 jobs:
-  required:
+  test:
     runs-on: ubuntu-24.04
-    name: ubuntu / ${{ matrix.toolchain }}
-    strategy:
-      matrix:
-        toolchain: [stable, beta]
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
-      - name: cargo generate-lockfile
-        if: hashFiles('Cargo.lock') == ''
-        run: cargo generate-lockfile
-      - name: Run cargo test --locked
-        run: cargo test --locked --all-features --workspace
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: cargo test --locked
+        run: cargo test --locked --all-features --all-targets --workspace
       # https://github.com/rust-lang/cargo/issues/6669
       - name: Run cargo test --doc
         run: cargo test --locked --all-features --doc --workspace
   coverage:
     runs-on: ubuntu-24.04
-    name: ubuntu / nightly / coverage
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y libsqlite3-dev libssl-dev libudev-dev libsystemd-dev upower
-      - name: Install nightly
-        uses: dtolnay/rust-toolchain@nightly
+          sudo apt-get update
+          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.12.0
         with:
+          toolchain: nightly
           components: llvm-tools
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
-      - name: Install grcov
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: install grcov
         uses: taiki-e/install-action@grcov
-      - name: cargo generate-lockfile
-        if: hashFiles('Cargo.lock') == ''
-        run: cargo generate-lockfile
       - name: Generate coverage
         run: |
           EXPORT_FOR_CI=1 ./scripts/coverage.sh
