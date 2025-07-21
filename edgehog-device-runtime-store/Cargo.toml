@@ -39,4 +39,10 @@ tempfile = { workspace = true }
 
 [features]
 containers = []
+# Compiles the C dependencies at buildtime instead of using system libraries
 vendored = ["rusqlite/bundled"]
+# Requires bindgen or clang and CMake to generate C bindings at buildtime
+bindgen = ["rusqlite/buildtime_bindgen"]
+# Feature to make it easier to cross compile the runtime, it requires clang and CMake to be
+# installed
+cross = ["vendored", "bindgen"]
