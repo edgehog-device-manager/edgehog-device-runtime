@@ -89,8 +89,8 @@ wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
 # C dependencies
-aws-lc-rs = { version = "*", optional = true }
-openssl = { version = "*", optional = true }
+aws-lc-rs = { version = "1.13.2", optional = true }
+rusqlite = { version = "0.32.1", optional = true }
 
 [build-dependencies]
 rustc_version = { workspace = true }
@@ -112,12 +112,21 @@ systemd = ["dep:systemd"]
 udev = ["dep:udev"]
 wifiscanner = ["dep:wifiscanner"]
 zbus = ["dep:zbus"]
+# Compiles the C dependencies at buildtime instead of using system libraries
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
-vendored = ["edgehog-store/vendored", "dep:openssl", "openssl/vendored"]
-# Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
+vendored = ["dep:rusqlite", "edgehog-store/vendored", "rusqlite/bundled"]
+# Requires bindgen or clang and CMake to generate C bindings at buildtime
+bindgen = [
+  "dep:rusqlite",
+  "dep:aws-lc-rs",
+  "edgehog-store/bindgen",
+  "rusqlite/buildtime_bindgen",
+  "aws-lc-rs/bindgen",
+]
+# Feature to make it easier to cross compile the runtime, it requires clang and CMake to be
 # installed
-cross = ["vendored", "dep:aws-lc-rs", "aws-lc-rs/bindgen"]
+cross = ["vendored", "bindgen"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.10.1"
