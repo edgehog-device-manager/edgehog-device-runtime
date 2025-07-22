@@ -51,6 +51,13 @@ export COVERAGE_OUT_DIR="$CARGO_TARGET_DIR/debug/coverage"
 export RUSTFLAGS="-Cinstrument-coverage -Zcoverage-options=branch"
 export CARGO_INCREMENTAL=0
 
+main_crate='edgehog-device-runtime'
+crates=(
+    'edgehog-device-runtime'
+    'edgehog-device-runtime-containers'
+    'edgehog-device-runtime-forwarder'
+)
+
 # Helpful for testing changes in the generation options
 if [[ ${1:-} != '--no-gen' ]]; then
     cargo +nightly clean
@@ -58,9 +65,9 @@ if [[ ${1:-} != '--no-gen' ]]; then
     mkdir -p "$COVERAGE_OUT_DIR"
     mkdir -p "$PROFS_DIR"
 
-    cargo +nightly test --locked --all-features --tests --no-fail-fast -p edgehog-device-runtime
-    cargo +nightly test --locked --all-features --tests --no-fail-fast -p edgehog-device-runtime-containers
-    cargo +nightly test --locked --all-features --tests --no-fail-fast -p edgehog-device-runtime-forwarder
+    for crate in "${crates[@]}"; do
+        cargo +nightly test --locked --all-features --tests --no-fail-fast -p "$crate"
+    done
 fi
 
 find_target_tool() {
@@ -95,7 +102,7 @@ object_files() {
 
 export_lcov() {
     local src
-    if [[ $1 == 'edgehog-device-runtime' ]]; then
+    if [[ $1 == "$main_crate" ]]; then
         src="$SRC_DIR/src"
     else
         src="$SRC_DIR/$1/src"
@@ -114,7 +121,7 @@ export_lcov() {
 
 filter_lcov() {
     local src
-    if [[ $1 == 'edgehog-device-runtime' ]]; then
+    if [[ $1 == "$main_crate" ]]; then
         src="$SRC_DIR"
     else
         src="$SRC_DIR/$1"
@@ -129,15 +136,25 @@ filter_lcov() {
         --llvm \
         --excl-start 'mod test(s)?' \
         --output-type lcov,html
+
+    # Better branch coverage information
+    if command -v genhtml; then
+        mkdir -p "$COVERAGE_OUT_DIR/$1/genhtml"
+        genhtml \
+            --show-details \
+            --legend \
+            --branch-coverage \
+            --dark-mode \
+            --missed \
+            --ignore-errors category \
+            --ignore-errors inconsistent \
+            --output-directory "$COVERAGE_OUT_DIR/$1/genhtml" \
+            "$COVERAGE_OUT_DIR/$1/lcov.info"
+
+    fi
 }
 
-list=(
-    'edgehog-device-runtime'
-    'edgehog-device-runtime-containers'
-    'edgehog-device-runtime-forwarder'
-)
-
-for p in "${list[@]}"; do
+for p in "${crates[@]}"; do
     mkdir -p "$COVERAGE_OUT_DIR/$p/"
 
     export_lcov "$p"
@@ -150,3 +167,8 @@ for p in "${list[@]}"; do
         cp -v "$COVERAGE_OUT_DIR/$p/lcov" "$PWD/coverage-$p.info"
     fi
 done
+
+# Fixes the profraw being detected by codecov
+if [[ -n "${EXPORT_FOR_CI:-}" ]]; then
+    rm -rf "$CARGO_TARGET_DIR"
+fi
