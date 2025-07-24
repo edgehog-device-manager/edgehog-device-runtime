@@ -20,6 +20,8 @@
 
 set -exEuo pipefail
 
+nightly_version="nightly-2025-07-21"
+
 # Output directories for the profile files and coverage
 #
 # You'll find the coverage report and `lcov` file under: $CARGO_TARGET_DIR/debug/coverage/
@@ -31,7 +33,7 @@ CARGO_TARGET_DIR=$(
 )
 export CARGO_TARGET_DIR
 SRC_DIR="$(
-    cargo +nightly locate-project |
+    cargo "+$nightly_version" locate-project |
         jq .root --raw-output |
         xargs dirname
 )"
@@ -60,13 +62,13 @@ crates=(
 
 # Helpful for testing changes in the generation options
 if [[ ${1:-} != '--no-gen' ]]; then
-    cargo +nightly clean
+    cargo "+$nightly_version" clean
 
     mkdir -p "$COVERAGE_OUT_DIR"
     mkdir -p "$PROFS_DIR"
 
     for crate in "${crates[@]}"; do
-        cargo +nightly test --locked --all-features --tests --no-fail-fast -p "$crate"
+        cargo "+$nightly_version" test --locked --all-features --tests --no-fail-fast -p "$crate"
     done
 fi
 
@@ -90,7 +92,7 @@ $LLVM_PROFDATA merge -sparse "$PROFS_DIR/"*.profraw -o "$PROFS_DIR/coverage.prof
 
 object_files() {
     tests=$(
-        cargo +nightly test --tests --all-features --no-run --message-format=json "$@" |
+        cargo "+$nightly_version" test --tests --all-features --no-run --message-format=json "$@" |
             jq -r "select(.profile.test == true) | .filenames[]" |
             grep -v dSYM -
     )
