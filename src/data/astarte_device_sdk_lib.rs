@@ -25,7 +25,7 @@ use astarte_device_sdk::error::Error as AstarteError;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::transport::mqtt::{Credential, MqttConfig, PairingError};
+use astarte_device_sdk::transport::mqtt::{Credential, Mqtt, MqttConfig};
 use astarte_device_sdk::DeviceClient;
 use serde::Deserialize;
 use tokio::task::JoinSet;
@@ -42,10 +42,6 @@ pub enum DeviceSdkError {
     /// couldn't get the hardware id from DBus
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     Zbus(#[from] zbus::Error),
-    /// couldn't pair device to Astarte
-    Pairing(#[from] PairingError),
-    /// couldn't write credential secret
-    WriteSecret(#[source] FileStateError),
     /// couldn't read credential secret
     ReadSecret(#[source] FileStateError),
     /// couldn't get credential secret or pairing token
@@ -99,7 +95,7 @@ impl AstarteDeviceSdkConfigOptions {
 
         let registry = FileStateRepository::new(
             store_directory.as_ref(),
-            format!("credentials_{}.json", device_id),
+            format!("credentials_{device_id}.json"),
         );
 
         if StateRepository::<String>::exists(&registry).await {
@@ -123,7 +119,7 @@ impl AstarteDeviceSdkConfigOptions {
         store: SqliteStore,
         store_dir: P,
         interface_dir: P,
-    ) -> Result<DeviceClient<SqliteStore>, DeviceSdkError>
+    ) -> Result<DeviceClient<Mqtt<SqliteStore>>, DeviceSdkError>
     where
         P: AsRef<Path>,
     {
@@ -146,11 +142,10 @@ impl AstarteDeviceSdkConfigOptions {
             .store(store)
             .interface_directory(interface_dir)?
             .writable_dir(store_dir)?
-            .connect(mqtt_cfg)
-            .await
-            .map_err(DeviceSdkError::Connect)?
+            .connection(mqtt_cfg)
             .build()
-            .await;
+            .await
+            .map_err(DeviceSdkError::Connect)?;
 
         tasks.spawn(async move { connection.handle_events().await.map_err(Into::into) });
 
@@ -237,7 +232,7 @@ mod tests {
 
         let device_id = "device_id";
 
-        let path = path.join(format!("credentials_{}.json", device_id));
+        let path = path.join(format!("credentials_{device_id}.json"));
 
         tokio::fs::write(&path, b"\0").await.unwrap();
 
@@ -261,7 +256,7 @@ mod tests {
 
         let device_id = "device_id";
 
-        let full_path = path.join(format!("credentials_{}.json", device_id));
+        let full_path = path.join(format!("credentials_{device_id}.json"));
 
         let exp = "credential_secret";
 

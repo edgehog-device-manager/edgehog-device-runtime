@@ -172,6 +172,6 @@ pub(crate) mod tests {
 
         let res = docker.ping().await;
 
-        assert!(res.is_ok(), "Ping failed: {:?}", res);
+        assert!(res.is_ok(), "Ping failed: {res:?}");
     }
 }

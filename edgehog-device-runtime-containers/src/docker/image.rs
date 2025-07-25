@@ -559,8 +559,7 @@ mod tests {
                 .filter_map(|i| i.deleted.as_deref())
                 // This is different between docker and podman
                 .any(|deleted| id.ends_with(deleted)),
-            "no deleted {} in {res:?}",
-            id
+            "no deleted {id} in {res:?}"
         );
     }
 
