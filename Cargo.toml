@@ -33,6 +33,7 @@ members = [
   "e2e-test-forwarder",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
+  "edgehog-device-runtime-service",
   "edgehog-device-runtime-store",
   "hardware-id-service",
   "led-manager-service",
@@ -147,7 +148,9 @@ displaydoc = "0.2.5"
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.0" }
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.0" }
-edgehog-proto = { package = "edgehog-device-runtime-proto", git = "https://github.com/edgehog-device-manager/edgehog-device-runtime-proto" }
+# edgehog-proto = { package = "edgehog-device-runtime-proto", git = "https://github.com/edgehog-device-manager/edgehog-device-runtime-proto" }
+edgehog-proto = { package = "edgehog-device-runtime-proto", path = "/home/joshuachp/share/repos/seco/edgehog-device-runtime-proto-wrapped/edgehog-device-runtime-proto/rust/edgehog-device-runtime-proto/" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.9.0" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.0" }
 eyre = "0.6.12"
 futures = "0.3.31"

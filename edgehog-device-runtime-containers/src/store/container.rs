@@ -367,6 +367,25 @@ impl StateStore {
         Ok(container)
     }
 
+    /// Fetches an container by id, returning the local id
+    #[instrument(skip(self))]
+    pub(crate) async fn load_container_local_id(&self, id: Uuid) -> Result<Option<String>> {
+        let local_id = self
+            .handle
+            .for_read(move |reader| {
+                let id = SqlUuid::new(id);
+                let local_id = containers::table
+                    .select(containers::local_id)
+                    .filter(containers::id.eq(id))
+                    .first::<Option<String>>(reader)?;
+
+                Ok(local_id)
+            })
+            .await?;
+
+        Ok(local_id)
+    }
+
     /// Fetches an container by id, only if all the resources are present
     #[instrument(skip(self))]
     pub(crate) async fn find_container(&self, id: Uuid) -> Result<Option<ContainerResource>> {
