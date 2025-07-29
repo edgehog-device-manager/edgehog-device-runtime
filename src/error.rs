@@ -77,6 +77,10 @@ pub enum DeviceManagerError {
     #[error("container operation failed")]
     Containers(#[from] edgehog_containers::service::ServiceError),
 
+    #[cfg(feature = "containers")]
+    #[error("couldn't open database")]
+    Database(#[from] edgehog_store::db::HandleError),
+
     #[cfg(feature = "forwarder")]
     #[error("forwarder error")]
     Forwarder(#[from] crate::forwarder::ForwarderError),
