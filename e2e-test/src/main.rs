@@ -30,6 +30,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tempdir::TempDir;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, error, info};
 use tracing_subscriber::layer::SubscriberExt;
@@ -149,6 +150,8 @@ async fn main() -> color_eyre::Result<()> {
         astarte_message_hub: None,
         #[cfg(feature = "containers")]
         containers: edgehog_device_runtime::containers::ContainersConfig::default(),
+        #[cfg(feature = "service")]
+        service: None,
     };
 
     let store = connect_store(store_path.path())
@@ -167,7 +170,7 @@ async fn main() -> color_eyre::Result<()> {
         .await
         .wrap_err("couldn't connect to astarte")?;
 
-    let mut dm = Runtime::new(&mut tasks, device_options, client).await?;
+    let mut dm = Runtime::new(&mut tasks, device_options, client, CancellationToken::new()).await?;
 
     tasks.spawn(async move {
         dm.run()
