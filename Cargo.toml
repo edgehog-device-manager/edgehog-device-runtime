@@ -33,6 +33,7 @@ members = [
   "e2e-test-forwarder",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
+  "edgehog-device-runtime-service",
   "edgehog-device-runtime-store",
   "hardware-id-service",
   "led-manager-service",
@@ -64,6 +65,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 displaydoc = { workspace = true }
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
+edgehog-service = { workspace = true, optional = true }
 edgehog-store = { workspace = true, optional = true }
 eyre = { workspace = true }
 futures = { workspace = true }
@@ -105,9 +107,11 @@ tokio-stream = { workspace = true, features = ["net"] }
 
 [features]
 default = ["udev", "wifiscanner", "zbus"]
-containers = ["dep:edgehog-containers", "dep:edgehog-store"]
+containers = ["dep:edgehog-containers", "dep:edgehog-store", "edgehog-service/containers"]
 forwarder = ["dep:edgehog-forwarder"]
 message-hub = ["astarte-device-sdk/message-hub"]
+# Local service for the runtime
+service = ["dep:edgehog-service", "dep:edgehog-store"]
 systemd = ["dep:systemd"]
 udev = ["dep:udev"]
 wifiscanner = ["dep:wifiscanner"]
@@ -140,7 +144,7 @@ bytes = "1.10.1"
 cfg-if = "1.0.3"
 clap = "4.5.47"
 color-eyre = "0.6.5"
-deadpool = { version = "0.12.2", default-features = false }
+deadpool = { version = "0.12.3", default-features = false }
 diesel = "2.2.12"
 diesel_migrations = "2.2.0"
 displaydoc = "0.2.5"
@@ -148,6 +152,7 @@ edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.1" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", git = "https://github.com/edgehog-device-manager/edgehog-device-runtime-proto" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.9.1" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.1" }
 eyre = "0.6.12"
 futures = "0.3.31"

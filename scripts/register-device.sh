@@ -32,32 +32,54 @@
 
 set -exEuo pipefail
 
-if [[ -z $KEY ]]; then
-    echo "Export the \$KEY environment variable as the path to the private key for astarte"
+if [[ -z $INTERFACES ]]; then
+    echo "Export the \$INTERFACES environment variable as the path to the interfaces directory"
     exit 1
 fi
 
-export RUST_LOG=${RUST_LOG:-debug}
-astartectl realm-management interfaces sync -y \
-    -u http://api.astarte.localhost \
-    -r test \
-    -k "$KEY" \
-    "$INTERFACES"/*.json
+if [[ -z ${1:-} ]]; then
+    echo "You need to pass the configuration file"
+    echo "For example: $0 config.toml"
+    exit 1
+fi
 
-export EDGEHOG_REALM='test'
-export EDGEHOG_API_URL='http://api.astarte.localhost/appengine'
-export EDGEHOG_PAIRING_URL='http://api.astarte.localhost/pairing'
-export EDGEHOG_IGNORE_SSL=true
-export EDGEHOG_INTERFACES_DIR=$INTERFACES
+config=$1
 
-EDGEHOG_DEVICE_ID="$(astartectl utils device-id generate-random)"
-EDGEHOG_CREDENTIALS_SECRET="$(astartectl pairing agent register --compact-output -r test -u http://api.astarte.localhost -k "$KEY" -- "$EDGEHOG_DEVICE_ID")"
-EDGEHOG_TOKEN="$(astartectl utils gen-jwt all-realm-apis -u http://api.astarte.localhost -k "$KEY")"
-EDGEHOG_STORE_DIR="$(mktemp -d)"
+current_cluster=$(astartectl config current-cluster)
 
-export EDGEHOG_DEVICE_ID
-export EDGEHOG_CREDENTIALS_SECRET
-export EDGEHOG_TOKEN
-export EDGEHOG_STORE_DIR
+if [[ -z $current_cluster ]]; then
+    echo "You need to setup an astartectl cluster"
+    exit 1
+fi
 
-"$@"
+api_url=$(
+    astartectl config clusters show "$current_cluster" |
+        grep 'Astarte API URL' |
+        cut -f 2- -d ':' |
+        tr -d ' '
+)
+
+ssl=""
+if [[ $api_url == "http:"* ]]; then
+    ssl="ignore_ssl=true"
+fi
+
+astartectl realm-management interfaces sync -y "$INTERFACES"/*.json
+
+store=$(mktemp -d)
+device_id=$(astartectl utils device-id generate-random)
+credential=$(astartectl pairing agent register "$device_id" --compact-output)
+
+cat >"$config" <<EOF
+astarte_library = "astarte-device-sdk"
+interfaces_directory = "$INTERFACES"
+store_directory = "$store"
+download_directory = "$store/download"
+
+[astarte_device_sdk]
+realm = "test"
+device_id = "$device_id"
+credentials_secret = "$credential"
+pairing_url = "$api_url/pairing"
+$ssl
+EOF
