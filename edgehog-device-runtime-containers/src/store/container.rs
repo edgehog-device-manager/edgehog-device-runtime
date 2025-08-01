@@ -347,6 +347,26 @@ impl StateStore {
         Ok(container)
     }
 
+    #[instrument(skip(self))]
+    pub(crate) async fn load_containers_in_state(
+        &mut self,
+        state: Vec<ContainerStatus>,
+    ) -> Result<Vec<(SqlUuid, Option<String>)>> {
+        let container = self
+            .handle
+            .for_read(move |reader| {
+                let container = containers::table
+                    .select((containers::id, containers::local_id))
+                    .filter(containers::status.eq_any(state))
+                    .load::<(SqlUuid, Option<String>)>(reader)?;
+
+                Ok(container)
+            })
+            .await?;
+
+        Ok(container)
+    }
+
     /// Fetches an container by id, only if all the resources are present
     #[instrument(skip(self))]
     pub(crate) async fn find_container(&mut self, id: Uuid) -> Result<Option<ContainerResource>> {
