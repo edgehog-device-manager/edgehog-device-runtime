@@ -98,21 +98,31 @@ async fn main() -> stable_eyre::Result<()> {
 
     let mut tasks = JoinSet::new();
 
-    let client = match &options.astarte_library {
+    match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSdk => {
             let astarte_sdk_options = options
                 .astarte_device_sdk
                 .as_ref()
                 .ok_or_eyre("couldn't get astarte options")?;
 
-            astarte_sdk_options
+            let client = astarte_sdk_options
                 .connect(
                     &mut tasks,
                     store,
                     &options.store_directory,
                     &options.interfaces_directory,
                 )
-                .await?
+                .await?;
+
+            let mut runtime =
+                edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
+
+            tasks.spawn(async move {
+                runtime
+                    .run()
+                    .await
+                    .wrap_err("the Device Runtime encountered an unrecoverable error")
+            });
         }
         #[cfg(feature = "message-hub")]
         AstarteLibrary::AstarteMessageHub => {
@@ -121,19 +131,21 @@ async fn main() -> stable_eyre::Result<()> {
                 .as_ref()
                 .ok_or_eyre("couldn't get MessageHub options")?;
 
-            astarte_message_hub_options
+            let client = astarte_message_hub_options
                 .connect(&mut tasks, store, &options.interfaces_directory)
-                .await?
+                .await?;
+
+            let mut runtime =
+                edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
+
+            tasks.spawn(async move {
+                runtime
+                    .run()
+                    .await
+                    .wrap_err("the Device Runtime encountered an unrecoverable error")
+            });
         }
     };
-
-    let mut dm = edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
-
-    tasks.spawn(async move {
-        dm.run()
-            .await
-            .wrap_err("the Device Runtime encountered an unrecoverable error")
-    });
 
     while let Some(res) = tasks.join_next().await {
         match res {
@@ -177,6 +189,6 @@ fn systemd_panic_hook(panic_info: &std::panic::PanicInfo) {
         "".to_string()
     };
 
-    let status = format!("{} {}", message, location);
+    let status = format!("{message} {location}");
     systemd_wrapper::systemd_notify_errno_status(ENOTRECOVERABLE, &status);
 }

@@ -19,7 +19,7 @@
  */
 
 use astarte_device_sdk::{
-    event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
+    event::FromEventError, types::TypeError, AstarteData, DeviceEvent, FromEvent,
 };
 use async_trait::async_trait;
 use tokio::time::{sleep, Duration, Instant};
@@ -73,10 +73,10 @@ pub enum Blink {
     Slow,
 }
 
-impl TryFrom<AstarteType> for Blink {
+impl TryFrom<AstarteData> for Blink {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
 
         match value.as_str() {
@@ -84,9 +84,11 @@ impl TryFrom<AstarteType> for Blink {
             "DoubleBlink60Seconds" => Ok(Self::Double),
             "SlowBlink60Seconds" => Ok(Self::Slow),
             _ => {
-                error!("unrecognize LedBehavior behavior value {value}");
+                error!(value, "unrecognized LedBehavior behavior value");
 
-                Err(TypeError::Conversion)
+                Err(TypeError::Conversion {
+                    ctx: format!("unrecognized LedBehavior behavior value {value}"),
+                })
             }
         }
     }
@@ -214,6 +216,7 @@ mod tests {
 
     use super::*;
 
+    use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::Value;
     use tokio::time::Duration;
 
@@ -243,7 +246,10 @@ mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.LedBehavior".to_string(),
             path: "/42/behavior".to_string(),
-            data: Value::Individual("Blink60Seconds".into()),
+            data: Value::Individual {
+                data: "Blink60Seconds".into(),
+                timestamp: Utc::now(),
+            },
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();
@@ -259,7 +265,10 @@ mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.LedBehavior".to_string(),
             path: "/42/behavior".to_string(),
-            data: Value::Individual("DoubleBlink60Seconds".into()),
+            data: Value::Individual {
+                data: "DoubleBlink60Seconds".into(),
+                timestamp: Utc::now(),
+            },
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();
@@ -275,7 +284,10 @@ mod tests {
         let event = DeviceEvent {
             interface: "io.edgehog.devicemanager.LedBehavior".to_string(),
             path: "/42/behavior".to_string(),
-            data: Value::Individual("SlowBlink60Seconds".into()),
+            data: Value::Individual {
+                data: "SlowBlink60Seconds".into(),
+                timestamp: Utc::now(),
+            },
         };
 
         let res = RuntimeEvent::from_event(event).unwrap();

@@ -18,7 +18,6 @@
 
 use std::{future::Future, path::Path, time::Duration};
 
-use astarte_device_sdk::Client;
 use async_trait::async_trait;
 use edgehog_containers::{
     events::RuntimeListener,
@@ -39,6 +38,7 @@ use tokio::task::JoinSet;
 use tracing::error;
 
 use crate::controller::actor::Actor;
+use crate::Client;
 
 /// Maximum number of retries for the initialization of the service
 pub const MAX_INIT_RETRIES: usize = 10;

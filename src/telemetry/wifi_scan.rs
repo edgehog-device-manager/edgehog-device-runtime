@@ -18,16 +18,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::data::Publisher;
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::{Client, IntoAstarteObject};
 use stable_eyre::eyre::Context;
 use tracing::error;
 use wifiscanner::Wifi;
 
+use crate::data::send_object;
+
 const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
 
-#[derive(Debug, AstarteAggregate, PartialEq)]
-#[astarte_aggregate(rename_all = "camelCase")]
+#[derive(Debug, IntoAstarteObject, PartialEq)]
+#[astarte_object(rename_all = "camelCase")]
 pub struct WifiScanResult {
     channel: i32,
     connected: bool,
@@ -36,9 +37,9 @@ pub struct WifiScanResult {
     rssi: i32,
 }
 
-pub async fn send_wifi_scan<T>(client: &T)
+pub async fn send_wifi_scan<C>(client: &mut C)
 where
-    T: Publisher,
+    C: Client,
 {
     let res = tokio::task::spawn_blocking(|| {
         wifiscanner::scan().unwrap_or_else(|err| {
@@ -74,13 +75,7 @@ where
         });
 
     for scan in iter {
-        if let Err(err) = client.send_object(INTERFACE, "/ap", scan).await {
-            error!(
-                "couldn't send {}: {}",
-                INTERFACE,
-                stable_eyre::Report::new(err)
-            );
-        }
+        send_object(client, INTERFACE, "/ap", scan).await;
     }
 }
 
@@ -110,23 +105,28 @@ impl TryFrom<Wifi> for WifiScanResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::tests::MockPubSub;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::predicate;
 
     use super::*;
 
     #[tokio::test]
     async fn wifi_scan_test() {
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         client
-            .expect_send_object::<WifiScanResult>()
+            .expect_send_object()
             .times(..)
-            .withf(|interface, path, _| {
-                interface == "io.edgehog.devicemanager.WiFiScanResults" && path == "/ap"
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.WiFiScanResults"),
+                predicate::eq("/ap"),
+                predicate::always(),
+            )
             .returning(|_, _, _| Ok(()));
 
-        send_wifi_scan(&client).await;
+        send_wifi_scan(&mut client).await;
     }
 
     #[test]
