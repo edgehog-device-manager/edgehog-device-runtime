@@ -38,6 +38,8 @@
         "networkMode": "bridge",
         "portBindings": ["9000:80"],
         "extraHosts": ["host.docker.internal:host-gateway"],
+        "capAdd": ["CAP_CHOWN"],
+        "capDrop": ["CAP_KILL"],
         "privileged": false
       }
     },
