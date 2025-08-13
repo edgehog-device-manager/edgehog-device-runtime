@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,12 +29,12 @@ use diesel::{
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::containers::container::{
-    ContainerBind, ContainerEnv, ContainerNetwork, ContainerPortBind, ContainerRestartPolicy,
-    ContainerStatus, ContainerVolume, HostPort,
+    ContainerBind, ContainerEnv, ContainerExtraHost, ContainerNetwork, ContainerPortBind,
+    ContainerRestartPolicy, ContainerStatus, ContainerVolume, HostPort,
 };
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::QueryModel;
-use edgehog_store::schema::containers::{deployment_containers, images};
+use edgehog_store::schema::containers::{container_extra_hosts, deployment_containers, images};
 use edgehog_store::{
     models::containers::{
         container::{
@@ -72,6 +72,7 @@ impl StateStore {
         let volumes = container.volume_ids.iter().map(SqlUuid::new).collect_vec();
 
         let envs = Vec::<ContainerEnv>::from(&mut container);
+        let extra_hosts = Vec::<ContainerExtraHost>::from(&mut container);
         let binds = Vec::<ContainerBind>::from(&mut container);
         let port_bindings = Vec::<ContainerPortBind>::try_from(&container)?;
 
@@ -102,6 +103,10 @@ impl StateStore {
 
                 insert_or_ignore_into(container_env::table)
                     .values(envs)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_extra_hosts::table)
+                    .values(extra_hosts)
                     .execute(writer)?;
 
                 insert_or_ignore_into(container_binds::table)
@@ -304,6 +309,10 @@ impl StateStore {
                         });
                         acc
                     });
+                let extra_hosts = container_extra_hosts::table
+                    .select(container_extra_hosts::value)
+                    .filter(container_extra_hosts::container_id.eq(&id))
+                    .load::<String>(reader)?;
 
                 Ok(Some(ContainerResource {
                     id: ContainerId::new(container.local_id, *container.id),
@@ -315,6 +324,7 @@ impl StateStore {
                     env,
                     binds,
                     port_bindings: PortBindingMap(port_bindings),
+                    extra_hosts,
                     privileged: container.privileged,
                 }))
             })
@@ -385,6 +395,7 @@ impl TryFrom<CreateContainer> for Container {
             env: _,
             binds: _,
             port_bindings: _,
+            extra_hosts: _,
         }: CreateContainer,
     ) -> std::result::Result<Self, Self::Error> {
         let restart_policy = RestartPolicy::from_str(&restart_policy)?;
@@ -435,6 +446,20 @@ impl From<&mut CreateContainer> for Vec<ContainerEnv> {
         std::mem::take(&mut value.env)
             .into_iter()
             .map(|value| ContainerEnv {
+                container_id,
+                value,
+            })
+            .collect_vec()
+    }
+}
+
+impl From<&mut CreateContainer> for Vec<ContainerExtraHost> {
+    fn from(value: &mut CreateContainer) -> Self {
+        let container_id = SqlUuid::new(value.id);
+
+        std::mem::take(&mut value.extra_hosts)
+            .into_iter()
+            .map(|value| ContainerExtraHost {
                 container_id,
                 value,
             })
@@ -617,6 +642,7 @@ mod tests {
             binds: vec!["/var/lib/postgres:/data".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             privileged: false,
         };
         store.create_container(container).await.unwrap();
@@ -694,6 +720,7 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             privileged: false,
         };
         store.create_container(container).await.unwrap();
@@ -745,6 +772,7 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             privileged: false,
         };
         store.create_container(container).await.unwrap();

@@ -1018,6 +1018,7 @@ mod tests {
                     host_port: Some(80),
                 }],
             )])),
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             privileged: false,
         };
 

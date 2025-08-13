@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -315,6 +315,10 @@ pub(crate) struct Container {
     /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
     /// example, 80/udp.
     pub(crate) port_bindings: PortBindingMap<String>,
+    /// A list of hostnames/IP mappings to add to the container's /etc/hosts file.
+    ///
+    /// Specified in the form ["hostname:IP"].
+    pub(crate) extra_hosts: Vec<String>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
@@ -424,6 +428,7 @@ impl From<&Container> for ContainerCreateBody {
             restart_policy: Some(restart_policy),
             binds: Some(binds),
             port_bindings: Some(port_bindings),
+            extra_hosts: Some(value.extra_hosts.clone()),
             privileged: Some(value.privileged),
             ..Default::default()
         };
@@ -595,6 +600,7 @@ mod tests {
                 network_mode: "bridge".to_string(),
                 networks: Vec::new(),
                 port_bindings: PortBindingMap::default(),
+                extra_hosts: Vec::new(),
                 privileged: false,
             }
         }

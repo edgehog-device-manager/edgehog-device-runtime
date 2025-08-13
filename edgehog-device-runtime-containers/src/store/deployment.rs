@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -441,6 +441,7 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             privileged: false,
         };
         store.create_container(container).await.unwrap();
