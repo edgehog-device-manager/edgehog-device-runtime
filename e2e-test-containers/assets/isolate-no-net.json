@@ -17,7 +17,6 @@
         "id": "78549b2b-3888-4976-8bfe-236afab0f91e",
         "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
         "driver": "bridge",
-        "checkDuplicate": false,
         "internal": true,
         "enableIpv6": false,
         "options": ["isolate=true"]
@@ -38,6 +37,7 @@
         "binds": [],
         "networkMode": "bridge",
         "portBindings": ["9000:80"],
+        "extraHosts": ["host.docker.internal:host-gateway"],
         "privileged": false
       }
     },

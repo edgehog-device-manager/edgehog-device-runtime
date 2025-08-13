@@ -9,7 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Update the astarte-device-sdk to version v0.10
+  [#540](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/540)
 - Update the MSRV to rust 1.78 and do a major version bump
+  [#515](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/515)
 
 ## [0.9.0] - 2025-03-11
 

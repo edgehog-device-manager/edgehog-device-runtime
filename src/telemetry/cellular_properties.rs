@@ -18,13 +18,15 @@
 
 //! Cellular connection properties telemetry information.
 
-use crate::data::{publish, Publisher};
 use futures::StreamExt;
 use stable_eyre::eyre::WrapErr;
 use std::collections::HashMap;
 use tracing::{debug, error};
 use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
+
+use crate::data::set_property;
+use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.CellularConnectionProperties";
 
@@ -100,26 +102,27 @@ impl CellularConnection {
         Ok(properties)
     }
 
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         for (id, modem) in self.properties {
-            publish(client, INTERFACE, &format!("/{id}/apn"), modem.apn).await;
-            publish(client, INTERFACE, &format!("/{id}/imei"), modem.imei).await;
-            publish(client, INTERFACE, &format!("/{id}/imsi"), modem.imsi).await;
+            set_property(client, INTERFACE, &format!("/{id}/apn"), modem.apn).await;
+            set_property(client, INTERFACE, &format!("/{id}/imei"), modem.imei).await;
+            set_property(client, INTERFACE, &format!("/{id}/imsi"), modem.imsi).await;
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::data::tests::MockPubSub;
-
     use super::*;
 
-    use astarte_device_sdk::types::AstarteType;
-    use mockall::Sequence;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::types::AstarteData;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::{predicate, Sequence};
 
     #[tokio::test]
     async fn get_modem_properties_test() {
@@ -130,46 +133,46 @@ mod tests {
             imsi: "imsi".to_string(),
         };
 
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.CellularConnectionProperties"
-                    && path == "/id/apn"
-                    && *data == AstarteType::String("apn".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.CellularConnectionProperties"),
+                predicate::eq("/id/apn"),
+                predicate::eq(AstarteData::from("apn")),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.CellularConnectionProperties"
                     && path == "/id/imei"
-                    && *data == AstarteType::String("imei".to_string())
+                    && *data == AstarteData::String("imei".to_string())
             })
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.CellularConnectionProperties"
                     && path == "/id/imsi"
-                    && *data == AstarteType::String("imsi".to_string())
+                    && *data == AstarteData::String("imsi".to_string())
             })
             .returning(|_, _, _| Ok(()));
 
         CellularConnection {
             properties: HashMap::from([(modem_id.to_string(), modem)]),
         }
-        .send(&client)
+        .send(&mut client)
         .await;
     }
 }

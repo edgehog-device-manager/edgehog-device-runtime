@@ -22,7 +22,8 @@ use std::borrow::Cow;
 
 use serde::Deserialize;
 
-use crate::data::{publish, Publisher};
+use crate::data::set_property;
+use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.RuntimeInfo";
 
@@ -47,9 +48,9 @@ impl RuntimeInfo<'static> {
         }
     }
 
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         let values = [
             ("/name", self.name),
@@ -59,60 +60,64 @@ impl RuntimeInfo<'static> {
         ];
 
         for (path, data) in values {
-            publish(client, INTERFACE, path, data.as_ref()).await;
+            set_property(client, INTERFACE, path, data.as_ref()).await;
         }
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use astarte_device_sdk::AstarteType;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::{predicate, Sequence};
-
-    use crate::data::tests::MockPubSub;
 
     use super::*;
 
-    pub(crate) fn mock_runtime_info_telemtry(client: &mut MockPubSub, seq: &mut Sequence) {
+    pub(crate) fn mock_runtime_info_telemtry(
+        client: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        seq: &mut Sequence,
+    ) {
         client
-            .expect_send()
+            .expect_set_property()
             .with(
                 predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
                 predicate::eq("/name"),
-                predicate::eq(AstarteType::from(env!("CARGO_PKG_NAME"))),
+                predicate::eq(AstarteData::from(env!("CARGO_PKG_NAME"))),
             )
             .once()
             .in_sequence(seq)
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .with(
                 predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
                 predicate::eq("/url"),
-                predicate::eq(AstarteType::from(env!("CARGO_PKG_HOMEPAGE"))),
+                predicate::eq(AstarteData::from(env!("CARGO_PKG_HOMEPAGE"))),
             )
             .once()
             .in_sequence(seq)
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .with(
                 predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
                 predicate::eq("/version"),
-                predicate::eq(AstarteType::from(env!("CARGO_PKG_VERSION"))),
+                predicate::eq(AstarteData::from(env!("CARGO_PKG_VERSION"))),
             )
             .once()
             .in_sequence(seq)
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
+            .expect_set_property()
             .with(
                 predicate::eq("io.edgehog.devicemanager.RuntimeInfo"),
                 predicate::eq("/environment"),
-                predicate::eq(AstarteType::from(env!("EDGEHOG_RUSTC_VERSION"))),
+                predicate::eq(AstarteData::from(env!("EDGEHOG_RUSTC_VERSION"))),
             )
             .once()
             .in_sequence(seq)
@@ -121,11 +126,11 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn should_send_runtime_info() {
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         mock_runtime_info_telemtry(&mut client, &mut seq);
 
-        RUNTIME_INFO.send(&client).await;
+        RUNTIME_INFO.send(&mut client).await;
     }
 }

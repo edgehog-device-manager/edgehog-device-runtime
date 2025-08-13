@@ -17,6 +17,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [toolchain]
-channel = "1.86.0"
+channel = "1.89.0"
 components = ["rust-analyzer", "llvm-tools"]
 profile = "default"

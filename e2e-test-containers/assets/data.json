@@ -25,6 +25,7 @@
         "binds": [],
         "portBindings": ["9000:80"],
         "networkMode": "bridge",
+        "extraHosts": ["host.docker.internal:host-gateway"],
         "privileged": false
       }
     },
