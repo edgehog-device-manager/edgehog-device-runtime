@@ -17,4 +17,6 @@
 -- SPDX-License-Identifier: Apache-2.0
 
 -- This file should undo anything in `up.sql`
+DROP TABLE container_drop_capabilities;
+DROP TABLE container_add_capabilities;
 DROP TABLE container_extra_hosts;

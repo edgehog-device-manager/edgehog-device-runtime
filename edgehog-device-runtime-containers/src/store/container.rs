@@ -29,12 +29,16 @@ use diesel::{
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::containers::container::{
-    ContainerBind, ContainerEnv, ContainerExtraHost, ContainerNetwork, ContainerPortBind,
-    ContainerRestartPolicy, ContainerStatus, ContainerVolume, HostPort,
+    ContainerAddCapability, ContainerBind, ContainerDropCapability, ContainerEnv,
+    ContainerExtraHost, ContainerNetwork, ContainerPortBind, ContainerRestartPolicy,
+    ContainerStatus, ContainerVolume, HostPort,
 };
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::QueryModel;
-use edgehog_store::schema::containers::{container_extra_hosts, deployment_containers, images};
+use edgehog_store::schema::containers::{
+    container_add_capabilities, container_drop_capabilities, container_extra_hosts,
+    deployment_containers, images,
+};
 use edgehog_store::{
     models::containers::{
         container::{
@@ -66,17 +70,46 @@ use super::{Result, StateStore};
 impl StateStore {
     /// Stores the container received from the CreateRequest
     #[instrument(skip_all, fields(id = %container.id))]
-    pub(crate) async fn create_container(&self, mut container: CreateContainer) -> Result<()> {
-        let image_id = SqlUuid::new(container.image_id);
-        let networks = container.network_ids.iter().map(SqlUuid::new).collect_vec();
-        let volumes = container.volume_ids.iter().map(SqlUuid::new).collect_vec();
+    pub(crate) async fn create_container(&self, container: Box<CreateContainer>) -> Result<()> {
+        // this will make sure all the fields are used
+        let CreateContainer {
+            id,
+            deployment_id: _,
+            image_id,
+            network_ids,
+            volume_ids,
+            hostname,
+            restart_policy,
+            env,
+            binds,
+            network_mode,
+            port_bindings,
+            extra_hosts,
+            cap_add,
+            cap_drop,
+            privileged,
+        } = *container;
 
-        let envs = Vec::<ContainerEnv>::from(&mut container);
-        let extra_hosts = Vec::<ContainerExtraHost>::from(&mut container);
-        let binds = Vec::<ContainerBind>::from(&mut container);
-        let port_bindings = Vec::<ContainerPortBind>::try_from(&container)?;
+        let container_id = SqlUuid::new(id);
+        let image_id = SqlUuid::new(image_id);
+        let networks = network_ids.iter().map(SqlUuid::new).collect_vec();
+        let volumes = volume_ids.iter().map(SqlUuid::new).collect_vec();
 
-        let mut container = Container::try_from(container)?;
+        let envs = container_env_from_vec(&container_id, env);
+        let extra_hosts = container_extra_hosts_from_vec(&container_id, extra_hosts);
+        let binds = container_binds_from_vec(&container_id, binds);
+        let port_bindings = container_port_bindings_try_from_vec(&container_id, port_bindings)?;
+        let cap_add = container_cap_add_from_vec(&container_id, cap_add);
+        let cap_drop = container_cap_drop_from_vec(&container_id, cap_drop);
+
+        let mut container = create_container(
+            container_id,
+            image_id,
+            network_mode,
+            hostname,
+            restart_policy,
+            privileged,
+        )?;
 
         self.handle
             .for_write(move |writer| {
@@ -115,6 +148,14 @@ impl StateStore {
 
                 insert_or_ignore_into(container_port_bindings::table)
                     .values(port_bindings)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_add_capabilities::table)
+                    .values(cap_add)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_drop_capabilities::table)
+                    .values(cap_drop)
                     .execute(writer)?;
 
                 for network_id in networks {
@@ -313,6 +354,14 @@ impl StateStore {
                     .select(container_extra_hosts::value)
                     .filter(container_extra_hosts::container_id.eq(&id))
                     .load::<String>(reader)?;
+                let cap_add = container_add_capabilities::table
+                    .select(container_add_capabilities::value)
+                    .filter(container_add_capabilities::container_id.eq(&id))
+                    .load::<String>(reader)?;
+                let cap_drop = container_drop_capabilities::table
+                    .select(container_drop_capabilities::value)
+                    .filter(container_drop_capabilities::container_id.eq(&id))
+                    .load::<String>(reader)?;
 
                 Ok(Some(ContainerResource {
                     id: ContainerId::new(container.local_id, *container.id),
@@ -325,6 +374,8 @@ impl StateStore {
                     binds,
                     port_bindings: PortBindingMap(port_bindings),
                     extra_hosts,
+                    cap_add,
+                    cap_drop,
                     privileged: container.privileged,
                 }))
             })
@@ -378,41 +429,28 @@ fn has_missing_volumes(
     .map_err(HandleError::from)
 }
 
-impl TryFrom<CreateContainer> for Container {
-    type Error = RestartPolicyError;
+fn create_container(
+    id: SqlUuid,
+    image_id: SqlUuid,
+    network_mode: String,
+    hostname: String,
+    restart_policy: String,
+    privileged: bool,
+) -> std::result::Result<Container, RestartPolicyError> {
+    let restart_policy = RestartPolicy::from_str(&restart_policy)?;
+    let restart_policy = ContainerRestartPolicy::from(restart_policy);
+    let hostname = hostname.is_empty().not().then_some(hostname);
 
-    fn try_from(
-        CreateContainer {
-            id,
-            image_id,
-            deployment_id: _,
-            hostname,
-            restart_policy,
-            network_mode,
-            privileged,
-            network_ids: _,
-            volume_ids: _,
-            env: _,
-            binds: _,
-            port_bindings: _,
-            extra_hosts: _,
-        }: CreateContainer,
-    ) -> std::result::Result<Self, Self::Error> {
-        let restart_policy = RestartPolicy::from_str(&restart_policy)?;
-        let restart_policy = ContainerRestartPolicy::from(restart_policy);
-        let hostname = hostname.is_empty().not().then_some(hostname);
-
-        Ok(Self {
-            id: SqlUuid::new(id),
-            local_id: None,
-            image_id: Some(SqlUuid::new(image_id)),
-            status: ContainerStatus::default(),
-            network_mode,
-            hostname,
-            restart_policy,
-            privileged,
-        })
-    }
+    Ok(Container {
+        id,
+        local_id: None,
+        image_id: Some(image_id),
+        status: ContainerStatus::default(),
+        network_mode,
+        hostname,
+        restart_policy,
+        privileged,
+    })
 }
 
 impl From<RestartPolicy> for ContainerRestartPolicy {
@@ -439,67 +477,80 @@ impl From<ContainerRestartPolicy> for RestartPolicy {
     }
 }
 
-impl From<&mut CreateContainer> for Vec<ContainerEnv> {
-    fn from(value: &mut CreateContainer) -> Self {
-        let container_id = SqlUuid::new(value.id);
-
-        std::mem::take(&mut value.env)
-            .into_iter()
-            .map(|value| ContainerEnv {
-                container_id,
-                value,
-            })
-            .collect_vec()
-    }
+fn container_env_from_vec(container_id: &SqlUuid, value: Vec<String>) -> Vec<ContainerEnv> {
+    value
+        .into_iter()
+        .map(|value| ContainerEnv {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
 }
 
-impl From<&mut CreateContainer> for Vec<ContainerExtraHost> {
-    fn from(value: &mut CreateContainer) -> Self {
-        let container_id = SqlUuid::new(value.id);
-
-        std::mem::take(&mut value.extra_hosts)
-            .into_iter()
-            .map(|value| ContainerExtraHost {
-                container_id,
-                value,
-            })
-            .collect_vec()
-    }
+fn container_extra_hosts_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Vec<ContainerExtraHost> {
+    value
+        .into_iter()
+        .map(|value| ContainerExtraHost {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
 }
 
-impl From<&mut CreateContainer> for Vec<ContainerBind> {
-    fn from(value: &mut CreateContainer) -> Self {
-        let container_id = SqlUuid::new(value.id);
-
-        std::mem::take(&mut value.binds)
-            .into_iter()
-            .map(|value| ContainerBind {
-                container_id,
-                value,
-            })
-            .collect_vec()
-    }
+fn container_binds_from_vec(container_id: &SqlUuid, value: Vec<String>) -> Vec<ContainerBind> {
+    value
+        .into_iter()
+        .map(|value| ContainerBind {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
 }
 
-impl TryFrom<&CreateContainer> for Vec<ContainerPortBind> {
-    type Error = BindingError;
+fn container_cap_add_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Vec<ContainerAddCapability> {
+    value
+        .into_iter()
+        .map(|value| ContainerAddCapability {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
+}
 
-    fn try_from(value: &CreateContainer) -> std::result::Result<Self, Self::Error> {
-        let container_id = SqlUuid::new(value.id);
+fn container_cap_drop_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Vec<ContainerDropCapability> {
+    value
+        .into_iter()
+        .map(|value| ContainerDropCapability {
+            container_id: *container_id,
+            value,
+        })
+        .collect()
+}
 
-        value
-            .port_bindings
-            .iter()
-            .map(|s| {
-                parse_port_binding(s).map(|bind| ContainerPortBind {
-                    container_id,
-                    port: bind.id(),
-                    host_ip: bind.host.host_ip.map(str::to_string),
-                    host_port: bind.host.host_port.map(HostPort),
-                })
+fn container_port_bindings_try_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> std::result::Result<Vec<ContainerPortBind>, BindingError> {
+    value
+        .iter()
+        .map(|s| {
+            parse_port_binding(s).map(|bind| ContainerPortBind {
+                container_id: *container_id,
+                port: bind.id(),
+                host_ip: bind.host.host_ip.map(str::to_string),
+                host_port: bind.host.host_port.map(HostPort),
             })
-            .try_collect()
-    }
+        })
+        .try_collect()
 }
 
 #[cfg(test)]
@@ -643,9 +694,11 @@ mod tests {
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let container = find_container(&mut store, container_id).await.unwrap();
         let exp = Container {
@@ -721,9 +774,11 @@ mod tests {
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         store
             .update_container_status(container_id, ContainerStatus::Published)
@@ -773,9 +828,11 @@ mod tests {
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let local_id = Uuid::new_v4();
         store

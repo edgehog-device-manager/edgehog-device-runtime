@@ -74,7 +74,7 @@ pub enum ContainerRequest {
     /// Request to create a network.
     Network(CreateNetwork),
     /// Request to create a container.
-    Container(CreateContainer),
+    Container(Box<CreateContainer>),
     /// Request to create a deployment.
     Deployment(CreateDeployment),
     /// Command for a deployment
@@ -112,7 +112,8 @@ impl FromEvent for ContainerRequest {
                 CreateNetwork::from_event(value).map(ContainerRequest::Network)
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
-                CreateContainer::from_event(value).map(ContainerRequest::Container)
+                CreateContainer::from_event(value)
+                    .map(|value| ContainerRequest::Container(Box::new(value)))
             }
             "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
                 CreateDeployment::from_event(value).map(ContainerRequest::Deployment)
