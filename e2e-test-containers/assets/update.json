@@ -25,6 +25,9 @@
         "binds": [],
         "portBindings": ["9000:80"],
         "networkMode": "bridge",
+        "extraHosts": [],
+        "capAdd": [],
+        "capDrop": [],
         "privileged": false
       }
     },

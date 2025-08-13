@@ -434,6 +434,50 @@ impl ToSql<Integer, Sqlite> for HostPort {
     }
 }
 
+/// Extra hosts for a container
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_extra_hosts)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerExtraHost {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Host to add to /etc/hosts inside the container.
+    ///
+    /// Its in the form of Host:IP
+    pub value: String,
+}
+
+/// A kernel capabilities to add to the container.
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_add_capabilities)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerAddCapability {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// A kernel capabilities to add to the container.
+    pub value: String,
+}
+
+/// A kernel capabilities to drop to the container.
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_drop_capabilities)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDropCapability {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// A kernel capabilities to drop from the container.
+    pub value: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ContainerRestartPolicy, ContainerStatus};

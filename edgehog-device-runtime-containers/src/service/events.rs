@@ -66,7 +66,7 @@ impl<D> ServiceHandle<D> {
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
-    pub async fn on_event(&self, request: ContainerRequest) -> Result<(), EventError>
+    pub async fn on_event(&mut self, request: ContainerRequest) -> Result<(), EventError>
     where
         D: Client + Sync + 'static,
     {
@@ -86,7 +86,7 @@ impl<D> ServiceHandle<D> {
     }
 
     #[instrument(skip_all, fields(?deployment_id))]
-    async fn persist_request(&self, deployment_id: Option<Uuid>, request: ContainerRequest)
+    async fn persist_request(&mut self, deployment_id: Option<Uuid>, request: ContainerRequest)
     where
         D: Client + Sync + 'static,
     {
@@ -125,7 +125,7 @@ impl<D> ServiceHandle<D> {
             };
 
             DeploymentEvent::new(EventStatus::Error, error)
-                .send(&id, &self.device)
+                .send(&id, &mut self.device)
                 .await;
         }
     }

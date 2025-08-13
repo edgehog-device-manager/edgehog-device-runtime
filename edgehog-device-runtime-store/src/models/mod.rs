@@ -35,7 +35,7 @@ type FilterById<'a, Table, Id> = Filter<Table, ById<'a, Id>>;
 // Only used in containers for now
 #[cfg(feature = "containers")]
 type ExistsFilterById<'a, Table, Id> =
-    diesel::dsl::BareSelect<diesel::dsl::exists<FilterById<'a, Table, Id>>>;
+    diesel::dsl::select<diesel::dsl::exists<FilterById<'a, Table, Id>>>;
 
 /// General implementation for utility functions on a model.
 pub trait QueryModel {

@@ -18,14 +18,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::IntoAstarteObject;
 use procfs::Current;
 use tracing::error;
 
+use crate::data::send_object;
+use crate::Client;
+
 const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
 
-#[derive(Debug, Clone, AstarteAggregate)]
-#[astarte_aggregate(rename_all = "camelCase")]
+#[derive(Debug, Clone, IntoAstarteObject)]
+#[astarte_object(rename_all = "camelCase")]
 pub struct SystemStatus {
     pub avail_memory_bytes: i64,
     pub boot_id: String,
@@ -114,17 +117,11 @@ impl SystemStatus {
         })
     }
 
-    pub(crate) async fn send<T>(self, client: &T)
+    pub(crate) async fn send<C>(self, client: &mut C)
     where
-        T: crate::data::Publisher,
+        C: Client,
     {
-        if let Err(err) = client.send_object(INTERFACE, "/systemStatus", self).await {
-            error!(
-                "couldn't send {}: {}",
-                INTERFACE,
-                stable_eyre::Report::new(err)
-            );
-        }
+        send_object(client, INTERFACE, "/systemStatus", self).await;
     }
 }
 
