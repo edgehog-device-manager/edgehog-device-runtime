@@ -27,7 +27,8 @@ use super::ReqUuid;
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateVolumeRequest",
     path = "/volume",
-    rename_all = "camelCase"
+    rename_all = "camelCase",
+    aggregation = "object"
 )]
 pub struct CreateVolume {
     pub(crate) id: ReqUuid,
@@ -40,7 +41,8 @@ pub struct CreateVolume {
 pub(crate) mod tests {
     use std::fmt::Display;
 
-    use astarte_device_sdk::{AstarteType, DeviceEvent, Value};
+    use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use itertools::Itertools;
     use uuid::Uuid;
 
@@ -55,16 +57,16 @@ pub(crate) mod tests {
         let options = options.iter().map(|s| s.to_string()).collect_vec();
 
         let fields = [
-            ("id".to_string(), AstarteType::String(id.to_string())),
+            ("id".to_string(), AstarteData::String(id.to_string())),
             (
                 "deploymentId".to_string(),
-                AstarteType::String(deployment_id.to_string()),
+                AstarteData::String(deployment_id.to_string()),
             ),
             (
                 "driver".to_string(),
-                AstarteType::String(driver.to_string()),
+                AstarteData::String(driver.to_string()),
             ),
-            ("options".to_string(), AstarteType::StringArray(options)),
+            ("options".to_string(), AstarteData::StringArray(options)),
         ]
         .into_iter()
         .collect();
@@ -72,7 +74,10 @@ pub(crate) mod tests {
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateVolumeRequest".to_string(),
             path: "/volume".to_string(),
-            data: Value::Object(fields),
+            data: Value::Object {
+                data: fields,
+                timestamp: Utc::now(),
+            },
         }
     }
 
