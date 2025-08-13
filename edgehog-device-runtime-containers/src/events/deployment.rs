@@ -21,6 +21,7 @@
 use std::fmt::Display;
 
 use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{AstarteData, IntoAstarteObject};
 use tracing::error;
 use uuid::Uuid;
@@ -60,7 +61,9 @@ impl DeploymentEvent {
             }
         };
 
-        let res = device.send_object(INTERFACE, &format!("/{id}"), data).await;
+        let res = device
+            .send_object_with_timestamp(INTERFACE, &format!("/{id}"), data, Utc::now())
+            .await;
 
         if let Err(err) = res {
             error!(
@@ -84,7 +87,9 @@ impl Display for DeploymentEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EventStatus {
     Starting,
+    Started,
     Stopping,
+    Stopped,
     Updating,
     Deleting,
     Error,
@@ -94,7 +99,9 @@ impl Display for EventStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EventStatus::Starting => write!(f, "Starting"),
+            EventStatus::Started => write!(f, "Started"),
             EventStatus::Stopping => write!(f, "Stopping"),
+            EventStatus::Stopped => write!(f, "Stopped"),
             EventStatus::Updating => write!(f, "Updating"),
             EventStatus::Deleting => write!(f, "Deleting"),
             EventStatus::Error => write!(f, "Error"),
@@ -114,6 +121,7 @@ mod tests {
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::predicate;
 
     use super::*;
 
@@ -126,16 +134,19 @@ mod tests {
 
         let exp_p = format!("/{id}");
         client
-            .expect_send_object()
+            .expect_send_object_with_timestamp()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, data| {
-                interface == "io.edgehog.devicemanager.apps.DeploymentEvent"
-                    && path == exp_p
-                    && data.get("status") == Some(&AstarteData::from("Starting"))
-                    && data.get("message") == Some(&AstarteData::from(""))
-            })
-            .returning(|_, _, _| Ok(()));
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.DeploymentEvent"),
+                predicate::eq(exp_p),
+                predicate::eq(AstarteObject::from_iter([
+                    ("status".to_string(), AstarteData::from("Starting")),
+                    ("message".to_string(), AstarteData::from("")),
+                ])),
+                predicate::always(),
+            )
+            .returning(|_, _, _, _| Ok(()));
 
         let event = DeploymentEvent::new(EventStatus::Starting, "");
 
