@@ -20,7 +20,7 @@
 
 use std::fmt::Display;
 
-use astarte_device_sdk::AstarteType;
+use astarte_device_sdk::AstarteData;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -81,16 +81,18 @@ impl Display for ContainerStatus {
     }
 }
 
-impl From<ContainerStatus> for AstarteType {
+impl From<ContainerStatus> for AstarteData {
     fn from(value: ContainerStatus) -> Self {
-        AstarteType::String(value.to_string())
+        AstarteData::String(value.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use mockall::predicate;
     use uuid::Uuid;
 
     use super::*;
@@ -108,21 +110,21 @@ mod tests {
         for status in statuses {
             let container = AvailableContainer::new(&id);
 
-            let mut client = MockDeviceClient::<SqliteStore>::new();
+            let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
             let mut seq = Sequence::new();
 
             client
-                .expect_send()
+                .expect_set_property()
                 .once()
                 .in_sequence(&mut seq)
-                .withf(move |interface, path, value: &ContainerStatus| {
+                .withf(move |interface, path, value| {
                     interface == "io.edgehog.devicemanager.apps.AvailableContainers"
                         && path == format!("/{id}/status")
-                        && *value == status
+                        && *value == status.to_string()
                 })
                 .returning(|_, _, _| Ok(()));
 
-            container.send(&client, status).await.unwrap();
+            container.send(&mut client, status).await.unwrap();
         }
     }
 
@@ -132,19 +134,19 @@ mod tests {
 
         let container = AvailableContainer::new(&id);
 
-        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         client
-            .expect_unset()
+            .expect_unset_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path| {
-                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == format!("/{id}/status")
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(format!("/{id}/status")),
+            )
             .returning(|_, _| Ok(()));
 
-        container.unset(&client).await.unwrap();
+        container.unset(&mut client).await.unwrap();
     }
 }

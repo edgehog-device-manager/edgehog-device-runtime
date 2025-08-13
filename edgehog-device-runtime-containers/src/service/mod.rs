@@ -108,7 +108,7 @@ impl<D> Service<D> {
         }
     }
 
-    fn context(&mut self, id: impl Into<Uuid>) -> Context<D> {
+    fn context(&mut self, id: impl Into<Uuid>) -> Context<'_, D> {
         Context {
             id: id.into(),
             store: &mut self.store,
@@ -121,7 +121,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     pub async fn init(&mut self) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         self.publish_received().await?;
 
@@ -139,7 +139,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     async fn publish_received(&mut self) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in self.store.load_images_to_publish().await? {
             ImageResource::publish(self.context(id)).await?;
@@ -171,7 +171,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     async fn init_start_deployments(&mut self) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in self
             .store
@@ -187,7 +187,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     async fn init_stop_deployments(&mut self) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in self
             .store
@@ -203,7 +203,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     async fn init_delete_deployments(&mut self) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in self
             .store
@@ -220,7 +220,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     pub async fn handle_events(&mut self)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         while let Some(event) = self.events.recv().await {
             self.on_event(event).await;
@@ -232,7 +232,7 @@ impl<D> Service<D> {
     #[instrument(skip_all)]
     async fn on_event(&mut self, event: AstarteEvent)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         match event {
             AstarteEvent::Resource {
@@ -268,7 +268,7 @@ impl<D> Service<D> {
     #[instrument(skip_all, fields(%id))]
     async fn resource_req(&mut self, id: Id, deployment_id: Uuid)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         let res = match id.resource_type() {
             ResourceType::Image => ImageResource::publish(self.context(*id.uuid())).await,
@@ -283,7 +283,7 @@ impl<D> Service<D> {
             error!(error, "failed to create resource");
 
             DeploymentEvent::new(EventStatus::Error, error)
-                .send(&deployment_id, &self.device)
+                .send(&deployment_id, &mut self.device)
                 .await;
         }
     }
@@ -292,7 +292,7 @@ impl<D> Service<D> {
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: Uuid)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         let deployment = match self.store.find_complete_deployment(id).await {
             Ok(Some(deployment)) => deployment,
@@ -300,7 +300,7 @@ impl<D> Service<D> {
                 error!("{id} not found");
 
                 DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &self.device)
+                    .send(&id, &mut self.device)
                     .await;
 
                 return;
@@ -311,7 +311,7 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't start deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&id, &self.device)
+                    .send(&id, &mut self.device)
                     .await;
 
                 return;
@@ -321,7 +321,7 @@ impl<D> Service<D> {
         info!("starting deployment");
 
         DeploymentEvent::new(EventStatus::Starting, "")
-            .send(&id, &self.device)
+            .send(&id, &mut self.device)
             .await;
 
         if let Err(err) = self.start_deployment(id, deployment).await {
@@ -330,7 +330,7 @@ impl<D> Service<D> {
             error!(error = err, "couldn't start deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(&id, &self.device)
+                .send(&id, &mut self.device)
                 .await;
 
             return;
@@ -341,7 +341,7 @@ impl<D> Service<D> {
 
     async fn start_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in deployment.images {
             ImageResource::up(self.context(id)).await?;
@@ -363,7 +363,7 @@ impl<D> Service<D> {
 
         AvailableDeployment::new(&deployment_id)
             .send(
-                &self.device,
+                &mut self.device,
                 crate::properties::deployment::DeploymentStatus::Started,
             )
             .await
@@ -376,7 +376,7 @@ impl<D> Service<D> {
     #[instrument(skip(self))]
     pub async fn stop(&mut self, id: Uuid)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         let containers = match self.store.load_deployment_containers(id).await {
             Ok(Some(containers)) => containers,
@@ -384,7 +384,7 @@ impl<D> Service<D> {
                 error!("{id} not found");
 
                 DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &self.device)
+                    .send(&id, &mut self.device)
                     .await;
 
                 return;
@@ -395,7 +395,7 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't start deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&id, &self.device)
+                    .send(&id, &mut self.device)
                     .await;
 
                 return;
@@ -405,7 +405,7 @@ impl<D> Service<D> {
         info!("stopping deployment");
 
         DeploymentEvent::new(EventStatus::Stopping, "")
-            .send(&id, &self.device)
+            .send(&id, &mut self.device)
             .await;
 
         if let Err(err) = self.stop_deployment(id, containers).await {
@@ -414,7 +414,7 @@ impl<D> Service<D> {
             error!(error = err, "couldn't stop deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(&id, &self.device)
+                .send(&id, &mut self.device)
                 .await;
 
             return;
@@ -426,7 +426,7 @@ impl<D> Service<D> {
     #[instrument(skip(self, containers))]
     async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<SqlUuid>) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in containers {
             debug!(%id, "stopping container");
@@ -436,7 +436,7 @@ impl<D> Service<D> {
 
             match state {
                 State::Missing => {
-                    warn!(%id, "contaienr already missing, cannot stop");
+                    warn!(%id, "container already missing, cannot stop");
 
                     continue;
                 }
@@ -448,7 +448,7 @@ impl<D> Service<D> {
 
         AvailableDeployment::new(&deployment)
             .send(
-                &self.device,
+                &mut self.device,
                 crate::properties::deployment::DeploymentStatus::Stopped,
             )
             .await
@@ -461,7 +461,7 @@ impl<D> Service<D> {
     #[instrument(skip(self))]
     pub async fn delete(&mut self, id: Uuid)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         let deployment = match self.store.find_deployment_for_delete(id).await {
             Ok(Some(deployment)) => deployment,
@@ -469,7 +469,7 @@ impl<D> Service<D> {
                 error!("{id} not found");
 
                 DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &self.device)
+                    .send(&id, &mut self.device)
                     .await;
 
                 return;
@@ -480,7 +480,7 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't delete deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&id, &self.device)
+                    .send(&id, &mut self.device)
                     .await;
 
                 return;
@@ -490,7 +490,7 @@ impl<D> Service<D> {
         info!("deleting deployment");
 
         DeploymentEvent::new(EventStatus::Deleting, "")
-            .send(&id, &self.device)
+            .send(&id, &mut self.device)
             .await;
 
         if let Err(err) = self.delete_deployment(id, deployment).await {
@@ -499,7 +499,7 @@ impl<D> Service<D> {
             error!(error = err, "couldn't delete deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(&id, &self.device)
+                .send(&id, &mut self.device)
                 .await;
 
             return;
@@ -510,7 +510,7 @@ impl<D> Service<D> {
 
     async fn delete_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         for id in deployment.containers {
             ContainerResource::down(self.context(id)).await?;
@@ -529,7 +529,7 @@ impl<D> Service<D> {
         }
 
         AvailableDeployment::new(&deployment_id)
-            .unset(&self.device)
+            .unset(&mut self.device)
             .await
             .map_err(ResourceError::from)?;
 
@@ -542,7 +542,7 @@ impl<D> Service<D> {
     #[instrument(skip(self))]
     pub async fn update(&mut self, bundle: DeploymentUpdate)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         let from_deployment = match self
             .store
@@ -555,7 +555,7 @@ impl<D> Service<D> {
                 error!("{msg}");
 
                 DeploymentEvent::new(EventStatus::Error, msg)
-                    .send(&bundle.from, &self.device)
+                    .send(&bundle.from, &mut self.device)
                     .await;
 
                 return;
@@ -566,7 +566,7 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't update deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&bundle.from, &self.device)
+                    .send(&bundle.from, &mut self.device)
                     .await;
 
                 return;
@@ -580,7 +580,7 @@ impl<D> Service<D> {
                 error!("{msg}");
 
                 DeploymentEvent::new(EventStatus::Error, msg)
-                    .send(&bundle.to, &self.device)
+                    .send(&bundle.to, &mut self.device)
                     .await;
 
                 return;
@@ -591,7 +591,7 @@ impl<D> Service<D> {
                 error!(error = err, "couldn't update deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
-                    .send(&bundle.to, &self.device)
+                    .send(&bundle.to, &mut self.device)
                     .await;
 
                 return;
@@ -601,7 +601,7 @@ impl<D> Service<D> {
         info!("updating deployment");
 
         DeploymentEvent::new(EventStatus::Updating, "")
-            .send(&bundle.from, &self.device)
+            .send(&bundle.from, &mut self.device)
             .await;
 
         // TODO: consider if it's necessary re-start the `from` containers or a retry logic
@@ -614,7 +614,7 @@ impl<D> Service<D> {
             error!(error = err, "couldn't update deployment");
 
             DeploymentEvent::new(EventStatus::Error, err)
-                .send(&bundle.from, &self.device)
+                .send(&bundle.from, &mut self.device)
                 .await;
 
             return;
@@ -630,7 +630,7 @@ impl<D> Service<D> {
         to_start: Deployment,
     ) -> Result<()>
     where
-        D: Client + Sync + 'static,
+        D: Client + Send + Sync + 'static,
     {
         self.stop_deployment(bundle.from, to_stop).await?;
 
@@ -701,10 +701,13 @@ mod tests {
     use std::collections::HashMap;
 
     use astarte_device_sdk::store::SqliteStore;
-    use astarte_device_sdk::FromEvent;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::{AstarteData, FromEvent};
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use bollard::query_parameters::CreateImageOptions;
     use edgehog_store::db;
+    use mockall::predicate;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
@@ -729,10 +732,10 @@ mod tests {
     async fn mock_service(
         tempdir: &TempDir,
         client: Docker,
-        device: MockDeviceClient<SqliteStore>,
+        device: MockDeviceClient<Mqtt<SqliteStore>>,
     ) -> (
-        Service<MockDeviceClient<SqliteStore>>,
-        ServiceHandle<MockDeviceClient<SqliteStore>>,
+        Service<MockDeviceClient<Mqtt<SqliteStore>>>,
+        ServiceHandle<MockDeviceClient<Mqtt<SqliteStore>>>,
     ) {
         let db_file = tempdir.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
@@ -756,28 +759,28 @@ mod tests {
         let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<SqliteStore>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
         let image_path = format!("/{id}/pulled");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == (image_path)
-                    && !*value
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
             .returning(|_, _, _| Ok(()));
 
-        let (mut service, handle) = mock_service(&tmpdir, client, device).await;
+        let (mut service, mut handle) = mock_service(&tmpdir, client, device).await;
 
         let reference = "docker.io/nginx:stable-alpine-slim";
         let create_image_req = create_image_request_event(id, deployment_id, reference, "");
@@ -804,28 +807,28 @@ mod tests {
         let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<SqliteStore>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
         let endpoint = format!("/{id}/created");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableVolumes"
-                    && path == (endpoint)
-                    && !*value
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
             .returning(|_, _, _| Ok(()));
 
-        let (mut service, handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
         let create_volume_req =
             create_volume_request_event(id, deployment_id, "local", &["foo=bar", "some="]);
@@ -858,28 +861,28 @@ mod tests {
         let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<SqliteStore>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
         let endpoint = format!("/{id}/created");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
-                    && path == (endpoint)
-                    && !*value
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
             .returning(|_, _, _| Ok(()));
 
-        let (mut service, handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
         let create_network_req = create_network_request_event(id, deployment_id, "bridged", &[]);
 
@@ -913,52 +916,52 @@ mod tests {
         let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<SqliteStore>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
         let image_path = format!("/{image_id}/pulled");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == (image_path)
-                    && !*value
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{network_id}/created");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableNetworks"
-                    && path == (endpoint)
-                    && !*value
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{id}/status");
         device
-            .expect_send::<ContainerStatus>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == endpoint
-                    && *value == ContainerStatus::Received
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::from("Received")),
+            )
             .returning(|_, _, _| Ok(()));
 
-        let (mut service, handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
         // Image
         let reference = "docker.io/nginx:stable-alpine-slim";
@@ -1036,11 +1039,14 @@ mod tests {
                 .returning(|_| Err(not_found_response()));
 
             mock.expect_create_image()
-                .withf(move |option, _, _| {
-                    option
-                        .as_ref()
-                        .is_some_and(|opt| opt.from_image == reference)
-                })
+                .with(
+                    predicate::eq(Some(CreateImageOptions {
+                        from_image: Some(reference.to_string()),
+                        ..Default::default()
+                    })),
+                    predicate::always(),
+                    predicate::eq(None),
+                )
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_, _, _| futures::stream::empty().boxed());
@@ -1065,11 +1071,17 @@ mod tests {
                 .in_sequence(&mut seq)
                 .returning(|_, _| Err(docker::tests::not_found_response()));
 
-            let name = container_id.to_string();
+            let name_exp = container_id.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name)
-                        && config.image == Some(reference)
+                    option
+                        .as_ref()
+                        .and_then(|opt| opt.name.as_ref())
+                        .is_some_and(|name| *name == name_exp)
+                        && config
+                            .image
+                            .as_ref()
+                            .is_some_and(|image| image == reference)
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -1088,112 +1100,114 @@ mod tests {
 
             mock
         });
-        let mut device = MockDeviceClient::<SqliteStore>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<SqliteStore>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
         let image_path = format!("/{image_id}/pulled");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == (image_path)
-                    && !*value
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{container_id}/status");
         device
-            .expect_send::<ContainerStatus>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == endpoint
-                    && *value == ContainerStatus::Received
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::from("Received")),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{deployment_id}/status");
         device
-            .expect_send::<DeploymentStatus>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
-                    && path == endpoint
-                    && *value == DeploymentStatus::Stopped
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::String("Stopped".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{deployment_id}");
         device
-            .expect_send_object::<DeploymentEvent>()
+            .expect_send_object()
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, value| {
                 interface == "io.edgehog.devicemanager.apps.DeploymentEvent"
                     && path == endpoint
-                    && value.status == EventStatus::Starting
+                    && value
+                        .get("status")
+                        .is_some_and(|s| *s == EventStatus::Starting.to_string())
             })
             .returning(|_, _, _| Ok(()));
 
         let image_path = format!("/{image_id}/pulled");
         device
-            .expect_send::<bool>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, value| {
                 interface == "io.edgehog.devicemanager.apps.AvailableImages"
                     && path == (image_path)
-                    && *value
+                    && *value == AstarteData::Boolean(true)
             })
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{container_id}/status");
         device
-            .expect_send::<ContainerStatus>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, value| {
                 interface == "io.edgehog.devicemanager.apps.AvailableContainers"
                     && path == endpoint
-                    && *value == ContainerStatus::Created
+                    && *value == ContainerStatus::Created.to_string()
             })
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{container_id}/status");
         device
-            .expect_send::<ContainerStatus>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, value| {
                 interface == "io.edgehog.devicemanager.apps.AvailableContainers"
                     && path == endpoint
-                    && *value == ContainerStatus::Running
+                    && *value == ContainerStatus::Running.to_string()
             })
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{deployment_id}/status");
         device
-            .expect_send::<DeploymentStatus>()
+            .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, value| {
                 interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
                     && path == endpoint
-                    && *value == DeploymentStatus::Started
+                    && *value == DeploymentStatus::Started.to_string()
             })
             .returning(|_, _, _| Ok(()));
 
-        let (mut service, handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
         let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
 

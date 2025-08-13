@@ -26,7 +26,8 @@ use std::{
 };
 
 use bollard::{
-    errors::Error as BollardError, models::Volume as DockerVolume, volume::CreateVolumeOptions,
+    errors::Error as BollardError, models::Volume as DockerVolume, models::VolumeCreateOptions,
+    query_parameters::RemoveVolumeOptions,
 };
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
@@ -108,7 +109,9 @@ impl VolumeId {
     pub async fn remove(&self, client: &Client) -> Result<Option<()>, VolumeError> {
         debug!("deleting {}", self);
 
-        let res = client.remove_volume(self.name_as_str(), None).await;
+        let res = client
+            .remove_volume(self.name_as_str(), None::<RemoveVolumeOptions>)
+            .await;
 
         match res {
             Ok(()) => Ok(Some(())),
@@ -178,7 +181,7 @@ impl Volume {
         debug!("createing {}", self);
 
         client
-            .create_volume(self.into())
+            .create_volume(VolumeCreateOptions::from(self))
             .await
             .map_err(VolumeError::Create)?;
 
@@ -206,16 +209,12 @@ impl DerefMut for Volume {
     }
 }
 
-impl<'a> From<&'a Volume> for CreateVolumeOptions<&'a str> {
-    fn from(value: &'a Volume) -> Self {
-        CreateVolumeOptions {
-            name: value.name_as_str(),
-            driver: value.driver.as_ref(),
-            driver_opts: value
-                .driver_opts
-                .iter()
-                .map(|(k, v)| (k.as_str(), v.as_ref()))
-                .collect(),
+impl From<&Volume> for VolumeCreateOptions {
+    fn from(value: &Volume) -> Self {
+        VolumeCreateOptions {
+            name: Some(value.name_as_str().to_string()),
+            driver: Some(value.driver.clone()),
+            driver_opts: Some(value.driver_opts.clone()),
             ..Default::default()
         }
     }
@@ -239,7 +238,13 @@ mod tests {
 
             let name_str = name.to_string();
             mock.expect_create_volume()
-                .withf(move |option| option.name == name_str && option.driver == "local")
+                .withf(move |option| {
+                    option.name.as_ref().is_some_and(|opt| *opt == name_str)
+                        && option
+                            .driver
+                            .as_ref()
+                            .is_some_and(|driver| driver == "local")
+                })
                 .once()
                 .returning(|_| Ok(Default::default()));
 
@@ -264,9 +269,14 @@ mod tests {
             };
 
             let v_cl = volume.clone();
-            let name_str = name.to_string();
+            let name_exp = name.to_string();
             mock.expect_create_volume()
-                .withf(move |option| option.name == name_str && option.driver == "local")
+                .with(predicate::eq(VolumeCreateOptions {
+                    name: Some(name_exp),
+                    driver: Some("local".to_string()),
+                    driver_opts: Some(HashMap::new()),
+                    ..Default::default()
+                }))
                 .once()
                 .returning(move |_| Ok(v_cl.clone()));
 
@@ -318,9 +328,15 @@ mod tests {
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
             let mut mock = Client::new();
 
-            let name_str = name.to_string();
+            let name_exp = name.to_string();
             mock.expect_create_volume()
-                .withf(move |option| option.name == name_str && option.driver == "local")
+                .withf(move |option| {
+                    option.name.as_ref().is_some_and(|name| *name == name_exp)
+                        && option
+                            .driver
+                            .as_ref()
+                            .is_some_and(|driver| driver == "local")
+                })
                 .once()
                 .returning(|_| Ok(Default::default()));
 

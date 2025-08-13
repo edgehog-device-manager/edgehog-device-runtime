@@ -1,0 +1,13 @@
+[package]
+name = "edgehog-device-runtime-service"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+edgehog-proto.workspace = true
+eyre.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-stream = { workspace = true, features = ["net"] }
