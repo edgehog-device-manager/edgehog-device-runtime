@@ -24,20 +24,20 @@ use diesel::dsl::exists;
 use diesel::query_dsl::methods::{FilterDsl, SelectDsl};
 use diesel::{
     delete, insert_or_ignore_into, select, update, ExpressionMethods, OptionalExtension,
-    RunQueryDsl, SqliteConnection,
+    RunQueryDsl, SelectableHelper, SqliteConnection,
 };
-use edgehog_store::conversions::SqlUuid;
+use edgehog_store::conversions::{QuotaValue, SqlUuid, Swappiness};
 use edgehog_store::db::HandleError;
 use edgehog_store::models::containers::container::{
     ContainerAddCapability, ContainerBind, ContainerDropCapability, ContainerEnv,
     ContainerExtraHost, ContainerNetwork, ContainerPortBind, ContainerRestartPolicy,
-    ContainerStatus, ContainerVolume, HostPort,
+    ContainerStatus, ContainerStorageOptions, ContainerTmpfs, ContainerVolume, HostPort,
 };
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{
     container_add_capabilities, container_drop_capabilities, container_extra_hosts,
-    deployment_containers, images,
+    container_storage_options, container_tmpfs, deployment_containers, images,
 };
 use edgehog_store::{
     models::containers::{
@@ -60,10 +60,9 @@ use uuid::Uuid;
 
 use crate::container::{Binding, ContainerId, PortBindingMap};
 use crate::docker::container::Container as ContainerResource;
-use crate::requests::container::{
-    parse_port_binding, CreateContainer, RestartPolicy, RestartPolicyError,
-};
+use crate::requests::container::{parse_port_binding, CreateContainer, RestartPolicy};
 use crate::requests::BindingError;
+use crate::store::StoreError;
 
 use super::{Result, StateStore};
 
@@ -87,6 +86,18 @@ impl StateStore {
             extra_hosts,
             cap_add,
             cap_drop,
+            cpu_period,
+            cpu_quota,
+            cpu_realtime_period,
+            cpu_realtime_runtime,
+            memory,
+            memory_reservation,
+            memory_swap,
+            memory_swappiness,
+            volume_driver,
+            storage_opt,
+            read_only_rootfs,
+            tmpfs,
             privileged,
         } = *container;
 
@@ -101,6 +112,8 @@ impl StateStore {
         let port_bindings = container_port_bindings_try_from_vec(&container_id, port_bindings)?;
         let cap_add = container_cap_add_from_vec(&container_id, cap_add);
         let cap_drop = container_cap_drop_from_vec(&container_id, cap_drop);
+        let storage_opt = container_storage_options_from_vec(&container_id, storage_opt)?;
+        let tmpfs = container_tmpfs_from_vec(&container_id, tmpfs)?;
 
         let mut container = create_container(
             container_id,
@@ -108,6 +121,16 @@ impl StateStore {
             network_mode,
             hostname,
             restart_policy,
+            cpu_period,
+            cpu_quota,
+            cpu_realtime_period,
+            cpu_realtime_runtime,
+            memory,
+            memory_reservation,
+            memory_swap,
+            memory_swappiness,
+            volume_driver.into(),
+            read_only_rootfs,
             privileged,
         )?;
 
@@ -156,6 +179,14 @@ impl StateStore {
 
                 insert_or_ignore_into(container_drop_capabilities::table)
                     .values(cap_drop)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_storage_options::table)
+                    .values(storage_opt)
+                    .execute(writer)?;
+
+                insert_or_ignore_into(container_tmpfs::table)
+                    .values(tmpfs)
                     .execute(writer)?;
 
                 for network_id in networks {
@@ -302,6 +333,7 @@ impl StateStore {
             .for_read(move |reader| {
                 let id = SqlUuid::new(id);
                 let Some(container) = Container::find_id(&id)
+                    .select(Container::as_select())
                     .first::<Container>(reader)
                     .optional()?
                 else {
@@ -429,17 +461,55 @@ fn has_missing_volumes(
     .map_err(HandleError::from)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_container(
     id: SqlUuid,
     image_id: SqlUuid,
     network_mode: String,
     hostname: String,
     restart_policy: String,
+    cpu_period: i64,
+    cpu_quota: i64,
+    cpu_realtime_period: i64,
+    cpu_realtime_runtime: i64,
+    memory: i64,
+    memory_reservation: i64,
+    memory_swap: i64,
+    memory_swappiness: i32,
+    volume_driver: Option<String>,
+    read_only_rootfs: bool,
     privileged: bool,
-) -> std::result::Result<Container, RestartPolicyError> {
+) -> std::result::Result<Container, StoreError> {
     let restart_policy = RestartPolicy::from_str(&restart_policy)?;
     let restart_policy = ContainerRestartPolicy::from(restart_policy);
     let hostname = hostname.is_empty().not().then_some(hostname);
+
+    let cpu_period = QuotaValue::<-1>::new(cpu_period);
+    let cpu_quota = QuotaValue::<-1>::new(cpu_quota);
+    let cpu_realtime_period = QuotaValue::<-1>::new(cpu_realtime_period);
+    let cpu_realtime_runtime = QuotaValue::<-1>::new(cpu_realtime_runtime);
+    let memory = QuotaValue::<-1>::new(memory);
+    let memory_reservation = QuotaValue::<-1>::new(memory_reservation);
+    let memory_swap = QuotaValue::<-2>::new(memory_swap);
+    let memory_swappiness =
+        Swappiness::try_new(memory_swappiness).map_err(|err| StoreError::Conversion {
+            ctx: format!("invalid memory swappiness value {err}"),
+        })?;
+
+    // Make sure both are unset
+    match (cpu_period, cpu_quota) {
+        (None, None) | (Some(_), Some(_)) => {}
+        (None, Some(_)) => {
+            return Err(StoreError::Conversion {
+                ctx: "cpu period missing, while cpu quota is set".to_string(),
+            })
+        }
+        (Some(_), None) => {
+            return Err(StoreError::Conversion {
+                ctx: "cpu period was set, while cpu quota is missing".to_string(),
+            })
+        }
+    }
 
     Ok(Container {
         id,
@@ -450,6 +520,16 @@ fn create_container(
         hostname,
         restart_policy,
         privileged,
+        cpu_period,
+        cpu_quota,
+        cpu_realtime_period,
+        cpu_realtime_runtime,
+        memory,
+        memory_reservation,
+        memory_swap,
+        memory_swappiness,
+        volume_driver,
+        read_only_rootfs,
     })
 }
 
@@ -536,6 +616,50 @@ fn container_cap_drop_from_vec(
         .collect()
 }
 
+fn container_storage_options_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Result<Vec<ContainerStorageOptions>> {
+    value
+        .into_iter()
+        .map(|value| {
+            value
+                .split_once("=")
+                .map(|(k, v)| ContainerStorageOptions {
+                    container_id: *container_id,
+                    name: k.to_string(),
+                    value: v.is_empty().not().then(|| v.to_string()),
+                })
+                .ok_or_else(|| StoreError::ParseKeyValue {
+                    ctx: "container storage option",
+                    value,
+                })
+        })
+        .collect()
+}
+
+fn container_tmpfs_from_vec(
+    container_id: &SqlUuid,
+    value: Vec<String>,
+) -> Result<Vec<ContainerTmpfs>> {
+    value
+        .into_iter()
+        .map(|value| {
+            value
+                .split_once("=")
+                .map(|(k, v)| ContainerTmpfs {
+                    container_id: *container_id,
+                    path: k.to_string(),
+                    options: v.is_empty().not().then(|| v.to_string()),
+                })
+                .ok_or_else(|| StoreError::ParseKeyValue {
+                    ctx: "container tmpfs",
+                    value,
+                })
+        })
+        .collect()
+}
+
 fn container_port_bindings_try_from_vec(
     container_id: &SqlUuid,
     value: Vec<String>,
@@ -570,6 +694,7 @@ mod tests {
             .handle
             .for_read(move |reader| {
                 Container::find_id(&SqlUuid::new(id))
+                    .select(Container::as_select())
                     .first::<Container>(reader)
                     .optional()
                     .map_err(HandleError::Query)
@@ -696,6 +821,18 @@ mod tests {
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             cap_add: vec!["CAP_CHOWN".to_string()],
             cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
         store.create_container(Box::new(container)).await.unwrap();
@@ -709,6 +846,16 @@ mod tests {
             network_mode: "bridge".to_string(),
             hostname: Some("database".to_string()),
             restart_policy: ContainerRestartPolicy::UnlessStopped,
+            cpu_period: QuotaValue::new(1000),
+            cpu_quota: QuotaValue::new(100),
+            cpu_realtime_period: QuotaValue::new(1000),
+            cpu_realtime_runtime: QuotaValue::new(100),
+            memory: QuotaValue::new(4096),
+            memory_reservation: QuotaValue::new(1024),
+            memory_swap: QuotaValue::new(8192),
+            memory_swappiness: Swappiness::try_new(50).unwrap(),
+            volume_driver: "local".to_string().into(),
+            read_only_rootfs: true,
             privileged: false,
         };
         assert_eq!(container, exp);
@@ -776,6 +923,18 @@ mod tests {
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             cap_add: vec!["CAP_CHOWN".to_string()],
             cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
         store.create_container(Box::new(container)).await.unwrap();
@@ -794,6 +953,16 @@ mod tests {
             network_mode: "bridge".to_string(),
             hostname: Some("database".to_string()),
             restart_policy: ContainerRestartPolicy::UnlessStopped,
+            cpu_period: QuotaValue::new(1000),
+            cpu_quota: QuotaValue::new(100),
+            cpu_realtime_period: QuotaValue::new(1000),
+            cpu_realtime_runtime: QuotaValue::new(100),
+            memory: QuotaValue::new(4096),
+            memory_reservation: QuotaValue::new(1024),
+            memory_swap: QuotaValue::new(8192),
+            memory_swappiness: Swappiness::try_new(50).unwrap(),
+            volume_driver: "local".to_string().into(),
+            read_only_rootfs: true,
             privileged: false,
         };
         assert_eq!(container, exp);
@@ -830,6 +999,18 @@ mod tests {
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             cap_add: vec!["CAP_CHOWN".to_string()],
             cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
         store.create_container(Box::new(container)).await.unwrap();

@@ -75,7 +75,7 @@ pub(crate) mod tests {
 
     use super::*;
 
-    pub(crate) fn mock_runtime_info_telemtry(
+    pub(crate) fn mock_runtime_info_telemetry(
         client: &mut MockDeviceClient<Mqtt<SqliteStore>>,
         seq: &mut Sequence,
     ) {
@@ -129,7 +129,7 @@ pub(crate) mod tests {
         let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
-        mock_runtime_info_telemtry(&mut client, &mut seq);
+        mock_runtime_info_telemetry(&mut client, &mut seq);
 
         RUNTIME_INFO.send(&mut client).await;
     }

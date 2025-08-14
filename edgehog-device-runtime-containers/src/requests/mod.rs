@@ -221,6 +221,36 @@ impl TryFrom<AstarteData> for VecReqUuid {
     }
 }
 
+/// Non empty string
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct OptString(Option<String>);
+
+impl TryFrom<AstarteData> for OptString {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        Ok(Self::from(value))
+    }
+}
+
+impl From<String> for OptString {
+    fn from(value: String) -> Self {
+        if value.is_empty() {
+            OptString(None)
+        } else {
+            OptString(Some(value))
+        }
+    }
+}
+
+impl From<OptString> for Option<String> {
+    fn from(value: OptString) -> Self {
+        value.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,5 +298,19 @@ mod tests {
         };
 
         assert_eq!(request, ContainerRequest::Network(expect));
+    }
+
+    #[test]
+    fn optional_string() {
+        let cases = [
+            ("", OptString(None)),
+            ("some", OptString(Some("some".to_string()))),
+        ];
+
+        for (case, exp) in cases {
+            let res = OptString::try_from(AstarteData::from(case)).unwrap();
+
+            assert_eq!(res, exp);
+        }
     }
 }

@@ -469,7 +469,7 @@ pub(crate) mod tests {
     use astarte_device_sdk_mock::MockDeviceClient;
     use event::TelemetryPeriod;
     use mockall::{predicate, Sequence};
-    use runtime_info::tests::mock_runtime_info_telemtry;
+    use runtime_info::tests::mock_runtime_info_telemetry;
     use tempdir::TempDir;
 
     const TELEMETRY_PATH: &str = "telemetry.json";
@@ -535,7 +535,7 @@ pub(crate) mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        mock_runtime_info_telemtry(&mut client, &mut seq);
+        mock_runtime_info_telemetry(&mut client, &mut seq);
 
         client
             .expect_send_object()
