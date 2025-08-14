@@ -40,6 +40,18 @@
         "extraHosts": ["host.docker.internal:host-gateway"],
         "capAdd": ["CAP_CHOWN"],
         "capDrop": ["CAP_KILL"],
+        "cpu_period": -1,
+        "cpu_quota": -1,
+        "cpu_realtime_period": -1,
+        "cpu_realtime_runtime": -1,
+        "memory": -1,
+        "memory_reservetion": -1,
+        "memory_swap": -2,
+        "memory_swappiness": -1,
+        "volume_driver": "",
+        "storage_opt": [],
+        "read_only_rootfs": false,
+        "tmpfs": [],
         "privileged": false
       }
     },
