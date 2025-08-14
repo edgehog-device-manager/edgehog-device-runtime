@@ -20,7 +20,11 @@
 
 // Mock the client, this is behind a feature flag so we can test with both the real docker daemon
 // and the mocked one.
-#[cfg(feature = "mock")]
-pub(crate) use crate::mock::{DockerTrait, MockDocker as Client};
-#[cfg(not(feature = "mock"))]
-pub(crate) use bollard::Docker as Client;
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "__mock")] {
+        pub(crate) use crate::mock::{DockerTrait, MockDocker as Client};
+    } else {
+        pub(crate) use bollard::Docker as Client;
+    }
+}

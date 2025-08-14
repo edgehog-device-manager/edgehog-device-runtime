@@ -17,18 +17,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use actor::Actor;
-use astarte_device_sdk::{client::RecvError, Client, FromEvent};
+use astarte_device_sdk::client::RecvError;
+use astarte_device_sdk::prelude::PropAccess;
+use astarte_device_sdk::FromEvent;
 use stable_eyre::eyre::Error;
 use tokio::{sync::mpsc, task::JoinSet};
 use tracing::{error, info};
 
-use crate::{
-    commands::execute_command,
-    data::{Publisher, Subscriber},
-    error::DeviceManagerError,
-    telemetry::{event::TelemetryEvent, Telemetry},
-    DeviceManagerOptions,
-};
+use crate::commands::execute_command;
+use crate::error::DeviceManagerError;
+use crate::telemetry::event::TelemetryEvent;
+use crate::telemetry::Telemetry;
+use crate::{Client, DeviceManagerOptions};
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use crate::led_behavior::{LedBlink, LedEvent};
@@ -54,14 +54,14 @@ pub struct Runtime<T> {
     ota_handler: OtaHandler,
 }
 
-impl<T> Runtime<T> {
+impl<C> Runtime<C> {
     pub async fn new(
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
         opts: DeviceManagerOptions,
-        client: T,
+        client: C,
     ) -> Result<Self, DeviceManagerError>
     where
-        T: Client + Publisher + Send + Sync + Clone + 'static,
+        C: Client + PropAccess + Send + Sync + 'static,
     {
         #[cfg(feature = "systemd")]
         crate::systemd_wrapper::systemd_notify_status("Initializing");
@@ -118,7 +118,7 @@ impl<T> Runtime<T> {
 
     #[cfg(feature = "containers")]
     async fn setup_containers(
-        client: T,
+        client: C,
         config: crate::containers::ContainersConfig,
         store_dir: &std::path::Path,
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
@@ -127,7 +127,7 @@ impl<T> Runtime<T> {
         DeviceManagerError,
     >
     where
-        T: Client + Clone + Send + Sync + 'static,
+        C: Client + Clone + Send + Sync + 'static,
     {
         let (container_tx, container_rx) = mpsc::unbounded_channel();
 
@@ -141,7 +141,7 @@ impl<T> Runtime<T> {
 
     pub async fn run(&mut self) -> Result<(), DeviceManagerError>
     where
-        T: Subscriber + Publisher + Clone + Send + Sync + 'static,
+        C: Client + Send + Sync + 'static,
     {
         #[cfg(feature = "systemd")]
         crate::systemd_wrapper::systemd_notify_status("Running");
@@ -169,7 +169,7 @@ impl<T> Runtime<T> {
 
     async fn handle_event(&mut self, event: RuntimeEvent)
     where
-        T: Publisher + Clone + Send + Sync + 'static,
+        C: Client + Send + Sync + 'static,
     {
         match event {
             RuntimeEvent::Command(cmd) => {

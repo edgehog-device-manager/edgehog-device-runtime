@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,14 +27,15 @@ use std::{
 };
 
 use bollard::{
-    container::{
-        Config, CreateContainerOptions, InspectContainerOptions, NetworkingConfig,
-        RemoveContainerOptions, StartContainerOptions,
-    },
     errors::Error as BollardError,
     models::{
-        ContainerInspectResponse, EndpointSettings, HostConfig, PortBinding,
-        RestartPolicy as BollardRestartPolicy,
+        ContainerCreateBody, ContainerInspectResponse, EndpointSettings, HostConfig,
+        NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
+        RestartPolicyNameEnum,
+    },
+    query_parameters::{
+        CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
+        StartContainerOptions, StopContainerOptions,
     },
 };
 use tracing::{debug, info, instrument, trace, warn};
@@ -220,7 +221,7 @@ impl ContainerId {
         debug!("starting {self}");
 
         let res = client
-            .start_container(self.container(), None::<StartContainerOptions<&str>>)
+            .start_container(self.container(), None::<StartContainerOptions>)
             .await;
 
         match res {
@@ -244,7 +245,9 @@ impl ContainerId {
     pub(crate) async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("stopping {self}");
 
-        let res = client.stop_container(self.container(), None).await;
+        let res = client
+            .stop_container(self.container(), None::<StopContainerOptions>)
+            .await;
 
         match res {
             Ok(()) => Ok(Some(())),
@@ -313,6 +316,14 @@ pub(crate) struct Container {
     /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
     /// example, 80/udp.
     pub(crate) port_bindings: PortBindingMap<String>,
+    /// A list of hostnames/IP mappings to add to the container's /etc/hosts file.
+    ///
+    /// Specified in the form ["hostname:IP"].
+    pub(crate) extra_hosts: Vec<String>,
+    /// A list of kernel capabilities to add to the container.
+    pub(crate) cap_add: Vec<String>,
+    /// A list of kernel capabilities to drop from the container.
+    pub(crate) cap_drop: Vec<String>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
@@ -337,12 +348,12 @@ impl Container {
     }
 
     /// Convert the networks into [`NetworkingConfig`]
-    fn as_network_config(&self) -> HashMap<&str, EndpointSettings> {
+    fn as_network_config(&self) -> HashMap<String, EndpointSettings> {
         self.networks
             .iter()
             .map(|net_id| {
                 (
-                    net_id.as_ref(),
+                    net_id.clone(),
                     EndpointSettings {
                         ..Default::default()
                     },
@@ -358,8 +369,8 @@ impl Container {
     pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError> {
         debug!("creating the {}", self);
 
-        let options = CreateContainerOptions::<&str>::from(&*self);
-        let config = Config::<&str>::from(&*self);
+        let options = CreateContainerOptions::from(&*self);
+        let config = ContainerCreateBody::from(&*self);
         let res = client
             .create_container(Some(options), config)
             .await
@@ -396,25 +407,41 @@ impl DerefMut for Container {
     }
 }
 
-impl<'a> From<&'a Container> for CreateContainerOptions<&'a str> {
+impl<'a> From<&'a Container> for CreateContainerOptions {
     fn from(value: &'a Container) -> Self {
         CreateContainerOptions {
-            name: value.name_as_str(),
-            platform: None,
+            name: Some(value.name_as_str().to_string()),
+            platform: String::new(),
         }
     }
 }
 
-impl<'a> From<&'a Container> for Config<&'a str> {
-    fn from(value: &'a Container) -> Self {
-        let hostname = value.hostname.as_deref();
-        let env = value.env.iter().map(String::as_str).collect();
-        let binds = value.binds.clone();
+impl From<&Container> for ContainerCreateBody {
+    fn from(value: &Container) -> Self {
+        let Container {
+            id: _,
+            image,
+            network_mode,
+            networks: _,
+            hostname,
+            restart_policy,
+            env,
+            binds,
+            port_bindings: _,
+            extra_hosts,
+            cap_add,
+            cap_drop,
+            privileged,
+        } = value;
+
+        let hostname = hostname.clone();
+        let env = env.iter().map(String::clone).collect();
+        let binds = binds.clone();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
 
         let restart_policy = BollardRestartPolicy {
-            name: Some(value.restart_policy.into()),
+            name: Some(RestartPolicyNameEnum::from(*restart_policy)),
             maximum_retry_count: None,
         };
 
@@ -422,17 +449,21 @@ impl<'a> From<&'a Container> for Config<&'a str> {
             restart_policy: Some(restart_policy),
             binds: Some(binds),
             port_bindings: Some(port_bindings),
-            privileged: Some(value.privileged),
+            network_mode: Some(network_mode.clone()),
+            extra_hosts: Some(extra_hosts.clone()),
+            cap_add: Some(cap_add.clone()),
+            cap_drop: Some(cap_drop.clone()),
+            privileged: Some(*privileged),
             ..Default::default()
         };
 
         let networking_config = NetworkingConfig {
-            endpoints_config: networks,
+            endpoints_config: Some(networks),
         };
 
-        Config {
+        ContainerCreateBody {
             hostname,
-            image: Some(value.image.as_ref()),
+            image: Some(image.clone()),
             env: Some(env),
             host_config: Some(host_config),
             networking_config: Some(networking_config),
@@ -593,6 +624,9 @@ mod tests {
                 network_mode: "bridge".to_string(),
                 networks: Vec::new(),
                 port_bindings: PortBindingMap::default(),
+                extra_hosts: Vec::new(),
+                cap_add: Vec::new(),
+                cap_drop: Vec::new(),
                 privileged: false,
             }
         }
@@ -616,7 +650,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == Some("hello-world:latest".to_string()))
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -627,7 +661,7 @@ mod tests {
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_| {
-                    Ok(bollard::secret::ImageInspect {
+                    Ok(bollard::models::ImageInspect {
                         id: Some(
                             "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
                         ),
@@ -638,8 +672,10 @@ mod tests {
             let name_str = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_str)
-                        && config.image == Some("hello-world:latest")
+                    option
+                        .as_ref()
+                        .is_some_and(|opt| opt.name == Some(name_str.clone()))
+                        && config.image == Some("hello-world:latest".to_string())
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -674,7 +710,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == Some("hello-world:latest".to_string()))
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -685,7 +721,7 @@ mod tests {
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_| {
-                    Ok(bollard::secret::ImageInspect {
+                    Ok(bollard::models::ImageInspect {
                         id: Some(
                             "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
                         ),
@@ -696,8 +732,10 @@ mod tests {
             let name_cl = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_cl)
-                        && config.image == Some("hello-world:latest")
+                    option
+                        .as_ref()
+                        .is_some_and(|opt| opt.name == Some(name_cl.to_string()))
+                        && config.image == Some("hello-world:latest".to_string())
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -770,7 +808,7 @@ mod tests {
                 .withf(|option, _, _| {
                     option
                         .as_ref()
-                        .is_some_and(|opt| opt.from_image == "hello-world:latest")
+                        .is_some_and(|opt| opt.from_image == Some("hello-world:latest".to_string()))
                 })
                 .once()
                 .in_sequence(&mut seq)
@@ -781,7 +819,7 @@ mod tests {
                 .once()
                 .in_sequence(&mut seq)
                 .returning(|_| {
-                    Ok(bollard::secret::ImageInspect {
+                    Ok(bollard::models::ImageInspect {
                         id: Some(
                             "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
                         ),
@@ -789,11 +827,14 @@ mod tests {
                     })
                 });
 
-            let name_str = name.to_string();
+            let name_exp = name.to_string();
             mock.expect_create_container()
                 .withf(move |option, config| {
-                    option.as_ref().is_some_and(|opt| opt.name == name_str)
-                        && config.image == Some("hello-world:latest")
+                    option
+                        .as_ref()
+                        .and_then(|opt| opt.name.as_ref())
+                        .is_some_and(|name| *name == name_exp)
+                        && config.image == Some("hello-world:latest".to_string())
                 })
                 .once()
                 .in_sequence(&mut seq)

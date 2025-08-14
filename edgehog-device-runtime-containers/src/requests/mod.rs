@@ -21,7 +21,7 @@
 use std::{borrow::Borrow, fmt::Display, num::ParseIntError, ops::Deref};
 
 use astarte_device_sdk::{
-    event::FromEventError, types::TypeError, AstarteType, DeviceEvent, FromEvent,
+    event::FromEventError, types::TypeError, AstarteData, DeviceEvent, FromEvent,
 };
 use container::{CreateContainer, RestartPolicyError};
 use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
@@ -128,7 +128,7 @@ impl FromEvent for ContainerRequest {
     }
 }
 
-/// Wrapper to convert an [`AstarteType`] to [`Uuid`].
+/// Wrapper to convert an [`AstarteData`] to [`Uuid`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ReqUuid(pub(crate) Uuid);
 
@@ -162,15 +162,17 @@ impl TryFrom<&str> for ReqUuid {
                 value, "couldn't parse uuid value"
             );
 
-            TypeError::Conversion
+            TypeError::Conversion {
+                ctx: format!("couldn't parse uuid value: {value}"),
+            }
         })
     }
 }
 
-impl TryFrom<AstarteType> for ReqUuid {
+impl TryFrom<AstarteData> for ReqUuid {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
 
         Self::try_from(value.as_str())
@@ -189,9 +191,9 @@ impl From<&ReqUuid> for Uuid {
     }
 }
 
-/// Wrapper to convert an [`AstarteType`] to [`Vec<Uuid>`].
+/// Wrapper to convert an [`AstarteData`] to [`Vec<Uuid>`].
 ///
-/// This is required because we cannot implement [`TryFrom<AstarteType>`] for [`Vec<ReqUuid>`], because
+/// This is required because we cannot implement [`TryFrom<AstarteData>`] for [`Vec<ReqUuid>`], because
 /// of the orphan rule.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub(crate) struct VecReqUuid(pub(crate) Vec<ReqUuid>);
@@ -204,10 +206,10 @@ impl Deref for VecReqUuid {
     }
 }
 
-impl TryFrom<AstarteType> for VecReqUuid {
+impl TryFrom<AstarteData> for VecReqUuid {
     type Error = TypeError;
 
-    fn try_from(value: AstarteType) -> Result<Self, Self::Error> {
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = Vec::<String>::try_from(value)?;
 
         value
@@ -215,6 +217,36 @@ impl TryFrom<AstarteType> for VecReqUuid {
             .map(|v| ReqUuid::try_from(v.as_str()))
             .collect::<Result<Vec<ReqUuid>, TypeError>>()
             .map(VecReqUuid)
+    }
+}
+
+/// Non empty string
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct OptString(Option<String>);
+
+impl TryFrom<AstarteData> for OptString {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        Ok(Self::from(value))
+    }
+}
+
+impl From<String> for OptString {
+    fn from(value: String) -> Self {
+        if value.is_empty() {
+            OptString(None)
+        } else {
+            OptString(Some(value))
+        }
+    }
+}
+
+impl From<OptString> for Option<String> {
+    fn from(value: OptString) -> Self {
+        value.0
     }
 }
 
@@ -265,5 +297,19 @@ mod tests {
         };
 
         assert_eq!(request, ContainerRequest::Network(expect));
+    }
+
+    #[test]
+    fn optional_string() {
+        let cases = [
+            ("", OptString(None)),
+            ("some", OptString(Some("some".to_string()))),
+        ];
+
+        for (case, exp) in cases {
+            let res = OptString::try_from(AstarteData::from(case)).unwrap();
+
+            assert_eq!(res, exp);
+        }
     }
 }

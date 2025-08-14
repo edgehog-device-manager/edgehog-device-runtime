@@ -23,7 +23,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use bollard::{secret::EventMessage, system::EventsOptions};
+use bollard::{models::EventMessage, query_parameters::EventsOptionsBuilder};
 use futures::{Stream, TryStreamExt};
 
 pub(crate) use crate::client::*;
@@ -41,24 +41,27 @@ pub struct Docker {
 }
 
 impl Docker {
-    /// Create a new Docker container manager
-    #[cfg(not(feature = "mock"))]
-    pub async fn connect() -> Result<Self, DockerError> {
-        let client = Client::connect_with_local_defaults()
-            .map_err(DockerError::Connection)?
-            .negotiate_version()
-            .await
-            .map_err(DockerError::Version)?;
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "__mock")] {
+            /// Create a new Docker container manager
+            #[cfg(feature = "__mock")]
+            pub async fn connect() -> Result<Self, DockerError> {
+                let client = Client::new();
 
-        Ok(Self { client })
-    }
+                Ok(Self { client })
+            }
+        } else {
+            /// Create a new Docker container manager
+            pub async fn connect() -> Result<Self, DockerError> {
+                let client = Client::connect_with_local_defaults()
+                    .map_err(DockerError::Connection)?
+                    .negotiate_version()
+                    .await
+                    .map_err(DockerError::Version)?;
 
-    /// Create a new Docker container manager
-    #[cfg(feature = "mock")]
-    pub async fn connect() -> Result<Self, DockerError> {
-        let client = Client::new();
-
-        Ok(Self { client })
+                Ok(Self { client })
+            }
+        }
     }
 
     /// Ping the Docker daemon
@@ -71,15 +74,13 @@ impl Docker {
 
     /// Ping the Docker daemon
     pub fn events(&self) -> impl Stream<Item = Result<EventMessage, DockerError>> {
-        let types = vec!["container", "image", "volume", "network"];
+        let types = ["container", "image", "volume", "network"]
+            .map(str::to_string)
+            .to_vec();
 
-        let filters = [("type", types)].into_iter().collect();
+        let filters = [("type".to_string(), types)].into_iter().collect();
 
-        let options = EventsOptions {
-            since: None,
-            until: None,
-            filters,
-        };
+        let options = EventsOptionsBuilder::new().filters(&filters).build();
 
         // Discard the result since it returns the string `OK`
         self.client
@@ -129,30 +130,30 @@ pub(crate) mod tests {
     #[macro_export]
     macro_rules! docker_mock {
         ($mock:expr) => {{
-            #[cfg(feature = "mock")]
+            #[cfg(feature = "__mock")]
             let docker: $crate::Docker = {
                 let mock: $crate::client::Client = $mock;
 
                 Docker::from(mock)
             };
 
-            #[cfg(not(feature = "mock"))]
+            #[cfg(not(feature = "__mock"))]
             let docker: $crate::docker::Docker = $crate::docker::Docker::connect().unwrap();
 
             docker
         }};
         ($default:expr, $mock:expr) => {{
-            #[cfg(feature = "mock")]
+            #[cfg(feature = "__mock")]
             let client: $crate::client::Client = $mock;
 
-            #[cfg(not(feature = "mock"))]
+            #[cfg(not(feature = "__mock"))]
             let client: $crate::client::Client = $default;
 
             $crate::Docker::from(client)
         }};
     }
 
-    #[cfg(feature = "mock")]
+    #[cfg(feature = "__mock")]
     pub(crate) fn not_found_response() -> bollard::errors::Error {
         bollard::errors::Error::DockerResponseServerError {
             status_code: 404,
@@ -172,6 +173,6 @@ pub(crate) mod tests {
 
         let res = docker.ping().await;
 
-        assert!(res.is_ok(), "Ping failed: {:?}", res);
+        assert!(res.is_ok(), "Ping failed: {res:?}");
     }
 }

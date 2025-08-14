@@ -40,7 +40,7 @@ impl VolumeResource {
 #[async_trait]
 impl<D> Resource<D> for VolumeResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn publish(ctx: Context<'_, D>) -> Result<()> {
         AvailableVolume::new(&ctx.id)
@@ -58,7 +58,7 @@ where
 #[async_trait]
 impl<D> Create<D> for VolumeResource
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
         let resource = ctx
