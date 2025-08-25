@@ -35,11 +35,14 @@ use diesel::{
 use crate::{
     conversions::{QuotaValue, SqlUuid, Swappiness},
     models::{
-        containers::{image::Image, network::Network, volume::Volume},
+        containers::{
+            device_mapping::DeviceMapping, image::Image, network::Network, volume::Volume,
+        },
         ExistsFilterById, QueryModel,
     },
     schema::containers::{
-        container_missing_images, container_missing_networks, container_missing_volumes, containers,
+        container_missing_device_mappings, container_missing_images, container_missing_networks,
+        container_missing_volumes, containers,
     },
 };
 
@@ -536,6 +539,68 @@ pub struct ContainerTmpfs {
     ///
     /// Example: `rw,noexec,nosuid,size=65536k`
     pub options: Option<String>,
+}
+
+/// Device Mapping used by a container
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
+#[diesel(table_name = crate::schema::containers::container_device_mappings)]
+#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(DeviceMapping))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDeviceMapping {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// [`DeviceMapping`] id
+    pub device_mapping_id: SqlUuid,
+}
+
+/// Missing device mapping for a container
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
+#[diesel(table_name = crate::schema::containers::container_missing_device_mappings)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerMissingDeviceMapping {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// [`DeviceMapping`] id
+    pub device_mapping_id: SqlUuid,
+}
+
+type ContainerMissingDeviceMappingByDeviceMapping<'a> =
+    Eq<container_missing_device_mappings::device_mapping_id, &'a SqlUuid>;
+type ContainerMissingDeviceMappingFilterByDeviceMapping<'a> = Filter<
+    container_missing_device_mappings::table,
+    ContainerMissingDeviceMappingByDeviceMapping<'a>,
+>;
+
+impl ContainerMissingDeviceMapping {
+    /// Returns the filter container_missing_device_mapping table by id.
+    pub fn by_device_mapping(
+        device_mapping_id: &SqlUuid,
+    ) -> ContainerMissingDeviceMappingByDeviceMapping<'_> {
+        container_missing_device_mappings::device_mapping_id.eq(device_mapping_id)
+    }
+
+    /// Returns the filtered container_missing_device_mapping table by id.
+    pub fn find_by_device_mapping(
+        device_mapping_id: &SqlUuid,
+    ) -> ContainerMissingDeviceMappingFilterByDeviceMapping<'_> {
+        container_missing_device_mappings::table.filter(Self::by_device_mapping(device_mapping_id))
+    }
+}
+
+impl From<ContainerDeviceMapping> for ContainerMissingDeviceMapping {
+    fn from(
+        ContainerDeviceMapping {
+            container_id,
+            device_mapping_id,
+        }: ContainerDeviceMapping,
+    ) -> Self {
+        Self {
+            container_id,
+            device_mapping_id,
+        }
+    }
 }
 
 #[cfg(test)]

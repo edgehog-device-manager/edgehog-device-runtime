@@ -55,7 +55,6 @@ where
     }
 }
 
-#[async_trait]
 impl<D> Create<D> for VolumeResource
 where
     D: Client + Send + Sync + 'static,
