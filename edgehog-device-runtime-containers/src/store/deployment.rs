@@ -23,7 +23,9 @@ use diesel::{
 };
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
-use edgehog_store::models::containers::container::{Container, ContainerNetwork, ContainerVolume};
+use edgehog_store::models::containers::container::{
+    Container, ContainerDeviceMapping, ContainerNetwork, ContainerVolume,
+};
 use edgehog_store::models::containers::deployment::{
     Deployment, DeploymentContainer, DeploymentMissingContainer, DeploymentStatus,
 };
@@ -230,12 +232,14 @@ impl StateStore {
                         containers::image_id.assume_not_null(),
                         Option::<ContainerNetwork>::as_select(),
                         Option::<ContainerVolume>::as_select(),
+                        Option::<ContainerDeviceMapping>::as_select(),
                     ))
                     .load::<(
                         SqlUuid,
                         SqlUuid,
                         Option<ContainerNetwork>,
                         Option<ContainerVolume>,
+                        Option<ContainerDeviceMapping>,
                     )>(reader)?;
 
                 Ok(Some(DeploymentResource::from(rows)))
@@ -266,6 +270,7 @@ impl StateStore {
                         containers::image_id.assume_not_null(),
                         Option::<ContainerNetwork>::as_select(),
                         Option::<ContainerVolume>::as_select(),
+                        Option::<ContainerDeviceMapping>::as_select(),
                     ))
                     .except(
                         Deployment::join_resources()
@@ -275,6 +280,7 @@ impl StateStore {
                                 containers::image_id.assume_not_null(),
                                 Option::<ContainerNetwork>::as_select(),
                                 Option::<ContainerVolume>::as_select(),
+                                Option::<ContainerDeviceMapping>::as_select(),
                             )),
                     )
                     .load::<DeploymentRow>(reader)?;
@@ -364,6 +370,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
+    use crate::requests::device_mapping::CreateDeviceMapping;
+    use crate::requests::OptString;
     use crate::requests::{
         container::CreateContainer, image::CreateImage, network::CreateNetwork,
         volume::CreateVolume, ReqUuid, VecReqUuid,
@@ -426,6 +434,16 @@ mod tests {
         };
         store.create_network(network).await.unwrap();
 
+        let device_mapping_id = ReqUuid(Uuid::new_v4());
+        let device_mapping = CreateDeviceMapping {
+            id: device_mapping_id,
+            deployment_id: ReqUuid(deployment_id),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "dev/tty12".to_string(),
+            c_group_permissions: OptString::from("msv".to_string()),
+        };
+        store.create_device_mapping(device_mapping).await.unwrap();
+
         let container_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
@@ -433,6 +451,7 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]

@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use edgehog_store::{
     conversions::SqlUuid,
     models::containers::{
-        container::{ContainerNetwork, ContainerVolume},
+        container::{ContainerDeviceMapping, ContainerNetwork, ContainerVolume},
         deployment::DeploymentStatus,
     },
 };
@@ -43,6 +43,7 @@ pub(crate) type DeploymentRow = (
     SqlUuid,
     Option<ContainerNetwork>,
     Option<ContainerVolume>,
+    Option<ContainerDeviceMapping>,
 );
 
 #[derive(Debug, Default)]
@@ -51,13 +52,14 @@ pub(crate) struct Deployment {
     pub(crate) images: HashSet<Uuid>,
     pub(crate) volumes: HashSet<Uuid>,
     pub(crate) networks: HashSet<Uuid>,
+    pub(crate) device_mapping: HashSet<Uuid>,
 }
 
 impl From<Vec<DeploymentRow>> for Deployment {
     fn from(value: Vec<DeploymentRow>) -> Self {
         value.into_iter().fold(
             Self::default(),
-            |mut acc, (container_id, image_id, c_network, c_volume)| {
+            |mut acc, (container_id, image_id, c_network, c_volume, c_device_mapping)| {
                 acc.containers.insert(*container_id);
                 acc.images.insert(*image_id);
 
@@ -68,6 +70,12 @@ impl From<Vec<DeploymentRow>> for Deployment {
                 if let Some(c_volume) = c_volume {
                     acc.volumes.insert(*c_volume.volume_id);
                 }
+
+                if let Some(c_device_mapping) = c_device_mapping {
+                    acc.device_mapping
+                        .insert(*c_device_mapping.device_mapping_id);
+                }
+
                 acc
             },
         )

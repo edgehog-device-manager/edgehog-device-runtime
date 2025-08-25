@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,7 +23,7 @@
 
 use edgehog_store::models::containers::deployment::DeploymentStatus;
 use tokio::sync::mpsc;
-use tracing::{debug, error, instrument};
+use tracing::{error, instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -85,8 +85,8 @@ impl<D> ServiceHandle<D> {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(?deployment_id))]
-    async fn persist_request(&mut self, deployment_id: Option<Uuid>, request: ContainerRequest)
+    #[instrument(skip_all, fields(deployment_id))]
+    async fn persist_request(&mut self, deployment_id: Uuid, request: ContainerRequest)
     where
         D: Client + Sync + 'static,
     {
@@ -97,6 +97,11 @@ impl<D> ServiceHandle<D> {
             }
             ContainerRequest::Network(create_network) => {
                 self.store.create_network(create_network).await
+            }
+            ContainerRequest::DeviceMapping(create_device_mapping) => {
+                self.store
+                    .create_device_mapping(create_device_mapping)
+                    .await
             }
             ContainerRequest::Container(create_container) => {
                 self.store.create_container(create_container).await
@@ -119,13 +124,8 @@ impl<D> ServiceHandle<D> {
 
             error!(%error, "couldn't store request");
 
-            let Some(id) = deployment_id else {
-                debug!("no deployment id in the request to message the error");
-                return;
-            };
-
             DeploymentEvent::new(EventStatus::Error, error)
-                .send(&id, &mut self.device)
+                .send(&deployment_id, &mut self.device)
                 .await;
         }
     }
@@ -172,6 +172,14 @@ impl From<&ContainerRequest> for AstarteEvent {
                 AstarteEvent::Resource {
                     resource,
                     deployment: create_network.deployment_id.0,
+                }
+            }
+            ContainerRequest::DeviceMapping(create_device_mapping) => {
+                let resource = Id::new(ResourceType::DeviceMapping, create_device_mapping.id.0);
+
+                AstarteEvent::Resource {
+                    resource,
+                    deployment: create_device_mapping.deployment_id.0,
                 }
             }
             ContainerRequest::Container(create_container) => {

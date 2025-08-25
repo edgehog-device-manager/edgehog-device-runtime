@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,6 +19,8 @@
 //! Resource for the service.
 //!
 //! Handles and generalizes the operation on the various type of resources.
+
+use std::future::Future;
 
 use async_trait::async_trait;
 use tracing::debug;
@@ -33,6 +35,7 @@ use crate::{
 
 pub(crate) mod container;
 pub(crate) mod deployment;
+pub(crate) mod device_mapping;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
@@ -91,14 +94,15 @@ where
     async fn publish(ctx: Context<'_, D>) -> Result<()>;
 }
 
-#[async_trait]
 pub(crate) trait Create<D>: Resource<D>
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)>;
-    async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()>;
-    async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()>;
+    fn fetch(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<(State, Self)>> + Send;
+
+    fn create(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+
+    fn delete(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
     async fn up(mut ctx: Context<'_, D>) -> Result<Self> {
         let (state, mut resource) = Self::fetch(&mut ctx).await?;

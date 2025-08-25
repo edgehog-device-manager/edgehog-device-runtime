@@ -19,6 +19,7 @@
         "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
         "networkIds": [],
         "volumeIds": [],
+        "deviceMappingIds": [],
         "hostname": "",
         "restartPolicy": "",
         "env": [],
