@@ -18,10 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use crate::data::{publish, Publisher};
 use procfs::{CpuInfo, Meminfo, ProcResult};
 use serde::Deserialize;
 use tracing::{debug, error};
+
+use crate::data::set_property;
+use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.HardwareInfo";
 
@@ -40,9 +42,9 @@ impl HardwareInfo {
     }
 
     /// get structured data for `io.edgehog.devicemanager.HardwareInfo` interface
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         self.cpu.send(client).await;
         self.mem.send(client).await;
@@ -81,26 +83,26 @@ impl Cpu {
         cpu
     }
 
-    async fn send<T>(self, client: &T)
+    async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
-        publish(client, INTERFACE, "/cpu/architecture", self.architecture).await;
+        set_property(client, INTERFACE, "/cpu/architecture", self.architecture).await;
 
         if let Some(model) = self.model {
-            publish(client, INTERFACE, "/cpu/model", model).await;
+            set_property(client, INTERFACE, "/cpu/model", model).await;
         } else {
             debug!("missing cpu model");
         }
 
         if let Some(model_name) = self.model_name {
-            publish(client, INTERFACE, "/cpu/modelName", model_name).await;
+            set_property(client, INTERFACE, "/cpu/modelName", model_name).await;
         } else {
             debug!("missing cpu model name");
         }
 
         if let Some(vendor_id) = self.vendor {
-            publish(client, INTERFACE, "/cpu/vendor", vendor_id).await;
+            set_property(client, INTERFACE, "/cpu/vendor", vendor_id).await;
         } else {
             debug!("missing cpu vendor id");
         }
@@ -141,12 +143,12 @@ impl Mem {
         mem
     }
 
-    async fn send<T>(self, client: &T)
+    async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         if let Some(total_bytes) = self.total_bytes {
-            publish(client, INTERFACE, "/mem/totalBytes", total_bytes).await;
+            set_property(client, INTERFACE, "/mem/totalBytes", total_bytes).await;
         } else {
             debug!("missing mem total bytes")
         }
@@ -257,74 +259,77 @@ CmaFree:          194196 kB
 
 #[cfg(test)]
 mod tests {
-    use astarte_device_sdk::AstarteType;
-    use mockall::Sequence;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use mockall::{predicate, Sequence};
 
     use super::*;
 
-    use crate::data::tests::MockPubSub;
-
     #[tokio::test]
     async fn hardware_info_test() {
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         let mut seq = Sequence::new();
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.HardwareInfo"
-                    && path == "/cpu/architecture"
-                    && *data == AstarteType::String("test_architecture".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                predicate::eq("/cpu/architecture"),
+                predicate::eq(AstarteData::String("test_architecture".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.HardwareInfo"
-                    && path == "/cpu/model"
-                    && *data == AstarteType::String("158".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                predicate::eq("/cpu/model"),
+                predicate::eq(AstarteData::String("158".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.HardwareInfo"
-                    && path == "/cpu/modelName"
-                    && *data == AstarteType::String("ARMv7 Processor rev 10 (v7l)".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                predicate::eq("/cpu/modelName"),
+                predicate::eq(AstarteData::String(
+                    "ARMv7 Processor rev 10 (v7l)".to_string(),
+                )),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.HardwareInfo"
-                    && path == "/cpu/vendor"
-                    && *data == AstarteType::String("GenuineIntel".to_string())
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                predicate::eq("/cpu/vendor"),
+                predicate::eq(AstarteData::String("GenuineIntel".to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.HardwareInfo"
-                    && path == "/mem/totalBytes"
-                    && *data == AstarteType::LongInteger(1043820544)
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                predicate::eq("/mem/totalBytes"),
+                predicate::eq(AstarteData::LongInteger(1043820544)),
+            )
             .returning(|_, _, _| Ok(()));
 
-        HardwareInfo::read().await.send(&client).await;
+        HardwareInfo::read().await.send(&mut client).await;
     }
 }

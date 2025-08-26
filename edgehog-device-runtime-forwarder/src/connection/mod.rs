@@ -39,7 +39,7 @@ pub enum ConnectionError {
     /// Message sent to the wrong protocol
     WrongProtocol,
     /// Error when receiving message on WebSocket connection, `{0}`.
-    WebSocket(#[from] TungError),
+    WebSocket(#[from] Box<TungError>),
     /// Trying to poll while still connecting.
     Connecting,
 }

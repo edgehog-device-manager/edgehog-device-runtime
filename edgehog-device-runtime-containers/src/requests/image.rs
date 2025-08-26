@@ -27,7 +27,8 @@ use super::ReqUuid;
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateImageRequest",
     path = "/image",
-    rename_all = "camelCase"
+    rename_all = "camelCase",
+    aggregation = "object"
 )]
 pub struct CreateImage {
     pub(crate) id: ReqUuid,
@@ -40,6 +41,7 @@ pub struct CreateImage {
 pub(crate) mod tests {
     use std::fmt::Display;
 
+    use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{DeviceEvent, Value};
     use uuid::Uuid;
 
@@ -64,7 +66,10 @@ pub(crate) mod tests {
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
             path: "/image".to_string(),
-            data: Value::Object(fields),
+            data: Value::Object {
+                data: fields,
+                timestamp: Utc::now(),
+            },
         }
     }
 

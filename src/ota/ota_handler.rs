@@ -22,7 +22,8 @@ use std::fmt::Debug;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use astarte_device_sdk::AstarteAggregate;
+use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::{Client, IntoAstarteObject};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -30,7 +31,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::controller::actor::Actor;
-use crate::data::Publisher;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
@@ -42,7 +42,7 @@ use super::PersistentState;
 
 const MAX_OTA_OPERATION: usize = 2;
 
-#[derive(AstarteAggregate, Debug)]
+#[derive(Debug, Clone, IntoAstarteObject)]
 #[allow(non_snake_case)]
 pub struct OtaEvent {
     pub requestUUID: String,
@@ -88,13 +88,13 @@ pub struct OtaHandler {
 }
 
 impl OtaHandler {
-    pub async fn start<P>(
+    pub async fn start<C>(
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
-        client: P,
+        client: C,
         opts: &crate::DeviceManagerOptions,
     ) -> Result<Self, DeviceManagerError>
     where
-        P: Publisher + Send + Sync + 'static,
+        C: Client + Send + Sync + 'static,
     {
         let (publisher_tx, publisher_rx) = mpsc::channel(8);
         let (ota_tx, ota_rx) = mpsc::channel(MAX_OTA_OPERATION);
@@ -288,18 +288,18 @@ impl From<&OtaError> for OtaStatusMessage {
 }
 
 #[derive(Debug)]
-pub struct OtaPublisher<P> {
-    client: P,
+pub struct OtaPublisher<C> {
+    client: C,
 }
 
-impl<P> OtaPublisher<P> {
-    pub fn new(client: P) -> Self {
+impl<C> OtaPublisher<C> {
+    pub fn new(client: C) -> Self {
         Self { client }
     }
 
-    async fn send_ota_event(&self, ota_status: &OtaStatus) -> Result<(), OtaError>
+    async fn send_ota_event(&mut self, ota_status: &OtaStatus) -> Result<(), OtaError>
     where
-        P: Publisher + Send + Sync,
+        C: Client + Send + Sync,
     {
         let Some(ota_event) = ota_status.as_event() else {
             return Ok(());
@@ -307,8 +307,17 @@ impl<P> OtaPublisher<P> {
 
         debug!("Sending ota response {:?}", ota_event);
 
+        let data = AstarteObject::try_from(ota_event).map_err(|err| {
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                "invalid ota_event"
+            );
+
+            OtaError::Internal("couldn't convert ota_event ot Astarte object")
+        })?;
+
         self.client
-            .send_object("io.edgehog.devicemanager.OTAEvent", "/event", ota_event)
+            .send_object("io.edgehog.devicemanager.OTAEvent", "/event", data)
             .await
             .map_err(|error| {
                 let message = "Unable to publish ota_event".to_string();
@@ -321,9 +330,9 @@ impl<P> OtaPublisher<P> {
 }
 
 #[async_trait]
-impl<P> Actor for OtaPublisher<P>
+impl<C> Actor for OtaPublisher<C>
 where
-    P: Publisher + Send + Sync,
+    C: Client + Send + Sync,
 {
     type Msg = OtaStatus;
 

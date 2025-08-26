@@ -20,7 +20,8 @@
 
 use std::fmt::Display;
 
-use astarte_device_sdk::{AstarteAggregate, AstarteType};
+use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::{AstarteData, IntoAstarteObject};
 use tracing::error;
 use uuid::Uuid;
 
@@ -29,7 +30,7 @@ use crate::properties::Client;
 const INTERFACE: &str = "io.edgehog.devicemanager.apps.DeploymentEvent";
 
 /// Deployment status event
-#[derive(Debug, Clone, AstarteAggregate)]
+#[derive(Debug, Clone, IntoAstarteObject)]
 pub(crate) struct DeploymentEvent {
     pub(crate) status: EventStatus,
     pub(crate) message: String,
@@ -43,13 +44,23 @@ impl DeploymentEvent {
         }
     }
 
-    pub(crate) async fn send<D>(self, id: &Uuid, device: &D)
+    pub(crate) async fn send<D>(self, id: &Uuid, device: &mut D)
     where
         D: Client + Sync + 'static,
     {
-        let res = device
-            .send_object(INTERFACE, &format!("/{id}"), self.clone())
-            .await;
+        let data: AstarteObject = match self.clone().try_into() {
+            Ok(data) => data,
+            Err(err) => {
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "couldn't convert {self}, with id {id}"
+                );
+
+                return;
+            }
+        };
+
+        let res = device.send_object(INTERFACE, &format!("/{id}"), data).await;
 
         if let Err(err) = res {
             error!(
@@ -91,15 +102,16 @@ impl Display for EventStatus {
     }
 }
 
-impl From<EventStatus> for AstarteType {
+impl From<EventStatus> for AstarteData {
     fn from(value: EventStatus) -> Self {
-        AstarteType::String(value.to_string())
+        AstarteData::String(value.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
 
@@ -107,26 +119,26 @@ mod tests {
 
     #[tokio::test]
     async fn should_send_event() {
-        let mut client = MockDeviceClient::<SqliteStore>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
         let id = Uuid::new_v4();
 
         let exp_p = format!("/{id}");
         client
-            .expect_send_object::<DeploymentEvent>()
+            .expect_send_object()
             .once()
             .in_sequence(&mut seq)
             .withf(move |interface, path, data| {
                 interface == "io.edgehog.devicemanager.apps.DeploymentEvent"
                     && path == exp_p
-                    && data.status == EventStatus::Starting
-                    && data.message.is_empty()
+                    && data.get("status") == Some(&AstarteData::from("Starting"))
+                    && data.get("message") == Some(&AstarteData::from(""))
             })
             .returning(|_, _, _| Ok(()));
 
         let event = DeploymentEvent::new(EventStatus::Starting, "");
 
-        event.send(&id, &client).await;
+        event.send(&id, &mut client).await;
     }
 }

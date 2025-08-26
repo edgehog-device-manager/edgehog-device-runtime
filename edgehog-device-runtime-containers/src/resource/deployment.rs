@@ -77,7 +77,7 @@ impl From<Vec<DeploymentRow>> for Deployment {
 #[async_trait]
 impl<D> Resource<D> for Deployment
 where
-    D: Client + Sync + 'static,
+    D: Client + Send + Sync + 'static,
 {
     async fn publish(ctx: Context<'_, D>) -> Result<()> {
         AvailableDeployment::new(&ctx.id)

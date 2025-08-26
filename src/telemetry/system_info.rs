@@ -16,11 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::data::{publish, Publisher};
-
 use procfs::cmdline;
 use std::env;
 use tracing::{debug, error};
+
+use crate::data::set_property;
+use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.SystemInfo";
 
@@ -60,18 +61,18 @@ impl SystemInfo {
         }
     }
 
-    pub async fn send<T>(self, client: &T)
+    pub async fn send<C>(self, client: &mut C)
     where
-        T: Publisher,
+        C: Client,
     {
         if let Some(serial_number) = self.serial_number {
-            publish(client, INTERFACE, "/serialNumber", serial_number).await;
+            set_property(client, INTERFACE, "/serialNumber", serial_number).await;
         } else {
             debug!("missing serial number for {INTERFACE}");
         }
 
         if let Some(part_number) = self.part_number {
-            publish(client, INTERFACE, "/partNumber", part_number).await;
+            set_property(client, INTERFACE, "/partNumber", part_number).await;
         } else {
             debug!("missing part number for {INTERFACE}");
         }
@@ -80,9 +81,10 @@ impl SystemInfo {
 
 #[cfg(test)]
 mod tests {
-    use astarte_device_sdk::AstarteType;
-
-    use crate::data::tests::MockPubSub;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk_mock::MockDeviceClient;
 
     use super::*;
 
@@ -104,28 +106,28 @@ mod tests {
             part_number: Some("part".to_string()),
         };
 
-        let mut client = MockPubSub::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.SystemInfo"
                     && path == "/serialNumber"
-                    && *data == AstarteType::String("serial".to_string())
+                    && *data == AstarteData::String("serial".to_string())
             })
             .returning(|_, _, _| Ok(()));
 
         client
-            .expect_send()
-            .times(1)
+            .expect_set_property()
+            .once()
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.SystemInfo"
                     && path == "/partNumber"
-                    && *data == AstarteType::String("part".to_string())
+                    && *data == AstarteData::String("part".to_string())
             })
             .returning(|_, _, _| Ok(()));
 
-        sysinfo.send(&client).await;
+        sysinfo.send(&mut client).await;
     }
 }

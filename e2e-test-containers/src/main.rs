@@ -19,15 +19,16 @@
 use std::env::VarError;
 
 use astarte_device_sdk::{
-    builder::{DeviceBuilder, DeviceSdkBuild},
+    builder::DeviceBuilder,
     introspection::AddInterfaceError,
+    rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
     store::SqliteStore,
-    transport::mqtt::{Credential, MqttConfig},
+    transport::mqtt::{Credential, Mqtt, MqttConfig},
     DeviceClient, EventLoop,
 };
 use clap::Parser;
 use cli::AstarteConfig;
-use color_eyre::eyre::Context;
+use color_eyre::eyre::{eyre, Context};
 use receive::receive;
 use tokio::task::JoinSet;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -42,7 +43,7 @@ mod send;
 async fn connect(
     astarte: &AstarteConfig,
     tasks: &mut JoinSet<color_eyre::Result<()>>,
-) -> color_eyre::Result<DeviceClient<SqliteStore>> {
+) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore>>> {
     let mut mqtt_config = MqttConfig::new(
         &astarte.realm,
         &astarte.device_id,
@@ -63,10 +64,9 @@ async fn connect(
         })?
         .store_dir(&astarte.store_dir)
         .await?
-        .connect(mqtt_config)
-        .await?
+        .connection(mqtt_config)
         .build()
-        .await;
+        .await?;
 
     tasks.spawn(async move {
         connection.handle_events().await?;
@@ -81,6 +81,10 @@ async fn main() -> color_eyre::Result<()> {
     let cli = Cli::parse();
 
     color_eyre::install()?;
+
+    aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| eyre!("couldn't install default crypto provider"))?;
 
     let filter = if std::env::var("RUST_LOG").is_err_and(|err| err == VarError::NotPresent) {
         "warn,edgehog_device_runtime_containers=debug".parse()?
