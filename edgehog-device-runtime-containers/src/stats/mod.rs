@@ -29,9 +29,11 @@ use crate::container::ContainerId;
 use crate::store::StateStore;
 use crate::Docker;
 
+use self::cpu::ContainerCpu;
 use self::memory::{ContainerMemory, ContainerMemoryStats};
 use self::network::ContainerNetworkStats;
 
+pub(crate) mod cpu;
 pub(crate) mod memory;
 pub(crate) mod network;
 
@@ -121,6 +123,17 @@ where
                     debug!("missing memory stats");
                 }
             }
+
+            match stats.cpu_stats {
+                Some(cpu) => {
+                    ContainerCpu::from_stats(cpu, stats.precpu_stats.unwrap_or_default())
+                        .send(&container.name, &mut self.device, &timestamp)
+                        .await;
+                }
+                None => {
+                    debug!("missing cpu stats");
+                }
+            }
         }
 
         Ok(())
@@ -156,5 +169,76 @@ trait Metric: TryInto<AstarteObject> {
         if let Err(err) = res {
             error!(container=%id, error = format!("{:#}", eyre::Report::new(err)), "couldn't send {} stats", Self::METRIC_NAME);
         }
+    }
+}
+
+trait IntoAstarteExt {
+    type Out;
+
+    fn into_astarte(self) -> Self::Out;
+}
+
+impl IntoAstarteExt for Option<u32> {
+    type Out = i32;
+
+    fn into_astarte(self) -> Self::Out {
+        self.unwrap_or_default().try_into().unwrap_or(i32::MAX)
+    }
+}
+
+impl IntoAstarteExt for Option<u64> {
+    type Out = i64;
+
+    fn into_astarte(self) -> Self::Out {
+        self.unwrap_or_default().try_into().unwrap_or(i64::MAX)
+    }
+}
+
+impl IntoAstarteExt for Option<Vec<u64>> {
+    type Out = Vec<i64>;
+
+    fn into_astarte(self) -> Self::Out {
+        self.unwrap_or_default()
+            .into_iter()
+            .map(|value| value.try_into().unwrap_or(i64::MAX))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_into_astarte_ext() {
+        let u32_val: Option<u32> = Some(42);
+        assert_eq!(u32_val.into_astarte(), 42i32);
+
+        let u32_none: Option<u32> = None;
+        assert_eq!(u32_none.into_astarte(), 0i32);
+
+        let u32_max: Option<u32> = Some(u32::MAX);
+        assert_eq!(u32_max.into_astarte(), i32::MAX);
+
+        let u64_val: Option<u64> = Some(12345);
+        assert_eq!(u64_val.into_astarte(), 12345i64);
+
+        let u64_none: Option<u64> = None;
+        assert_eq!(u64_none.into_astarte(), 0i64);
+
+        let u64_max: Option<u64> = Some(u64::MAX);
+        assert_eq!(u64_max.into_astarte(), i64::MAX);
+
+        let vec_val: Option<Vec<u64>> = Some(vec![10, 20, 30]);
+        assert_eq!(vec_val.into_astarte(), vec![10i64, 20i64, 30i64]);
+
+        let vec_none: Option<Vec<u64>> = None;
+        assert_eq!(vec_none.into_astarte(), Vec::<i64>::new());
+
+        let vec_empty: Option<Vec<u64>> = Some(vec![]);
+        assert_eq!(vec_empty.into_astarte(), Vec::<i64>::new());
+
+        let vec_mixed: Option<Vec<u64>> = Some(vec![100, u64::MAX, 200]);
+        assert_eq!(vec_mixed.into_astarte(), vec![100i64, i64::MAX, 200i64]);
     }
 }
