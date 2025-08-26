@@ -29,8 +29,10 @@ use crate::container::ContainerId;
 use crate::store::StateStore;
 use crate::Docker;
 
+use self::memory::{ContainerMemory, ContainerMemoryStats};
 use self::network::ContainerNetworkStats;
 
+pub(crate) mod memory;
 pub(crate) mod network;
 
 /// Handles the events received from the container runtime
@@ -79,7 +81,7 @@ where
             };
 
             let timestamp = stats.read.unwrap_or_else(|| {
-                debug!("missing read timestmp, genereting one");
+                debug!("missing read timestamp, genereting one");
 
                 Utc::now()
             });
@@ -95,6 +97,28 @@ where
                 }
                 None => {
                     debug!("missing network stats");
+                }
+            }
+
+            match stats.memory_stats {
+                Some(memory) => {
+                    ContainerMemory::from(&memory)
+                        .send(&container.name, &mut self.device, &timestamp)
+                        .await;
+
+                    if let Some(memory_stats) = memory.stats {
+                        let memory = ContainerMemoryStats::from_stats(memory_stats);
+
+                        for mem in memory {
+                            mem.send(&container.name, &mut self.device, &timestamp)
+                                .await;
+                        }
+                    } else {
+                        trace!("missing cgroups v2 memory stats");
+                    }
+                }
+                None => {
+                    debug!("missing memory stats");
                 }
             }
         }
