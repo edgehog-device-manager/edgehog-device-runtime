@@ -183,7 +183,7 @@ toml = "0.9.5"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 udev = "0.9.3"
-url = "2.5.4"
+url = "2.5.7"
 uuid = "1.17.0"
 wifiscanner = "0.5.1"
 zbus = { version = "5.9.0", default-features = false }
