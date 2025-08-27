@@ -29,10 +29,12 @@ use crate::container::ContainerId;
 use crate::store::StateStore;
 use crate::Docker;
 
+use self::blkio::ContainerBlkio;
 use self::cpu::ContainerCpu;
 use self::memory::{ContainerMemory, ContainerMemoryStats};
 use self::network::ContainerNetworkStats;
 
+pub(crate) mod blkio;
 pub(crate) mod cpu;
 pub(crate) mod memory;
 pub(crate) mod network;
@@ -124,6 +126,20 @@ where
                     .await;
             } else {
                 debug!("missing cpu stats");
+            }
+
+            match stats.blkio_stats {
+                Some(blkio) => {
+                    let blkio = ContainerBlkio::from_stats(blkio);
+                    for value in blkio {
+                        value
+                            .send(&container.name, &mut self.device, &timestamp)
+                            .await;
+                    }
+                }
+                None => {
+                    debug!("missing blkio stats");
+                }
             }
         }
 
