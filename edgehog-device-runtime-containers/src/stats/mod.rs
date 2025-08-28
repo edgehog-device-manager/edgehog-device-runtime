@@ -35,13 +35,15 @@ use self::blkio::ContainerBlkio;
 use self::cpu::ContainerCpu;
 use self::memory::{ContainerMemory, ContainerMemoryStats};
 use self::network::ContainerNetworkStats;
+use self::procs::ContainerProcesses;
 use self::volume::VolumeUsage;
 
-pub(crate) mod blkio;
-pub(crate) mod cpu;
-pub(crate) mod memory;
-pub(crate) mod network;
-pub(crate) mod volume;
+mod blkio;
+mod cpu;
+mod memory;
+mod network;
+mod procs;
+mod volume;
 
 /// Handles the events received from the container runtime
 #[derive(Debug)]
@@ -161,6 +163,17 @@ where
                 }
                 None => {
                     debug!("missing blkio stats");
+                }
+            }
+
+            match stats.pids_stats {
+                Some(pids) => {
+                    ContainerProcesses::from(pids)
+                        .send(&container.name, &mut self.device, &timestamp)
+                        .await;
+                }
+                None => {
+                    debug!("missing pids stats");
                 }
             }
         }
