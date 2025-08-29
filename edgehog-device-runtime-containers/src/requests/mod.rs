@@ -28,10 +28,12 @@ use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 use tracing::error;
 use uuid::Uuid;
 
+use self::device_mapping::CreateDeviceMapping;
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
 pub mod container;
 pub mod deployment;
+pub mod device_mapping;
 pub mod image;
 pub mod network;
 pub mod volume;
@@ -73,8 +75,10 @@ pub enum ContainerRequest {
     Volume(CreateVolume),
     /// Request to create a network.
     Network(CreateNetwork),
+    /// Request to create a device mapping.
+    DeviceMapping(CreateDeviceMapping),
     /// Request to create a container.
-    Container(CreateContainer),
+    Container(Box<CreateContainer>),
     /// Request to create a deployment.
     Deployment(CreateDeployment),
     /// Command for a deployment
@@ -84,15 +88,16 @@ pub enum ContainerRequest {
 }
 
 impl ContainerRequest {
-    pub(crate) fn deployment_id(&self) -> Option<Uuid> {
+    pub(crate) fn deployment_id(&self) -> Uuid {
         match self {
-            ContainerRequest::Image(_)
-            | ContainerRequest::Volume(_)
-            | ContainerRequest::Network(_)
-            | ContainerRequest::Container(_) => None,
-            ContainerRequest::Deployment(create_deployment) => Some(create_deployment.id.0),
-            ContainerRequest::DeploymentCommand(deployment_command) => Some(deployment_command.id),
-            ContainerRequest::DeploymentUpdate(deployment_update) => Some(deployment_update.from),
+            ContainerRequest::Image(value) => value.deployment_id.0,
+            ContainerRequest::Volume(value) => value.deployment_id.0,
+            ContainerRequest::Network(value) => value.deployment_id.0,
+            ContainerRequest::Container(value) => value.deployment_id.0,
+            ContainerRequest::DeviceMapping(dm) => dm.deployment_id.0,
+            ContainerRequest::Deployment(create_deployment) => create_deployment.id.0,
+            ContainerRequest::DeploymentCommand(deployment_command) => deployment_command.id,
+            ContainerRequest::DeploymentUpdate(deployment_update) => deployment_update.from,
         }
     }
 }
@@ -111,8 +116,12 @@ impl FromEvent for ContainerRequest {
             "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
                 CreateNetwork::from_event(value).map(ContainerRequest::Network)
             }
+            "io.edgehog.devicemanager.apps.CreateDeviceMappingRequest" => {
+                CreateDeviceMapping::from_event(value).map(ContainerRequest::DeviceMapping)
+            }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
-                CreateContainer::from_event(value).map(ContainerRequest::Container)
+                CreateContainer::from_event(value)
+                    .map(|value| ContainerRequest::Container(Box::new(value)))
             }
             "io.edgehog.devicemanager.apps.CreateDeploymentRequest" => {
                 CreateDeployment::from_event(value).map(ContainerRequest::Deployment)
@@ -220,6 +229,36 @@ impl TryFrom<AstarteData> for VecReqUuid {
     }
 }
 
+/// Optional non empty string
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct OptString(Option<String>);
+
+impl TryFrom<AstarteData> for OptString {
+    type Error = TypeError;
+
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        Ok(Self::from(value))
+    }
+}
+
+impl From<String> for OptString {
+    fn from(value: String) -> Self {
+        if value.is_empty() {
+            OptString(None)
+        } else {
+            OptString(Some(value))
+        }
+    }
+}
+
+impl From<OptString> for Option<String> {
+    fn from(value: OptString) -> Self {
+        value.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +306,19 @@ mod tests {
         };
 
         assert_eq!(request, ContainerRequest::Network(expect));
+    }
+
+    #[test]
+    fn optional_string() {
+        let cases = [
+            ("", OptString(None)),
+            ("some", OptString(Some("some".to_string()))),
+        ];
+
+        for (case, exp) in cases {
+            let res = OptString::try_from(AstarteData::from(case)).unwrap();
+
+            assert_eq!(res, exp);
+        }
     }
 }

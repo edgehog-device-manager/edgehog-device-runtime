@@ -26,16 +26,18 @@ rust-version.workspace = true
 [dependencies]
 diesel = { workspace = true, features = ["sqlite", "uuid"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
-displaydoc = { workspace = true }
+displaydoc.workspace = true
+eyre.workspace = true
 rusqlite = { workspace = true, features = ["modern_sqlite", "buildtime_bindgen"] }
-sync_wrapper = { workspace = true }
-thiserror = { workspace = true }
+sync_wrapper.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
-tracing = { workspace = true }
-uuid = { workspace = true }
+tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
+pretty_assertions.workspace = true
+tempfile.workspace = true
 
 [features]
 containers = []
