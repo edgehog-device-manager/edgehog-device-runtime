@@ -29,22 +29,19 @@
 use std::{
     error::Error,
     fmt::Debug,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
+use deadpool::managed::{BuildError, Pool, PoolError};
 use diesel::{connection::SimpleConnection, Connection, ConnectionError, SqliteConnection};
-use sync_wrapper::SyncWrapper;
 use tokio::{sync::Mutex, task::JoinError};
-use tracing::debug;
 
 type DynError = Box<dyn Error + Send + Sync>;
 /// Result for the [`HandleError`] returned by the [`Handle`].
 pub type Result<T> = std::result::Result<T, HandleError>;
-
-/// PRAGMA for the connection
-const INIT_READER: &str = include_str!("../assets/init-reader.sql");
-const INIT_WRITER: &str = include_str!("../assets/init-writer.sql");
 
 /// Handler error
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -53,14 +50,12 @@ pub enum HandleError {
     NonUtf8Path(PathBuf),
     /// couldn't join database task
     Join(#[from] JoinError),
-    /// couldn't connect to the database {db_file}
-    Connection {
-        /// Connection to the database file
-        db_file: String,
-        /// Underling connection error
-        #[source]
-        backtrace: ConnectionError,
-    },
+    /// error returned while building the reader pool
+    PoolBuilder(#[from] BuildError),
+    /// error returned while creating the writer connection
+    Writer(#[from] ManagerError),
+    /// error returned while getting a reader connection
+    Reader(#[from] PoolError<ManagerError>),
     /// couldn't execute the query
     Query(#[from] diesel::result::Error),
     /// couldn't run pending migrations
@@ -96,26 +91,34 @@ impl HandleError {
 }
 
 /// Read and write connection to the database
+#[derive(Clone)]
 pub struct Handle {
-    db_file: String,
     /// Write handle to the database
-    pub writer: Arc<Mutex<SqliteConnection>>,
+    writer: Arc<Mutex<SqliteConnection>>,
     /// Per task/thread reader
-    // NOTE: this is needed because the connection isn't Sync, and we need to pass the Connection
-    //       to another thread (for tokio). The option signal if the connection was invalidated by
-    //       the inner task panicking. In that case we re-create the reader connection.
-    pub reader: SyncWrapper<Option<Box<SqliteConnection>>>,
+    readers: Pool<Manager>,
 }
 
 impl Handle {
-    /// Create a new instance by connecting to the file
+    /// Create a new instance by connecting to the file with default options
     pub async fn open(db_file: impl AsRef<Path>) -> Result<Self> {
-        let db_path = db_file.as_ref();
-        let db_str = db_path
-            .to_str()
-            .ok_or_else(|| HandleError::NonUtf8Path(db_path.to_path_buf()))?;
+        Self::with_options(db_file, SqliteOptios::default()).await
+    }
 
-        let writer = Self::establish_writer(db_str).await?;
+    /// Create a new instance by connecting to the file
+    pub async fn with_options(db_file: impl AsRef<Path>, options: SqliteOptios) -> Result<Self> {
+        let db_path = db_file.as_ref();
+        let db_str: String = db_path
+            .to_str()
+            .ok_or_else(|| HandleError::NonUtf8Path(db_path.to_path_buf()))
+            .map(str::to_string)?;
+
+        let manager = Manager {
+            db_file: db_str,
+            options,
+        };
+
+        let writer = manager.establish(false).await?;
         // We don't have migrations other than the containers for now
         #[cfg(feature = "containers")]
         let mut writer = writer;
@@ -133,74 +136,26 @@ impl Handle {
         })
         .await??;
 
-        let writer = Arc::new(Mutex::new(writer));
-        let reader = Self::establish_reader(db_str).await?;
+        let readers = Pool::builder(manager)
+            .max_size(options.max_pool_size.get())
+            .build()?;
 
         Ok(Self {
-            db_file: db_str.to_string(),
-            writer,
-            reader: SyncWrapper::new(Some(Box::new(reader))),
+            writer: Arc::new(Mutex::new(writer)),
+            readers,
         })
-    }
-
-    /// Sets options for the connection
-    async fn establish_writer(db_file: &str) -> Result<SqliteConnection> {
-        establish(db_file, INIT_WRITER).await
-    }
-
-    /// Sets options for the connection
-    async fn establish_reader(db_file: &str) -> Result<SqliteConnection> {
-        establish(db_file, INIT_READER).await
-    }
-
-    /// Create a new handle for the store
-    pub async fn clone_handle(&self) -> Result<Self> {
-        let reader = Self::establish_reader(&self.db_file).await?;
-
-        Ok(Self {
-            db_file: self.db_file.clone(),
-            writer: Arc::clone(&self.writer),
-            reader: SyncWrapper::new(Some(Box::new(reader))),
-        })
-    }
-
-    /// Create a new handle for the store, it will not initialize the reader connection.
-    pub fn clone_lazy(&self) -> Self {
-        Self {
-            db_file: self.db_file.clone(),
-            writer: Arc::clone(&self.writer),
-            reader: SyncWrapper::new(None),
-        }
     }
 
     /// Passes the reader to a callback to execute a query.
-    pub async fn for_read<F, O>(&mut self, f: F) -> Result<O>
+    pub async fn for_read<F, O>(&self, f: F) -> Result<O>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<O> + Send + 'static,
         O: Send + 'static,
     {
-        // Take the reader to move it to blocking task
-        let mut reader = match self.reader.get_mut().take() {
-            Some(reader) => reader,
-            None => {
-                debug!(
-                    "connection missing, establishing a new one to {}",
-                    self.db_file
-                );
-
-                Self::establish_reader(&self.db_file).await.map(Box::new)?
-            }
-        };
+        let mut reader = self.readers.get().await?;
 
         // If this task panics (the error is returned) the connection would still be null
-        let (reader, res) = tokio::task::spawn_blocking(move || {
-            let res = (f)(&mut reader);
-
-            (reader, res)
-        })
-        .await?;
-
-        *self.reader.get_mut() = Some(reader);
+        let res = tokio::task::spawn_blocking(move || (f)(&mut reader)).await?;
 
         res
     }
@@ -217,29 +172,158 @@ impl Handle {
     }
 }
 
-async fn establish(
-    db_file: &str,
-    pragma: &'static str,
-) -> std::result::Result<SqliteConnection, HandleError> {
-    let mut conn = SqliteConnection::establish(db_file).map_err(|err| HandleError::Connection {
-        db_file: db_file.to_string(),
-        backtrace: err,
-    })?;
-
-    tokio::task::spawn_blocking(move || {
-        conn.batch_execute(pragma).map_err(HandleError::Query)?;
-
-        Ok(conn)
-    })
-    .await?
-}
-
 impl Debug for Handle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Store")
-            .field("db_file", &self.db_file)
+        f.debug_struct("Handle")
+            .field("db_path", &self.readers.manager().db_file)
             .finish_non_exhaustive()
     }
+}
+
+/// Options for the SQLite connection
+#[derive(Debug, Clone, Copy)]
+pub struct SqliteOptios {
+    max_pool_size: NonZeroUsize,
+    busy_timout: Duration,
+    cache_size: i16,
+    max_page_count: u32,
+    journal_size_limit: u64,
+    wal_autocheckpoint: u32,
+}
+
+impl SqliteOptios {
+    /// Setter for the max pool size
+    pub fn set_max_pool_size(&mut self, max_pool_size: NonZeroUsize) {
+        self.max_pool_size = max_pool_size;
+    }
+
+    /// Setter for the busy timeout
+    pub fn set_busy_timout(&mut self, busy_timout: Duration) {
+        self.busy_timout = busy_timout;
+    }
+
+    /// Setter for the max page count
+    pub fn set_max_page_count(&mut self, max_page_count: u32) {
+        self.max_page_count = max_page_count;
+    }
+
+    /// Setter for the journal size limit
+    pub fn set_journal_size_limit(&mut self, journal_size_limit: u64) {
+        self.journal_size_limit = journal_size_limit;
+    }
+
+    /// Setter for the WAL auto-checkpoint
+    pub fn set_wal_autocheckpoint(&mut self, wal_autocheckpoint: u32) {
+        self.wal_autocheckpoint = wal_autocheckpoint;
+    }
+}
+
+impl Default for SqliteOptios {
+    fn default() -> Self {
+        const DEFAULT_POOL_SIZE: NonZeroUsize = match NonZeroUsize::new(4) {
+            Some(size) => size,
+            None => unreachable!(),
+        };
+
+        Self {
+            max_pool_size: std::thread::available_parallelism().unwrap_or(DEFAULT_POOL_SIZE),
+            busy_timout: Duration::from_secs(5),
+            // 2 kib
+            cache_size: -2 * 1024,
+            // 2 gib (assumes 4096 page size)
+            max_page_count: 524288,
+            // 64 mib
+            journal_size_limit: 64 * 1024 * 1024,
+            // 1000 pages
+            wal_autocheckpoint: 1000,
+        }
+    }
+}
+
+struct Manager {
+    db_file: String,
+    options: SqliteOptios,
+}
+
+impl Manager {
+    async fn establish(&self, reader: bool) -> std::result::Result<SqliteConnection, ManagerError> {
+        let options = self.options;
+        let db_file = self.db_file.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut conn =
+                SqliteConnection::establish(&db_file).map_err(|err| ManagerError::Connection {
+                    db_file: db_file.to_string(),
+                    backtrace: err,
+                })?;
+
+            conn.batch_execute("PRAGMA journal_mode = wal;")?;
+            conn.batch_execute("PRAGMA foreign_keys = true;")?;
+            conn.batch_execute("PRAGMA synchronous = NORMAL;")?;
+            conn.batch_execute("PRAGMA auto_vacuum = INCREMENTAL;")?;
+            conn.batch_execute("PRAGMA temp_store = MEMORY;")?;
+            // NOTE: Safe to format since we handle the options, do not pass strings.
+            conn.batch_execute(&format!(
+                "PRAGMA busy_timeout = {};",
+                options.busy_timout.as_millis()
+            ))?;
+            conn.batch_execute(&format!("PRAGMA cache_size = {};", options.cache_size))?;
+            conn.batch_execute(&format!(
+                "PRAGMA max_page_count = {};",
+                options.max_page_count
+            ))?;
+            conn.batch_execute(&format!(
+                "PRAGMA journal_size_limit = {};",
+                options.journal_size_limit
+            ))?;
+            conn.batch_execute(&format!(
+                "PRAGMA wal_autocheckpoint = {};",
+                options.wal_autocheckpoint
+            ))?;
+
+            if reader {
+                conn.batch_execute("PRAGMA query_only = ON;")?;
+            }
+
+            Ok(conn)
+        })
+        .await?
+    }
+}
+
+impl deadpool::managed::Manager for Manager {
+    type Type = diesel::sqlite::SqliteConnection;
+
+    type Error = ManagerError;
+
+    async fn create(&self) -> std::result::Result<Self::Type, Self::Error> {
+        self.establish(true).await
+    }
+
+    async fn recycle(
+        &self,
+        _obj: &mut Self::Type,
+        _metrics: &deadpool::managed::Metrics,
+    ) -> deadpool::managed::RecycleResult<Self::Error> {
+        Ok(())
+    }
+}
+
+/// Error returned while creating a connection
+#[derive(Debug, thiserror::Error, displaydoc::Display)]
+#[non_exhaustive]
+pub enum ManagerError {
+    /// couldn't connect to the database {db_file}
+    Connection {
+        /// Connection to the database file
+        db_file: String,
+        /// Underling connection error
+        #[source]
+        backtrace: ConnectionError,
+    },
+    /// couldn't join database task
+    Join(#[from] JoinError),
+    /// couldn't execute the query
+    Query(#[from] diesel::result::Error),
 }
 
 #[cfg(test)]
