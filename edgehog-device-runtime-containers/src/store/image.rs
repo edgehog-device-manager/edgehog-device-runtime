@@ -124,7 +124,7 @@ impl StateStore {
 
     /// Fetches an image by id
     #[instrument(skip(self))]
-    pub(crate) async fn find_image(&mut self, id: Uuid) -> Result<Option<ImageResource>> {
+    pub(crate) async fn find_image(&self, id: Uuid) -> Result<Option<ImageResource>> {
         let image = self
             .handle
             .for_read(move |reader| {
@@ -141,7 +141,7 @@ impl StateStore {
 
     /// Fetches the images that need to be published
     #[instrument(skip(self))]
-    pub(crate) async fn load_images_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_images_to_publish(&self) -> Result<Vec<SqlUuid>> {
         let image = self
             .handle
             .for_read(move |reader| {
@@ -162,7 +162,7 @@ impl StateStore {
     /// Returns the id of the image and the reference.
     #[instrument(skip(self))]
     pub(crate) async fn find_image_by_local_id(
-        &mut self,
+        &self,
         local_id: String,
     ) -> Result<Option<(Uuid, String)>> {
         let id = self
@@ -219,7 +219,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    async fn find_image(store: &mut StateStore, id: Uuid) -> Option<Image> {
+    async fn find_image(store: &StateStore, id: Uuid) -> Option<Image> {
         store
             .handle
             .for_read(move |reader| {
@@ -239,7 +239,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let image_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -251,7 +251,7 @@ mod tests {
         };
         store.create_image(image).await.unwrap();
 
-        let res = find_image(&mut store, image_id).await.unwrap();
+        let res = find_image(&store, image_id).await.unwrap();
 
         let exp = Image {
             id: SqlUuid::new(image_id),
@@ -271,7 +271,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let image_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -292,7 +292,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = find_image(&mut store, image_id).await.unwrap();
+        let res = find_image(&store, image_id).await.unwrap();
 
         let exp = Image {
             id: SqlUuid::new(image_id),
@@ -312,7 +312,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let image_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
