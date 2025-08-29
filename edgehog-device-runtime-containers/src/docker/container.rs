@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,6 +31,7 @@ use bollard::{
     models::{
         ContainerCreateBody, ContainerInspectResponse, EndpointSettings, HostConfig,
         NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
+        RestartPolicyNameEnum,
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
@@ -315,6 +316,14 @@ pub(crate) struct Container {
     /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
     /// example, 80/udp.
     pub(crate) port_bindings: PortBindingMap<String>,
+    /// A list of hostnames/IP mappings to add to the container's /etc/hosts file.
+    ///
+    /// Specified in the form ["hostname:IP"].
+    pub(crate) extra_hosts: Vec<String>,
+    /// A list of kernel capabilities to add to the container.
+    pub(crate) cap_add: Vec<String>,
+    /// A list of kernel capabilities to drop from the container.
+    pub(crate) cap_drop: Vec<String>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
@@ -409,14 +418,30 @@ impl<'a> From<&'a Container> for CreateContainerOptions {
 
 impl From<&Container> for ContainerCreateBody {
     fn from(value: &Container) -> Self {
-        let hostname = value.hostname.clone();
-        let env = value.env.iter().map(String::clone).collect();
-        let binds = value.binds.clone();
+        let Container {
+            id: _,
+            image,
+            network_mode,
+            networks: _,
+            hostname,
+            restart_policy,
+            env,
+            binds,
+            port_bindings: _,
+            extra_hosts,
+            cap_add,
+            cap_drop,
+            privileged,
+        } = value;
+
+        let hostname = hostname.clone();
+        let env = env.iter().map(String::clone).collect();
+        let binds = binds.clone();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
 
         let restart_policy = BollardRestartPolicy {
-            name: Some(value.restart_policy.into()),
+            name: Some(RestartPolicyNameEnum::from(*restart_policy)),
             maximum_retry_count: None,
         };
 
@@ -424,7 +449,11 @@ impl From<&Container> for ContainerCreateBody {
             restart_policy: Some(restart_policy),
             binds: Some(binds),
             port_bindings: Some(port_bindings),
-            privileged: Some(value.privileged),
+            network_mode: Some(network_mode.clone()),
+            extra_hosts: Some(extra_hosts.clone()),
+            cap_add: Some(cap_add.clone()),
+            cap_drop: Some(cap_drop.clone()),
+            privileged: Some(*privileged),
             ..Default::default()
         };
 
@@ -434,7 +463,7 @@ impl From<&Container> for ContainerCreateBody {
 
         ContainerCreateBody {
             hostname,
-            image: Some(value.image.clone()),
+            image: Some(image.clone()),
             env: Some(env),
             host_config: Some(host_config),
             networking_config: Some(networking_config),
@@ -595,6 +624,9 @@ mod tests {
                 network_mode: "bridge".to_string(),
                 networks: Vec::new(),
                 port_bindings: PortBindingMap::default(),
+                extra_hosts: Vec::new(),
+                cap_add: Vec::new(),
+                cap_drop: Vec::new(),
                 privileged: false,
             }
         }

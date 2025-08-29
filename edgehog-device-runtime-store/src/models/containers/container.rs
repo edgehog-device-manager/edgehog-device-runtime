@@ -33,7 +33,7 @@ use diesel::{
 };
 
 use crate::{
-    conversions::SqlUuid,
+    conversions::{QuotaValue, SqlUuid, Swappiness},
     models::{
         containers::{image::Image, network::Network, volume::Volume},
         ExistsFilterById, QueryModel,
@@ -63,6 +63,26 @@ pub struct Container {
     pub hostname: Option<String>,
     /// Container restart policy
     pub restart_policy: ContainerRestartPolicy,
+    /// The length of a CPU period in microseconds.
+    pub cpu_period: Option<QuotaValue<-1>>,
+    /// Microseconds of CPU time that the container can get in a CPU period.
+    pub cpu_quota: Option<QuotaValue<-1>>,
+    /// The length of a CPU real-time period in microseconds.
+    pub cpu_realtime_period: Option<QuotaValue<-1>>,
+    /// The length of a CPU real-time runtime in microseconds.
+    pub cpu_realtime_runtime: Option<QuotaValue<-1>>,
+    /// Memory limit in bytes.
+    pub memory: Option<QuotaValue<-1>>,
+    /// Memory soft limit in bytes.
+    pub memory_reservetion: Option<QuotaValue<-1>>,
+    /// Total memory limit (memory + swap).
+    pub memory_swap: Option<QuotaValue<-2>>,
+    /// Memory swappiness
+    pub memory_swappiness: Option<Swappiness>,
+    /// Driver that this container uses to mount volumes.
+    pub volume_driver: Option<String>,
+    /// Mount the container's root filesystem as read only.
+    pub read_only_rootfs: bool,
     /// Privileged
     pub privileged: bool,
 }
@@ -434,9 +454,95 @@ impl ToSql<Integer, Sqlite> for HostPort {
     }
 }
 
+/// Extra hosts for a container
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_extra_hosts)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerExtraHost {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Host to add to /etc/hosts inside the container.
+    ///
+    /// Its in the form of Host:IP
+    pub value: String,
+}
+
+/// A kernel capabilities to add to the container.
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_add_capabilities)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerAddCapability {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// A kernel capabilities to add to the container.
+    pub value: String,
+}
+
+/// A kernel capabilities to drop to the container.
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_drop_capabilities)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDropCapability {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// A kernel capabilities to drop from the container.
+    pub value: String,
+}
+
+/// Storage driver options for a container.
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_storage_options)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerStorageOptions {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Name of the option
+    ///
+    /// Example: `size`
+    pub name: String,
+    /// The value of the option
+    ///
+    /// Example: `120G`
+    pub value: Option<String>,
+}
+
+/// A map of container directories which should be replaced by tmpfs mounts.
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_tmpfs)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerTmpfs {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Path inside the container.
+    ///
+    /// Example: `/run`
+    pub path: String,
+    /// Mount options for the tmpfs
+    ///
+    /// Example: `rw,noexec,nosuid,size=65536k`
+    pub options: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ContainerRestartPolicy, ContainerStatus};
+    use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn should_convert_status() {

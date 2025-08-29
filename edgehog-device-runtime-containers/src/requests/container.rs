@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +26,7 @@ use tracing::{instrument, trace};
 
 use crate::{container::Binding, requests::BindingError};
 
-use super::{ReqUuid, VecReqUuid};
+use super::{OptString, ReqUuid, VecReqUuid};
 
 /// couldn't parse restart policy {value}
 #[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
@@ -54,6 +54,21 @@ pub struct CreateContainer {
     pub(crate) binds: Vec<String>,
     pub(crate) network_mode: String,
     pub(crate) port_bindings: Vec<String>,
+    pub(crate) extra_hosts: Vec<String>,
+    pub(crate) cap_add: Vec<String>,
+    pub(crate) cap_drop: Vec<String>,
+    pub(crate) cpu_period: i64,
+    pub(crate) cpu_quota: i64,
+    pub(crate) cpu_realtime_period: i64,
+    pub(crate) cpu_realtime_runtime: i64,
+    pub(crate) memory: i64,
+    pub(crate) memory_reservetion: i64,
+    pub(crate) memory_swap: i64,
+    pub(crate) memory_swappiness: i32,
+    pub(crate) volume_driver: OptString,
+    pub(crate) storage_opt: Vec<String>,
+    pub(crate) read_only_rootfs: bool,
+    pub(crate) tmpfs: Vec<String>,
     pub(crate) privileged: bool,
 }
 
@@ -234,7 +249,37 @@ pub(crate) mod tests {
                 "portBindings",
                 AstarteData::StringArray(vec!["80:80".to_string()]),
             ),
+            (
+                "extraHosts",
+                AstarteData::StringArray(vec!["host.docker.internal:host-gateway".to_string()]),
+            ),
+            (
+                "capAdd",
+                AstarteData::StringArray(vec!["CAP_CHOWN".to_string()]),
+            ),
+            (
+                "capDrop",
+                AstarteData::StringArray(vec!["CAP_KILL".to_string()]),
+            ),
             ("privileged", AstarteData::Boolean(false)),
+            ("cpuPeriod", AstarteData::LongInteger(1000)),
+            ("cpuQuota", AstarteData::LongInteger(100)),
+            ("cpuRealtimePeriod", AstarteData::LongInteger(1000)),
+            ("cpuRealtimeRuntime", AstarteData::LongInteger(100)),
+            ("memory", AstarteData::LongInteger(4096)),
+            ("memoryReservetion", AstarteData::LongInteger(1024)),
+            ("memorySwap", AstarteData::LongInteger(8192)),
+            ("memorySwappiness", AstarteData::Integer(50)),
+            ("volumeDriver", AstarteData::from("local")),
+            (
+                "storageOpt",
+                AstarteData::from(vec!["size=1024k".to_string()]),
+            ),
+            ("readOnlyRootfs", AstarteData::from(true)),
+            (
+                "tmpfs",
+                AstarteData::from(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -273,6 +318,21 @@ pub(crate) mod tests {
             binds: vec!["binds".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["80:80".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservetion: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
 

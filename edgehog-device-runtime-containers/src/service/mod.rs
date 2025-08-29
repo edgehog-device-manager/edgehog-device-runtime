@@ -1018,6 +1018,9 @@ mod tests {
                     host_port: Some(80),
                 }],
             )])),
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
             privileged: false,
         };
 

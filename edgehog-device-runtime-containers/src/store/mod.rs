@@ -48,6 +48,11 @@ pub enum StoreError {
     RestartPolicy(#[from] RestartPolicyError),
     /// database operation failed
     Handle(#[from] HandleError),
+    /// conversion failed, {ctx}
+    Conversion {
+        /// Context of the error
+        ctx: String,
+    },
 }
 
 /// Handle to persist the state.
@@ -148,9 +153,24 @@ mod tests {
             binds: vec!["/var/lib/postgres".to_string()],
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservetion: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let network = CreateNetwork {
             id: network_id,
