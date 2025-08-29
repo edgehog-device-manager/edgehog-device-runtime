@@ -164,7 +164,7 @@ impl StateStore {
 
     #[instrument(skip(self))]
     pub(crate) async fn load_deployments_in(
-        &mut self,
+        &self,
         status: DeploymentStatus,
     ) -> Result<Vec<SqlUuid>> {
         let deployment = self
@@ -185,7 +185,7 @@ impl StateStore {
     /// Fetches the containers for a deployment
     #[instrument(skip(self))]
     pub(crate) async fn load_deployment_containers(
-        &mut self,
+        &self,
         id: Uuid,
     ) -> Result<Option<Vec<SqlUuid>>> {
         let containers = self
@@ -209,7 +209,7 @@ impl StateStore {
     }
 
     pub(crate) async fn find_complete_deployment(
-        &mut self,
+        &self,
         id: Uuid,
     ) -> Result<Option<DeploymentResource>> {
         let deployment = self
@@ -250,7 +250,7 @@ impl StateStore {
     }
 
     pub(crate) async fn find_deployment_for_delete(
-        &mut self,
+        &self,
         id: Uuid,
     ) -> Result<Option<DeploymentResource>> {
         let deployment = self
@@ -295,7 +295,7 @@ impl StateStore {
     /// Fetches the containers for a deployment to be stopped for an update
     #[instrument(skip(self))]
     pub(crate) async fn load_deployment_containers_update_from(
-        &mut self,
+        &self,
         DeploymentUpdate { from, to }: DeploymentUpdate,
     ) -> Result<Option<Vec<SqlUuid>>> {
         let containers = self
@@ -379,7 +379,7 @@ mod tests {
 
     use super::*;
 
-    pub(crate) async fn find_deployment(store: &mut StateStore, id: Uuid) -> Option<Deployment> {
+    pub(crate) async fn find_deployment(store: &StateStore, id: Uuid) -> Option<Deployment> {
         store
             .handle
             .for_read(move |reader| {
@@ -399,7 +399,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let deployment_id = Uuid::new_v4();
 
@@ -486,7 +486,7 @@ mod tests {
         };
         store.create_deployment(deployment).await.unwrap();
 
-        let deployment = find_deployment(&mut store, deployment_id).await.unwrap();
+        let deployment = find_deployment(&store, deployment_id).await.unwrap();
         let exp = Deployment {
             id: SqlUuid::new(deployment_id),
             status: DeploymentStatus::Received,
@@ -509,7 +509,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -524,7 +524,7 @@ mod tests {
             .await
             .unwrap();
 
-        let deployment = find_deployment(&mut store, deployment_id).await.unwrap();
+        let deployment = find_deployment(&store, deployment_id).await.unwrap();
         let exp = Deployment {
             id: SqlUuid::new(deployment_id),
             status: DeploymentStatus::Stopped,
