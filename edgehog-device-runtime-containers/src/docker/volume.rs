@@ -178,7 +178,7 @@ impl Volume {
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Volume/operation/VolumeCreate)
     #[instrument(skip_all)]
     pub async fn create(&self, client: &Client) -> Result<(), VolumeError> {
-        debug!("createing {}", self);
+        debug!("creating {}", self);
 
         client
             .create_volume(VolumeCreateOptions::from(self))

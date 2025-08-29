@@ -55,7 +55,6 @@ where
     }
 }
 
-#[async_trait]
 impl<D> Create<D> for NetworkResource
 where
     D: Client + Send + Sync + 'static,
@@ -82,6 +81,7 @@ where
             Ok((State::Missing, resource))
         }
     }
+
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.network.create(ctx.client).await?;
 
