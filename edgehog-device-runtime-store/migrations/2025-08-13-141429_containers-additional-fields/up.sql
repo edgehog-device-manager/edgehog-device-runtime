@@ -24,3 +24,17 @@ CREATE TABLE IF NOT EXISTS container_extra_hosts (
     value TEXT NOT NULL,
     PRIMARY KEY (container_id, value)
 );
+CREATE TABLE IF NOT EXISTS container_add_capabilities (
+    container_id BLOB NOT NULL REFERENCES containers (
+        id
+    ) ON DELETE CASCADE ON UPDATE CASCADE,
+    value TEXT NOT NULL,
+    PRIMARY KEY (container_id, value)
+);
+CREATE TABLE IF NOT EXISTS container_drop_capabilities (
+    container_id BLOB NOT NULL REFERENCES containers (
+        id
+    ) ON DELETE CASCADE ON UPDATE CASCADE,
+    value TEXT NOT NULL,
+    PRIMARY KEY (container_id, value)
+);

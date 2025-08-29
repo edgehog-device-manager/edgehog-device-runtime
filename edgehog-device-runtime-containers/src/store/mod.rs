@@ -149,9 +149,11 @@ mod tests {
             network_mode: "bridge".to_string(),
             port_bindings: vec!["5432:5432".to_string()],
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
             privileged: false,
         };
-        store.create_container(container).await.unwrap();
+        store.create_container(Box::new(container)).await.unwrap();
 
         let network = CreateNetwork {
             id: network_id,

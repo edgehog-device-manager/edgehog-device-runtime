@@ -55,6 +55,8 @@ pub struct CreateContainer {
     pub(crate) network_mode: String,
     pub(crate) port_bindings: Vec<String>,
     pub(crate) extra_hosts: Vec<String>,
+    pub(crate) cap_add: Vec<String>,
+    pub(crate) cap_drop: Vec<String>,
     pub(crate) privileged: bool,
 }
 
@@ -239,6 +241,14 @@ pub(crate) mod tests {
                 "extraHosts",
                 AstarteData::StringArray(vec!["host.docker.internal:host-gateway".to_string()]),
             ),
+            (
+                "capAdd",
+                AstarteData::StringArray(vec!["CAP_CHOWN".to_string()]),
+            ),
+            (
+                "capDrop",
+                AstarteData::StringArray(vec!["CAP_KILL".to_string()]),
+            ),
             ("privileged", AstarteData::Boolean(false)),
         ]
         .into_iter()
@@ -279,6 +289,8 @@ pub(crate) mod tests {
             network_mode: "bridge".to_string(),
             port_bindings: vec!["80:80".to_string()],
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
             privileged: false,
         };
 
