@@ -53,7 +53,6 @@ where
     }
 }
 
-#[async_trait]
 impl<D> Create<D> for ImageResource
 where
     D: Client + Send + Sync + 'static,
