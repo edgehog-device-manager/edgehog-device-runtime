@@ -37,7 +37,7 @@ pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
 
-/// Error returned from a [`Resource`] operation.
+/// Error returned from a Resource operation.
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum ResourceError {
     /// couldn't publish resource property

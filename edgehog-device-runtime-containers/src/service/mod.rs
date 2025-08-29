@@ -288,7 +288,7 @@ impl<D> Service<D> {
         }
     }
 
-    /// Will start a [`Deployment`]
+    /// Will start a Deployment
     #[instrument(skip(self))]
     pub async fn start(&mut self, id: Uuid)
     where
@@ -335,6 +335,10 @@ impl<D> Service<D> {
 
             return;
         }
+
+        DeploymentEvent::new(EventStatus::Started, "")
+            .send(&id, &mut self.device)
+            .await;
 
         info!("deployment started");
     }
@@ -419,6 +423,10 @@ impl<D> Service<D> {
 
             return;
         }
+
+        DeploymentEvent::new(EventStatus::Stopped, "")
+            .send(&id, &mut self.device)
+            .await;
 
         info!("deployment stopped");
     }
@@ -700,6 +708,7 @@ impl Display for ResourceType {
 mod tests {
     use std::collections::HashMap;
 
+    use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::{AstarteData, FromEvent};
@@ -1145,19 +1154,20 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        let endpoint = format!("/{deployment_id}");
         device
-            .expect_send_object()
+            .expect_send_object_with_timestamp()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.DeploymentEvent"
-                    && path == endpoint
-                    && value
-                        .get("status")
-                        .is_some_and(|s| *s == EventStatus::Starting.to_string())
-            })
-            .returning(|_, _, _| Ok(()));
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.DeploymentEvent"),
+                predicate::eq(format!("/{deployment_id}")),
+                predicate::eq(AstarteObject::from_iter([
+                    ("status".to_string(), AstarteData::from("Starting")),
+                    ("message".to_string(), AstarteData::from("")),
+                ])),
+                predicate::always(),
+            )
+            .returning(|_, _, _, _| Ok(()));
 
         let image_path = format!("/{image_id}/pulled");
         device
@@ -1206,6 +1216,21 @@ mod tests {
                     && *value == DeploymentStatus::Started.to_string()
             })
             .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.DeploymentEvent"),
+                predicate::eq(format!("/{deployment_id}")),
+                predicate::eq(AstarteObject::from_iter([
+                    ("status".to_string(), AstarteData::from("Started")),
+                    ("message".to_string(), AstarteData::from("")),
+                ])),
+                predicate::always(),
+            )
+            .returning(|_, _, _, _| Ok(()));
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
