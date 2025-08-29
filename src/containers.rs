@@ -191,6 +191,39 @@ fn spawn_listener<D>(
     });
 }
 
+#[cfg(not(test))]
+fn spawn_stats<D>(
+    config: ContainersConfig,
+    store: &StateStore,
+    device: &D,
+    tasks: &mut JoinSet<Result<(), eyre::Error>>,
+) where
+    D: Client + Clone + Send + Sync + 'static,
+{
+    use edgehog_containers::stats::StatsMonitor;
+
+    // Use a lazy clone since the handle will only write to the database
+    let store_cl = store.clone_lazy();
+    let device_cl = device.clone();
+    tasks.spawn(async move {
+        let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
+        let Some(client) = maybe_client else {
+            return Ok(());
+        };
+
+        let mut stats = StatsMonitor::new(client, device_cl, store_cl);
+
+        let mut interval = tokio::time::interval(Duration::from_secs(10));
+        loop {
+            if let Err(err) = stats.gather().await {
+                error!(errore = %format!("{err:#}"),"couldn't gather container statistics");
+            }
+
+            interval.tick().await;
+        }
+    });
+}
+
 #[derive(Debug)]
 pub(crate) struct ContainerService<D> {
     handle: ServiceHandle<D>,
@@ -216,6 +249,8 @@ impl<D> ContainerService<D> {
         // fixes an issue with features normalization when testing with `--all-features --workspace`
         #[cfg(not(test))]
         spawn_listener(config, &store, &device, tasks);
+        #[cfg(not(test))]
+        spawn_stats(config, &store, &device, tasks);
 
         // Use a lazy clone since the handle will only write to the database
         let store_cl = store.clone_lazy();

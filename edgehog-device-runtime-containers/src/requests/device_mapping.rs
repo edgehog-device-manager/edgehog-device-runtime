@@ -20,23 +20,22 @@
 
 use astarte_device_sdk::FromEvent;
 
-use super::ReqUuid;
+use super::{OptString, ReqUuid};
 
 /// Request to pull a Docker Network.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
 #[from_event(
-    interface = "io.edgehog.devicemanager.apps.CreateNetworkRequest",
-    path = "/network",
+    interface = "io.edgehog.devicemanager.apps.CreateDeviceMappingRequest",
+    path = "/deviceMapping",
     rename_all = "camelCase",
     aggregation = "object"
 )]
-pub struct CreateNetwork {
+pub struct CreateDeviceMapping {
     pub(crate) id: ReqUuid,
     pub(crate) deployment_id: ReqUuid,
-    pub(crate) driver: String,
-    pub(crate) internal: bool,
-    pub(crate) enable_ipv6: bool,
-    pub(crate) options: Vec<String>,
+    pub(crate) path_on_host: String,
+    pub(crate) path_in_container: String,
+    pub(crate) c_group_permissions: OptString,
 }
 
 #[cfg(test)]
@@ -46,38 +45,34 @@ pub(crate) mod tests {
 
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
-    use itertools::Itertools;
+    use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_network_request_event(
+    pub fn create_device_mapping_request_event(
         id: impl Display,
         deployment_id: impl Display,
-        driver: &str,
-        options: &[&str],
+        host: &str,
+        container: &str,
     ) -> DeviceEvent {
-        let options = options.iter().map(|s| s.to_string()).collect_vec();
-
         let fields = [
             ("id", AstarteData::String(id.to_string())),
             (
                 "deploymentId",
                 AstarteData::String(deployment_id.to_string()),
             ),
-            ("driver", AstarteData::String(driver.to_string())),
-            ("checkDuplicate", AstarteData::Boolean(false)),
-            ("internal", AstarteData::Boolean(false)),
-            ("enableIpv6", AstarteData::Boolean(false)),
-            ("options", AstarteData::StringArray(options)),
+            ("pathOnHost", AstarteData::from(host)),
+            ("pathInContainer", AstarteData::from(container)),
+            ("cGroupPermissions", AstarteData::from("msv")),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
 
         DeviceEvent {
-            interface: "io.edgehog.devicemanager.apps.CreateNetworkRequest".to_string(),
-            path: "/network".to_string(),
+            interface: "io.edgehog.devicemanager.apps.CreateDeviceMappingRequest".to_string(),
+            path: "/deviceMapping".to_string(),
             data: Value::Object {
                 data: fields,
                 timestamp: Utc::now(),
@@ -86,21 +81,20 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn create_network_request() {
+    fn create_device_mapping() {
         let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
         let event =
-            create_network_request_event(id, deployment_id, "driver", &["foo=bar", "some="]);
+            create_device_mapping_request_event(id, deployment_id, "/dev/tty12", "/dev/tty12");
 
-        let request = CreateNetwork::from_event(event).unwrap();
+        let request = CreateDeviceMapping::from_event(event).unwrap();
 
-        let expect = CreateNetwork {
+        let expect = CreateDeviceMapping {
             id: ReqUuid(id),
             deployment_id: ReqUuid(deployment_id),
-            driver: "driver".to_string(),
-            internal: false,
-            enable_ipv6: false,
-            options: ["foo=bar", "some="].map(str::to_string).to_vec(),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "/dev/tty12".to_string(),
+            c_group_permissions: OptString(Some("msv".to_string())),
         };
 
         assert_eq!(request, expect);

@@ -114,7 +114,6 @@ where
     }
 }
 
-#[async_trait]
 impl<D> Create<D> for ContainerResource
 where
     D: Client + Send + Sync + 'static,

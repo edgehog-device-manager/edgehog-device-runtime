@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,14 +29,16 @@ use std::{
 use bollard::{
     errors::Error as BollardError,
     models::{
-        ContainerCreateBody, ContainerInspectResponse, EndpointSettings, HostConfig,
-        NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
+        ContainerCreateBody, ContainerInspectResponse, ContainerStatsResponse, EndpointSettings,
+        HostConfig, NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
+        RestartPolicyNameEnum,
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
-        StartContainerOptions, StopContainerOptions,
+        StartContainerOptions, StatsOptionsBuilder, StopContainerOptions,
     },
 };
+use futures::StreamExt;
 use tracing::{debug, info, instrument, trace, warn};
 use uuid::Uuid;
 
@@ -269,6 +271,41 @@ impl ContainerId {
             Err(err) => return Err(ContainerError::Start(err)),
         }
     }
+
+    /// Stats of docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStats)
+    #[instrument(skip_all)]
+    pub(crate) async fn stats(
+        &self,
+        client: &Client,
+    ) -> Result<Option<ContainerStatsResponse>, ContainerError> {
+        debug!("getting statistics {self}");
+        let options = StatsOptionsBuilder::new()
+            .stream(false)
+            // This sets where we get a single stat instead of waiting for 2 cycles
+            // We want 2 cycles for pre cpu usages
+            .one_shot(false)
+            .build();
+        let res = client.stats(self.container(), Some(options)).next().await;
+
+        let Some(res) = res else {
+            return Ok(None);
+        };
+
+        match res {
+            Ok(stats) => Ok(Some(stats)),
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Start(err)),
+        }
+    }
 }
 
 impl Display for ContainerId {
@@ -315,6 +352,16 @@ pub(crate) struct Container {
     /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
     /// example, 80/udp.
     pub(crate) port_bindings: PortBindingMap<String>,
+    /// A list of hostnames/IP mappings to add to the container's /etc/hosts file.
+    ///
+    /// Specified in the form ["hostname:IP"].
+    pub(crate) extra_hosts: Vec<String>,
+    /// A list of kernel capabilities to add to the container.
+    pub(crate) cap_add: Vec<String>,
+    /// A list of kernel capabilities to drop from the container.
+    pub(crate) cap_drop: Vec<String>,
+    /// A list of deice to mount inside the container.
+    pub(crate) device_mappings: Vec<DeviceMapping>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
@@ -409,14 +456,36 @@ impl<'a> From<&'a Container> for CreateContainerOptions {
 
 impl From<&Container> for ContainerCreateBody {
     fn from(value: &Container) -> Self {
-        let hostname = value.hostname.clone();
-        let env = value.env.iter().map(String::clone).collect();
-        let binds = value.binds.clone();
+        let Container {
+            id: _,
+            image,
+            network_mode,
+            networks: _,
+            hostname,
+            restart_policy,
+            env,
+            binds,
+            port_bindings: _,
+            extra_hosts,
+            cap_add,
+            cap_drop,
+            device_mappings,
+            privileged,
+        } = value;
+
+        let hostname = hostname.clone();
+        let env = env.iter().map(String::clone).collect();
+        let binds = binds.clone();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
+        let device_mappings = device_mappings
+            .iter()
+            .cloned()
+            .map(bollard::models::DeviceMapping::from)
+            .collect();
 
         let restart_policy = BollardRestartPolicy {
-            name: Some(value.restart_policy.into()),
+            name: Some(RestartPolicyNameEnum::from(*restart_policy)),
             maximum_retry_count: None,
         };
 
@@ -424,7 +493,12 @@ impl From<&Container> for ContainerCreateBody {
             restart_policy: Some(restart_policy),
             binds: Some(binds),
             port_bindings: Some(port_bindings),
-            privileged: Some(value.privileged),
+            network_mode: Some(network_mode.clone()),
+            extra_hosts: Some(extra_hosts.clone()),
+            cap_add: Some(cap_add.clone()),
+            cap_drop: Some(cap_drop.clone()),
+            privileged: Some(*privileged),
+            devices: Some(device_mappings),
             ..Default::default()
         };
 
@@ -434,7 +508,7 @@ impl From<&Container> for ContainerCreateBody {
 
         ContainerCreateBody {
             hostname,
-            image: Some(value.image.clone()),
+            image: Some(image.clone()),
             env: Some(env),
             host_config: Some(host_config),
             networking_config: Some(networking_config),
@@ -575,6 +649,29 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeviceMapping {
+    pub path_on_host: String,
+    pub path_in_container: String,
+    pub cgroup_permissions: Option<String>,
+}
+
+impl From<DeviceMapping> for bollard::models::DeviceMapping {
+    fn from(
+        DeviceMapping {
+            path_on_host,
+            path_in_container,
+            cgroup_permissions,
+        }: DeviceMapping,
+    ) -> Self {
+        Self {
+            path_on_host: Some(path_on_host),
+            path_in_container: Some(path_in_container),
+            cgroup_permissions,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mockall::predicate;
@@ -595,6 +692,10 @@ mod tests {
                 network_mode: "bridge".to_string(),
                 networks: Vec::new(),
                 port_bindings: PortBindingMap::default(),
+                extra_hosts: Vec::new(),
+                cap_add: Vec::new(),
+                cap_drop: Vec::new(),
+                device_mappings: Vec::new(),
                 privileged: false,
             }
         }
