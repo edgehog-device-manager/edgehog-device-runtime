@@ -28,6 +28,18 @@
         "extraHosts": ["host.docker.internal:host-gateway"],
         "capAdd": ["CAP_CHOWN"],
         "capDrop": ["CAP_KILL"],
+        "cpuPeriod": 1000,
+        "cpuQuota": 100,
+        "cpuRealtimePeriod": 1000,
+        "cpuRealtimeRuntime": 100,
+        "memory": 4096,
+        "memoryReservation": 1024,
+        "memorySwap": 8192,
+        "memorySwappiness": 50,
+        "volumeDriver": "local",
+        "storageOpt": ["size=1024k"],
+        "readOnlyRootfs": true,
+        "tmpfs": ["/run=rw,noexec,nosuid,size=65536k"],
         "privileged": false
       }
     },

@@ -38,3 +38,29 @@ CREATE TABLE IF NOT EXISTS container_drop_capabilities (
     value TEXT NOT NULL,
     PRIMARY KEY (container_id, value)
 );
+CREATE TABLE IF NOT EXISTS container_storage_options (
+    container_id BLOB NOT NULL REFERENCES containers (
+        id
+    ) ON DELETE CASCADE ON UPDATE CASCADE,
+    name TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (container_id, name)
+);
+CREATE TABLE IF NOT EXISTS container_tmpfs (
+    container_id BLOB NOT NULL REFERENCES containers (
+        id
+    ) ON DELETE CASCADE ON UPDATE CASCADE,
+    path TEXT NOT NULL,
+    options TEXT,
+    PRIMARY KEY (container_id, path)
+);
+ALTER TABLE containers ADD COLUMN cpu_period UNSIGNED BIG INT;
+ALTER TABLE containers ADD COLUMN cpu_quota UNSIGNED BIG INT;
+ALTER TABLE containers ADD COLUMN cpu_realtime_period UNSIGNED BIG INT;
+ALTER TABLE containers ADD COLUMN cpu_realtime_runtime UNSIGNED BIG INT;
+ALTER TABLE containers ADD COLUMN memory UNSIGNED BIG INT;
+ALTER TABLE containers ADD COLUMN memory_reservation UNSIGNED BIG INT;
+ALTER TABLE containers ADD COLUMN memory_swap BIG INT;
+ALTER TABLE containers ADD COLUMN memory_swappiness UNSIGNED SMALL INT;
+ALTER TABLE containers ADD COLUMN volume_driver TEXT;
+ALTER TABLE containers ADD COLUMN read_only_rootfs BOOLEAN NOT NULL;

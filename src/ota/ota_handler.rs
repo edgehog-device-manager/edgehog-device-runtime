@@ -313,7 +313,7 @@ impl<C> OtaPublisher<C> {
                 "invalid ota_event"
             );
 
-            OtaError::Internal("couldn't convert ota_event ot Astarte object")
+            OtaError::Internal("couldn't convert ota_event to Astarte object")
         })?;
 
         self.client

@@ -17,6 +17,18 @@
 -- SPDX-License-Identifier: Apache-2.0
 
 -- This file should undo anything in `up.sql`
+ALTER TABLE containers DROP COLUMN read_only_rootfs;
+ALTER TABLE containers DROP COLUMN volume_driver;
+ALTER TABLE containers DROP COLUMN memory_swappiness;
+ALTER TABLE containers DROP COLUMN memory_swap;
+ALTER TABLE containers DROP COLUMN memory_reservation;
+ALTER TABLE containers DROP COLUMN memory;
+ALTER TABLE containers DROP COLUMN cpu_realtime_runtime;
+ALTER TABLE containers DROP COLUMN cpu_realtime_period;
+ALTER TABLE containers DROP COLUMN cpu_quota;
+ALTER TABLE containers DROP COLUMN cpu_period;
+DROP TABLE container_tmpfs;
+DROP TABLE container_storage_options;
 DROP TABLE container_drop_capabilities;
 DROP TABLE container_add_capabilities;
 DROP TABLE container_extra_hosts;
