@@ -40,7 +40,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo test --locked
         run: cargo test --locked --all-features --all-targets --workspace
@@ -55,7 +55,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
         with:
           toolchain: nightly
           components: llvm-tools
