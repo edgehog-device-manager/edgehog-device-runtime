@@ -186,4 +186,4 @@ udev = "0.9.3"
 url = "2.5.7"
 uuid = "1.18.0"
 wifiscanner = "0.5.1"
-zbus = { version = "5.9.0", default-features = false }
+zbus = { version = "5.10.0", default-features = false }
