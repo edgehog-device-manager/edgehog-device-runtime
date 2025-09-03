@@ -324,6 +324,8 @@ pub(crate) struct Container {
     pub(crate) cap_add: Vec<String>,
     /// A list of kernel capabilities to drop from the container.
     pub(crate) cap_drop: Vec<String>,
+    /// A list of deice to mount inside the container.
+    pub(crate) device_mappings: Vec<DeviceMapping>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
@@ -431,6 +433,7 @@ impl From<&Container> for ContainerCreateBody {
             extra_hosts,
             cap_add,
             cap_drop,
+            device_mappings,
             privileged,
         } = value;
 
@@ -439,6 +442,11 @@ impl From<&Container> for ContainerCreateBody {
         let binds = binds.clone();
         let port_bindings = value.as_port_bindings();
         let networks = value.as_network_config();
+        let device_mappings = device_mappings
+            .iter()
+            .cloned()
+            .map(bollard::models::DeviceMapping::from)
+            .collect();
 
         let restart_policy = BollardRestartPolicy {
             name: Some(RestartPolicyNameEnum::from(*restart_policy)),
@@ -454,6 +462,7 @@ impl From<&Container> for ContainerCreateBody {
             cap_add: Some(cap_add.clone()),
             cap_drop: Some(cap_drop.clone()),
             privileged: Some(*privileged),
+            devices: Some(device_mappings),
             ..Default::default()
         };
 
@@ -604,6 +613,29 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeviceMapping {
+    pub path_on_host: String,
+    pub path_in_container: String,
+    pub cgroup_permissions: Option<String>,
+}
+
+impl From<DeviceMapping> for bollard::models::DeviceMapping {
+    fn from(
+        DeviceMapping {
+            path_on_host,
+            path_in_container,
+            cgroup_permissions,
+        }: DeviceMapping,
+    ) -> Self {
+        Self {
+            path_on_host: Some(path_on_host),
+            path_in_container: Some(path_in_container),
+            cgroup_permissions,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mockall::predicate;
@@ -627,6 +659,7 @@ mod tests {
                 extra_hosts: Vec::new(),
                 cap_add: Vec::new(),
                 cap_drop: Vec::new(),
+                device_mappings: Vec::new(),
                 privileged: false,
             }
         }

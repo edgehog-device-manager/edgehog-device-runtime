@@ -22,7 +22,6 @@ use std::fmt::{Debug, Display};
 
 use astarte_device_sdk::event::FromEventError;
 use edgehog_store::{conversions::SqlUuid, models::containers::deployment::DeploymentStatus};
-use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
@@ -36,9 +35,9 @@ use crate::{
         ReqError,
     },
     resource::{
-        container::ContainerResource, deployment::Deployment, image::ImageResource,
-        network::NetworkResource, volume::VolumeResource, Context, Create, Resource, ResourceError,
-        State,
+        container::ContainerResource, deployment::Deployment,
+        device_mapping::DeviceMappingResource, image::ImageResource, network::NetworkResource,
+        volume::VolumeResource, Context, Create, Resource, ResourceError, State,
     },
     store::{StateStore, StoreError},
     Docker,
@@ -151,6 +150,10 @@ impl<D> Service<D> {
 
         for id in self.store.load_networks_to_publish().await? {
             NetworkResource::publish(self.context(id)).await?;
+        }
+
+        for id in self.store.load_device_mappings_to_publish().await? {
+            DeviceMappingResource::publish(self.context(id)).await?;
         }
 
         for id in self.store.load_containers_to_publish().await? {
@@ -274,6 +277,9 @@ impl<D> Service<D> {
             ResourceType::Image => ImageResource::publish(self.context(*id.uuid())).await,
             ResourceType::Volume => VolumeResource::publish(self.context(*id.uuid())).await,
             ResourceType::Network => NetworkResource::publish(self.context(*id.uuid())).await,
+            ResourceType::DeviceMapping => {
+                DeviceMappingResource::publish(self.context(*id.uuid())).await
+            }
             ResourceType::Container => ContainerResource::publish(self.context(*id.uuid())).await,
             ResourceType::Deployment => Deployment::publish(self.context(*id.uuid())).await,
         };
@@ -536,6 +542,10 @@ impl<D> Service<D> {
             ImageResource::down(self.context(id)).await?;
         }
 
+        for id in deployment.device_mapping {
+            self.store.delete_device_mapping(id).await?;
+        }
+
         AvailableDeployment::new(&deployment_id)
             .unset(&mut self.device)
             .await
@@ -649,7 +659,7 @@ impl<D> Service<D> {
 }
 
 /// Id of the nodes in the Service graph
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id {
     rt: ResourceType,
     id: Uuid,
@@ -677,19 +687,20 @@ impl Display for Id {
 }
 
 /// Type of the container resource [`Id`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ResourceType {
     /// Image resource.
-    Image = 0,
+    Image,
     /// Volume resource.
-    Volume = 1,
+    Volume,
     /// Network resource.
-    Network = 2,
+    Network,
+    /// Device mapping resource.
+    DeviceMapping,
     /// Container resource.
-    Container = 3,
+    Container,
     /// Deployment resource.
-    Deployment = 4,
+    Deployment,
 }
 
 impl Display for ResourceType {
@@ -698,6 +709,7 @@ impl Display for ResourceType {
             ResourceType::Image => write!(f, "Image"),
             ResourceType::Volume => write!(f, "Volume"),
             ResourceType::Network => write!(f, "Network"),
+            ResourceType::DeviceMapping => write!(f, "DeviceMapping"),
             ResourceType::Container => write!(f, "Container"),
             ResourceType::Deployment => write!(f, "Deployment"),
         }
@@ -707,6 +719,7 @@ impl Display for ResourceType {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::vec;
 
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::store::SqliteStore;
@@ -720,7 +733,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    use crate::container::{Binding, Container, ContainerId, PortBindingMap};
+    use crate::container::{Binding, Container, ContainerId, DeviceMapping, PortBindingMap};
     use crate::image::Image;
     use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
@@ -728,6 +741,7 @@ mod tests {
     use crate::requests::container::tests::create_container_request_event;
     use crate::requests::container::RestartPolicy;
     use crate::requests::deployment::tests::create_deployment_request_event;
+    use crate::requests::device_mapping::tests::create_device_mapping_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
@@ -922,6 +936,7 @@ mod tests {
         let id = Uuid::new_v4();
         let image_id = Uuid::new_v4();
         let network_id = Uuid::new_v4();
+        let device_mapping_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
@@ -958,6 +973,17 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceMappings"),
+                predicate::eq(format!("/{device_mapping_id}/present")),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
         let endpoint = format!("/{id}/status");
         device
             .expect_set_property()
@@ -989,9 +1015,27 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
+        // Device mapping
+        let create_device_mapping_req = create_device_mapping_request_event(
+            device_mapping_id,
+            deployment_id,
+            "/dev/tty12",
+            "/dev/tty12",
+        );
+        let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
         // Container
-        let create_container_req =
-            create_container_request_event(id, deployment_id, image_id, "image", &[network_id]);
+        let create_container_req = create_container_request_event(
+            id,
+            deployment_id,
+            image_id,
+            "image",
+            &[network_id],
+            &[device_mapping_id.to_string()],
+        );
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
@@ -1021,6 +1065,11 @@ mod tests {
             extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
             cap_add: vec!["CAP_CHOWN".to_string()],
             cap_drop: vec!["CAP_KILL".to_string()],
+            device_mappings: vec![DeviceMapping {
+                path_on_host: "/dev/tty12".to_string(),
+                path_in_container: "/dev/tty12".to_string(),
+                cgroup_permissions: Some("msv".to_string()),
+            }],
             privileged: false,
         };
 
@@ -1246,6 +1295,7 @@ mod tests {
             deployment_id,
             image_id,
             reference,
+            &Vec::<Uuid>::new(),
             &Vec::<Uuid>::new(),
         );
 

@@ -20,6 +20,7 @@
 
 pub mod container;
 pub mod deployment;
+pub mod device_mapping;
 pub mod image;
 pub mod network;
 pub mod volume;

@@ -26,6 +26,7 @@ use crate::requests::{container::RestartPolicyError, BindingError};
 
 mod container;
 mod deployment;
+mod device_mapping;
 mod image;
 mod network;
 mod volume;
@@ -130,6 +131,7 @@ mod tests {
         let image_id = Uuid::new_v4();
         let volume_id = ReqUuid(Uuid::new_v4());
         let network_id = ReqUuid(Uuid::new_v4());
+        let device_mapping_id = ReqUuid(Uuid::new_v4());
         let container_id = ReqUuid(Uuid::new_v4());
         let deployment_id = ReqUuid(Uuid::new_v4());
 
@@ -145,6 +147,7 @@ mod tests {
             image_id: ReqUuid(image_id),
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]

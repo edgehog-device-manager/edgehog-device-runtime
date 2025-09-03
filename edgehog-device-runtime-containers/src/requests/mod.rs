@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,10 +28,12 @@ use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 use tracing::error;
 use uuid::Uuid;
 
+use self::device_mapping::CreateDeviceMapping;
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
 pub mod container;
 pub mod deployment;
+pub mod device_mapping;
 pub mod image;
 pub mod network;
 pub mod volume;
@@ -73,6 +75,8 @@ pub enum ContainerRequest {
     Volume(CreateVolume),
     /// Request to create a network.
     Network(CreateNetwork),
+    /// Request to create a device mapping.
+    DeviceMapping(CreateDeviceMapping),
     /// Request to create a container.
     Container(Box<CreateContainer>),
     /// Request to create a deployment.
@@ -84,15 +88,16 @@ pub enum ContainerRequest {
 }
 
 impl ContainerRequest {
-    pub(crate) fn deployment_id(&self) -> Option<Uuid> {
+    pub(crate) fn deployment_id(&self) -> Uuid {
         match self {
-            ContainerRequest::Image(_)
-            | ContainerRequest::Volume(_)
-            | ContainerRequest::Network(_)
-            | ContainerRequest::Container(_) => None,
-            ContainerRequest::Deployment(create_deployment) => Some(create_deployment.id.0),
-            ContainerRequest::DeploymentCommand(deployment_command) => Some(deployment_command.id),
-            ContainerRequest::DeploymentUpdate(deployment_update) => Some(deployment_update.from),
+            ContainerRequest::Image(value) => value.deployment_id.0,
+            ContainerRequest::Volume(value) => value.deployment_id.0,
+            ContainerRequest::Network(value) => value.deployment_id.0,
+            ContainerRequest::Container(value) => value.deployment_id.0,
+            ContainerRequest::DeviceMapping(dm) => dm.deployment_id.0,
+            ContainerRequest::Deployment(create_deployment) => create_deployment.id.0,
+            ContainerRequest::DeploymentCommand(deployment_command) => deployment_command.id,
+            ContainerRequest::DeploymentUpdate(deployment_update) => deployment_update.from,
         }
     }
 }
@@ -110,6 +115,9 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.CreateNetworkRequest" => {
                 CreateNetwork::from_event(value).map(ContainerRequest::Network)
+            }
+            "io.edgehog.devicemanager.apps.CreateDeviceMappingRequest" => {
+                CreateDeviceMapping::from_event(value).map(ContainerRequest::DeviceMapping)
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
                 CreateContainer::from_event(value)
@@ -221,7 +229,7 @@ impl TryFrom<AstarteData> for VecReqUuid {
     }
 }
 
-/// Non empty string
+/// Optional non empty string
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OptString(Option<String>);
 
