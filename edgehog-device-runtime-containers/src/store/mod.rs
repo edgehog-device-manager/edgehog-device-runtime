@@ -59,7 +59,7 @@ pub enum StoreError {
 /// Handle to persist the state.
 ///
 /// The file is a new line delimited JSON.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StateStore {
     handle: db::Handle,
 }
@@ -68,13 +68,6 @@ impl StateStore {
     /// Creates a new state store
     pub fn new(handle: db::Handle) -> Self {
         Self { handle }
-    }
-
-    /// Clone the underlying handle lazily
-    pub fn clone_lazy(&self) -> Self {
-        Self {
-            handle: self.handle.clone_lazy(),
-        }
     }
 }
 
