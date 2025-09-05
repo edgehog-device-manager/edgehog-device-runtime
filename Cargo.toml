@@ -25,7 +25,7 @@ rust-version = { workspace = true }
 description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "cellular-modems-service",
   "e2e-test",
