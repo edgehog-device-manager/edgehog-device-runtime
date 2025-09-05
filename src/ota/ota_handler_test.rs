@@ -796,7 +796,7 @@ async fn ota_event_canceled() {
     let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
-        .expect_send_object()
+        .expect_send_object_with_timestamp()
         .with(
             predicate::eq("io.edgehog.devicemanager.OTAEvent"),
             predicate::eq("/event"),
@@ -806,9 +806,10 @@ async fn ota_event_canceled() {
                 ("statusProgress".to_string(), AstarteData::Integer(0)),
                 ("requestUUID".to_string(), uuid.to_string().into()),
             ])),
+            predicate::always(),
         )
         .once()
-        .returning(|_, _, _| Ok(()));
+        .returning(|_, _, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1077,7 +1078,7 @@ async fn ota_event_not_canceled() {
     let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
-        .expect_send_object()
+        .expect_send_object_with_timestamp()
         .with(
             predicate::eq("io.edgehog.devicemanager.OTAEvent"),
             predicate::eq("/event"),
@@ -1088,9 +1089,10 @@ async fn ota_event_not_canceled() {
                 ("requestUUID".to_string(), uuid.to_string().into()),
                 ("message".to_string(), "Unable to cancel OTA request".into()),
             ])),
+            predicate::always(),
         )
         .once()
-        .returning(|_, _, _| Ok(()));
+        .returning(|_, _, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1129,7 +1131,7 @@ async fn ota_event_not_canceled_empty() {
     let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
-        .expect_send_object()
+        .expect_send_object_with_timestamp()
         .with(
             predicate::eq("io.edgehog.devicemanager.OTAEvent"),
             predicate::eq("/event"),
@@ -1143,9 +1145,10 @@ async fn ota_event_not_canceled_empty() {
                     "Unable to cancel OTA request, internal request is empty".into(),
                 ),
             ])),
+            predicate::always(),
         )
         .once()
-        .returning(|_, _, _| Ok(()));
+        .returning(|_, _, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1183,7 +1186,7 @@ async fn ota_event_not_canceled_different_uuid() {
     let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
     client
-        .expect_send_object()
+        .expect_send_object_with_timestamp()
         .with(
             predicate::eq("io.edgehog.devicemanager.OTAEvent"),
             predicate::eq("/event"),
@@ -1197,9 +1200,10 @@ async fn ota_event_not_canceled_different_uuid() {
                     "Unable to cancel OTA request, they have different identifier".into(),
                 ),
             ])),
+            predicate::always(),
         )
         .once()
-        .returning(|_, _, _| Ok(()));
+        .returning(|_, _, _, _| Ok(()));
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);
     OtaPublisher::mock_new(client, publisher_rx);
@@ -1306,7 +1310,7 @@ async fn ensure_pending_ota_is_done_ota_success() {
     let mut seq = mockall::Sequence::new();
 
     client
-        .expect_send_object()
+        .expect_send_object_with_timestamp()
         .with(
             predicate::eq("io.edgehog.devicemanager.OTAEvent"),
             predicate::eq("/event"),
@@ -1316,9 +1320,10 @@ async fn ensure_pending_ota_is_done_ota_success() {
                 ("statusProgress".to_string(), AstarteData::Integer(0)),
                 ("requestUUID".to_string(), uuid.to_string().into()),
             ])),
+            predicate::always(),
         )
         .once()
-        .returning(|_, _, _| Ok(()))
+        .returning(|_, _, _, _| Ok(()))
         .in_sequence(&mut seq);
 
     let (publisher_tx, publisher_rx) = mpsc::channel(8);

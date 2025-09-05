@@ -23,6 +23,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{Client, IntoAstarteObject};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -317,7 +318,12 @@ impl<C> OtaPublisher<C> {
         })?;
 
         self.client
-            .send_object("io.edgehog.devicemanager.OTAEvent", "/event", data)
+            .send_object_with_timestamp(
+                "io.edgehog.devicemanager.OTAEvent",
+                "/event",
+                data,
+                Utc::now(),
+            )
             .await
             .map_err(|error| {
                 let message = "Unable to publish ota_event".to_string();

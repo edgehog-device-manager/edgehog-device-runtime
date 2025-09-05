@@ -18,11 +18,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::IntoAstarteObject;
 use procfs::Current;
 use tracing::error;
 
-use crate::data::send_object;
+use crate::data::send_object_with_timestamp;
 use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
@@ -121,7 +122,7 @@ impl SystemStatus {
     where
         C: Client,
     {
-        send_object(client, INTERFACE, "/systemStatus", self).await;
+        send_object_with_timestamp(client, INTERFACE, "/systemStatus", self, Utc::now()).await;
     }
 }
 

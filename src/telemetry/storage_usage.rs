@@ -18,12 +18,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::IntoAstarteObject;
 use std::collections::HashMap;
 use sysinfo::Disks;
 use tracing::{error, warn};
 
-use crate::data::send_object;
+use crate::data::send_object_with_timestamp;
 use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.StorageUsage";
@@ -89,8 +90,10 @@ impl StorageUsage {
     where
         C: Client,
     {
+        let timestamp = Utc::now();
+
         for (path, v) in self.disks {
-            send_object(client, INTERFACE, &path, v).await;
+            send_object_with_timestamp(client, INTERFACE, &path, v, timestamp).await;
         }
     }
 }
