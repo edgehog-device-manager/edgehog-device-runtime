@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use astarte_device_sdk::{Client, FromEvent};
 use color_eyre::eyre::bail;
@@ -24,6 +24,7 @@ use edgehog_containers::{
     events::RuntimeListener,
     requests::ContainerRequest,
     service::{events::ServiceHandle, Service},
+    stats::StatsMonitor,
     store::StateStore,
     Docker,
 };
@@ -76,6 +77,19 @@ where
     Ok(())
 }
 
+async fn container_stats<D>(mut stats: StatsMonitor<D>) -> color_eyre::Result<()>
+where
+    D: Client + Send + Sync + 'static,
+{
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
+
+    loop {
+        stats.gather().await?;
+
+        interval.tick().await;
+    }
+}
+
 pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
     D: Client + Send + Sync + 'static,
@@ -88,6 +102,7 @@ where
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone_lazy());
+    let stats = StatsMonitor::new(client.clone(), device.clone(), store.clone_lazy());
     let handle = ServiceHandle::new(device.clone(), store.clone_lazy(), tx);
     let service = Service::new(client, device.clone(), rx, store);
 
@@ -95,6 +110,7 @@ where
 
     tasks.spawn(handle_events(service));
     tasks.spawn(runtime_listen(listener));
+    tasks.spawn(container_stats(stats));
     tasks.spawn(receive_events(device, handle));
 
     while let Some(res) = tasks.join_next().await {
