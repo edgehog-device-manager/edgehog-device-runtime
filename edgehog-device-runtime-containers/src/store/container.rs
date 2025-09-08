@@ -1117,7 +1117,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let store = StateStore::new(handle);
+        let mut store = StateStore::new(handle);
 
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
