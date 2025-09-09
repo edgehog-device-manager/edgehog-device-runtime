@@ -190,23 +190,16 @@ cfg_if! {
 
             let mut builder = Server::builder();
 
-            cfg_if! {
-                if #[cfg(feature = "containers")] {
-                    builder.add_service(
-                        edgehog_proto::containers::latest::containers_service_server::ContainersServiceServer::from_arc(this),
-                    )
-                    .serve_with_incoming_shutdown(incoming, async {
-                        cancel.cancelled().await;
+            builder
+                .add_service(edgehog_proto::containers::latest::containers_service_server::ContainersServiceServer::from_arc(this))
+                .serve_with_incoming_shutdown(incoming, async {
+                    cancel.cancelled().await;
 
-                        info!("shutting down edgehog service")
-                    })
-                    .await?;
+                    info!("shutting down edgehog service")
+                })
+                .await?;
 
-                    Ok(())
-                } else {
-                    unimplemented!("no service implemented");
-                }
-            }
+            Ok(())
         }
     } else {
         async fn serve<S, IO>(
