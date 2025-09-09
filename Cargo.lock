@@ -1423,7 +1423,7 @@ dependencies = [
 [[package]]
 name = "edgehog-device-runtime-proto"
 version = "0.10.0-aplha.1"
-source = "git+https://github.com/edgehog-device-manager/edgehog-device-runtime-proto#06745cb294b831b20b50a3585af23d21b5dce3a0"
+source = "git+https://github.com/joshuachp/edgehog-device-runtime-proto?branch=refactor/container#cbd1bfabfec61dd180d582c916c5fc43d2e49817"
 dependencies = [
  "chrono",
  "prost 0.14.1",

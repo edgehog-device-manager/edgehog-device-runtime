@@ -16,25 +16,28 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use edgehog_containers::bollard::models::{ContainerStateStatusEnum, ContainerSummaryStateEnum};
-use edgehog_containers::bollard::secret::{
+use edgehog_containers::bollard::models::{
     ContainerBlkioStatEntry, ContainerBlkioStats, ContainerCpuStats, ContainerCpuUsage,
-    ContainerMemoryStats, ContainerNetworkStats, ContainerThrottlingData,
+    ContainerMemoryStats, ContainerNetworkStats, ContainerStateStatusEnum,
+    ContainerSummaryStateEnum, ContainerThrottlingData, PortBinding, PortTypeEnum,
 };
+use edgehog_containers::bollard::secret::ContainerStatsResponse;
 use edgehog_containers::local::ContainerHandle;
 use edgehog_proto::containers::v1::containers_service_server::ContainersService;
 use edgehog_proto::containers::v1::{
-    BlkioStats, BlkioValue, Container, ContainerStatus, CpuStats, CpuThrottlingData, CpuUsage,
-    GetRequest, GetResponse, ListRequest, ListResponse, ListStatusFilter, MemoryStats,
-    NetworkStats, PidsStats, StartRequest, StatsRequest, StatsResponse, StopRequest,
+    BlkioStats, BlkioValue, Container, ContainerState, ContainerSummary, CpuStats,
+    CpuThrottlingData, CpuUsage, GetRequest, GetResponse, ListRequest, ListResponse, MemoryStats,
+    NetworkStats, PidsStats, PortMapping, PortType, StartRequest, StatsRequest, StatsResponse,
+    StopRequest,
 };
 use edgehog_proto::prost_types::Timestamp;
 use edgehog_proto::tonic::{self, Response, Status};
-use edgehog_store::models::containers::container::ContainerStatus as StoreContainerStatus;
+use eyre::{bail, Context};
 use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error};
@@ -51,13 +54,19 @@ impl ContainersService for EdgehogService {
         request: tonic::Request<ListRequest>,
     ) -> std::result::Result<tonic::Response<ListResponse>, tonic::Status> {
         let inner = request.into_inner();
-        let status = inner.status_filter();
-
-        let status = match status {
-            ListStatusFilter::Unspecified => Vec::new(),
-            ListStatusFilter::Running => vec![StoreContainerStatus::Running],
-            ListStatusFilter::Stopped => vec![StoreContainerStatus::Stopped],
-        };
+        let status = inner
+            .container_state_filter()
+            .map(|state| match state {
+                ContainerState::Unspecified => ContainerStateStatusEnum::EMPTY,
+                ContainerState::Created => ContainerStateStatusEnum::CREATED,
+                ContainerState::Running => ContainerStateStatusEnum::RUNNING,
+                ContainerState::Paused => ContainerStateStatusEnum::PAUSED,
+                ContainerState::Restarting => ContainerStateStatusEnum::RESTARTING,
+                ContainerState::Removing => ContainerStateStatusEnum::REMOVING,
+                ContainerState::Exited => ContainerStateStatusEnum::EXITED,
+                ContainerState::Dead => ContainerStateStatusEnum::DEAD,
+            })
+            .collect();
 
         let containers = self
             .container_handle()?
@@ -69,25 +78,44 @@ impl ContainersService for EdgehogService {
                 Status::internal("couldn't list containers")
             })?
             .into_iter()
-            .map(|summary| Container {
-                id: summary.id.unwrap_or_default(),
+            .map(|(id, summary)| ContainerSummary {
+                id: id.to_string(),
+                container_id: summary.id,
                 created: summary
                     .created
                     .map(|seconds| Timestamp { seconds, nanos: 0 }),
-                hostname: String::new(),
                 image: summary.image_id.unwrap_or_default(),
-                status: match summary.state {
-                    None | Some(ContainerSummaryStateEnum::EMPTY) => ContainerStatus::Unspecified,
-                    Some(ContainerSummaryStateEnum::CREATED) => ContainerStatus::Created,
-                    Some(ContainerSummaryStateEnum::RUNNING) => ContainerStatus::Running,
-                    Some(ContainerSummaryStateEnum::PAUSED) => ContainerStatus::Paused,
-                    Some(ContainerSummaryStateEnum::RESTARTING) => ContainerStatus::Restarting,
-                    Some(ContainerSummaryStateEnum::EXITED) => ContainerStatus::Exited,
-                    Some(ContainerSummaryStateEnum::REMOVING) => ContainerStatus::Removing,
-                    Some(ContainerSummaryStateEnum::DEAD) => ContainerStatus::Dead,
+                state: match summary.state {
+                    None | Some(ContainerSummaryStateEnum::EMPTY) => ContainerState::Unspecified,
+                    Some(ContainerSummaryStateEnum::CREATED) => ContainerState::Created,
+                    Some(ContainerSummaryStateEnum::RUNNING) => ContainerState::Running,
+                    Some(ContainerSummaryStateEnum::PAUSED) => ContainerState::Paused,
+                    Some(ContainerSummaryStateEnum::RESTARTING) => ContainerState::Restarting,
+                    Some(ContainerSummaryStateEnum::EXITED) => ContainerState::Exited,
+                    Some(ContainerSummaryStateEnum::REMOVING) => ContainerState::Removing,
+                    Some(ContainerSummaryStateEnum::DEAD) => ContainerState::Dead,
                 }
                 .into(),
-                restart_count: 0,
+                ports: summary
+                    .ports
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|port| PortMapping {
+                        ip: port.ip,
+                        private_port: port.private_port.into(),
+                        public_port: port.public_port.map(u32::from),
+                        protocol: port
+                            .typ
+                            .map(|typ| match typ {
+                                PortTypeEnum::EMPTY => PortType::Unspecified,
+                                PortTypeEnum::TCP => PortType::Tcp,
+                                PortTypeEnum::UDP => PortType::Udp,
+                                PortTypeEnum::SCTP => PortType::Sctp,
+                            })
+                            .unwrap_or(PortType::Unspecified)
+                            .into(),
+                    })
+                    .collect(),
             })
             .collect();
 
@@ -105,35 +133,50 @@ impl ContainersService for EdgehogService {
             .container_handle()?
             .get(id)
             .await
+            .and_then(|container| {
+                let Some(container) = container else {
+                    return Ok(None);
+                };
+
+                let ports = parse_port_binding(
+                    container
+                        .host_config
+                        .unwrap_or_default()
+                        .port_bindings
+                        .unwrap_or_default(),
+                )?;
+
+                Ok(Some(Container {
+                    id: id.to_string(),
+                    container_id: container.id,
+                    created: container.created.map(|created| Timestamp {
+                        seconds: created.timestamp(),
+                        nanos: 0,
+                    }),
+                    image: container.image.unwrap_or_default(),
+                    state: match container.state.and_then(|state| state.status) {
+                        None | Some(ContainerStateStatusEnum::EMPTY) => ContainerState::Unspecified,
+                        Some(ContainerStateStatusEnum::CREATED) => ContainerState::Created,
+                        Some(ContainerStateStatusEnum::RUNNING) => ContainerState::Running,
+                        Some(ContainerStateStatusEnum::PAUSED) => ContainerState::Paused,
+                        Some(ContainerStateStatusEnum::RESTARTING) => ContainerState::Paused,
+                        Some(ContainerStateStatusEnum::REMOVING) => ContainerState::Removing,
+                        Some(ContainerStateStatusEnum::EXITED) => ContainerState::Exited,
+                        Some(ContainerStateStatusEnum::DEAD) => ContainerState::Dead,
+                    }
+                    .into(),
+                    restart_count: container
+                        .restart_count
+                        .and_then(|restarts| u32::try_from(restarts).ok())
+                        .unwrap_or_default(),
+                    ports,
+                }))
+            })
             .map_err(|err| {
                 error!(error = format!("{err:#}"), "couldn't get container");
 
                 Status::internal("couldn't get container")
-            })?
-            .map(|container| Container {
-                id: id.to_string(),
-                created: container.created.map(|created| Timestamp {
-                    seconds: created.timestamp(),
-                    nanos: 0,
-                }),
-                hostname: String::new(),
-                image: container.image.unwrap_or_default(),
-                status: match container.state.and_then(|state| state.status) {
-                    None | Some(ContainerStateStatusEnum::EMPTY) => ContainerStatus::Unspecified,
-                    Some(ContainerStateStatusEnum::CREATED) => ContainerStatus::Created,
-                    Some(ContainerStateStatusEnum::RUNNING) => ContainerStatus::Running,
-                    Some(ContainerStateStatusEnum::PAUSED) => ContainerStatus::Paused,
-                    Some(ContainerStateStatusEnum::RESTARTING) => ContainerStatus::Paused,
-                    Some(ContainerStateStatusEnum::REMOVING) => ContainerStatus::Removing,
-                    Some(ContainerStateStatusEnum::EXITED) => ContainerStatus::Exited,
-                    Some(ContainerStateStatusEnum::DEAD) => ContainerStatus::Dead,
-                }
-                .into(),
-                restart_count: container
-                    .restart_count
-                    .and_then(|restarts| u32::try_from(restarts).ok())
-                    .unwrap_or_default(),
-            });
+            })?;
 
         Ok(GetResponse { container }.into())
     }
@@ -183,15 +226,16 @@ impl ContainersService for EdgehogService {
         &self,
         request: tonic::Request<StatsRequest>,
     ) -> std::result::Result<tonic::Response<Self::StatsStream>, tonic::Status> {
-        let inner = request.into_inner();
-        let ids: Vec<Uuid> = inner
-            .id
+        let StatsRequest {
+            ids,
+            interval_seconds,
+            limit,
+        } = request.into_inner();
+        let ids: Vec<Uuid> = ids
             .iter()
             .map(|id| parse_id(id))
             .collect::<Result<_, Status>>()?;
-
-        let interval = inner
-            .interval_seconds
+        let interval = interval_seconds
             .map(|interval| {
                 u64::try_from(interval).map_err(|err| {
                     error!(
@@ -217,7 +261,10 @@ impl ContainersService for EdgehogService {
         };
 
         tokio::spawn(async move {
-            while !sender.tx.is_closed() {
+            let limit = limit.unwrap_or(u64::MAX);
+            let range = (0..limit).take_while(|_| !sender.tx.is_closed());
+
+            for _ in range {
                 if let Err(err) = sender.send().await {
                     error!(error = format!("{err:#}"), "couldn't send stats");
 
@@ -240,6 +287,66 @@ fn parse_id(id: &str) -> std::result::Result<Uuid, Status> {
     })
 }
 
+fn parse_port_binding(
+    port_bindings: HashMap<String, Option<Vec<PortBinding>>>,
+) -> eyre::Result<Vec<PortMapping>> {
+    port_bindings
+        .into_iter()
+        .try_fold(Vec::new(), |mut acc, (key, binding)| {
+            let (port, proto) = parse_port_binding_key(&key)?;
+
+            // push the single port
+            let Some(binding) = binding else {
+                acc.push(PortMapping {
+                    ip: None,
+                    private_port: port.into(),
+                    public_port: None,
+                    protocol: proto.into(),
+                });
+
+                return Ok(acc);
+            };
+
+            acc.reserve(binding.len());
+
+            for bind in binding {
+                let public_port = bind
+                    .host_port
+                    .map(|port| {
+                        port.parse::<u16>()
+                            .map(u32::from)
+                            .wrap_err("invalid host port")
+                    })
+                    .transpose()?;
+
+                acc.push(PortMapping {
+                    ip: bind.host_ip,
+                    private_port: port.into(),
+                    public_port,
+                    protocol: proto.into(),
+                });
+            }
+
+            Ok(acc)
+        })
+}
+
+fn parse_port_binding_key(key: &str) -> eyre::Result<(u16, PortType)> {
+    let (port, proto) = key.split_once('/').unwrap_or((key, ""));
+
+    let port = port.parse::<u16>()?;
+
+    let proto = match proto {
+        "" => PortType::Unspecified,
+        "tcp" => PortType::Tcp,
+        "udp" => PortType::Udp,
+        "scpt" => PortType::Sctp,
+        _ => bail!("invalid protocol: {proto}"),
+    };
+
+    Ok((port, proto))
+}
+
 struct StatsSender {
     tx: mpsc::Sender<Result<StatsResponse, Status>>,
     ids: Vec<Uuid>,
@@ -254,8 +361,27 @@ impl StatsSender {
             Status::unavailable("container service not available")
         })
     }
+    async fn send_all(&self) -> eyre::Result<()> {
+        let stats = self.container_handle()?.all_stats().await?;
+
+        for (id, stat) in stats {
+            let value = convert_stats(&id, stat);
+
+            self.tx
+                .send_timeout(Ok(value), Duration::from_secs(10))
+                .await?;
+        }
+
+        Ok(())
+    }
 
     async fn send(&self) -> eyre::Result<()> {
+        if self.ids.is_empty() {
+            self.send_all().await?;
+
+            return Ok(());
+        }
+
         for id in &self.ids {
             let res = self.container_handle()?.stats(id).await?;
 
@@ -268,36 +394,7 @@ impl StatsSender {
                 }
             };
 
-            let pids_stas = stats.pids_stats.map(|pid_stats| PidsStats {
-                current: pid_stats.current,
-                limit: pid_stats.limit,
-            });
-
-            let value = StatsResponse {
-                container_id: id.to_string(),
-                read: stats.read.map(|read| Timestamp {
-                    seconds: read.timestamp(),
-                    nanos: read.timestamp_subsec_nanos().try_into().unwrap_or_default(),
-                }),
-                prepared: stats.preread.map(|preread| Timestamp {
-                    seconds: preread.timestamp(),
-                    nanos: preread
-                        .timestamp_subsec_nanos()
-                        .try_into()
-                        .unwrap_or_default(),
-                }),
-                pids_stas,
-                blkio_stats: stats.blkio_stats.map(convert_blkio_stats),
-                cpu_stats: stats.cpu_stats.map(convert_cpu_stats),
-                precpu_stats: stats.precpu_stats.map(convert_cpu_stats),
-                memory_stats: stats.memory_stats.map(convert_memory_stats),
-                networks: stats
-                    .networks
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|(interface, value)| (interface, convert_network_stats(value)))
-                    .collect(),
-            };
+            let value = convert_stats(id, stats);
 
             self.tx
                 .send_timeout(Ok(value), Duration::from_secs(10))
@@ -305,6 +402,40 @@ impl StatsSender {
         }
 
         Ok(())
+    }
+}
+
+fn convert_stats(id: &Uuid, stats: ContainerStatsResponse) -> StatsResponse {
+    let pids_stats = stats.pids_stats.map(|pid_stats| PidsStats {
+        current: pid_stats.current,
+        limit: pid_stats.limit,
+    });
+
+    StatsResponse {
+        id: id.to_string(),
+        container_id: stats.id,
+        read: stats.read.map(|read| Timestamp {
+            seconds: read.timestamp(),
+            nanos: read.timestamp_subsec_nanos().try_into().unwrap_or_default(),
+        }),
+        preread: stats.preread.map(|preread| Timestamp {
+            seconds: preread.timestamp(),
+            nanos: preread
+                .timestamp_subsec_nanos()
+                .try_into()
+                .unwrap_or_default(),
+        }),
+        pids_stats,
+        blkio_stats: stats.blkio_stats.map(convert_blkio_stats),
+        cpu_stats: stats.cpu_stats.map(convert_cpu_stats),
+        precpu_stats: stats.precpu_stats.map(convert_cpu_stats),
+        memory_stats: stats.memory_stats.map(convert_memory_stats),
+        networks: stats
+            .networks
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(interface, value)| (interface, convert_network_stats(value)))
+            .collect(),
     }
 }
 
@@ -321,14 +452,14 @@ fn convert_blkio_stats(value: ContainerBlkioStats) -> BlkioStats {
     } = value;
 
     BlkioStats {
-        io_service_bytes_recursize: convert_blkio_value(io_service_bytes_recursive),
-        io_service_recursize: convert_blkio_value(io_serviced_recursive),
-        io_queue_recursize: convert_blkio_value(io_queue_recursive),
-        io_service_time_recursize: convert_blkio_value(io_service_time_recursive),
-        io_wait_time_recursize: convert_blkio_value(io_wait_time_recursive),
-        io_merged_recursize: convert_blkio_value(io_merged_recursive),
-        io_time_recursize: convert_blkio_value(io_time_recursive),
-        sectors_recursize: convert_blkio_value(sectors_recursive),
+        io_service_bytes_recursive: convert_blkio_value(io_service_bytes_recursive),
+        io_serviced_recursive: convert_blkio_value(io_serviced_recursive),
+        io_queue_recursive: convert_blkio_value(io_queue_recursive),
+        io_service_time_recursive: convert_blkio_value(io_service_time_recursive),
+        io_wait_time_recursive: convert_blkio_value(io_wait_time_recursive),
+        io_merged_recursive: convert_blkio_value(io_merged_recursive),
+        io_time_recursive: convert_blkio_value(io_time_recursive),
+        sectors_recursive: convert_blkio_value(sectors_recursive),
     }
 }
 
@@ -337,10 +468,10 @@ fn convert_blkio_value(value: Option<Vec<ContainerBlkioStatEntry>>) -> Vec<Blkio
         .unwrap_or_default()
         .into_iter()
         .map(|value| BlkioValue {
-            major: value.major.unwrap_or_default(),
-            minor: value.major.unwrap_or_default(),
-            op: value.op.unwrap_or_default(),
-            value: value.value.unwrap_or_default(),
+            major: value.major,
+            minor: value.major,
+            op: value.op,
+            value: value.value,
         })
         .collect()
 }
@@ -362,10 +493,10 @@ fn convert_cpu_stats(value: ContainerCpuStats) -> CpuStats {
         } = usage;
 
         CpuUsage {
-            total_usage: total_usage.unwrap_or_default(),
+            total_usage,
             percpu_usage: percpu_usage.unwrap_or_default(),
-            usage_in_kernelmode: usage_in_kernelmode.unwrap_or_default(),
-            usage_in_usermode: usage_in_usermode.unwrap_or_default(),
+            usage_in_kernelmode,
+            usage_in_usermode,
         }
     });
 
@@ -377,16 +508,16 @@ fn convert_cpu_stats(value: ContainerCpuStats) -> CpuStats {
         } = throttling;
 
         CpuThrottlingData {
-            periods: periods.unwrap_or_default(),
-            throttled_periods: throttled_periods.unwrap_or_default(),
-            throttled_time: throttled_time.unwrap_or_default(),
+            periods,
+            throttled_periods,
+            throttled_time,
         }
     });
 
     CpuStats {
         cpu_usage,
         system_cpu_usage,
-        online_cpus: online_cpus.map(u64::from),
+        online_cpus,
         throttling_data,
     }
 }
@@ -429,13 +560,13 @@ fn convert_network_stats(value: ContainerNetworkStats) -> NetworkStats {
     } = value;
 
     NetworkStats {
-        rx_bytes: rx_bytes.unwrap_or_default(),
-        rx_packets: rx_packets.unwrap_or_default(),
-        rx_errors: rx_errors.unwrap_or_default(),
-        rx_dropped: rx_dropped.unwrap_or_default(),
-        tx_bytes: tx_bytes.unwrap_or_default(),
-        tx_packets: tx_packets.unwrap_or_default(),
-        tx_errors: tx_errors.unwrap_or_default(),
-        tx_dropped: tx_dropped.unwrap_or_default(),
+        rx_bytes,
+        rx_packets,
+        rx_errors,
+        rx_dropped,
+        tx_bytes,
+        tx_packets,
+        tx_errors,
+        tx_dropped,
     }
 }
