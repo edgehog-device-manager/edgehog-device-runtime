@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # This file is part of Edgehog.
 #
 # Copyright 2025 SECO Mind Srl
@@ -16,19 +18,38 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: REUSE Compliance Check
-on:
-  workflow_call:
-  workflow_dispatch:
-permissions:
-  contents: read
-defaults:
-  run:
-    shell: bash
-jobs:
-  test:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v5
+##
+# Annotates the files passed from stdin
+#
+# For example
+#
+#   git status --short | cut -f 2 -d ' ' | ./scripts/copyright.sh
+#
+
+set -exEuo pipefail
+
+annotate() {
+    reuse annotate \
+        --copyright 'SECO Mind Srl' \
+        --copyright-prefix string \
+        --merge-copyrights \
+        --license 'Apache-2.0' \
+        --template apache-2 \
+        "$@"
+}
+
+if [[ $# != 0 ]]; then
+    annotate "$@"
+
+    exit
+fi
+
+# Read from stdin line by line
+while read -r line; do
+    if [[ $line == '' ]]; then
+        echo "Empty line, skipping" 1>&2
+        continue
+    fi
+
+    annotate "$line"
+done </dev/stdin

@@ -16,19 +16,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: REUSE Compliance Check
-on:
-  workflow_call:
-  workflow_dispatch:
-permissions:
-  contents: read
-defaults:
-  run:
-    shell: bash
-jobs:
-  test:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v5
+[toolchain]
+channel = "1.89.0"
+components = ["rust-analyzer", "llvm-tools"]
+profile = "default"

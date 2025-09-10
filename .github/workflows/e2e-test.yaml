@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2022-2024 SECO Mind Srl
+# Copyright 2022 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,16 +35,15 @@ jobs:
   e2e-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Create Astarte Cluster
         id: astarte
         uses: astarte-platform/astarte-cluster-action@v1
         with:
-          astarte_version: "1.1.1"
-      - uses: actions/checkout@v4
+          astarte_version: "1.2.0"
       - name: Checkout edgehog-astarte-interfaces
         uses: actions/checkout@v4
         with:
@@ -64,10 +63,6 @@ jobs:
           echo "E2E_CREDENTIALS_SECRET=$CREDENTIALS_SECRET" >> $GITHUB_ENV
           TOKEN=$(astartectl utils gen-jwt appengine)
           echo "E2E_TOKEN=$TOKEN" >> $GITHUB_ENV
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.4
       - name: Run test
         run: |
           cargo e2e-test

@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023-2024 SECO Mind Srl
+# Copyright 2023 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,63 +22,60 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
-  # Enable logging otherwise the logging lines will count as not covered in the test coverage
-  RUST_LOG: trace
 jobs:
   required:
-    runs-on: ubuntu-latest
-    name: ubuntu / ${{ matrix.toolchain }}
-    strategy:
-      matrix:
-        toolchain: [ stable, beta ]
+    runs-on: ubuntu-24.04
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
-      - name: Install ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.4
-      - name: cargo generate-lockfile
-        if: hashFiles('Cargo.lock') == ''
-        run: cargo generate-lockfile
-      - name: Run cargo test --locked
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: cargo test --locked
         run: cargo test --locked --all-features --all-targets --workspace
       # https://github.com/rust-lang/cargo/issues/6669
       - name: Run cargo test --doc
         run: cargo test --locked --all-features --doc --workspace
   coverage:
-    runs-on: ubuntu-latest
-    name: ubuntu / stable / coverage
+    runs-on: ubuntu-24.04
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt-get install -y libudev-dev libsystemd-dev upower
-      - uses: actions/checkout@v4
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.0
         with:
-          components: llvm-tools-preview
-      - name: Install sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.4
-      - name: cargo install cargo-tarpaulin
-        uses: taiki-e/install-action@cargo-tarpaulin
-      - name: cargo generate-lockfile
-        if: hashFiles('Cargo.lock') == ''
-        run: cargo generate-lockfile
-      - name: Run cargo-tarpaulin with xml output
-        run: cargo +stable tarpaulin --engine llvm --locked --all-features --ignore-tests --packages edgehog-device-runtime edgehog-device-runtime-docker edgehog-device-runtime-forwarder --exclude-files src/main.rs --out xml -- --test-threads 1
+          toolchain: nightly
+          components: llvm-tools
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: install grcov
+        uses: taiki-e/install-action@grcov
+      - name: Generate coverage
+        run: |
+          EXPORT_FOR_CI=1 ./scripts/coverage.sh
+      # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v3
+        if: ${{ github.event_name == 'push' }}
+        uses: codecov/codecov-action@v5
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           fail_ci_if_error: true
+      # Save data to use in workflow_run
+      - name: Save PR number
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          echo "$PR_NUMBER" > ./pr_number
+      - name: Upload coverage artifact
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            pr_number
+            coverage-*.info
