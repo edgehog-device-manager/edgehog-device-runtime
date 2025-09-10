@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use astarte_device_sdk::types::AstarteType;
 use futures::TryStreamExt;
@@ -475,13 +476,27 @@ where
         info!("Rebooting the device");
 
         #[cfg(not(test))]
-        if let Err(error) = crate::power_management::reboot().await {
-            let message = "Unable to run reboot command";
-            error!("{message} : {error}");
-            return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
+        {
+            if let Err(error) = crate::power_management::reboot().await {
+                let message = "Unable to run reboot command";
+                error!("{message} : {error}");
+                return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
+            }
+
+            return OtaStatus::Rebooting(ota_request);
         }
 
+        #[cfg(test)]
         OtaStatus::Rebooted
+    }
+
+    /// Handle the rebooting status
+    ///
+    /// This will loop till the reboot is reached
+    async fn wait_reboot(&self, ota_request: OtaRequest) -> OtaStatus {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        OtaStatus::Rebooting(ota_request)
     }
 
     /// Handle the transition to success status.
@@ -577,13 +592,11 @@ where
                     self.rebooting(ota_request, ota_status_publisher).await
                 }
                 OtaStatus::Rebooted => self.success().await,
+                OtaStatus::Rebooting(ota_request) => self.wait_reboot(ota_request).await,
                 OtaStatus::Error(ota_error, ota_request) => {
                     OtaStatus::Failure(ota_error, Some(ota_request))
                 }
-                OtaStatus::Rebooting(_)
-                | OtaStatus::NoPendingOta
-                | OtaStatus::Success(_)
-                | OtaStatus::Failure(_, _) => break,
+                OtaStatus::NoPendingOta | OtaStatus::Success(_) | OtaStatus::Failure(_, _) => break,
             };
 
             *self.ota_status.write().await = ota_status.clone();

@@ -137,9 +137,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d476e1023cc78a05d90fc0fbdfd57943a31daa2d996ed5fa967a36490b24893"
+checksum = "16f7bf45d4e5af3cc65c403266e9573a0b3eda63aa93b38a180e332b6ba2de0b"
 dependencies = [
  "ahash",
  "astarte-device-sdk-derive",
@@ -178,9 +178,9 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-derive"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5c4dcc86c4d14ec853206d9eb716952521290595e23b5239705b274145d6b2"
+checksum = "66a4616f921094e9dba191b9bf89d7b72823038103e5b73db21dd100f552c7ae"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1976,7 +1976,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.8",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2981,9 +2981,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.93"
+version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60946a68e5f9d28b0dc1c21bb8a97ee7d018a8b322fa57838ba31cc878e22d99"
+checksum = "89ae43fd86e4158d6db51ad8e2b80f313af9cc74f5c0e03ccb87de09998732de"
 dependencies = [
  "unicode-ident",
 ]
