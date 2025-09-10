@@ -61,6 +61,7 @@ async fn main() -> Result<(), edgehog_device_runtime::error::DeviceManagerError>
             credentials_secret: Some(credentials_secret),
             pairing_url: pairing_url.to_string(),
             pairing_token: None,
+            ignore_ssl: None,
         }),
         interfaces_directory: "./edgehog/astarte-interfaces".to_string(),
         store_directory: "".to_string(),

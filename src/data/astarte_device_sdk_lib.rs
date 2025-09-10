@@ -39,6 +39,7 @@ pub struct AstarteDeviceSdkConfigOptions {
     pub credentials_secret: Option<String>,
     pub pairing_url: String,
     pub pairing_token: Option<String>,
+    pub ignore_ssl: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -111,7 +112,8 @@ pub async fn astarte_map_options(
         &astarte_device_sdk_options.pairing_url,
     );
 
-    if Some(true) == opts.astarte_ignore_ssl {
+    if opts.astarte_ignore_ssl == Some(true) || astarte_device_sdk_options.ignore_ssl == Some(true)
+    {
         sdk_options = sdk_options.ignore_ssl_errors();
     }
 
@@ -204,6 +206,7 @@ mod tests {
                 credentials_secret: Some("credentials_secret".to_string()),
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: None,
             }),
             astarte_message_hub: None,
             interfaces_directory: "".to_string(),
@@ -236,6 +239,7 @@ mod tests {
                 credentials_secret: None,
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: None,
             }),
             astarte_message_hub: None,
             interfaces_directory: "".to_string(),
@@ -270,6 +274,7 @@ mod tests {
                 credentials_secret: None,
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: None,
             }),
             astarte_message_hub: None,
             interfaces_directory: "".to_string(),
@@ -304,6 +309,7 @@ mod tests {
                 credentials_secret: None,
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: None,
             }),
             astarte_message_hub: None,
             interfaces_directory: "".to_string(),
@@ -332,6 +338,7 @@ mod tests {
                 credentials_secret: Some("credentials_secret".to_string()),
                 pairing_url: "".to_string(),
                 pairing_token: None,
+                ignore_ssl: None,
             }),
             interfaces_directory: "./".to_string(),
             store_directory: "".to_string(),
