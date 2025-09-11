@@ -17,6 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::Debug;
+use std::time::Duration;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -650,13 +651,27 @@ where
         info!("Rebooting the device");
 
         #[cfg(not(test))]
-        if let Err(error) = crate::power_management::reboot().await {
-            let message = "Unable to run reboot command";
-            error!("{message} : {error}");
-            return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
+        {
+            if let Err(error) = crate::power_management::reboot().await {
+                let message = "Unable to run reboot command";
+                error!("{message} : {error}");
+                return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
+            }
+
+            OtaStatus::Rebooting(ota_request)
         }
 
+        #[cfg(test)]
         OtaStatus::Rebooted
+    }
+
+    /// Handle the rebooting status
+    ///
+    /// This will loop till the reboot is reached
+    async fn wait_reboot(&self, ota_request: OtaId) -> OtaStatus {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        OtaStatus::Rebooting(ota_request)
     }
 
     /// Handle the transition to success status.
@@ -736,10 +751,10 @@ where
             OtaStatus::Deploying(ota_request, _) => self.deploy(ota_request).await,
             OtaStatus::Deployed(ota_request) => self.reboot(ota_request).await,
             OtaStatus::Rebooted => self.check_reboot().await,
+            OtaStatus::Rebooting(ota_request) => self.wait_reboot(ota_request).await,
             OtaStatus::Error(ota_error, ota_request) => {
                 OtaStatus::Failure(ota_error, Some(ota_request))
             }
-            rebooting @ OtaStatus::Rebooting(_) => rebooting,
             OtaStatus::Idle
             | OtaStatus::NoPendingOta
             | OtaStatus::Success(_)

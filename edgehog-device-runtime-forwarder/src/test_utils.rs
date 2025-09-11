@@ -224,7 +224,7 @@ impl TestConnections<MockServer> {
     }
 
     /// Retrieve the mock endpoint
-    pub fn endpoint(&self) -> Mock {
+    pub fn endpoint(&self) -> Mock<'_> {
         // Create a mock on the server.
         self.mock_server.mock(|when, then| {
             when.method(GET)
