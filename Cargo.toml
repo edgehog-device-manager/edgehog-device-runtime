@@ -39,7 +39,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.72"
@@ -139,10 +139,10 @@ color-eyre = "0.6.3"
 diesel = "=2.1.6"
 diesel_migrations = "=2.1.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.0" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.1" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.0" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.0" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.1" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.1" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
