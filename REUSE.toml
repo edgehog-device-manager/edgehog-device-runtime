@@ -21,12 +21,6 @@ SPDX-PackageName = "edgehog-device-runtime"
 SPDX-PackageDownloadLocation = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 
 [[annotations]]
-path = ["CHANGELOG.md", "edgehog-device-runtime-containers/CHANGELOG.md"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "2022 - 2025 SECO Mind Srl"
-SPDX-License-Identifier = "CC0-1.0"
-
-[[annotations]]
 path = ["e2e-test-containers/assets/*.json"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 - 2025 SECO Mind Srl"
