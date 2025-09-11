@@ -16,7 +16,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: REUSE Compliance Check
+name: warmup-caches
 on:
   workflow_call:
   workflow_dispatch:
@@ -25,10 +25,18 @@ permissions:
 defaults:
   run:
     shell: bash
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 jobs:
-  test:
+  build:
     runs-on: ubuntu-24.04
+    name: build
     steps:
       - uses: actions/checkout@v5
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v5
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.14.0
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Build with all features
+        run: cargo build --locked --all-targets --all-features --workspace

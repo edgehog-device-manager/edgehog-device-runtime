@@ -59,7 +59,7 @@ pub enum ProtocolError {
     /// Wrong HTTP method field, `{0}`.
     WrongHttpMethod(String),
     /// Error performing exponential backoff when trying to connect with TTYD, {0}
-    WebSocketConnect(#[from] TungError),
+    WebSocketConnect(#[from] Box<TungError>),
     /// Received a wrong WebSocket frame.
     WrongWsFrame,
     /// Couldn't build the request {0}

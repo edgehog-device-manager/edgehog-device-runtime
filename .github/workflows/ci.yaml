@@ -1,12 +1,12 @@
 # This file is part of Edgehog.
 #
-# Copyright 2024 SECO Mind Srl
+# Copyright 2024 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,28 +26,33 @@ on:
       - release-*
 permissions:
   contents: read
-  pull-requests: read
 # Spend CI time only on latest ref
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
 jobs:
   dco:
     uses: ./.github/workflows/dco.yaml
-    with:
-      pr: ${{ github.event.pull_request.number }}
     permissions:
       actions: read
       pull-requests: read
+    with:
+      pr: ${{ github.event.pull_request.number }}
   reuse:
     uses: ./.github/workflows/reuse-lint.yaml
+  warmup-caches:
+    uses: ./.github/workflows/warmup-caches.yaml
+    needs: [reuse, dco]
   check:
     uses: ./.github/workflows/check.yaml
-    needs: [reuse, dco]
+    needs: [warmup-caches]
   test:
     uses: ./.github/workflows/test.yaml
     secrets: inherit
-    needs: [reuse, dco]
+    needs: [warmup-caches]
   e2e-test:
     uses: ./.github/workflows/e2e-test.yaml
     needs: [reuse, dco]

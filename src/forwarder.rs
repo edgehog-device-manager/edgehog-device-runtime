@@ -207,7 +207,7 @@ impl<P> Forwarder<P> {
     }
 
     /// Remove terminated sessions and return the searched one.
-    fn get_running(&mut self, sinfo: SessionInfo) -> Entry<SessionInfo, JoinHandle<()>> {
+    fn get_running(&mut self, sinfo: SessionInfo) -> Entry<'_, SessionInfo, JoinHandle<()>> {
         // remove all finished tasks
         self.tasks.retain(|_, jh| !jh.is_finished());
 
