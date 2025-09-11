@@ -483,7 +483,7 @@ where
                 return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
             }
 
-            return OtaStatus::Rebooting(ota_request);
+            OtaStatus::Rebooting(ota_request)
         }
 
         #[cfg(test)]
