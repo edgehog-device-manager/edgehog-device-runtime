@@ -108,7 +108,7 @@ impl<D> Service<D> {
         }
     }
 
-    fn context(&mut self, id: impl Into<Uuid>) -> Context<D> {
+    fn context(&mut self, id: impl Into<Uuid>) -> Context<'_, D> {
         Context {
             id: id.into(),
             store: &mut self.store,

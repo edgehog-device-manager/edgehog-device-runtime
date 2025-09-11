@@ -8,7 +8,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -48,10 +48,10 @@ export COVERAGE_OUT_DIR="$CARGO_TARGET_DIR/debug/coverage"
 # - `coverage-options=branch``: enable block and branch coverage (unstable option)
 #
 # See: https://doc.rust-lang.org/rustc/instrument-coverage.html
-export RUSTFLAGS="-Cinstrument-coverage -Zcoverage-options=branch"
+export RUSTFLAGS="-Cinstrument-coverage -Zcoverage-options=branch --cfg=__coverage"
 export CARGO_INCREMENTAL=0
 
-main_crate='edgehog-device-runtime'
+main='edgehog-device-runtime'
 crates=(
     'edgehog-device-runtime'
     'edgehog-device-runtime-containers'
@@ -102,7 +102,7 @@ object_files() {
 
 export_lcov() {
     local src
-    if [[ $1 == "$main_crate" ]]; then
+    if [[ $1 == "$main" ]]; then
         src="$SRC_DIR/src"
     else
         src="$SRC_DIR/$1/src"
@@ -121,7 +121,7 @@ export_lcov() {
 
 filter_lcov() {
     local src
-    if [[ $1 == "$main_crate" ]]; then
+    if [[ $1 == "$main" ]]; then
         src="$SRC_DIR"
     else
         src="$SRC_DIR/$1"

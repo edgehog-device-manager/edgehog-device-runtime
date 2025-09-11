@@ -62,7 +62,9 @@ impl TransportBuilder for WebSocketBuilder {
         tx_ws: Sender<ProtoMessage>,
     ) -> Result<Self::Connection, ConnectionError> {
         // establish a WebSocket connection
-        let (ws_stream, http_res) = tokio_tungstenite::connect_async(self.request).await?;
+        let (ws_stream, http_res) = tokio_tungstenite::connect_async(self.request)
+            .await
+            .map_err(Box::new)?;
         trace!("WebSocket stream for ID {id} created");
 
         // send a protocol message with the HTTP response to the connections manager
@@ -148,7 +150,7 @@ impl WebSocket {
                     })),
                 )?))
             }
-            Some(Err(err)) => Err(err.into()),
+            Some(Err(err)) => Err(ConnectionError::WebSocket(Box::new(err))),
         }
     }
 
@@ -165,7 +167,7 @@ impl WebSocket {
                 Ok(ControlFlow::Break(()))
             }
             Some(ws_msg) => {
-                self.ws_stream.send(ws_msg.into()).await?;
+                self.ws_stream.send(ws_msg.into()).await.map_err(Box::new)?;
                 trace!("message sent to TTYD");
                 Ok(ControlFlow::Continue(()))
             }
