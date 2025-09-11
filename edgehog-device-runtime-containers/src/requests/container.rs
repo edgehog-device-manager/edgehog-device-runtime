@@ -90,7 +90,7 @@ impl<'a> ParsedBind<'a> {
 /// [ip:[hostPort:]]containerPort[/protocol]
 /// ```
 #[instrument]
-pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind, BindingError> {
+pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind<'_>, BindingError> {
     let (host_ip, host_port, rest) = parse_host_ip_port(input)?;
 
     let (container_port, protocol) = rest.split_once('/').map_or_else(
