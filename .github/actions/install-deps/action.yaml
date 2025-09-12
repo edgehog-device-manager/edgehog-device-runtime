@@ -16,19 +16,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: REUSE Compliance Check
-on:
-  workflow_call:
-  workflow_dispatch:
-permissions:
-  contents: read
-defaults:
-  run:
-    shell: bash
-jobs:
-  test:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - name: REUSE Compliance Check
-        uses: fsfe/reuse-action@v5
+name: "Install deps"
+description: "Install dependencies needed to run the jobs"
+runs:
+  using: "composite"
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlite3-dev libudev-dev libsystemd-dev upower

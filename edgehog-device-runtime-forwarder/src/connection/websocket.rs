@@ -150,7 +150,7 @@ impl WebSocket {
                     })),
                 )?))
             }
-            Some(Err(err)) => Err(Box::new(err).into()),
+            Some(Err(err)) => Err(ConnectionError::WebSocket(Box::new(err))),
         }
     }
 
