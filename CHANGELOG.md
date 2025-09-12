@@ -1,3 +1,23 @@
+<!--
+This file is part of Edgehog.
+
+Copyright 2025 SECO Mind Srl
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -13,6 +33,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [#540](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/540)
 - Update the MSRV to rust 1.78 and do a major version bump
   [#515](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/515)
+- Forward port release v0.9.1 with OTA reboot fix
+  [#598](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/598)
+
+## [0.9.1] - 2025-09-12
+
+### Changed
+
+- Forward port release v0.8.4
+  [#596](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/596)
+
+## [0.8.4] - 2025-09-11
+
+### Changed
+
+- Forward port release v0.7.3
+  [#593](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/593)
+
+## [0.7.3] - 2025-09-10
+
+### Fixed
+
+- Wait for reboot to happen before continuing the OTA procedure.
+  [#591](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/591)
 
 ## [0.9.0] - 2025-03-11
 

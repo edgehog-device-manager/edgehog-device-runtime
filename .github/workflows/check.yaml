@@ -31,6 +31,7 @@ env:
   RUSTC_WRAPPER: "sccache"
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
+  MAIN_PACKAGE: edgehog-device-runtime
 jobs:
   fmt:
     runs-on: ubuntu-24.04
@@ -43,10 +44,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo clippy
@@ -55,10 +53,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
         with:
           toolchain: nightly
@@ -66,14 +61,12 @@ jobs:
       - name: Install cargo-docs-rs
         uses: dtolnay/install@cargo-docs-rs
       - run: cargo docs-rs --locked
+
   features:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo install cargo-hack
@@ -81,7 +74,7 @@ jobs:
       - name: cargo hack test
         # Doesn't test all combination of features, but the space is becoming too large and it takes
         # too long
-        run: cargo hack test --locked --each-feature
+        run: cargo hack --each-feature test --locked -p "$MAIN_PACKAGE"
   msrv:
     runs-on: ubuntu-24.04
     strategy:
@@ -90,15 +83,11 @@ jobs:
     name: msrv / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v5
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
         with:
           toolchain: ${{ matrix.msrv }}
       - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: taiki-e/install-action@cargo-hack
       - name: cargo +${{ matrix.msrv }} check
-        # the compatibility with the MSRV needs to be checked only for the binary
-        run: cargo +${{ matrix.msrv }} hack check --no-dev-deps --all-features -p edgehog-device-runtime
+        run: cargo +${{ matrix.msrv }} hack --no-dev-deps check --all-features -p "$MAIN_PACKAGE"

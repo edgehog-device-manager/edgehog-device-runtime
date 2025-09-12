@@ -29,17 +29,12 @@ env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
-  # Enable logging otherwise the logging lines will count as not covered in the test coverage
-  RUST_LOG: trace
 jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo test --locked
@@ -51,10 +46,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install libsqlite3-dev libudev-dev libsystemd-dev upower
+      - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.14.1
         with:
           toolchain: nightly
@@ -86,6 +78,4 @@ jobs:
           name: coverage
           path: |
             pr_number
-            coverage-edgehog-device-runtime.info
-            coverage-edgehog-device-runtime-containers.info
-            coverage-edgehog-device-runtime-forwarder.info
+            coverage-*.info
