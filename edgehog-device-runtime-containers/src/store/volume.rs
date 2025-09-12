@@ -102,12 +102,17 @@ impl StateStore {
 
     #[instrument(skip(self))]
     pub(crate) async fn load_volumes_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
+        self.load_volumes_in_state(VolumeStatus::Received).await
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn load_volumes_in_state(&self, state: VolumeStatus) -> Result<Vec<SqlUuid>> {
         let volumes = self
             .handle
             .for_read(move |reader| {
                 let volumes = volumes::table
                     .select(volumes::id)
-                    .filter(volumes::status.eq(VolumeStatus::Received))
+                    .filter(volumes::status.eq(state))
                     .load::<SqlUuid>(reader)?;
 
                 Ok(volumes)
@@ -119,7 +124,7 @@ impl StateStore {
 
     /// Fetches an volume by id
     #[instrument(skip(self))]
-    pub(crate) async fn find_volume(&mut self, id: Uuid) -> Result<Option<VolumeResource>> {
+    pub(crate) async fn find_volume(&self, id: Uuid) -> Result<Option<VolumeResource>> {
         let volume = self
             .handle
             .for_read(move |reader| {
@@ -150,7 +155,7 @@ impl StateStore {
 
     /// Fetches an volume by id
     #[instrument(skip(self))]
-    pub(crate) async fn check_volume_exists(&mut self, id: Uuid) -> Result<bool> {
+    pub(crate) async fn check_volume_exists(&self, id: Uuid) -> Result<bool> {
         self.handle
             .for_read(move |reader| {
                 Volume::exists(&SqlUuid::new(id))
@@ -216,7 +221,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    async fn find_volume(store: &mut StateStore, id: Uuid) -> Option<Volume> {
+    async fn find_volume(store: &StateStore, id: Uuid) -> Option<Volume> {
         store
             .handle
             .for_read(move |reader| {
@@ -230,10 +235,7 @@ mod tests {
     }
 
     impl StateStore {
-        pub(crate) async fn volume_opts(
-            &mut self,
-            volume_id: Uuid,
-        ) -> Result<Vec<VolumeDriverOpts>> {
+        pub(crate) async fn volume_opts(&self, volume_id: Uuid) -> Result<Vec<VolumeDriverOpts>> {
             let volume = self
                 .handle
                 .for_read(move |reader| {
@@ -256,7 +258,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -270,7 +272,7 @@ mod tests {
         };
         store.create_volume(volume).await.unwrap();
 
-        let res = find_volume(&mut store, volume_id).await.unwrap();
+        let res = find_volume(&store, volume_id).await.unwrap();
 
         let exp = Volume {
             id: SqlUuid::new(volume_id),
@@ -311,7 +313,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -330,7 +332,7 @@ mod tests {
         };
         store.create_volume(volume).await.unwrap();
 
-        let res = find_volume(&mut store, volume_id).await.unwrap();
+        let res = find_volume(&store, volume_id).await.unwrap();
 
         let exp = Volume {
             id: SqlUuid::new(volume_id),
@@ -376,7 +378,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -395,7 +397,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = find_volume(&mut store, volume_id).await.unwrap();
+        let res = find_volume(&store, volume_id).await.unwrap();
 
         let exp = Volume {
             id: SqlUuid::new(volume_id),
@@ -413,7 +415,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let volume_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
