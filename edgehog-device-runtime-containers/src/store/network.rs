@@ -127,7 +127,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn load_networks_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_networks_to_publish(&self) -> Result<Vec<SqlUuid>> {
         let networks = self
             .handle
             .for_read(move |reader| {
@@ -144,10 +144,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn find_network(
-        &mut self,
-        network_id: Uuid,
-    ) -> Result<Option<NetworkResource>> {
+    pub(crate) async fn find_network(&self, network_id: Uuid) -> Result<Option<NetworkResource>> {
         let network = self
             .handle
             .for_read(move |reader| {
@@ -182,10 +179,7 @@ impl StateStore {
     ///
     /// Returns the id of the network and the reference.
     #[instrument(skip(self))]
-    pub(crate) async fn find_network_by_local_id(
-        &mut self,
-        local_id: String,
-    ) -> Result<Option<Uuid>> {
+    pub(crate) async fn find_network_by_local_id(&self, local_id: String) -> Result<Option<Uuid>> {
         let id = self
             .handle
             .for_read(|reader| {
@@ -261,7 +255,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    async fn find_network(store: &mut StateStore, id: Uuid) -> Option<Network> {
+    async fn find_network(store: &StateStore, id: Uuid) -> Option<Network> {
         store
             .handle
             .for_read(move |reader| {
@@ -276,7 +270,7 @@ mod tests {
 
     impl StateStore {
         pub(crate) async fn network_opts(
-            &mut self,
+            &self,
             network_id: Uuid,
         ) -> Result<Vec<NetworkDriverOpts>> {
             let network = self
@@ -301,7 +295,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let network_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -315,7 +309,7 @@ mod tests {
         };
         store.create_network(network).await.unwrap();
 
-        let res = find_network(&mut store, network_id).await.unwrap();
+        let res = find_network(&store, network_id).await.unwrap();
 
         let exp = Network {
             id: SqlUuid::new(network_id),
@@ -347,7 +341,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let network_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -366,7 +360,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = find_network(&mut store, network_id).await.unwrap();
+        let res = find_network(&store, network_id).await.unwrap();
 
         let exp = Network {
             id: SqlUuid::new(network_id),
@@ -387,7 +381,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let network_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
