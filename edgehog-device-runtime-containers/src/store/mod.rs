@@ -58,7 +58,7 @@ pub enum StoreError {
 
 /// Handle to persist the state.
 ///
-/// The file is a new line delimited JSON.
+/// It's a wrapper around the SQLITE database.
 #[derive(Debug)]
 pub struct StateStore {
     handle: db::Handle,

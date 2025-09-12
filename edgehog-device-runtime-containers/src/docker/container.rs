@@ -29,15 +29,16 @@ use std::{
 use bollard::{
     errors::Error as BollardError,
     models::{
-        ContainerCreateBody, ContainerInspectResponse, EndpointSettings, HostConfig,
-        NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
+        ContainerCreateBody, ContainerInspectResponse, ContainerStatsResponse, EndpointSettings,
+        HostConfig, NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
         RestartPolicyNameEnum,
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
-        StartContainerOptions, StopContainerOptions,
+        StartContainerOptions, StatsOptionsBuilder, StopContainerOptions,
     },
 };
+use futures::StreamExt;
 use tracing::{debug, info, instrument, trace, warn};
 use uuid::Uuid;
 
@@ -259,6 +260,41 @@ impl ContainerId {
 
                 Ok(Some(()))
             }
+            Err(BollardError::DockerResponseServerError {
+                status_code: 404,
+                message,
+            }) => {
+                warn!("container not found: {message}");
+
+                Ok(None)
+            }
+            Err(err) => return Err(ContainerError::Start(err)),
+        }
+    }
+
+    /// Stats of docker container.
+    ///
+    /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerStats)
+    #[instrument(skip_all)]
+    pub(crate) async fn stats(
+        &self,
+        client: &Client,
+    ) -> Result<Option<ContainerStatsResponse>, ContainerError> {
+        debug!("getting statistics {self}");
+        let options = StatsOptionsBuilder::new()
+            .stream(false)
+            // This sets where we get a single stat instead of waiting for 2 cycles
+            // We want 2 cycles for pre cpu usages
+            .one_shot(false)
+            .build();
+        let res = client.stats(self.container(), Some(options)).next().await;
+
+        let Some(res) = res else {
+            return Ok(None);
+        };
+
+        match res {
+            Ok(stats) => Ok(Some(stats)),
             Err(BollardError::DockerResponseServerError {
                 status_code: 404,
                 message,

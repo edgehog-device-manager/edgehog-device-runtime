@@ -38,6 +38,7 @@ pub mod properties;
 pub mod requests;
 pub mod resource;
 pub mod service;
+pub mod stats;
 pub mod store;
 
 #[cfg(feature = "__mock")]

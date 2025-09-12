@@ -347,6 +347,26 @@ impl StateStore {
         Ok(container)
     }
 
+    #[instrument(skip(self))]
+    pub(crate) async fn load_containers_in_state(
+        &mut self,
+        state: Vec<ContainerStatus>,
+    ) -> Result<Vec<(SqlUuid, Option<String>)>> {
+        let container = self
+            .handle
+            .for_read(move |reader| {
+                let container = containers::table
+                    .select((containers::id, containers::local_id))
+                    .filter(containers::status.eq_any(state))
+                    .load::<(SqlUuid, Option<String>)>(reader)?;
+
+                Ok(container)
+            })
+            .await?;
+
+        Ok(container)
+    }
+
     /// Fetches an container by id, only if all the resources are present
     #[instrument(skip(self))]
     pub(crate) async fn find_container(&mut self, id: Uuid) -> Result<Option<ContainerResource>> {
@@ -1088,5 +1108,62 @@ mod tests {
             .unwrap();
 
         assert_eq!(res, container_id);
+    }
+
+    #[tokio::test]
+    async fn should_load_container_in_state() {
+        let tmp = TempDir::with_prefix("load_containers_in_state").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let mut store = StateStore::new(handle);
+
+        let container_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let image_id = Uuid::new_v4();
+        let network_id = Uuid::new_v4();
+        let volume_id = Uuid::new_v4();
+        let device_mapping_id = Uuid::new_v4();
+        let container = CreateContainer {
+            id: ReqUuid(container_id),
+            deployment_id: ReqUuid(deployment_id),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
+            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
+            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
+            privileged: false,
+        };
+        store.create_container(Box::new(container)).await.unwrap();
+
+        let containers = store
+            .load_containers_in_state(vec![ContainerStatus::Received])
+            .await
+            .unwrap();
+
+        assert_eq!(containers, vec![(SqlUuid::new(container_id), None)]);
     }
 }
