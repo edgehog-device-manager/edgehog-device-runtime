@@ -61,20 +61,18 @@ impl<C> Task<C> {
     {
         let mut interval = tokio::time::interval(self.period);
 
-        loop {
-            match self.cancel.run_until_cancelled(interval.tick()).await {
-                Some(_) => {
-                    info!(interface = %self.interface, "collecting telemetry",);
+        while self
+            .cancel
+            .run_until_cancelled(interval.tick())
+            .await
+            .is_some()
+        {
+            info!(interface = %self.interface, "collecting telemetry",);
 
-                    self.send().await;
-                }
-                None => {
-                    debug!(interface = %self.interface, "telemetry task cancelled");
-
-                    break;
-                }
-            }
+            self.send().await;
         }
+
+        debug!(interface = %self.interface, "telemetry task cancelled");
     }
 
     async fn send(&mut self)
@@ -101,6 +99,13 @@ impl<C> Task<C> {
                     }
                 }
             }
+            TelemetryInterface::ContainerBlkio => todo!(),
+            TelemetryInterface::ContainerCpu => todo!(),
+            TelemetryInterface::ContainerMemory => todo!(),
+            TelemetryInterface::ContainerMemoryStats => todo!(),
+            TelemetryInterface::ContainerNetworks => todo!(),
+            TelemetryInterface::ContainerProcesses => todo!(),
+            TelemetryInterface::VolumeUsage => todo!(),
         }
     }
 }
@@ -110,6 +115,13 @@ pub enum TelemetryInterface {
     SystemStatus,
     StorageUsage,
     BatteryStatus,
+    ContainerBlkio,
+    ContainerCpu,
+    ContainerMemory,
+    ContainerMemoryStats,
+    ContainerNetworks,
+    ContainerProcesses,
+    VolumeUsage,
 }
 
 impl TelemetryInterface {
@@ -118,6 +130,23 @@ impl TelemetryInterface {
             TelemetryInterface::SystemStatus => "io.edgehog.devicemanager.SystemStatus",
             TelemetryInterface::StorageUsage => "io.edgehog.devicemanager.StorageUsage",
             TelemetryInterface::BatteryStatus => "io.edgehog.devicemanager.BatteryStatus",
+            TelemetryInterface::ContainerBlkio => {
+                "io.edgehog.devicemanager.apps.stats.ContainerBlkio"
+            }
+            TelemetryInterface::ContainerCpu => "io.edgehog.devicemanager.apps.stats.ContainerCpu",
+            TelemetryInterface::ContainerMemory => {
+                "io.edgehog.devicemanager.apps.stats.ContainerMemory"
+            }
+            TelemetryInterface::ContainerMemoryStats => {
+                "io.edgehog.devicemanager.apps.stats.ContainerMemoryStats"
+            }
+            TelemetryInterface::ContainerNetworks => {
+                "io.edgehog.devicemanager.apps.stats.ContainerNetworks"
+            }
+            TelemetryInterface::ContainerProcesses => {
+                "io.edgehog.devicemanager.apps.stats.ContainerProcesses"
+            }
+            TelemetryInterface::VolumeUsage => "io.edgehog.devicemanager.apps.stats.VolumeUsage",
         }
     }
 }
@@ -126,14 +155,35 @@ impl FromStr for TelemetryInterface {
     type Err = TelemetryInterfaceError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "io.edgehog.devicemanager.SystemStatus" => Ok(TelemetryInterface::SystemStatus),
-            "io.edgehog.devicemanager.StorageUsage" => Ok(TelemetryInterface::StorageUsage),
-            "io.edgehog.devicemanager.BatteryStatus" => Ok(TelemetryInterface::BatteryStatus),
-            _ => Err(TelemetryInterfaceError {
-                interface: s.to_string(),
-            }),
-        }
+        let telemetry = match s {
+            "io.edgehog.devicemanager.SystemStatus" => TelemetryInterface::SystemStatus,
+            "io.edgehog.devicemanager.StorageUsage" => TelemetryInterface::StorageUsage,
+            "io.edgehog.devicemanager.BatteryStatus" => TelemetryInterface::BatteryStatus,
+            "io.edgehog.devicemanager.apps.stats.ContainerBlkio" => {
+                TelemetryInterface::ContainerBlkio
+            }
+            "io.edgehog.devicemanager.apps.stats.ContainerCpu" => TelemetryInterface::ContainerCpu,
+            "io.edgehog.devicemanager.apps.stats.ContainerMemory" => {
+                TelemetryInterface::ContainerMemory
+            }
+            "io.edgehog.devicemanager.apps.stats.ContainerMemoryStats" => {
+                TelemetryInterface::ContainerMemoryStats
+            }
+            "io.edgehog.devicemanager.apps.stats.ContainerNetworks" => {
+                TelemetryInterface::ContainerNetworks
+            }
+            "io.edgehog.devicemanager.apps.stats.ContainerProcesses" => {
+                TelemetryInterface::ContainerProcesses
+            }
+            "io.edgehog.devicemanager.apps.stats.VolumeUsage" => TelemetryInterface::VolumeUsage,
+            _ => {
+                return Err(TelemetryInterfaceError {
+                    interface: s.to_string(),
+                })
+            }
+        };
+
+        Ok(telemetry)
     }
 }
 
@@ -161,6 +211,34 @@ mod tests {
             (
                 "io.edgehog.devicemanager.BatteryStatus",
                 TelemetryInterface::BatteryStatus,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.ContainerBlkio",
+                TelemetryInterface::ContainerBlkio,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.ContainerCpu",
+                TelemetryInterface::ContainerCpu,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.ContainerMemory",
+                TelemetryInterface::ContainerMemory,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.ContainerMemoryStats",
+                TelemetryInterface::ContainerMemoryStats,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.ContainerNetworks",
+                TelemetryInterface::ContainerNetworks,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.ContainerProcesses",
+                TelemetryInterface::ContainerProcesses,
+            ),
+            (
+                "io.edgehog.devicemanager.apps.stats.VolumeUsage",
+                TelemetryInterface::VolumeUsage,
             ),
         ];
 
