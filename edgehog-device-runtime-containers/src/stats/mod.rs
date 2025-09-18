@@ -29,8 +29,10 @@ use crate::container::ContainerId;
 use crate::store::StateStore;
 use crate::Docker;
 
+use self::memory::{ContainerMemory, ContainerMemoryStats};
 use self::network::ContainerNetworkStats;
 
+pub(crate) mod memory;
 pub(crate) mod network;
 
 /// Handles the events received from the container runtime
@@ -79,23 +81,39 @@ where
             };
 
             let timestamp = stats.read.unwrap_or_else(|| {
-                debug!("missing read timestmp, genereting one");
+                debug!("missing read timestamp, genereting one");
 
                 Utc::now()
             });
 
-            match stats.networks {
-                Some(networks) => {
-                    let networks = ContainerNetworkStats::from_stats(networks);
+            if let Some(networks) = stats.networks {
+                let networks = ContainerNetworkStats::from_stats(networks);
 
-                    for net in networks {
-                        net.send(&container.name, &mut self.device, &timestamp)
+                for net in networks {
+                    net.send(&container.name, &mut self.device, &timestamp)
+                        .await;
+                }
+            } else {
+                debug!("missing network stats");
+            }
+
+            if let Some(memory) = stats.memory_stats {
+                ContainerMemory::from(&memory)
+                    .send(&container.name, &mut self.device, &timestamp)
+                    .await;
+
+                if let Some(memory_stats) = memory.stats {
+                    let memory = ContainerMemoryStats::from_stats(memory_stats);
+
+                    for mem in memory {
+                        mem.send(&container.name, &mut self.device, &timestamp)
                             .await;
                     }
+                } else {
+                    trace!("missing cgroups v2 memory stats");
                 }
-                None => {
-                    debug!("missing network stats");
-                }
+            } else {
+                debug!("missing memory stats");
             }
         }
 
