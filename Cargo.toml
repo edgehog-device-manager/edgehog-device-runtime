@@ -141,7 +141,7 @@ cfg-if = "1.0.3"
 clap = "4.5.47"
 color-eyre = "0.6.5"
 diesel = "2.2.12"
-diesel_migrations = "2.2.0"
+diesel_migrations = "2.3.0"
 displaydoc = "0.2.5"
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.1" }
 edgehog-device-forwarder-proto = "0.1.0"
