@@ -72,6 +72,8 @@ pub struct DeviceManagerOptions {
     pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
     #[cfg(feature = "containers")]
     pub containers: containers::ContainersConfig,
+    #[cfg(feature = "service")]
+    pub service: Option<edgehog_service::config::Config>,
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
@@ -89,6 +91,7 @@ mod tests {
     use mockall::Sequence;
     use tempdir::TempDir;
     use tokio::task::JoinSet;
+    use tokio_util::sync::CancellationToken;
     use url::Url;
 
     use crate::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
@@ -146,6 +149,8 @@ mod tests {
             astarte_message_hub: None,
             #[cfg(feature = "containers")]
             containers: crate::containers::ContainersConfig::default(),
+            #[cfg(feature = "service")]
+            service: None,
             interfaces_directory: PathBuf::new(),
             store_directory: tempdir.path().to_owned(),
             download_directory: PathBuf::new(),
@@ -192,7 +197,9 @@ mod tests {
 
         let mut tasks = JoinSet::new();
 
-        let _dm = Runtime::new(&mut tasks, options, client).await.unwrap();
+        let _dm = Runtime::new(&mut tasks, options, client, CancellationToken::new())
+            .await
+            .unwrap();
 
         // Sleep to pass the execution to the telemetry task, this is somewhat of a bad test
         tokio::time::sleep(Duration::from_millis(100)).await;

@@ -16,11 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{Client, IntoAstarteObject};
 use tracing::{debug, error};
 use zbus::zvariant::OwnedObjectPath;
 
-use crate::data::send_object;
+use crate::data::send_object_with_timestamp;
 use crate::telemetry::upower::device::{BatteryState, DeviceProxy, PowerDeviceType};
 use crate::telemetry::upower::UPowerProxy;
 
@@ -123,7 +124,7 @@ where
 
         debug!(battery_slot, ?status, "found battery");
 
-        send_object(client, INTERFACE, &battery_slot, status).await;
+        send_object_with_timestamp(client, INTERFACE, &battery_slot, status, Utc::now()).await;
     }
 }
 
