@@ -101,9 +101,9 @@ where
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone_lazy());
-    let stats = StatsMonitor::new(client.clone(), device.clone(), store.clone_lazy());
-    let handle = ServiceHandle::new(device.clone(), store.clone_lazy(), tx);
+    let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone());
+    let stats = StatsMonitor::new(client.clone(), device.clone(), store.clone());
+    let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
     let service = Service::new(client, device.clone(), rx, store);
 
     let mut tasks = JoinSet::new();
