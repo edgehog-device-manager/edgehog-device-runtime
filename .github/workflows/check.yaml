@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.1
       - name: Check formatting
         run: cargo fmt --check --all
   clippy:
@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/install-deps
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo clippy
         run: cargo clippy --locked --all-targets --all-features --workspace
@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/install-deps
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.1
         with:
           toolchain: nightly
       - uses: mozilla-actions/sccache-action@v0.0.9
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/install-deps
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.1
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/install-deps
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.15.1
         with:
           toolchain: ${{ matrix.msrv }}
       - uses: mozilla-actions/sccache-action@v0.0.9
