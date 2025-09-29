@@ -437,6 +437,16 @@ impl StateStore {
                     .select(container_drop_capabilities::value)
                     .filter(container_drop_capabilities::container_id.eq(&id))
                     .load::<String>(reader)?;
+                let storage_opt = container_storage_options::table
+                    .select((
+                        container_storage_options::name,
+                        container_storage_options::value,
+                    ))
+                    .filter(container_storage_options::container_id.eq(&id))
+                    .load::<(String, Option<String>)>(reader)?
+                    .into_iter()
+                    .map(|(key, value)| (key, value.unwrap_or_default()))
+                    .collect();
                 let device_mappings = device_mappings::table
                     .select(DeviceMapping::as_select())
                     .inner_join(container_device_mappings::table)
@@ -461,6 +471,20 @@ impl StateStore {
                     cap_drop,
                     device_mappings,
                     privileged: container.privileged,
+                    cpu_period: container.cpu_period.map(|v| *v),
+                    cpu_quota: container.cpu_quota.map(|v| *v),
+                    cpu_realtime_period: container.cpu_realtime_period.map(|v| *v),
+                    cpu_realtime_runtime: container.cpu_realtime_runtime.map(|v| *v),
+                    memory: container.memory.map(|v| *v),
+                    memory_reservation: container.memory_reservation.map(|v| *v),
+                    memory_swap: container.memory_swap.map(|v| *v),
+                    memory_swappiness: container.memory_swappiness.map(|v| {
+                        let v: i16 = *v;
+                        v.into()
+                    }),
+                    volume_driver: container.volume_driver,
+                    read_only_rootfs: container.read_only_rootfs,
+                    storage_opt,
                 }))
             })
             .await?;
