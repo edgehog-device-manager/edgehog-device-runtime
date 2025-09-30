@@ -120,6 +120,14 @@ impl Swappiness {
     }
 }
 
+impl Deref for Swappiness {
+    type Target = i16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl FromSql<SmallInt, Sqlite> for Swappiness {
     fn from_sql(value: <Sqlite as Backend>::RawValue<'_>) -> diesel::deserialize::Result<Self> {
         let data = i16::from_sql(value)?;
@@ -154,6 +162,14 @@ impl<const UNSET: i64> QuotaValue<UNSET> {
     /// Create a resource quota
     pub fn new(value: i64) -> Option<QuotaValue<UNSET>> {
         (value > UNSET).then_some(Self(value))
+    }
+}
+
+impl<const UNSET: i64> Deref for QuotaValue<UNSET> {
+    type Target = i64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

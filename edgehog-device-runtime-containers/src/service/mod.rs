@@ -1071,6 +1071,17 @@ mod tests {
                 cgroup_permissions: Some("msv".to_string()),
             }],
             privileged: false,
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string()),
+            read_only_rootfs: true,
+            storage_opt: HashMap::from_iter([("size".to_string(), "1024k".to_string())]),
         };
 
         assert_eq!(resource, exp);

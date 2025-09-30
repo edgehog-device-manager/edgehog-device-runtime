@@ -362,6 +362,28 @@ pub(crate) struct Container {
     pub(crate) cap_drop: Vec<String>,
     /// A list of deice to mount inside the container.
     pub(crate) device_mappings: Vec<DeviceMapping>,
+    /// The length of a CPU period in microseconds.
+    pub(crate) cpu_period: Option<i64>,
+    /// Microseconds of CPU time that the container can get in a CPU period.
+    pub(crate) cpu_quota: Option<i64>,
+    /// The length of a CPU real-time period in microseconds.
+    pub(crate) cpu_realtime_period: Option<i64>,
+    /// The length of a CPU real-time runtime in microseconds.
+    pub(crate) cpu_realtime_runtime: Option<i64>,
+    /// Memory limit in bytes.
+    pub(crate) memory: Option<i64>,
+    /// Memory soft limit in bytes.
+    pub(crate) memory_reservation: Option<i64>,
+    /// Total memory limit (memory + swap).
+    pub(crate) memory_swap: Option<i64>,
+    /// Memory swappiness
+    pub(crate) memory_swappiness: Option<i64>,
+    /// Driver that this container uses to mount volumes.
+    pub(crate) volume_driver: Option<String>,
+    /// Mount the container's root filesystem as read only.
+    pub(crate) read_only_rootfs: bool,
+    /// Storage driver options for this container.
+    pub(crate) storage_opt: HashMap<String, String>,
     /// Gives the container full access to the host.
     ///
     /// Defaults to false.
@@ -471,6 +493,17 @@ impl From<&Container> for ContainerCreateBody {
             cap_drop,
             device_mappings,
             privileged,
+            cpu_period,
+            cpu_quota,
+            cpu_realtime_period,
+            cpu_realtime_runtime,
+            memory,
+            memory_reservation,
+            memory_swap,
+            memory_swappiness,
+            volume_driver,
+            read_only_rootfs,
+            storage_opt,
         } = value;
 
         let hostname = hostname.clone();
@@ -499,6 +532,17 @@ impl From<&Container> for ContainerCreateBody {
             cap_drop: Some(cap_drop.clone()),
             privileged: Some(*privileged),
             devices: Some(device_mappings),
+            cpu_period: *cpu_period,
+            cpu_quota: *cpu_quota,
+            cpu_realtime_period: *cpu_realtime_period,
+            cpu_realtime_runtime: *cpu_realtime_runtime,
+            memory: *memory,
+            memory_reservation: *memory_reservation,
+            memory_swap: *memory_swap,
+            memory_swappiness: *memory_swappiness,
+            volume_driver: volume_driver.clone(),
+            readonly_rootfs: Some(*read_only_rootfs),
+            storage_opt: Some(storage_opt.clone()),
             ..Default::default()
         };
 
@@ -697,6 +741,17 @@ mod tests {
                 cap_drop: Vec::new(),
                 device_mappings: Vec::new(),
                 privileged: false,
+                cpu_period: None,
+                cpu_quota: None,
+                cpu_realtime_period: None,
+                cpu_realtime_runtime: None,
+                memory: None,
+                memory_reservation: None,
+                memory_swap: None,
+                memory_swappiness: None,
+                volume_driver: None,
+                read_only_rootfs: false,
+                storage_opt: HashMap::new(),
             }
         }
     }
