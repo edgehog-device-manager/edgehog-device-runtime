@@ -16,14 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{borrow::Cow, collections::HashMap, ops::Deref, path::PathBuf, str::FromStr};
+use std::str::FromStr;
+use std::{borrow::Cow, collections::HashMap, ops::Deref, path::PathBuf};
 
 use async_trait::async_trait;
-#[cfg(all(feature = "zbus", target_os = "linux"))]
-use cellular_properties::CellularConnection;
 use event::{TelemetryConfig, TelemetryEvent};
 use serde::{Deserialize, Serialize};
-use system_info::SystemInfo;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
@@ -35,32 +33,13 @@ use crate::{
     repository::{file_state_repository::FileStateRepository, StateRepository},
 };
 
-use self::{
-    hardware_info::HardwareInfo,
-    os_release::OsRelease,
-    runtime_info::RUNTIME_INFO,
-    sender::{Task, TelemetryInterface},
-    storage_usage::StorageUsage,
-};
+use self::sender::Task;
+use self::stats::TelemetryInterface;
 
-#[cfg(all(feature = "zbus", target_os = "linux"))]
-pub(crate) mod battery_status;
-#[cfg(all(feature = "zbus", target_os = "linux"))]
-pub(crate) mod cellular_properties;
 pub mod event;
-pub mod hardware_info;
-#[cfg(feature = "udev")]
-pub(crate) mod net_interfaces;
-pub mod os_release;
-pub mod runtime_info;
-pub mod sender;
-pub(crate) mod storage_usage;
-pub(crate) mod system_info;
-pub(crate) mod system_status;
-#[cfg(all(feature = "zbus", target_os = "linux"))]
-pub(crate) mod upower;
-#[cfg(feature = "wifiscanner")]
-pub(crate) mod wifi_scan;
+mod sender;
+mod stats;
+pub mod status;
 
 const TELEMETRY_PATH: &str = "telemetry.json";
 
@@ -194,9 +173,10 @@ impl<T> Deref for Overridable<T> {
 pub struct Telemetry<C> {
     client: C,
     configs: HashMap<TelemetryInterface, TaskConfig>,
-    cancellation: CancellationToken,
-    tasks: HashMap<TelemetryInterface, CancellationToken>,
+    tasks: TelemetryTasks,
     file_state: FileStateRepository<Vec<TelemetryInterfaceConfig<'static>>>,
+    #[cfg(feature = "containers")]
+    containers: std::sync::Arc<tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>>,
 }
 
 impl<C> Telemetry<C> {
@@ -204,6 +184,9 @@ impl<C> Telemetry<C> {
         client: C,
         configs: &[TelemetryInterfaceConfig<'_>],
         store_directory: PathBuf,
+        #[cfg(feature = "containers")] containers: std::sync::Arc<
+            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
+        >,
     ) -> Self {
         let configs = configs
             .iter()
@@ -224,9 +207,10 @@ impl<C> Telemetry<C> {
         let mut telemetry = Telemetry {
             client,
             configs,
-            cancellation: CancellationToken::new(),
-            tasks: HashMap::new(),
+            tasks: TelemetryTasks::new(),
             file_state: FileStateRepository::new(&store_directory, TELEMETRY_PATH),
+            #[cfg(feature = "containers")]
+            containers,
         };
 
         telemetry.read_filestate().await;
@@ -279,96 +263,25 @@ impl<C> Telemetry<C> {
 
     async fn initial_telemetry(&mut self)
     where
-        C: Client,
+        C: Client + Send + Sync + 'static,
     {
-        #[cfg(feature = "systemd")]
-        crate::systemd_wrapper::systemd_notify_status("Sending initial telemetry");
-
-        if let Some(os_release) = OsRelease::read().await {
-            debug!("couldn't read os release information");
-
-            os_release.send(&mut self.client).await;
-        }
-
-        HardwareInfo::read().await.send(&mut self.client).await;
-
-        RUNTIME_INFO.send(&mut self.client).await;
-
-        #[cfg(feature = "udev")]
-        net_interfaces::send_network_interface_properties(&mut self.client).await;
-
-        SystemInfo::read().send(&mut self.client).await;
-
-        StorageUsage::read().send(&mut self.client).await;
-
-        #[cfg(feature = "wifiscanner")]
-        wifi_scan::send_wifi_scan(&mut self.client).await;
-
-        #[cfg(all(feature = "zbus", target_os = "linux"))]
-        CellularConnection::read()
-            .await
-            .send(&mut self.client)
-            .await;
+        self::status::initial_telemetry(&mut self.client).await;
+        self::stats::initial_telemetry(&mut self.client).await;
     }
 
     pub fn run_telemetry(&mut self)
     where
         C: Client + Send + Sync + 'static,
     {
-        for (t_itf, task_config) in &self.configs {
-            Self::spawn_task(
-                &mut self.tasks,
+        for (interface, config) in &self.configs {
+            self.tasks.spawn_task(
                 &self.client,
-                &self.cancellation,
-                *t_itf,
-                *task_config,
+                *interface,
+                *config,
+                #[cfg(feature = "containers")]
+                &self.containers,
             );
         }
-    }
-
-    // Cursed arguments to borrow tasks mutably while iterating above
-    fn spawn_task(
-        tasks: &mut HashMap<TelemetryInterface, CancellationToken>,
-        client: &C,
-        cancellation: &CancellationToken,
-        t_itf: TelemetryInterface,
-        task_config: TaskConfig,
-    ) where
-        C: Client + Sync + Send + 'static,
-    {
-        if !task_config.enabled.get() {
-            debug!("task {} disabled", t_itf);
-
-            if let Some(cancel) = tasks.remove(&t_itf) {
-                cancel.cancel();
-            }
-
-            return;
-        }
-
-        let period = task_config.period.get();
-        if period.is_zero() {
-            debug!("period is 0 for task {}", t_itf);
-
-            if let Some(cancel) = tasks.remove(&t_itf) {
-                cancel.cancel();
-            }
-
-            return;
-        };
-
-        if let Some(cancel) = tasks.remove(&t_itf) {
-            debug!("stopping previour task");
-
-            cancel.cancel();
-        }
-
-        let cancel = cancellation.child_token();
-        let task = Task::new(client.clone(), t_itf, cancel.clone(), *period);
-
-        tokio::spawn(async move { task.run().await });
-
-        tasks.insert(t_itf, cancel);
     }
 
     async fn save_telemetry_config(&self) {
@@ -447,16 +360,85 @@ where
         };
 
         // This function will check if we actually need to start the task
-        Self::spawn_task(
-            &mut self.tasks,
+        self.tasks.spawn_task(
             &self.client,
-            &self.cancellation,
             interface,
             *config,
+            #[cfg(feature = "containers")]
+            &self.containers,
         );
+
         self.save_telemetry_config().await;
 
         Ok(())
+    }
+}
+
+/// Handle spawning and cancellation for the telemetry tasks
+#[derive(Debug)]
+struct TelemetryTasks {
+    cancellation: CancellationToken,
+    tasks: HashMap<TelemetryInterface, CancellationToken>,
+}
+
+impl TelemetryTasks {
+    fn new() -> Self {
+        Self {
+            cancellation: CancellationToken::new(),
+            tasks: HashMap::new(),
+        }
+    }
+
+    fn spawn_task<C>(
+        &mut self,
+        client: &C,
+        t_itf: TelemetryInterface,
+        task_config: TaskConfig,
+        #[cfg(feature = "containers")] containers: &std::sync::Arc<
+            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
+        >,
+    ) where
+        C: Client + Sync + Send + 'static,
+    {
+        if !task_config.enabled.get() {
+            debug!("task {} disabled", t_itf);
+
+            if let Some(cancel) = self.tasks.remove(&t_itf) {
+                cancel.cancel();
+            }
+
+            return;
+        }
+
+        let period = task_config.period.get();
+        if period.is_zero() {
+            debug!("period is 0 for task {}", t_itf);
+
+            if let Some(cancel) = self.tasks.remove(&t_itf) {
+                cancel.cancel();
+            }
+
+            return;
+        };
+
+        if let Some(cancel) = self.tasks.remove(&t_itf) {
+            debug!("stopping previous task");
+
+            cancel.cancel();
+        }
+
+        let cancel = self.cancellation.child_token();
+
+        Task::spawn(
+            client.clone(),
+            cancel.clone(),
+            t_itf,
+            *period,
+            #[cfg(feature = "containers")]
+            containers,
+        );
+
+        self.tasks.insert(t_itf, cancel);
     }
 }
 
@@ -469,8 +451,9 @@ pub(crate) mod tests {
     use astarte_device_sdk_mock::MockDeviceClient;
     use event::TelemetryPeriod;
     use mockall::{predicate, Sequence};
-    use runtime_info::tests::mock_runtime_info_telemetry;
     use tempdir::TempDir;
+
+    use super::status::runtime_info::tests::mock_runtime_info_telemetry;
 
     const TELEMETRY_PATH: &str = "telemetry.json";
 
@@ -491,92 +474,13 @@ pub(crate) mod tests {
             Telemetry {
                 client,
                 configs: HashMap::new(),
-                cancellation: CancellationToken::new(),
-                tasks: HashMap::new(),
+                tasks: TelemetryTasks::new(),
                 file_state: FileStateRepository::new(&path, TELEMETRY_PATH),
+                #[cfg(feature = "containers")]
+                containers: std::sync::Arc::default(),
             },
             dir,
         )
-    }
-
-    pub(crate) fn mock_initial_telemetry_client() -> MockDeviceClient<Mqtt<SqliteStore>> {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-        let mut seq = Sequence::new();
-
-        client
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.OSInfo"),
-                predicate::eq("/osName"),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.OSInfo"),
-                predicate::eq("/osVersion"),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_set_property()
-            .times(..)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
-                predicate::always(),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        mock_runtime_info_telemetry(&mut client, &mut seq);
-
-        client
-            .expect_send_object_with_timestamp()
-            .times(..)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.StorageUsage"),
-                predicate::always(),
-                predicate::always(),
-                predicate::always(),
-            )
-            .returning(|_, _, _, _| Ok(()));
-
-        client
-            .expect_set_property()
-            .times(..)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
-                predicate::always(),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_set_property()
-            .with(
-                predicate::eq("io.edgehog.devicemanager.SystemInfo"),
-                predicate::always(),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_set_property()
-            .with(
-                predicate::eq("io.edgehog.devicemanager.BaseImage"),
-                predicate::always(),
-                predicate::always(),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        client
     }
 
     #[tokio::test]
@@ -592,7 +496,14 @@ pub(crate) mod tests {
 
         let client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
-        let tel = Telemetry::from_config(client, &configs, t_dir).await;
+        let tel = Telemetry::from_config(
+            client,
+            &configs,
+            t_dir,
+            #[cfg(feature = "containers")]
+            std::sync::Arc::default(),
+        )
+        .await;
 
         let system_status_config = tel.configs.get(&TelemetryInterface::SystemStatus).unwrap();
 
@@ -613,7 +524,14 @@ pub(crate) mod tests {
 
         let client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
-        let mut tel = Telemetry::from_config(client, &configs, t_dir.clone()).await;
+        let mut tel = Telemetry::from_config(
+            client,
+            &configs,
+            t_dir.clone(),
+            #[cfg(feature = "containers")]
+            std::sync::Arc::default(),
+        )
+        .await;
 
         let events = [
             TelemetryEvent {
@@ -666,7 +584,14 @@ pub(crate) mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::new);
 
-        let mut tel = Telemetry::from_config(client, &configs, t_dir.clone()).await;
+        let mut tel = Telemetry::from_config(
+            client,
+            &configs,
+            t_dir.clone(),
+            #[cfg(feature = "containers")]
+            std::sync::Arc::default(),
+        )
+        .await;
 
         let events = [
             TelemetryEvent {
@@ -698,7 +623,95 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn send_initial_telemetry_success() {
-        let client = mock_initial_telemetry_client();
+        let client = {
+            let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+            let mut seq = Sequence::new();
+
+            client
+                .expect_set_property()
+                .once()
+                .in_sequence(&mut seq)
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.OSInfo"),
+                    predicate::eq("/osName"),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()));
+
+            client
+                .expect_set_property()
+                .once()
+                .in_sequence(&mut seq)
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.OSInfo"),
+                    predicate::eq("/osVersion"),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()));
+
+            client
+                .expect_set_property()
+                .times(..)
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
+                    predicate::always(),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()));
+
+            mock_runtime_info_telemetry(&mut client, &mut seq);
+
+            client
+                .expect_send_object_with_timestamp()
+                .times(..)
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.StorageUsage"),
+                    predicate::always(),
+                    predicate::always(),
+                    predicate::always(),
+                )
+                .returning(|_, _, _, _| Ok(()));
+
+            client
+                .expect_set_property()
+                .times(..)
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.NetworkInterfaceProperties"),
+                    predicate::always(),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()));
+
+            client
+                .expect_set_property()
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.SystemInfo"),
+                    predicate::always(),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()));
+
+            client
+                .expect_set_property()
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.BaseImage"),
+                    predicate::always(),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()));
+
+            client
+                .expect_send_object_with_timestamp()
+                .with(
+                    predicate::eq("io.edgehog.devicemanager.SystemStatus"),
+                    predicate::eq("/systemStatus"),
+                    predicate::always(),
+                    predicate::always(),
+                )
+                .returning(|_, _, _, _| Ok(()));
+
+            client
+        };
 
         let (mut telemetry, _dir) = mock_telemetry(client);
 

@@ -84,8 +84,13 @@ where
     let mut interval = tokio::time::interval(Duration::from_secs(10));
 
     loop {
-        stats.memory(&mut device).await?;
-        stats.network(&mut device).await?;
+        stats.blkio(&mut device).await;
+        stats.cpu(&mut device).await;
+        stats.memory(&mut device).await;
+        stats.memory_stats(&mut device).await;
+        stats.network(&mut device).await;
+        stats.pids(&mut device).await;
+        stats.volumes(&mut device).await;
 
         interval.tick().await;
     }
@@ -103,7 +108,7 @@ where
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone());
-    let stats = StatsMonitor::new(client.clone(), store.clone());
+    let stats = StatsMonitor::with_handle(client.clone(), store.clone());
     let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
     let service = Service::new(client, device.clone(), rx, store);
 

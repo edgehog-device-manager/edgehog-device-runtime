@@ -19,9 +19,9 @@
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
 use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
-use edgehog_device_runtime::telemetry::hardware_info::HardwareInfo;
-use edgehog_device_runtime::telemetry::os_release::{OsInfo, OsRelease};
-use edgehog_device_runtime::telemetry::runtime_info::{RuntimeInfo, RUNTIME_INFO};
+use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
+use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
+use edgehog_device_runtime::telemetry::status::runtime_info::{RuntimeInfo, RUNTIME_INFO};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};

@@ -39,8 +39,8 @@ use crate::client::DockerTrait;
 /// Container handle for local clients
 #[derive(Debug, Clone)]
 pub struct ContainerHandle {
-    client: Docker,
-    store: StateStore,
+    pub(crate) client: Docker,
+    pub(crate) store: StateStore,
 }
 
 #[cfg_attr(feature = "__mock", mockall::automock)]

@@ -1,4 +1,4 @@
-// This file is part of Edgehog .
+// This file is part of Edgehog.
 //
 // Copyright 2025 SECO Mind Srl
 //
@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,16 +18,20 @@
 
 //! Gather statistics of the container and sends them to Astarte.
 
+use std::sync::Arc;
+
 use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::chrono::{DateTime, Utc};
 use astarte_device_sdk::Client;
 use bollard::secret::ContainerStatsResponse;
 use edgehog_store::models::containers::container::ContainerStatus;
 use edgehog_store::models::containers::volume::VolumeStatus;
+use tokio::sync::OnceCell;
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 
 use crate::container::ContainerId;
+use crate::local::ContainerHandle;
 use crate::store::StateStore;
 use crate::volume::VolumeId;
 use crate::Docker;
@@ -49,29 +53,51 @@ mod volume;
 /// Handles the events received from the container runtime
 #[derive(Debug)]
 pub struct StatsMonitor {
-    client: Docker,
-    store: StateStore,
+    handle: Arc<OnceCell<ContainerHandle>>,
 }
 
 impl StatsMonitor {
     /// Creates a new instance.
-    pub fn new(client: Docker, store: StateStore) -> Self {
-        Self { client, store }
+    pub fn new(handle: Arc<OnceCell<ContainerHandle>>) -> Self {
+        Self { handle }
+    }
+
+    /// Creates an initialized instance.
+    pub fn with_handle(client: Docker, store: StateStore) -> Self {
+        Self {
+            handle: Arc::new(OnceCell::const_new_with(ContainerHandle::new(
+                client, store,
+            ))),
+        }
+    }
+
+    fn get_handle(&self) -> Option<&ContainerHandle> {
+        let handle = self.handle.get();
+
+        if handle.is_none() {
+            debug!("handle not yet initialized");
+        }
+
+        handle
     }
 
     /// Loads the container ids from the storage
-    async fn load_container_ids(&mut self) -> eyre::Result<Vec<ContainerId>> {
-        let containers: Vec<ContainerId> = self
+    async fn load_container_ids(&self) -> Option<Vec<ContainerId>> {
+        let handle = self.get_handle()?;
+
+        let containers: Vec<ContainerId> = handle
             .store
             .load_containers_in_state(vec![ContainerStatus::Stopped, ContainerStatus::Running])
-            .await?
+            .await
+            .inspect_err(|err| error!(error = format!("{err:#}"), "couldn't load containers"))
+            .ok()?
             .into_iter()
             .map(|(id, local_id)| ContainerId::new(local_id, *id))
             .collect();
 
         trace!(len = containers.len(), "loaded containers from store");
 
-        Ok(containers)
+        Some(containers)
     }
 
     /// Reads the stats of a container
@@ -80,7 +106,9 @@ impl StatsMonitor {
         &self,
         container: &ContainerId,
     ) -> Option<(ContainerStatsResponse, DateTime<Utc>)> {
-        let stats = match container.stats(&self.client).await {
+        let handle = self.handle.get()?;
+
+        let stats = match container.stats(&handle.client).await {
             Ok(Some(stats)) => stats,
             Ok(None) => {
                 debug!("missing stats for container");
@@ -105,11 +133,13 @@ impl StatsMonitor {
 
     /// Sends the container network stats
     #[instrument(skip(self, device))]
-    pub async fn network<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn network<D>(&mut self, device: &mut D)
     where
         D: Client + Send + Sync + 'static,
     {
-        let containers = self.load_container_ids().await?;
+        let Some(containers) = self.load_container_ids().await else {
+            return;
+        };
 
         for container in containers {
             let Some((stats, timestamp)) = self.read_stats(&container).await else {
@@ -126,17 +156,17 @@ impl StatsMonitor {
                 debug!("missing network stats");
             }
         }
-
-        Ok(())
     }
 
     /// Sends the container memory stats
     #[instrument(skip(self, device))]
-    pub async fn memory<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn memory<D>(&mut self, device: &mut D)
     where
         D: Client + Send + Sync + 'static,
     {
-        let containers = self.load_container_ids().await?;
+        let Some(containers) = self.load_container_ids().await else {
+            return;
+        };
 
         for container in containers {
             let Some((stats, timestamp)) = self.read_stats(&container).await else {
@@ -153,17 +183,17 @@ impl StatsMonitor {
                 debug!("missing memory stats");
             }
         }
-
-        Ok(())
     }
 
     /// Sends the container memory stats for cgroup v2
     #[instrument(skip(self, device))]
-    pub async fn memory_stats<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn memory_stats<D>(&mut self, device: &mut D)
     where
         D: Client + Send + Sync + 'static,
     {
-        let containers = self.load_container_ids().await?;
+        let Some(containers) = self.load_container_ids().await else {
+            return;
+        };
 
         for container in containers {
             let Some((stats, timestamp)) = self.read_stats(&container).await else {
@@ -186,17 +216,17 @@ impl StatsMonitor {
                 debug!("missing memory stats");
             }
         }
-
-        Ok(())
     }
 
     /// Sends the container cpu stats
     #[instrument(skip(self, device))]
-    pub async fn cpu<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn cpu<D>(&mut self, device: &mut D)
     where
         D: Client + Send + Sync + 'static,
     {
-        let containers = self.load_container_ids().await?;
+        let Some(containers) = self.load_container_ids().await else {
+            return;
+        };
 
         for container in containers {
             let Some((stats, timestamp)) = self.read_stats(&container).await else {
@@ -213,16 +243,17 @@ impl StatsMonitor {
                 debug!("missing cpu stats");
             }
         }
-        Ok(())
     }
 
     /// Sends the container blkio stats
     #[instrument(skip(self, device))]
-    pub async fn blkio<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn blkio<D>(&mut self, device: &mut D)
     where
-        D: Client + Send + Sync + 'static,
+        D: Client + Send,
     {
-        let containers = self.load_container_ids().await?;
+        let Some(containers) = self.load_container_ids().await else {
+            return;
+        };
 
         for container in containers {
             let Some((stats, timestamp)) = self.read_stats(&container).await else {
@@ -240,17 +271,17 @@ impl StatsMonitor {
                 debug!("missing blkio stats");
             }
         }
-
-        Ok(())
     }
 
     /// Sends the container pids stats
     #[instrument(skip(self, device))]
-    pub async fn pids<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn pids<D>(&mut self, device: &mut D)
     where
         D: Client + Send + Sync + 'static,
     {
-        let containers = self.load_container_ids().await?;
+        let Some(containers) = self.load_container_ids().await else {
+            return;
+        };
 
         for container in containers {
             let Some((stats, timestamp)) = self.read_stats(&container).await else {
@@ -267,20 +298,24 @@ impl StatsMonitor {
                 debug!("missing pids stats");
             }
         }
-
-        Ok(())
     }
 
     /// Sends the voulume usage stats
     #[instrument(skip(self, device))]
-    pub async fn volumes<D>(&mut self, device: &mut D) -> eyre::Result<()>
+    pub async fn volumes<D>(&mut self, device: &mut D)
     where
         D: Client + Send + Sync + 'static,
     {
-        let volumes: Vec<VolumeId> = self
+        let Some(handle) = self.get_handle() else {
+            return;
+        };
+
+        let volumes: Vec<VolumeId> = handle
             .store
             .load_volumes_in_state(VolumeStatus::Created)
-            .await?
+            .await
+            .inspect_err(|err| error!(error = format!("{err:#}"), "couldn't load volumes"))
+            .unwrap_or_default()
             .into_iter()
             .map(|id| VolumeId::new(*id))
             .collect();
@@ -288,7 +323,7 @@ impl StatsMonitor {
         trace!(len = volumes.len(), "loaded volumes from store");
 
         for volume in volumes {
-            match volume.inspect(&self.client).await {
+            match volume.inspect(&handle.client).await {
                 Ok(Some(info)) => {
                     VolumeUsage::from(info)
                         .send(&volume.name, device, &Utc::now())
@@ -302,8 +337,6 @@ impl StatsMonitor {
                 }
             };
         }
-
-        Ok(())
     }
 }
 
@@ -317,7 +350,7 @@ trait Metric: TryInto<AstarteObject> {
 
     async fn send<D>(self, id: &Uuid, device: &mut D, timestamp: &DateTime<Utc>)
     where
-        D: Client + Sync + 'static,
+        D: Client + Send,
         Self::Error: std::error::Error + Send + Sync + 'static,
     {
         let data: AstarteObject = match self.try_into() {
@@ -377,6 +410,8 @@ mod tests {
     use edgehog_store::db;
     use tempfile::TempDir;
 
+    use crate::store::StateStore;
+
     use super::*;
 
     #[tokio::test]
@@ -388,9 +423,9 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        let client = Docker::connect().await.unwrap();
+        let client = crate::Docker::connect().await.unwrap();
 
-        let _stats = StatsMonitor::new(client, store);
+        let _stats = StatsMonitor::with_handle(client, store);
     }
 
     #[test]
