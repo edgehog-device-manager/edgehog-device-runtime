@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,8 +39,8 @@ use crate::client::DockerTrait;
 /// Container handle for local clients
 #[derive(Debug, Clone)]
 pub struct ContainerHandle {
-    client: Docker,
-    store: StateStore,
+    pub(crate) client: Docker,
+    pub(crate) store: StateStore,
 }
 
 impl ContainerHandle {
