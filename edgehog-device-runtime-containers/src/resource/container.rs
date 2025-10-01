@@ -161,6 +161,7 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
+        self.container.stop(ctx.client).await?;
         self.container.remove(ctx.client).await?;
 
         AvailableContainer::new(&ctx.id).unset(ctx.device).await?;

@@ -272,7 +272,7 @@ impl ContainerMissingImage {
 }
 
 /// Networks used by a container
-#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_networks)]
 #[diesel(belongs_to(Container))]
 #[diesel(belongs_to(Network))]
@@ -327,7 +327,7 @@ impl From<ContainerNetwork> for ContainerMissingNetwork {
 }
 
 /// Volumes used by a container
-#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_volumes)]
 #[diesel(belongs_to(Container))]
 #[diesel(belongs_to(Volume))]
@@ -542,7 +542,7 @@ pub struct ContainerTmpfs {
 }
 
 /// Device Mapping used by a container
-#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_device_mappings)]
 #[diesel(belongs_to(Container))]
 #[diesel(belongs_to(DeviceMapping))]
