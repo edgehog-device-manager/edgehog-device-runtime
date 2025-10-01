@@ -24,9 +24,10 @@ use procfs::Current;
 use tracing::error;
 
 use crate::data::send_object_with_timestamp;
+use crate::telemetry::sender::TelemetryTask;
 use crate::Client;
 
-const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
+pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
 
 #[derive(Debug, Clone, IntoAstarteObject)]
 #[astarte_object(rename_all = "camelCase")]
@@ -117,12 +118,22 @@ impl SystemStatus {
             uptime_millis,
         })
     }
+}
 
-    pub(crate) async fn send<C>(self, client: &mut C)
+#[derive(Debug, Default)]
+pub(crate) struct SystemStatusTelemetry {}
+
+impl TelemetryTask for SystemStatusTelemetry {
+    #[allow(refining_impl_trait_internal)]
+    async fn send<C>(&mut self, client: &mut C)
     where
-        C: Client,
+        C: Client + Send + Sync + 'static,
     {
-        send_object_with_timestamp(client, INTERFACE, "/systemStatus", self, Utc::now()).await;
+        let Some(status) = SystemStatus::read() else {
+            return;
+        };
+
+        send_object_with_timestamp(client, INTERFACE, "/systemStatus", status, Utc::now()).await;
     }
 }
 

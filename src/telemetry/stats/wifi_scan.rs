@@ -25,8 +25,9 @@ use tracing::error;
 use wifiscanner::Wifi;
 
 use crate::data::send_object_with_timestamp;
+use crate::telemetry::sender::TelemetryTask;
 
-const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
+pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
 
 #[derive(Debug, IntoAstarteObject, PartialEq)]
 #[astarte_object(rename_all = "camelCase")]
@@ -38,33 +39,25 @@ pub struct WifiScanResult {
     rssi: i32,
 }
 
-pub async fn send_wifi_scan<C>(client: &mut C)
-where
-    C: Client,
-{
-    let res = tokio::task::spawn_blocking(|| {
-        wifiscanner::scan().unwrap_or_else(|err| {
-            // wifiscanner::Error doesn't impl Display
-            error!("couldn't get wifi networks: {err:?}",);
+impl WifiScanResult {
+    async fn read() -> impl Iterator<Item = WifiScanResult> {
+        tokio::task::spawn_blocking(|| {
+            wifiscanner::scan().unwrap_or_else(|err| {
+                // wifiscanner::Error doesn't impl Display
+                error!(error = ?err, "couldn't get wifi networks");
 
-            Vec::new()
+                Vec::new()
+            })
         })
-    })
-    .await;
-
-    let networks = match res {
-        Ok(networks) => networks,
-        Err(err) => {
+        .await
+        .unwrap_or_else(|err| {
             error!(
                 "couldn't get wifi networks: {}",
                 stable_eyre::Report::new(err)
             );
 
-            return;
-        }
-    };
-
-    let iter = networks
+            Vec::new()
+        })
         .into_iter()
         .filter_map(|wifi| match WifiScanResult::try_from(wifi) {
             Ok(value) => Some(value),
@@ -73,10 +66,7 @@ where
 
                 None
             }
-        });
-
-    for scan in iter {
-        send_object_with_timestamp(client, INTERFACE, "/ap", scan, Utc::now()).await;
+        })
     }
 }
 
@@ -104,6 +94,21 @@ impl TryFrom<Wifi> for WifiScanResult {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct WifiScan {}
+
+impl TelemetryTask for WifiScan {
+    #[allow(refining_impl_trait_internal)]
+    async fn send<C>(&mut self, client: &mut C)
+    where
+        C: Client + Send,
+    {
+        for scan in WifiScanResult::read().await {
+            send_object_with_timestamp(client, INTERFACE, "/ap", scan, Utc::now()).await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
@@ -128,7 +133,7 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        send_wifi_scan(&mut client).await;
+        WifiScan::default().send(&mut client).await;
     }
 
     #[test]

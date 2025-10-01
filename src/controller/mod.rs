@@ -100,6 +100,8 @@ impl<C> Runtime<C> {
             client.clone(),
             &opts.telemetry_config.unwrap_or_default(),
             opts.store_directory.clone(),
+            #[cfg(feature = "containers")]
+            Arc::clone(&container_handle),
         )
         .await;
 
