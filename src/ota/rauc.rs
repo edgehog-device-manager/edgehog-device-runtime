@@ -24,7 +24,7 @@ use async_trait::async_trait;
 use futures::stream::FusedStream;
 use futures::{future, ready, Stream, StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
@@ -210,15 +210,37 @@ impl SystemUpdate for OTARauc<'static> {
 }
 
 impl<'a> OTARauc<'a> {
+    #[instrument]
     pub async fn connect() -> Result<OTARauc<'a>, DeviceManagerError> {
         let connection = zbus::Connection::system().await?;
 
-        let proxy = RaucProxy::new(&connection).await?;
+        let rauc = RaucProxy::new(&connection).await?;
 
-        info!("boot slot = {:?}", proxy.boot_slot().await);
-        info!("primary slot = {:?}", proxy.get_primary().await);
+        match rauc.boot_slot().await {
+            Ok(boot_slot) => {
+                info!(boot_slot);
+            }
+            Err(err) => {
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "coultn't get boot slot"
+                );
+            }
+        }
 
-        Ok(OTARauc { rauc: proxy })
+        match rauc.get_primary().await {
+            Ok(primary_slot) => {
+                info!(primary_slot);
+            }
+            Err(err) => {
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "coultn't get the primary slot"
+                );
+            }
+        }
+
+        Ok(OTARauc { rauc })
     }
 }
 

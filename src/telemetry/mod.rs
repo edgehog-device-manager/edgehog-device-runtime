@@ -538,14 +538,15 @@ pub(crate) mod tests {
         mock_runtime_info_telemetry(&mut client, &mut seq);
 
         client
-            .expect_send_object()
+            .expect_send_object_with_timestamp()
             .times(..)
             .with(
                 predicate::eq("io.edgehog.devicemanager.StorageUsage"),
                 predicate::always(),
                 predicate::always(),
+                predicate::always(),
             )
-            .returning(|_, _, _| Ok(()));
+            .returning(|_, _, _, _| Ok(()));
 
         client
             .expect_set_property()

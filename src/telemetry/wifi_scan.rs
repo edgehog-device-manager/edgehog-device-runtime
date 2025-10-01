@@ -18,12 +18,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{Client, IntoAstarteObject};
 use stable_eyre::eyre::Context;
 use tracing::error;
 use wifiscanner::Wifi;
 
-use crate::data::send_object;
+use crate::data::send_object_with_timestamp;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
 
@@ -75,7 +76,7 @@ where
         });
 
     for scan in iter {
-        send_object(client, INTERFACE, "/ap", scan).await;
+        send_object_with_timestamp(client, INTERFACE, "/ap", scan, Utc::now()).await;
     }
 }
 
@@ -117,14 +118,15 @@ mod tests {
         let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 
         client
-            .expect_send_object()
+            .expect_send_object_with_timestamp()
             .times(..)
             .with(
                 predicate::eq("io.edgehog.devicemanager.WiFiScanResults"),
                 predicate::eq("/ap"),
                 predicate::always(),
+                predicate::always(),
             )
-            .returning(|_, _, _| Ok(()));
+            .returning(|_, _, _, _| Ok(()));
 
         send_wifi_scan(&mut client).await;
     }

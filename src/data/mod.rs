@@ -19,6 +19,7 @@
  */
 
 use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::chrono::{DateTime, Utc};
 use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::types::AstarteData;
@@ -49,13 +50,18 @@ where
 /// Publishes the value to Astarte and logs if an error happens.
 ///
 /// This is used to send telemetry data without returning an error.
-pub(crate) async fn send_object<C, T>(client: &mut C, interface: &str, path: &str, data: T)
-where
+pub(crate) async fn send_object_with_timestamp<C, T>(
+    client: &mut C,
+    interface: &str,
+    path: &str,
+    data: T,
+    timestamp: DateTime<Utc>,
+) where
     C: Client,
     T: TryInto<AstarteObject, Error = astarte_device_sdk::Error>,
 {
     let res = futures::future::ready(data.try_into())
-        .and_then(|data| client.send_object(interface, path, data))
+        .and_then(|data| client.send_object_with_timestamp(interface, path, data, timestamp))
         .await;
 
     if let Err(err) = res {
