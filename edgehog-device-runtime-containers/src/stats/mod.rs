@@ -22,20 +22,26 @@ use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::chrono::{DateTime, Utc};
 use astarte_device_sdk::Client;
 use edgehog_store::models::containers::container::ContainerStatus;
+use edgehog_store::models::containers::volume::VolumeStatus;
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 
 use crate::container::ContainerId;
 use crate::store::StateStore;
+use crate::volume::VolumeId;
 use crate::Docker;
 
+use self::blkio::ContainerBlkio;
 use self::cpu::ContainerCpu;
 use self::memory::{ContainerMemory, ContainerMemoryStats};
 use self::network::ContainerNetworkStats;
+use self::volume::VolumeUsage;
 
+pub(crate) mod blkio;
 pub(crate) mod cpu;
 pub(crate) mod memory;
 pub(crate) mod network;
+pub(crate) mod volume;
 
 /// Handles the events received from the container runtime
 #[derive(Debug)]
@@ -61,6 +67,15 @@ where
     /// Gathers and sends the statistics to Astarte.
     #[instrument(skip(self))]
     pub async fn gather(&mut self) -> eyre::Result<()> {
+        self.containers().await?;
+
+        self.volumes().await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn containers(&mut self) -> eyre::Result<()> {
         let containers: Vec<ContainerId> = self
             .store
             .load_containers_in_state(vec![ContainerStatus::Stopped, ContainerStatus::Running])
@@ -125,6 +140,51 @@ where
             } else {
                 debug!("missing cpu stats");
             }
+
+            match stats.blkio_stats {
+                Some(blkio) => {
+                    let blkio = ContainerBlkio::from_stats(blkio);
+                    for value in blkio {
+                        value
+                            .send(&container.name, &mut self.device, &timestamp)
+                            .await;
+                    }
+                }
+                None => {
+                    debug!("missing blkio stats");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn volumes(&mut self) -> eyre::Result<()> {
+        let volumes: Vec<VolumeId> = self
+            .store
+            .load_volumes_in_state(VolumeStatus::Created)
+            .await?
+            .into_iter()
+            .map(|id| VolumeId::new(*id))
+            .collect();
+
+        trace!(len = volumes.len(), "loaded volumes from store");
+
+        for volume in volumes {
+            match volume.inspect(&self.client).await {
+                Ok(Some(info)) => {
+                    VolumeUsage::from(info)
+                        .send(&volume.name, &mut self.device, &Utc::now())
+                        .await;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    error!(%volume, error = %format!("{:#}", eyre::Report::new(err)), "couldn't get container stasts");
+
+                    continue;
+                }
+            };
         }
 
         Ok(())

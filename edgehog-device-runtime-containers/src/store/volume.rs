@@ -102,12 +102,20 @@ impl StateStore {
 
     #[instrument(skip(self))]
     pub(crate) async fn load_volumes_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
+        self.load_volumes_in_state(VolumeStatus::Received).await
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn load_volumes_in_state(
+        &mut self,
+        state: VolumeStatus,
+    ) -> Result<Vec<SqlUuid>> {
         let volumes = self
             .handle
             .for_read(move |reader| {
                 let volumes = volumes::table
                     .select(volumes::id)
-                    .filter(volumes::status.eq(VolumeStatus::Received))
+                    .filter(volumes::status.eq(state))
                     .load::<SqlUuid>(reader)?;
 
                 Ok(volumes)
