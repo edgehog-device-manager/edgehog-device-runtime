@@ -39,7 +39,7 @@ use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::requests::deployment::{CreateDeployment, DeploymentUpdate};
-use crate::resource::deployment::{Deployment as DeploymentResource, DeploymentRow};
+use crate::resource::deployment::Deployment as DeploymentResource;
 
 use super::{Result, StateStore};
 
@@ -263,29 +263,84 @@ impl StateStore {
                 }
 
                 // Delete only the resources present in this deployment
-                let rows = Deployment::join_resources()
+                let containers = Deployment::join_resources()
                     .filter(deployment_containers::deployment_id.eq(id))
-                    .select((
-                        deployment_containers::container_id,
-                        containers::image_id.assume_not_null(),
-                        Option::<ContainerNetwork>::as_select(),
-                        Option::<ContainerVolume>::as_select(),
-                        Option::<ContainerDeviceMapping>::as_select(),
-                    ))
+                    .select(deployment_containers::container_id)
                     .except(
                         Deployment::join_resources()
                             .filter(deployment_containers::deployment_id.ne(id))
-                            .select((
-                                deployment_containers::container_id,
-                                containers::image_id.assume_not_null(),
-                                Option::<ContainerNetwork>::as_select(),
-                                Option::<ContainerVolume>::as_select(),
-                                Option::<ContainerDeviceMapping>::as_select(),
-                            )),
+                            .select(deployment_containers::container_id),
                     )
-                    .load::<DeploymentRow>(reader)?;
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
 
-                Ok(Some(DeploymentResource::from(rows)))
+                let images = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(containers::image_id.assume_not_null())
+                    .except(
+                        Deployment::join_resources()
+                            .filter(deployment_containers::deployment_id.ne(id))
+                            .select(containers::image_id.assume_not_null()),
+                    )
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let volumes = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(Option::<ContainerVolume>::as_select())
+                    .except(
+                        Deployment::join_resources()
+                            .filter(deployment_containers::deployment_id.ne(id))
+                            .select(Option::<ContainerVolume>::as_select()),
+                    )
+                    .load::<Option<ContainerVolume>>(reader)?
+                    .into_iter()
+                    .filter_map(|container_volume| {
+                        container_volume.map(|value| Uuid::from(value.volume_id))
+                    })
+                    .collect();
+
+                let networks = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(Option::<ContainerNetwork>::as_select())
+                    .except(
+                        Deployment::join_resources()
+                            .filter(deployment_containers::deployment_id.ne(id))
+                            .select(Option::<ContainerNetwork>::as_select()),
+                    )
+                    .load::<Option<ContainerNetwork>>(reader)?
+                    .into_iter()
+                    .filter_map(|container_network| {
+                        container_network.map(|value| Uuid::from(value.network_id))
+                    })
+                    .collect();
+
+                let device_mapping = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(Option::<ContainerDeviceMapping>::as_select())
+                    .except(
+                        Deployment::join_resources()
+                            .filter(deployment_containers::deployment_id.ne(id))
+                            .select(Option::<ContainerDeviceMapping>::as_select()),
+                    )
+                    .load::<Option<ContainerDeviceMapping>>(reader)?
+                    .into_iter()
+                    .filter_map(|container_device_mapping| {
+                        container_device_mapping.map(|value| Uuid::from(value.device_mapping_id))
+                    })
+                    .collect();
+
+                Ok(Some(DeploymentResource {
+                    containers,
+                    images,
+                    volumes,
+                    networks,
+                    device_mapping,
+                }))
             })
             .await?;
 

@@ -29,18 +29,52 @@
         "extraHosts": ["host.docker.internal:host-gateway"],
         "capAdd": ["CAP_CHOWN"],
         "capDrop": ["CAP_KILL"],
-        "cpuPeriod": 1000,
-        "cpuQuota": 100,
-        "cpuRealtimePeriod": 1000,
-        "cpuRealtimeRuntime": 100,
-        "memory": 268435456,
-        "memoryReservation": 134217728,
-        "memorySwap": 268435456,
+        "cpuPeriod": -1,
+        "cpuQuota": -1,
+        "cpuRealtimePeriod": -1,
+        "cpuRealtimeRuntime": -1,
+        "memory": -1,
+        "memoryReservation": -2,
+        "memorySwap": -2,
         "memorySwappiness": -1,
         "volumeDriver": "local",
         "storageOpt": [],
-        "readOnlyRootfs": true,
-        "tmpfs": ["/run=rw,noexec,nosuid,size=65536k"],
+        "readOnlyRootfs": false,
+        "tmpfs": [],
+        "privileged": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "4c8f61e6-47e0-4acf-92fd-dbe8e49cb0b0",
+        "deploymentId": "0f3b4689-70f9-41da-a8ba-bf47be1c840b",
+        "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "networkIds": [],
+        "volumeIds": [],
+        "deviceMappingIds": [],
+        "hostname": "",
+        "restartPolicy": "",
+        "env": [],
+        "binds": [],
+        "portBindings": ["9001:80"],
+        "networkMode": "bridge",
+        "extraHosts": ["host.docker.internal:host-gateway"],
+        "capAdd": ["CAP_CHOWN"],
+        "capDrop": ["CAP_KILL"],
+        "cpuPeriod": -1,
+        "cpuQuota": -1,
+        "cpuRealtimePeriod": -1,
+        "cpuRealtimeRuntime": -1,
+        "memory": -1,
+        "memoryReservation": -1,
+        "memorySwap": -2,
+        "memorySwappiness": -1,
+        "volumeDriver": "local",
+        "storageOpt": [],
+        "readOnlyRootfs": false,
+        "tmpfs": [],
         "privileged": false
       }
     },
@@ -53,8 +87,21 @@
       }
     },
     {
+      "interface": "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
+      "path": "/deployment",
+      "data": {
+        "id": "0f3b4689-70f9-41da-a8ba-bf47be1c840b",
+        "containers": ["4c8f61e6-47e0-4acf-92fd-dbe8e49cb0b0"]
+      }
+    },
+    {
       "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
       "path": "/6a9b6d3c-4894-4fd0-af1d-44b326282c19/command",
+      "data": "Start"
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/0f3b4689-70f9-41da-a8ba-bf47be1c840b/command",
       "data": "Start"
     }
   ]
