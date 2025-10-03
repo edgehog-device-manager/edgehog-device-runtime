@@ -24,12 +24,12 @@ homepage.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+deadpool = { workspace = true, default-features = false, features = ["rt_tokio_1", "managed"] }
 diesel = { workspace = true, features = ["sqlite", "uuid"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 displaydoc.workspace = true
 eyre.workspace = true
 rusqlite = { workspace = true, features = ["modern_sqlite", "buildtime_bindgen"] }
-sync_wrapper.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tracing.workspace = true
