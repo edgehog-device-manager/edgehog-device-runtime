@@ -17,34 +17,30 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "edgehog-device-runtime-store"
+name = "edgehog-device-runtime-service"
 version.workspace = true
 edition.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 
+[features]
+# Enable the local management of containers
+containers = ["dep:edgehog-containers"]
+
 [dependencies]
-deadpool = { workspace = true, default-features = false, features = ["rt_tokio_1", "managed"] }
-diesel = { workspace = true, features = ["sqlite", "uuid"] }
-diesel_migrations = { workspace = true, features = ["sqlite"] }
-displaydoc.workspace = true
+async-trait.workspace = true
+cfg-if.workspace = true
+edgehog-containers = { workspace = true, optional = true }
+edgehog-proto.workspace = true
+edgehog-store = { workspace = true }
 eyre.workspace = true
-rusqlite = { workspace = true, features = ["modern_sqlite", "buildtime_bindgen"] }
-thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+serde.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tokio-util.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
-tempfile.workspace = true
-
-[features]
-containers = []
-# Compiles the C dependencies at buildtime instead of using system libraries
-vendored = ["rusqlite/bundled"]
-# Requires bindgen or clang and CMake to generate C bindings at buildtime
-bindgen = ["rusqlite/buildtime_bindgen"]
-# Feature to make it easier to cross compile the runtime, it requires clang and CMake to be
-# installed
-cross = ["vendored", "bindgen"]
+toml.workspace = true

@@ -331,7 +331,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn load_containers_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_containers_to_publish(&self) -> Result<Vec<SqlUuid>> {
         let container = self
             .handle
             .for_read(move |reader| {
@@ -349,7 +349,7 @@ impl StateStore {
 
     #[instrument(skip(self))]
     pub(crate) async fn load_containers_in_state(
-        &mut self,
+        &self,
         state: Vec<ContainerStatus>,
     ) -> Result<Vec<(SqlUuid, Option<String>)>> {
         let container = self
@@ -367,9 +367,28 @@ impl StateStore {
         Ok(container)
     }
 
+    /// Fetches an container by id, returning the local id
+    #[instrument(skip(self))]
+    pub(crate) async fn load_container_local_id(&self, id: Uuid) -> Result<Option<String>> {
+        let local_id = self
+            .handle
+            .for_read(move |reader| {
+                let id = SqlUuid::new(id);
+                let local_id = containers::table
+                    .select(containers::local_id)
+                    .filter(containers::id.eq(id))
+                    .first::<Option<String>>(reader)?;
+
+                Ok(local_id)
+            })
+            .await?;
+
+        Ok(local_id)
+    }
+
     /// Fetches an container by id, only if all the resources are present
     #[instrument(skip(self))]
-    pub(crate) async fn find_container(&mut self, id: Uuid) -> Result<Option<ContainerResource>> {
+    pub(crate) async fn find_container(&self, id: Uuid) -> Result<Option<ContainerResource>> {
         let container = self
             .handle
             .for_read(move |reader| {
@@ -495,7 +514,7 @@ impl StateStore {
     /// Finds the unique id of the container with the given local id
     #[instrument(skip(self))]
     pub(crate) async fn find_container_by_local_id(
-        &mut self,
+        &self,
         local_id: String,
     ) -> Result<Option<Uuid>> {
         let id = self
@@ -711,7 +730,7 @@ fn container_storage_options_from_vec(
         .into_iter()
         .map(|value| {
             value
-                .split_once("=")
+                .split_once('=')
                 .map(|(k, v)| ContainerStorageOptions {
                     container_id: *container_id,
                     name: k.to_string(),
@@ -733,7 +752,7 @@ fn container_tmpfs_from_vec(
         .into_iter()
         .map(|value| {
             value
-                .split_once("=")
+                .split_once('=')
                 .map(|(k, v)| ContainerTmpfs {
                     container_id: *container_id,
                     path: k.to_string(),
@@ -778,7 +797,7 @@ mod tests {
 
     use super::*;
 
-    async fn find_container(store: &mut StateStore, id: Uuid) -> Option<Container> {
+    async fn find_container(store: &StateStore, id: Uuid) -> Option<Container> {
         store
             .handle
             .for_read(move |reader| {
@@ -793,10 +812,7 @@ mod tests {
     }
 
     impl StateStore {
-        pub(crate) async fn container_env(
-            &mut self,
-            container_id: Uuid,
-        ) -> Result<Vec<ContainerEnv>> {
+        pub(crate) async fn container_env(&self, container_id: Uuid) -> Result<Vec<ContainerEnv>> {
             let env = self
                 .handle
                 .for_read(move |reader| {
@@ -812,7 +828,7 @@ mod tests {
         }
 
         pub(crate) async fn container_binds(
-            &mut self,
+            &self,
             container_id: Uuid,
         ) -> Result<Vec<ContainerBind>> {
             let binds = self
@@ -830,7 +846,7 @@ mod tests {
         }
 
         pub(crate) async fn container_port_binds(
-            &mut self,
+            &self,
             container_id: Uuid,
         ) -> Result<Vec<ContainerPortBind>> {
             let port_binds = self
@@ -857,7 +873,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let deployment_id = Uuid::new_v4();
 
@@ -937,7 +953,7 @@ mod tests {
         };
         store.create_container(Box::new(container)).await.unwrap();
 
-        let container = find_container(&mut store, container_id).await.unwrap();
+        let container = find_container(&store, container_id).await.unwrap();
         let exp = Container {
             id: SqlUuid::new(container_id),
             local_id: None,
@@ -999,7 +1015,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -1046,7 +1062,7 @@ mod tests {
             .await
             .unwrap();
 
-        let container = find_container(&mut store, container_id).await.unwrap();
+        let container = find_container(&store, container_id).await.unwrap();
         let exp = Container {
             id: SqlUuid::new(container_id),
             local_id: None,
@@ -1077,7 +1093,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -1141,7 +1157,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
