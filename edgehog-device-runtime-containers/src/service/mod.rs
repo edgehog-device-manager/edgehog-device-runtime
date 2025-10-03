@@ -768,7 +768,7 @@ mod tests {
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let handle = ServiceHandle::new(device.clone(), store.clone_lazy(), tx);
+        let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
         let service = Service::new(client, device, rx, store);
 
         (service, handle)
