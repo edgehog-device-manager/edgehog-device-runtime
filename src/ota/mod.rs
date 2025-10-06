@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022-2024 SECO Mind Srl
+// Copyright 2022 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -44,6 +44,9 @@ use crate::ota::rauc::BundleInfo;
 use crate::repository::StateRepository;
 use crate::DeviceManagerOptions;
 
+use self::config::{OtaConfig, Reboot};
+
+pub mod config;
 pub mod event;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod ota_handler;
@@ -327,6 +330,7 @@ where
     U: StateRepository<PersistentState>,
 {
     pub system_update: T,
+    pub config: OtaConfig,
     pub state_repository: U,
     pub download_file_path: PathBuf,
     pub ota_status: OtaStatus,
@@ -388,6 +392,7 @@ where
     ) -> Result<Self, DeviceManagerError> {
         Ok(Ota {
             system_update,
+            config: opts.ota,
             state_repository,
             download_file_path: opts.download_directory.clone(),
             ota_status: OtaStatus::Idle,
@@ -400,8 +405,31 @@ where
         self.system_update.last_error().await
     }
 
+    /// Path or URL to the bundle that should be installed
+    fn get_install_uri(&self, req: &OtaId) -> String {
+        if self.config.streaming {
+            req.url.clone()
+        } else {
+            self.get_update_file_path().to_string_lossy().to_string()
+        }
+    }
+
+    /// Returns the path of the downloaded image.
     fn get_update_file_path(&self) -> PathBuf {
         self.download_file_path.join("update.bin")
+    }
+
+    /// Called after the ota request has been Acknowledged.
+    fn start_update(&self, ota_request: OtaId) -> OtaStatus {
+        if self.config.streaming {
+            debug!("streaming image directly to disk");
+
+            OtaStatus::Deploying(ota_request, DeployProgress::default())
+        } else {
+            debug!("downloading image file");
+
+            OtaStatus::Downloading(ota_request, 0)
+        }
     }
 
     // Retries the download 5 times
@@ -418,7 +446,7 @@ where
             match res {
                 Ok(()) => return Ok(ota_file.to_string()),
                 Err(err) => {
-                    error!("Error downloading the update: {err}");
+                    error!(error = format!("{err:#}"), "couldn't downloading the image");
 
                     if self
                         .publisher_tx
@@ -537,7 +565,7 @@ where
     pub async fn deploy(&self, ota_request: OtaId) -> OtaStatus {
         if let Err(error) = self
             .system_update
-            .install_bundle(&self.get_update_file_path().to_string_lossy())
+            .install_bundle(&self.get_install_uri(&ota_request))
             .await
         {
             let message = "Unable to install ota image".to_string();
@@ -650,19 +678,29 @@ where
 
         info!("Rebooting the device");
 
-        #[cfg(not(test))]
-        {
-            if let Err(error) = crate::power_management::reboot().await {
-                let message = "Unable to run reboot command";
-                error!("{message} : {error}");
-                return OtaStatus::Failure(OtaError::Internal(message), Some(ota_request.clone()));
-            }
-
-            OtaStatus::Rebooting(ota_request)
+        if cfg!(test) {
+            return OtaStatus::Rebooted;
         }
 
-        #[cfg(test)]
-        OtaStatus::Rebooted
+        match self.config.reboot {
+            Reboot::Default => {
+                if let Err(error) = crate::power_management::reboot().await {
+                    let message = "Unable to run reboot command";
+
+                    error!("{message} : {error}");
+
+                    return OtaStatus::Failure(
+                        OtaError::Internal(message),
+                        Some(ota_request.clone()),
+                    );
+                }
+            }
+            Reboot::External => {
+                info!("waiting for next reboot");
+            }
+        }
+
+        OtaStatus::Rebooting(ota_request)
     }
 
     /// Handle the rebooting status
@@ -746,7 +784,7 @@ where
     pub async fn next(&mut self) {
         self.ota_status = match self.ota_status.clone() {
             OtaStatus::Init(req) => OtaStatus::Acknowledged(req),
-            OtaStatus::Acknowledged(ota_request) => OtaStatus::Downloading(ota_request, 0),
+            OtaStatus::Acknowledged(ota_request) => self.start_update(ota_request),
             OtaStatus::Downloading(ota_request, _) => self.download(ota_request).await,
             OtaStatus::Deploying(ota_request, _) => self.deploy(ota_request).await,
             OtaStatus::Deployed(ota_request) => self.reboot(ota_request).await,
@@ -966,6 +1004,7 @@ mod tests {
     use crate::repository::file_state_repository::FileStateError;
     use crate::repository::{MockStateRepository, StateRepository};
 
+    use super::config::OtaConfig;
     use super::ota_handler::OtaInProgress;
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
@@ -994,6 +1033,7 @@ mod tests {
                 ota_status: OtaStatus::Idle,
                 publisher_tx,
                 flag: OtaInProgress::default(),
+                config: OtaConfig::default(),
             }
         }
 
@@ -1012,6 +1052,7 @@ mod tests {
                 ota_status: OtaStatus::Idle,
                 publisher_tx,
                 flag: OtaInProgress::default(),
+                config: OtaConfig::default(),
             };
 
             (mock, dir)

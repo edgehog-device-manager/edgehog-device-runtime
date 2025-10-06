@@ -18,9 +18,8 @@
 
 use std::path::{Path, PathBuf};
 
-use edgehog_device_runtime::{
-    telemetry::TelemetryInterfaceConfig, AstarteLibrary, DeviceManagerOptions,
-};
+use edgehog_device_runtime::telemetry::TelemetryInterfaceConfig;
+use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions};
 use serde::Deserialize;
 use stable_eyre::eyre::{ensure, OptionExt};
 use tracing::info;
@@ -41,6 +40,9 @@ pub struct Config {
 
     #[cfg(feature = "service")]
     pub service: Option<edgehog_service::config::Config>,
+
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    pub ota: Option<edgehog_device_runtime::ota::config::OtaConfig>,
 
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
@@ -79,6 +81,9 @@ impl TryFrom<Config> for DeviceManagerOptions {
             .download_directory
             .unwrap_or(store_directory.join("download"));
 
+        #[cfg(all(feature = "zbus", target_os = "linux"))]
+        let ota = value.ota.unwrap_or_default();
+
         Ok(Self {
             astarte_library,
             astarte_device_sdk,
@@ -88,6 +93,8 @@ impl TryFrom<Config> for DeviceManagerOptions {
             containers: value.containers.unwrap_or_default(),
             #[cfg(feature = "service")]
             service: value.service,
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            ota,
             interfaces_directory,
             store_directory,
             download_directory,

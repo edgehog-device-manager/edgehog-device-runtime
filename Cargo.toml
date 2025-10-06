@@ -101,6 +101,7 @@ rustc_version = { workspace = true }
 astarte-device-sdk-mock = { workspace = true }
 httpmock = { workspace = true }
 mockall = { workspace = true }
+pretty_assertions = { workspace = true }
 tempdir = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = { workspace = true, features = ["net"] }
