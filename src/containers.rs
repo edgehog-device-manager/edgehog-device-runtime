@@ -171,7 +171,7 @@ fn spawn_listener<D>(
     use tracing::warn;
 
     // Use a lazy clone since the handle will only write to the database
-    let store_cl = store.clone_lazy();
+    let store_cl = store.clone();
     let device_cl = device.clone();
     tasks.spawn(async move {
         let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
@@ -203,7 +203,7 @@ fn spawn_stats<D>(
     use edgehog_containers::stats::StatsMonitor;
 
     // Use a lazy clone since the handle will only write to the database
-    let store_cl = store.clone_lazy();
+    let store_cl = store.clone();
     let device_cl = device.clone();
     tasks.spawn(async move {
         let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
@@ -253,7 +253,7 @@ impl<D> ContainerService<D> {
         spawn_stats(config, &store, &device, tasks);
 
         // Use a lazy clone since the handle will only write to the database
-        let store_cl = store.clone_lazy();
+        let store_cl = store.clone();
         let device_cl = device.clone();
         tasks.spawn(async move {
             let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;

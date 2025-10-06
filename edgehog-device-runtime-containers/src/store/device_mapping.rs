@@ -105,7 +105,7 @@ impl StateStore {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn load_device_mappings_to_publish(&mut self) -> Result<Vec<SqlUuid>> {
+    pub(crate) async fn load_device_mappings_to_publish(&self) -> Result<Vec<SqlUuid>> {
         let device_mappings = self
             .handle
             .for_read(move |reader| {
@@ -171,7 +171,7 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    async fn find_device_mapping(store: &mut StateStore, id: Uuid) -> Option<DeviceMapping> {
+    async fn find_device_mapping(store: &StateStore, id: Uuid) -> Option<DeviceMapping> {
         store
             .handle
             .for_read(move |reader| {
@@ -191,7 +191,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let device_mapping_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -204,7 +204,7 @@ mod tests {
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
-        let res = find_device_mapping(&mut store, device_mapping_id)
+        let res = find_device_mapping(&store, device_mapping_id)
             .await
             .unwrap();
 
@@ -226,7 +226,7 @@ mod tests {
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
-        let mut store = StateStore::new(handle);
+        let store = StateStore::new(handle);
 
         let device_mapping_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
@@ -244,7 +244,7 @@ mod tests {
             .await
             .unwrap();
 
-        let res = find_device_mapping(&mut store, device_mapping_id)
+        let res = find_device_mapping(&store, device_mapping_id)
             .await
             .unwrap();
 
