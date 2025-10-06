@@ -165,7 +165,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sync_wrapper",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "url",
@@ -204,7 +204,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tracing",
 ]
 
@@ -219,7 +219,7 @@ dependencies = [
  "prost 0.13.5",
  "serde",
  "serde_json",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tonic",
  "uuid",
 ]
@@ -724,7 +724,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_urlencoded",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-util",
  "tower-service",
@@ -1307,7 +1307,7 @@ dependencies = [
  "sysinfo",
  "systemd",
  "tempdir",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -1346,7 +1346,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1370,7 +1370,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-tungstenite",
  "tracing",
@@ -1390,7 +1390,7 @@ dependencies = [
  "pretty_assertions",
  "rusqlite",
  "tempfile",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -2501,7 +2501,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.53.3",
 ]
 
 [[package]]
@@ -3486,7 +3486,7 @@ dependencies = [
  "rustls-native-certs",
  "rustls-pemfile",
  "rustls-webpki 0.102.8",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -4121,11 +4121,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.16"
+version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3467d614147380f2e4e374161426ff399c91084acd2363eaf549172b3d5e60c0"
+checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
 dependencies = [
- "thiserror-impl 2.0.16",
+ "thiserror-impl 2.0.17",
 ]
 
 [[package]]
@@ -4141,9 +4141,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.16"
+version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c5e1be1c48b9172ee610da68fd9cd2770e7a4056cb3fc98710ee6906f0c7960"
+checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4535,7 +4535,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "sha1",
- "thiserror 2.0.16",
+ "thiserror 2.0.17",
  "url",
  "utf-8",
 ]
@@ -4845,7 +4845,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
