@@ -60,6 +60,7 @@ pub enum ResourceError {
 
 #[derive(Debug)]
 pub(crate) struct Context<'a, D> {
+    /// Id of the resource
     pub(crate) id: Uuid,
     pub(crate) store: &'a mut StateStore,
     pub(crate) device: &'a mut D,
