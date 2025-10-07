@@ -19,9 +19,10 @@
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
 use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
-use edgehog_device_runtime::telemetry::hardware_info::HardwareInfo;
-use edgehog_device_runtime::telemetry::os_release::{OsInfo, OsRelease};
-use edgehog_device_runtime::telemetry::runtime_info::{RuntimeInfo, RUNTIME_INFO};
+use edgehog_device_runtime::ota::config::OtaConfig;
+use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
+use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
+use edgehog_device_runtime::telemetry::status::runtime_info::{RuntimeInfo, RUNTIME_INFO};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tempdir::TempDir;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, error, info};
 use tracing_subscriber::layer::SubscriberExt;
@@ -149,6 +151,9 @@ async fn main() -> color_eyre::Result<()> {
         astarte_message_hub: None,
         #[cfg(feature = "containers")]
         containers: edgehog_device_runtime::containers::ContainersConfig::default(),
+        #[cfg(feature = "service")]
+        service: None,
+        ota: OtaConfig::default(),
     };
 
     let store = connect_store(store_path.path())
@@ -167,7 +172,7 @@ async fn main() -> color_eyre::Result<()> {
         .await
         .wrap_err("couldn't connect to astarte")?;
 
-    let mut dm = Runtime::new(&mut tasks, device_options, client).await?;
+    let mut dm = Runtime::new(&mut tasks, device_options, client, CancellationToken::new()).await?;
 
     tasks.spawn(async move {
         dm.run()

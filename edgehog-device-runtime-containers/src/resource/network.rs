@@ -103,6 +103,10 @@ where
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.network.remove(ctx.client).await?;
 
+        Ok(())
+    }
+
+    async fn unset(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableNetwork::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_network(ctx.id).await?;
