@@ -162,8 +162,13 @@ where
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.container.stop(ctx.client).await?;
+
         self.container.remove(ctx.client).await?;
 
+        Ok(())
+    }
+
+    async fn unset(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableContainer::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_container(ctx.id).await?;
