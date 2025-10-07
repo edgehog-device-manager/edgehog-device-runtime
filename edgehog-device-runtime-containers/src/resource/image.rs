@@ -99,6 +99,10 @@ where
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.image.remove(ctx.client).await?;
 
+        Ok(())
+    }
+
+    async fn unset(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableImage::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_image(ctx.id).await?;

@@ -93,6 +93,10 @@ where
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         self.volume.remove(ctx.client).await?;
 
+        Ok(())
+    }
+
+    async fn unset(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableVolume::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_volume(ctx.id).await?;
