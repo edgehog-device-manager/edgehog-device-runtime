@@ -20,11 +20,12 @@
 
 use std::path::{Path, PathBuf};
 
-use edgehog_device_runtime::{
-    telemetry::TelemetryInterfaceConfig, AstarteLibrary, DeviceManagerOptions,
-};
+use edgehog_device_runtime::ota::config::OtaConfig;
+use edgehog_device_runtime::telemetry::TelemetryInterfaceConfig;
+use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions};
 use serde::Deserialize;
 use stable_eyre::eyre::{ensure, OptionExt};
+use tracing::info;
 
 use crate::cli::{Cli, Command, DeviceSdkArgs, OverrideOption};
 
@@ -39,6 +40,11 @@ pub struct Config {
 
     #[cfg(feature = "containers")]
     pub containers: Option<edgehog_device_runtime::containers::ContainersConfig>,
+
+    #[cfg(feature = "service")]
+    pub service: Option<edgehog_service::config::Config>,
+
+    pub ota: Option<OtaConfig>,
 
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
@@ -77,6 +83,8 @@ impl TryFrom<Config> for DeviceManagerOptions {
             .download_directory
             .unwrap_or(store_directory.join("download"));
 
+        let ota = value.ota.unwrap_or_default();
+
         Ok(Self {
             astarte_library,
             astarte_device_sdk,
@@ -84,6 +92,9 @@ impl TryFrom<Config> for DeviceManagerOptions {
             astarte_message_hub,
             #[cfg(feature = "containers")]
             containers: value.containers.unwrap_or_default(),
+            #[cfg(feature = "service")]
+            service: value.service,
+            ota,
             interfaces_directory,
             store_directory,
             download_directory,
@@ -115,6 +126,8 @@ pub async fn read_options(cli: Cli) -> stable_eyre::Result<DeviceManagerOptions>
         .filter(|f| f.is_file());
 
     let mut config = if let Some(path) = paths.next() {
+        info!(config = %path.display(), "reading config file");
+
         let config = tokio::fs::read_to_string(path).await?;
 
         toml::from_str(&config)?

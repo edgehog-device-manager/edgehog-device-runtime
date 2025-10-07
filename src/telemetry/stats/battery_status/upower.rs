@@ -21,42 +21,18 @@
 use zbus::proxy;
 use zbus::zvariant::OwnedValue;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
-#[repr(u32)]
-pub enum BatteryState {
-    Unknown = 0,
-    Charging = 1,
-    Discharging = 2,
-    Empty = 3,
-    FullyCharged = 4,
-    PendingCharge = 5,
-    PendingDischarge = 6,
-}
+#[proxy(
+    interface = "org.freedesktop.UPower",
+    default_service = "org.freedesktop.UPower",
+    default_path = "/org/freedesktop/UPower"
+)]
+pub trait UPower {
+    /// Enumerate all power objects on the system.
+    fn enumerate_devices(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
-#[repr(u32)]
-pub enum PowerDeviceType {
-    Unknown = 0,
-    LinePower = 1,
-    Battery = 2,
-    Ups = 3,
-    Monitor = 4,
-    Mouse = 5,
-    Keyboard = 6,
-    Pda = 7,
-    Phone = 8,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
-#[repr(u32)]
-pub enum BatteryLevel {
-    Unknown = 0,
-    None = 1,
-    Low = 3,
-    Critical = 4,
-    Normal = 5,
-    High = 7,
-    Full = 8,
+    /// Indicates whether the system is running on battery power. This property is provided for convenience.
+    #[zbus(property)]
+    fn on_battery(&self) -> zbus::Result<bool>;
 }
 
 #[proxy(
@@ -104,4 +80,42 @@ pub trait Device {
     /// Otherwise it will likely be the battery for a device of an unknown type.
     #[zbus(property, name = "Type")]
     fn power_device_type(&self) -> zbus::Result<PowerDeviceType>;
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
+#[repr(u32)]
+pub enum BatteryState {
+    Unknown = 0,
+    Charging = 1,
+    Discharging = 2,
+    Empty = 3,
+    FullyCharged = 4,
+    PendingCharge = 5,
+    PendingDischarge = 6,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
+#[repr(u32)]
+pub enum PowerDeviceType {
+    Unknown = 0,
+    LinePower = 1,
+    Battery = 2,
+    Ups = 3,
+    Monitor = 4,
+    Mouse = 5,
+    Keyboard = 6,
+    Pda = 7,
+    Phone = 8,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, OwnedValue)]
+#[repr(u32)]
+pub enum BatteryLevel {
+    Unknown = 0,
+    None = 1,
+    Low = 3,
+    Critical = 4,
+    Normal = 5,
+    High = 7,
+    Full = 8,
 }

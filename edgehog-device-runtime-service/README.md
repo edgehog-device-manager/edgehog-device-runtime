@@ -1,3 +1,4 @@
+<!--
 This file is part of Edgehog.
 
 Copyright 2025 SECO Mind Srl
@@ -15,3 +16,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
+-->
+
+# Edgehog Device Runtime Service
+
+Service to dynamically configure and mange the
+[Edgehog Device Runtime](https://github.com/edgehog-device-manager/edgehog-device-runtime) features.
