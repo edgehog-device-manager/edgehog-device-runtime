@@ -138,7 +138,7 @@ base64 = "0.22.1"
 bollard = "0.19.3"
 bytes = "1.10.1"
 cfg-if = "1.0.3"
-clap = "4.5.47"
+clap = "4.5.49"
 color-eyre = "0.6.5"
 deadpool = { version = "0.12.3", default-features = false }
 diesel = "2.2.12"
