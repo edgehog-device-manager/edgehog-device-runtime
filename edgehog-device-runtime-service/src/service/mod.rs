@@ -27,8 +27,6 @@ use cfg_if::cfg_if;
 use edgehog_proto::tonic::transport::server::{Connected, TcpIncoming};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
-#[cfg(feature = "containers")]
-use tokio::sync::OnceCell;
 use tokio_stream::wrappers::UnixListenerStream;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
@@ -104,16 +102,14 @@ impl Display for Listener {
 pub struct EdgehogService {
     options: ServiceOptions,
     #[cfg(feature = "containers")]
-    containers: Arc<OnceCell<edgehog_containers::local::ContainerHandle>>,
+    containers: self::containers::SharedContainerHandle,
 }
 
 impl EdgehogService {
     /// Create a new instance of the service
     pub fn new(
         options: ServiceOptions,
-        #[cfg(feature = "containers")] containers: Arc<
-            OnceCell<edgehog_containers::local::ContainerHandle>,
-        >,
+        #[cfg(feature = "containers")] containers: self::containers::SharedContainerHandle,
     ) -> Self {
         Self {
             options,
@@ -212,6 +208,27 @@ cfg_if! {
             IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
         {
             unimplemented!("no service implemented");
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+
+    #[cfg(feature = "containers")]
+    use edgehog_containers::local::MockContainerHandle;
+
+    use super::*;
+
+    pub(crate) fn mock_service(
+        #[cfg(feature = "containers")] handle: MockContainerHandle,
+    ) -> EdgehogService {
+        EdgehogService {
+            options: ServiceOptions {
+                listener: Listener::Socket("0.0.0.0:0".parse().unwrap()),
+            },
+            #[cfg(feature = "containers")]
+            containers: Arc::new(tokio::sync::OnceCell::const_new_with(handle)),
         }
     }
 }

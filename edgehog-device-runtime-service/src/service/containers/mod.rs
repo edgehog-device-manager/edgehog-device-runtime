@@ -16,11 +16,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use edgehog_containers::local::ContainerHandle;
 use edgehog_proto::tonic::Status;
 use tracing::error;
 
 use super::EdgehogService;
+
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        pub use edgehog_containers::local::MockContainerHandle as ContainerHandle;
+    } else {
+        pub use edgehog_containers::local::ContainerHandle;
+    }
+}
+
+pub(crate) type SharedContainerHandle = std::sync::Arc<tokio::sync::OnceCell<ContainerHandle>>;
 
 mod v1;
 

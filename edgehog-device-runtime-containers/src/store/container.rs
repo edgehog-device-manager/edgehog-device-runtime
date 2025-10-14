@@ -377,7 +377,9 @@ impl StateStore {
                 let local_id = containers::table
                     .select(containers::local_id)
                     .filter(containers::id.eq(id))
-                    .first::<Option<String>>(reader)?;
+                    .first::<Option<String>>(reader)
+                    .optional()?
+                    .flatten();
 
                 Ok(local_id)
             })

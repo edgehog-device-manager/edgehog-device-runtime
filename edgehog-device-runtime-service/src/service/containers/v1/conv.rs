@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,10 +18,7 @@
 
 use std::collections::HashMap;
 use std::result::Result;
-use std::sync::Arc;
-use std::time::Duration;
 
-use async_trait::async_trait;
 use edgehog_containers::bollard;
 use edgehog_containers::bollard::models::{
     ContainerBlkioStatEntry, ContainerBlkioStats, ContainerCpuStats, ContainerCpuUsage,
@@ -29,221 +26,18 @@ use edgehog_containers::bollard::models::{
     ContainerSummaryStateEnum, ContainerThrottlingData, PortBinding, PortTypeEnum,
 };
 use edgehog_containers::bollard::secret::{ContainerInspectResponse, ContainerStatsResponse};
-use edgehog_containers::local::ContainerHandle;
-use edgehog_proto::containers::v1::containers_service_server::ContainersService;
-use edgehog_proto::containers::v1::list_response::Info;
 use edgehog_proto::containers::v1::{
     BlkioStats, BlkioValue, Container, ContainerId, ContainerState, ContainerSummary, CpuStats,
-    CpuThrottlingData, CpuUsage, GetRequest, GetResponse, ListInfo, ListInfoFull, ListInfoIds,
-    ListInfoSummary, ListRequest, ListResponse, MemoryStats, NetworkStats, PidsStats, PortMapping,
-    PortType, StartRequest, StatsRequest, StatsResponse, StopRequest,
+    CpuThrottlingData, CpuUsage, MemoryStats, NetworkStats, PidsStats, PortMapping, PortType,
+    StatsResponse,
 };
 use edgehog_proto::prost_types::Timestamp;
-use edgehog_proto::tonic::{self, Response, Status};
+use edgehog_proto::tonic::Status;
 use eyre::{bail, Context};
-use tokio::sync::{mpsc, OnceCell};
-use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, error};
+use tracing::error;
 use uuid::Uuid;
 
-use crate::service::EdgehogService;
-
-#[async_trait]
-impl ContainersService for EdgehogService {
-    type StatsStream = ReceiverStream<Result<StatsResponse, tonic::Status>>;
-
-    async fn list(
-        &self,
-        request: tonic::Request<ListRequest>,
-    ) -> Result<tonic::Response<ListResponse>, tonic::Status> {
-        let inner = request.into_inner();
-        let status = inner
-            .container_state_filter()
-            .map(|state| match state {
-                ContainerState::Unspecified => ContainerStateStatusEnum::EMPTY,
-                ContainerState::Created => ContainerStateStatusEnum::CREATED,
-                ContainerState::Running => ContainerStateStatusEnum::RUNNING,
-                ContainerState::Paused => ContainerStateStatusEnum::PAUSED,
-                ContainerState::Restarting => ContainerStateStatusEnum::RESTARTING,
-                ContainerState::Removing => ContainerStateStatusEnum::REMOVING,
-                ContainerState::Exited => ContainerStateStatusEnum::EXITED,
-                ContainerState::Dead => ContainerStateStatusEnum::DEAD,
-            })
-            .collect();
-
-        let info = match inner.list_info() {
-            ListInfo::Unspecified | ListInfo::Summary => {
-                let containers = self
-                    .container_handle()?
-                    .list(status)
-                    .await
-                    .map_err(|err| {
-                        error!(error = format!("{err:#}"), "couldn't list containers");
-
-                        Status::internal("couldn't list containers")
-                    })?
-                    .into_iter()
-                    .map(|(id, summary)| convert_container_summary(id, summary))
-                    .collect();
-
-                Info::Summary(ListInfoSummary { containers })
-            }
-            ListInfo::Ids => {
-                let ids = self
-                    .container_handle()?
-                    .list_ids(status)
-                    .await
-                    .map_err(|err| {
-                        error!(error = format!("{err:#}"), "couldn't list containers");
-
-                        Status::internal("couldn't list containers")
-                    })?
-                    .into_iter()
-                    .map(|(id, container_id)| ContainerId {
-                        id: id.to_string(),
-                        container_id,
-                    })
-                    .collect();
-
-                Info::Ids(ListInfoIds { ids })
-            }
-            ListInfo::Full => {
-                let containers = self
-                    .container_handle()?
-                    .get_all(status)
-                    .await
-                    .and_then(|containers| {
-                        containers
-                            .into_iter()
-                            .map(|(id, container)| convert_container(&id, container))
-                            .collect::<eyre::Result<Vec<Container>>>()
-                    })
-                    .map_err(|err| {
-                        error!(error = format!("{err:#}"), "couldn't list containers");
-
-                        Status::internal("couldn't list containers")
-                    })?;
-
-                Info::Full(ListInfoFull { containers })
-            }
-        };
-
-        Ok(ListResponse { info: Some(info) }.into())
-    }
-
-    async fn get(
-        &self,
-        request: tonic::Request<GetRequest>,
-    ) -> Result<tonic::Response<GetResponse>, tonic::Status> {
-        let inner = request.into_inner();
-        let id = parse_id(&inner.id)?;
-
-        let container = self
-            .container_handle()?
-            .get(id)
-            .await
-            .and_then(|container| {
-                let Some(container) = container else {
-                    return Ok(None);
-                };
-
-                convert_container(&id, container).map(Some)
-            })
-            .map_err(|err| {
-                error!(error = format!("{err:#}"), "couldn't get container");
-
-                Status::internal("couldn't get container")
-            })?;
-
-        Ok(GetResponse { container }.into())
-    }
-
-    async fn start(
-        &self,
-        request: tonic::Request<StartRequest>,
-    ) -> Result<tonic::Response<()>, tonic::Status> {
-        let inner = request.into_inner();
-        let id = parse_id(&inner.id)?;
-
-        let started = self.container_handle()?.start(id).await.map_err(|err| {
-            error!(error = format!("{err:#}"), "couldn't start the container");
-
-            Status::internal("couldn't start the container")
-        })?;
-
-        if started.is_none() {
-            return Err(Status::not_found("container doesn't exist"));
-        }
-
-        Ok(Response::new(()))
-    }
-
-    async fn stop(
-        &self,
-        request: tonic::Request<StopRequest>,
-    ) -> Result<tonic::Response<()>, tonic::Status> {
-        let inner = request.into_inner();
-        let id = parse_id(&inner.id)?;
-
-        let started = self.container_handle()?.stop(id).await.map_err(|err| {
-            error!(error = format!("{err:#}"), "couldn't stop the container");
-
-            Status::internal("couldn't stop the container")
-        })?;
-
-        if started.is_none() {
-            return Err(Status::not_found("container doesn't exist"));
-        }
-
-        Ok(Response::new(()))
-    }
-
-    /// Stream container statistics.
-    async fn stats(
-        &self,
-        request: tonic::Request<StatsRequest>,
-    ) -> Result<tonic::Response<Self::StatsStream>, tonic::Status> {
-        let StatsRequest {
-            ids,
-            interval_seconds,
-            limit,
-        } = request.into_inner();
-        let ids = ids
-            .iter()
-            .map(|id| parse_id(id))
-            .collect::<Result<Vec<Uuid>, Status>>()?;
-        let interval = interval_seconds.unwrap_or(10);
-
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
-        let mut interval = tokio::time::interval(Duration::from_secs(interval));
-        let containers = self.containers.clone();
-
-        let sender = StatsSender {
-            tx,
-            ids,
-            containers,
-        };
-
-        tokio::spawn(async move {
-            let limit = limit.unwrap_or(u64::MAX);
-            let range = (0..limit).take_while(|_| !sender.tx.is_closed());
-
-            for _ in range {
-                if let Err(err) = sender.send().await {
-                    error!(error = format!("{err:#}"), "couldn't send stats");
-
-                    break;
-                }
-
-                interval.tick().await;
-            }
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
-    }
-}
-
-fn parse_id(id: &str) -> Result<Uuid, Status> {
+pub(crate) fn parse_id(id: &str) -> Result<Uuid, Status> {
     Uuid::parse_str(id).map_err(|err| {
         error!(id, error = format!("{err:#}"), "invalid id");
 
@@ -251,7 +45,7 @@ fn parse_id(id: &str) -> Result<Uuid, Status> {
     })
 }
 
-fn parse_port_binding(
+pub(crate) fn parse_port_binding(
     port_bindings: HashMap<String, Option<Vec<PortBinding>>>,
 ) -> eyre::Result<Vec<PortMapping>> {
     port_bindings
@@ -311,65 +105,7 @@ fn parse_port_binding_key(key: &str) -> eyre::Result<(u16, PortType)> {
     Ok((port, proto))
 }
 
-struct StatsSender {
-    tx: mpsc::Sender<Result<StatsResponse, Status>>,
-    ids: Vec<Uuid>,
-    containers: Arc<OnceCell<ContainerHandle>>,
-}
-
-impl StatsSender {
-    fn container_handle(&self) -> Result<&ContainerHandle, Status> {
-        self.containers.get().ok_or_else(|| {
-            error!("container service is not available");
-
-            Status::unavailable("container service not available")
-        })
-    }
-    async fn send_all(&self) -> eyre::Result<()> {
-        let stats = self.container_handle()?.all_stats().await?;
-
-        for (id, stat) in stats {
-            let value = convert_stats(&id, stat);
-
-            self.tx
-                .send_timeout(Ok(value), Duration::from_secs(10))
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    async fn send(&self) -> eyre::Result<()> {
-        if self.ids.is_empty() {
-            self.send_all().await?;
-
-            return Ok(());
-        }
-
-        for id in &self.ids {
-            let res = self.container_handle()?.stats(id).await?;
-
-            let stats = match res {
-                Some(stats) => stats,
-                None => {
-                    debug!(%id, "missing stats");
-
-                    continue;
-                }
-            };
-
-            let value = convert_stats(id, stats);
-
-            self.tx
-                .send_timeout(Ok(value), Duration::from_secs(10))
-                .await?;
-        }
-
-        Ok(())
-    }
-}
-
-fn convert_stats(id: &Uuid, stats: ContainerStatsResponse) -> StatsResponse {
+pub(crate) fn convert_stats(id: &Uuid, stats: ContainerStatsResponse) -> StatsResponse {
     let pids_stats = stats.pids_stats.map(|pid_stats| PidsStats {
         current: pid_stats.current,
         limit: pid_stats.limit,
@@ -537,7 +273,7 @@ fn convert_network_stats(value: ContainerNetworkStats) -> NetworkStats {
     }
 }
 
-fn convert_container_summary(
+pub(crate) fn convert_container_summary(
     id: Uuid,
     summary: bollard::models::ContainerSummary,
 ) -> ContainerSummary {
@@ -584,7 +320,10 @@ fn convert_container_summary(
     }
 }
 
-fn convert_container(id: &Uuid, container: ContainerInspectResponse) -> eyre::Result<Container> {
+pub(crate) fn convert_container(
+    id: &Uuid,
+    container: ContainerInspectResponse,
+) -> eyre::Result<Container> {
     let ports = parse_port_binding(
         container
             .host_config

@@ -71,6 +71,22 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
+    fn get_default_unix() {
+        let root = std::env::var("XDG_RUNTIME_DIR").unwrap_or("/tmp".to_string());
+        let mut path = PathBuf::from(root);
+
+        path.push("edgehog-device-runtime.sock");
+
+        let exp = Config {
+            enabled: false,
+            listener: Listener::Unix(path),
+        };
+
+        assert_eq!(Config::default(), exp);
+    }
+
+    #[test]
     fn should_deserialize_config() {
         let file = r#"
         [listener]

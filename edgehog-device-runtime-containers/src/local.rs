@@ -43,6 +43,7 @@ pub struct ContainerHandle {
     store: StateStore,
 }
 
+#[cfg_attr(feature = "__mock", mockall::automock)]
 impl ContainerHandle {
     /// Create a new container handle
     pub fn new(client: Docker, store: StateStore) -> Self {

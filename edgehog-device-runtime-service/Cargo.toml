@@ -42,5 +42,8 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+# Enable mocking for the tests
+edgehog-containers = { workspace = true, features = ["__mock"] }
 pretty_assertions.workspace = true
 toml.workspace = true
+mockall.workspace = true

@@ -1447,6 +1447,7 @@ dependencies = [
  "edgehog-device-runtime-proto",
  "edgehog-device-runtime-store",
  "eyre",
+ "mockall",
  "pretty_assertions",
  "serde",
  "tokio",
