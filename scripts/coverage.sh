@@ -58,6 +58,7 @@ crates=(
     'edgehog-device-runtime'
     'edgehog-device-runtime-containers'
     'edgehog-device-runtime-forwarder'
+    'edgehog-device-runtime-service'
 )
 
 # Helpful for testing changes in the generation options

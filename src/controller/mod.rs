@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,12 +16,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "containers")]
+use std::sync::Arc;
+
 use actor::Actor;
 use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
 use astarte_device_sdk::FromEvent;
 use stable_eyre::eyre::Error;
+#[cfg(feature = "containers")]
+use tokio::sync::OnceCell;
 use tokio::{sync::mpsc, task::JoinSet};
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::commands::execute_command;
@@ -59,6 +65,7 @@ impl<C> Runtime<C> {
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
         opts: DeviceManagerOptions,
         client: C,
+        cancel: CancellationToken,
     ) -> Result<Self, DeviceManagerError>
     where
         C: Client + PropAccess + Send + Sync + 'static,
@@ -67,6 +74,15 @@ impl<C> Runtime<C> {
         crate::systemd_wrapper::systemd_notify_status("Initializing");
 
         info!("Initializing");
+
+        // needed for warning
+        #[cfg(not(feature = "service"))]
+        let _ = cancel;
+
+        #[cfg(feature = "containers")]
+        let store = Self::store(&opts.store_directory).await?;
+        #[cfg(feature = "containers")]
+        let container_handle = Arc::new(OnceCell::new());
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let ota_handler = OtaHandler::start(tasks, client.clone(), &opts).await?;
@@ -93,10 +109,20 @@ impl<C> Runtime<C> {
         let containers_tx = Self::setup_containers(
             client.clone(),
             opts.containers,
-            &opts.store_directory,
+            &store,
+            &container_handle,
             tasks,
         )
         .await?;
+
+        #[cfg(feature = "service")]
+        Self::setup_service(
+            opts.service.unwrap_or_default(),
+            #[cfg(feature = "containers")]
+            &container_handle,
+            tasks,
+            cancel,
+        );
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
@@ -120,7 +146,8 @@ impl<C> Runtime<C> {
     async fn setup_containers(
         client: C,
         config: crate::containers::ContainersConfig,
-        store_dir: &std::path::Path,
+        store: &edgehog_store::db::Handle,
+        container_handle: &Arc<OnceCell<edgehog_containers::local::ContainerHandle>>,
         tasks: &mut JoinSet<stable_eyre::Result<()>>,
     ) -> Result<
         mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
@@ -131,12 +158,61 @@ impl<C> Runtime<C> {
     {
         let (container_tx, container_rx) = mpsc::unbounded_channel();
 
-        let containers =
-            crate::containers::ContainerService::new(client, config, store_dir, tasks).await?;
+        let containers = crate::containers::ContainerService::new(
+            client,
+            config,
+            store,
+            container_handle,
+            tasks,
+        )
+        .await?;
 
-        tasks.spawn(async move { containers.spawn_unbounded(container_rx).await });
+        tasks.spawn(containers.spawn_unbounded(container_rx));
 
         Ok(container_tx)
+    }
+
+    #[cfg(feature = "service")]
+    fn setup_service(
+        config: edgehog_service::config::Config,
+        #[cfg(feature = "containers")] container_handle: &Arc<
+            OnceCell<edgehog_containers::local::ContainerHandle>,
+        >,
+        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        cancel: CancellationToken,
+    ) where
+        C: Client + Clone + Send + Sync + 'static,
+    {
+        if !config.enabled {
+            use tracing::debug;
+
+            debug!("local service not enabled");
+
+            return;
+        }
+
+        let options = match edgehog_service::service::ServiceOptions::try_from(config) {
+            Ok(opt) => opt,
+            Err(err) => {
+                error!(error = format!("{err:#}"), "invalid service options");
+
+                return;
+            }
+        };
+
+        let service = edgehog_service::service::EdgehogService::new(
+            options,
+            #[cfg(feature = "containers")]
+            Arc::clone(container_handle),
+        );
+
+        tasks.spawn(async {
+            info!("starting local service");
+
+            service.run(cancel).await?;
+
+            Ok(())
+        });
     }
 
     pub async fn run(&mut self) -> Result<(), DeviceManagerError>
@@ -218,5 +294,18 @@ impl<C> Runtime<C> {
                 self.forwarder.handle_sessions(event);
             }
         }
+    }
+
+    #[cfg(feature = "containers")]
+    async fn store(
+        store_dir: &std::path::Path,
+    ) -> Result<edgehog_store::db::Handle, edgehog_store::db::HandleError> {
+        use edgehog_store::db::Handle;
+
+        let db_file = store_dir.join("state.db");
+
+        let store = Handle::open(&db_file).await?;
+
+        Ok(store)
     }
 }

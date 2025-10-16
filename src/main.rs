@@ -21,6 +21,7 @@ use std::io::IsTerminal;
 use clap::Parser;
 use eyre::{eyre, OptionExt, WrapErr};
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -35,12 +36,6 @@ use self::config::read_options;
 mod cli;
 mod config;
 
-//Error code state not recoverable
-#[allow(unused)]
-const ENOTRECOVERABLE: i32 = 131;
-
-const DEFAULT_LOG_DIRECTIVE: &str = concat!(env!("CARGO_PKG_NAME"), "=info");
-
 #[tokio::main]
 async fn main() -> stable_eyre::Result<()> {
     stable_eyre::install()?;
@@ -49,7 +44,7 @@ async fn main() -> stable_eyre::Result<()> {
         .with(tracing_subscriber::fmt::layer().with_ansi(std::io::stdout().is_terminal()))
         .with(
             EnvFilter::builder()
-                .with_default_directive(DEFAULT_LOG_DIRECTIVE.parse()?)
+                .with_default_directive("edgehog_device_runtime=info".parse()?)
                 .from_env_lossy(),
         )
         .try_init()?;
@@ -97,6 +92,7 @@ async fn main() -> stable_eyre::Result<()> {
     let store = connect_store(&options.store_directory).await?;
 
     let mut tasks = JoinSet::new();
+    let cancel = CancellationToken::new();
 
     match &options.astarte_library {
         AstarteLibrary::AstarteDeviceSdk => {
@@ -115,7 +111,7 @@ async fn main() -> stable_eyre::Result<()> {
                 .await?;
 
             let mut runtime =
-                edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
+                edgehog_device_runtime::Runtime::new(&mut tasks, options, client, cancel).await?;
 
             tasks.spawn(async move {
                 runtime
@@ -136,7 +132,7 @@ async fn main() -> stable_eyre::Result<()> {
                 .await?;
 
             let mut runtime =
-                edgehog_device_runtime::Runtime::new(&mut tasks, options, client).await?;
+                edgehog_device_runtime::Runtime::new(&mut tasks, options, client, cancel).await?;
 
             tasks.spawn(async move {
                 runtime
@@ -153,7 +149,7 @@ async fn main() -> stable_eyre::Result<()> {
                 info!("task exited");
             }
             Ok(Err(err)) => {
-                error!(error = format!("err:#"), "task exited");
+                error!(error = format!("{err:#}"), "task exited");
 
                 return Err(err);
             }
@@ -175,6 +171,9 @@ async fn main() -> stable_eyre::Result<()> {
 // clippy warns about the deprecated type, even if the alternative is not present in the MSRV
 #[allow(deprecated)]
 fn systemd_panic_hook(panic_info: &std::panic::PanicInfo) {
+    // Error code state not recoverable
+    const ENOTRECOVERABLE: i32 = 131;
+
     use edgehog_device_runtime::systemd_wrapper;
 
     let message = if let Some(panic_msg) = panic_info.payload().downcast_ref::<&str>() {
