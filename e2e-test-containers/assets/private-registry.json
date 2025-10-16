@@ -1,0 +1,61 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateImageRequest",
+      "path": "/image",
+      "data": {
+        "id": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "reference": "localhost:5000/library/nginx:stable-alpine-slim",
+        "registryAuth": "eyJ1c2VybmFtZSI6InRlc3R1c2VyIiwicGFzc3dvcmQiOiJ0ZXN0cGFzc3dvcmQifQo="
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "03aba87c-1ebe-45e9-ab8c-c4eb89752af9",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
+        "networkIds": [],
+        "volumeIds": [],
+        "deviceMappingIds": [],
+        "hostname": "",
+        "restartPolicy": "",
+        "env": [],
+        "binds": [],
+        "portBindings": ["9000:80"],
+        "networkMode": "bridge",
+        "extraHosts": ["host.docker.internal:host-gateway"],
+        "capAdd": ["CAP_CHOWN"],
+        "capDrop": ["CAP_KILL"],
+        "cpuPeriod": -1,
+        "cpuQuota": -1,
+        "cpuRealtimePeriod": -1,
+        "cpuRealtimeRuntime": -1,
+        "memory": -1,
+        "memoryReservation": -2,
+        "memorySwap": -2,
+        "memorySwappiness": -1,
+        "volumeDriver": "local",
+        "storageOpt": [],
+        "readOnlyRootfs": false,
+        "tmpfs": [],
+        "privileged": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
+      "path": "/deployment",
+      "data": {
+        "id": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "containers": ["03aba87c-1ebe-45e9-ab8c-c4eb89752af9"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/6a9b6d3c-4894-4fd0-af1d-44b326282c19/command",
+      "data": "Start"
+    }
+  ]
+}
