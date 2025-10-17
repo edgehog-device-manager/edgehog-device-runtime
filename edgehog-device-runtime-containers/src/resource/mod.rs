@@ -60,6 +60,7 @@ pub enum ResourceError {
 
 #[derive(Debug)]
 pub(crate) struct Context<'a, D> {
+    /// Id of the resource
     pub(crate) id: Uuid,
     pub(crate) store: &'a mut StateStore,
     pub(crate) device: &'a mut D,
@@ -104,6 +105,8 @@ where
 
     fn delete(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
+    fn unset(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+
     async fn up(mut ctx: Context<'_, D>) -> Result<Self> {
         let (state, mut resource) = Self::fetch(&mut ctx).await?;
 
@@ -134,6 +137,8 @@ where
                 resource.delete(&mut ctx).await?
             }
         }
+
+        resource.unset(&mut ctx).await?;
 
         Ok(())
     }

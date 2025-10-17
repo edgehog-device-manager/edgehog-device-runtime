@@ -22,6 +22,7 @@ use serde::Deserialize;
 
 pub use self::controller::Runtime;
 use self::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
+use self::ota::config::OtaConfig;
 use self::telemetry::TelemetryInterfaceConfig;
 
 cfg_if::cfg_if! {
@@ -46,7 +47,7 @@ mod forwarder;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
-mod ota;
+pub mod ota;
 mod power_management;
 pub mod repository;
 #[cfg(feature = "systemd")]
@@ -72,6 +73,7 @@ pub struct DeviceManagerOptions {
     pub containers: containers::ContainersConfig,
     #[cfg(feature = "service")]
     pub service: Option<edgehog_service::config::Config>,
+    pub ota: OtaConfig,
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,

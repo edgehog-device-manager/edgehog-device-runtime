@@ -1,22 +1,20 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022 - 2025 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::IntoAstarteObject;
@@ -24,9 +22,10 @@ use procfs::Current;
 use tracing::error;
 
 use crate::data::send_object_with_timestamp;
+use crate::telemetry::sender::TelemetryTask;
 use crate::Client;
 
-const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
+pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
 
 #[derive(Debug, Clone, IntoAstarteObject)]
 #[astarte_object(rename_all = "camelCase")]
@@ -117,12 +116,21 @@ impl SystemStatus {
             uptime_millis,
         })
     }
+}
 
-    pub(crate) async fn send<C>(self, client: &mut C)
+#[derive(Debug, Default)]
+pub(crate) struct SystemStatusTelemetry {}
+
+impl TelemetryTask for SystemStatusTelemetry {
+    async fn send<C>(&mut self, client: &mut C)
     where
-        C: Client,
+        C: Client + Send + Sync + 'static,
     {
-        send_object_with_timestamp(client, INTERFACE, "/systemStatus", self, Utc::now()).await;
+        let Some(status) = SystemStatus::read() else {
+            return;
+        };
+
+        send_object_with_timestamp(client, INTERFACE, "/systemStatus", status, Utc::now()).await;
     }
 }
 
