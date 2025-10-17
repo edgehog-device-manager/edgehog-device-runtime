@@ -77,14 +77,20 @@ where
     Ok(())
 }
 
-async fn container_stats<D>(mut stats: StatsMonitor<D>) -> color_eyre::Result<()>
+async fn container_stats<D>(mut stats: StatsMonitor, mut device: D) -> color_eyre::Result<()>
 where
     D: Client + Send + Sync + 'static,
 {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
 
     loop {
-        stats.gather().await?;
+        stats.blkio(&mut device).await;
+        stats.cpu(&mut device).await;
+        stats.memory(&mut device).await;
+        stats.memory_stats(&mut device).await;
+        stats.network(&mut device).await;
+        stats.pids(&mut device).await;
+        stats.volumes(&mut device).await;
 
         interval.tick().await;
     }
@@ -102,7 +108,7 @@ where
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone());
-    let stats = StatsMonitor::new(client.clone(), device.clone(), store.clone());
+    let stats = StatsMonitor::with_handle(client.clone(), store.clone());
     let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
     let service = Service::new(client, device.clone(), rx, store);
 
@@ -110,7 +116,7 @@ where
 
     tasks.spawn(handle_events(service));
     tasks.spawn(runtime_listen(listener));
-    tasks.spawn(container_stats(stats));
+    tasks.spawn(container_stats(stats, device.clone()));
     tasks.spawn(receive_events(device, handle));
 
     while let Some(res) = tasks.join_next().await {
