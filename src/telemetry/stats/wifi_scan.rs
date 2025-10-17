@@ -1,22 +1,20 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022 - 2025 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{Client, IntoAstarteObject};
@@ -25,8 +23,9 @@ use tracing::error;
 use wifiscanner::Wifi;
 
 use crate::data::send_object_with_timestamp;
+use crate::telemetry::sender::TelemetryTask;
 
-const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
+pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.WiFiScanResults";
 
 #[derive(Debug, IntoAstarteObject, PartialEq)]
 #[astarte_object(rename_all = "camelCase")]
@@ -38,33 +37,25 @@ pub struct WifiScanResult {
     rssi: i32,
 }
 
-pub async fn send_wifi_scan<C>(client: &mut C)
-where
-    C: Client,
-{
-    let res = tokio::task::spawn_blocking(|| {
-        wifiscanner::scan().unwrap_or_else(|err| {
-            // wifiscanner::Error doesn't impl Display
-            error!("couldn't get wifi networks: {err:?}",);
+impl WifiScanResult {
+    async fn read() -> impl Iterator<Item = WifiScanResult> {
+        tokio::task::spawn_blocking(|| {
+            wifiscanner::scan().unwrap_or_else(|err| {
+                // wifiscanner::Error doesn't impl Display
+                error!(error = ?err, "couldn't get wifi networks");
 
-            Vec::new()
+                Vec::new()
+            })
         })
-    })
-    .await;
-
-    let networks = match res {
-        Ok(networks) => networks,
-        Err(err) => {
+        .await
+        .unwrap_or_else(|err| {
             error!(
                 "couldn't get wifi networks: {}",
                 stable_eyre::Report::new(err)
             );
 
-            return;
-        }
-    };
-
-    let iter = networks
+            Vec::new()
+        })
         .into_iter()
         .filter_map(|wifi| match WifiScanResult::try_from(wifi) {
             Ok(value) => Some(value),
@@ -73,10 +64,7 @@ where
 
                 None
             }
-        });
-
-    for scan in iter {
-        send_object_with_timestamp(client, INTERFACE, "/ap", scan, Utc::now()).await;
+        })
     }
 }
 
@@ -104,6 +92,20 @@ impl TryFrom<Wifi> for WifiScanResult {
     }
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct WifiScan {}
+
+impl TelemetryTask for WifiScan {
+    async fn send<C>(&mut self, client: &mut C)
+    where
+        C: Client + Send,
+    {
+        for scan in WifiScanResult::read().await {
+            send_object_with_timestamp(client, INTERFACE, "/ap", scan, Utc::now()).await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
@@ -128,7 +130,7 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        send_wifi_scan(&mut client).await;
+        WifiScan::default().send(&mut client).await;
     }
 
     #[test]

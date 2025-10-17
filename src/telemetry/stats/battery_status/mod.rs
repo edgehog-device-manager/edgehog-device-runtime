@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022-2024 SECO Mind Srl
+// Copyright 2022 - 2025 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,16 +16,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+pub(crate) mod upower;
+
 use astarte_device_sdk::chrono::Utc;
-use astarte_device_sdk::{Client, IntoAstarteObject};
+use astarte_device_sdk::IntoAstarteObject;
 use tracing::{debug, error};
 use zbus::zvariant::OwnedObjectPath;
 
+use self::upower::{BatteryState, DeviceProxy, PowerDeviceType, UPowerProxy};
 use crate::data::send_object_with_timestamp;
-use crate::telemetry::upower::device::{BatteryState, DeviceProxy, PowerDeviceType};
-use crate::telemetry::upower::UPowerProxy;
+use crate::telemetry::sender::TelemetryTask;
+use crate::Client;
 
-const INTERFACE: &str = "io.edgehog.devicemanager.BatteryStatus";
+pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.BatteryStatus";
 
 #[derive(Debug, IntoAstarteObject, PartialEq)]
 #[astarte_object(rename_all = "camelCase")]
@@ -81,50 +84,71 @@ impl BatteryStatus {
     }
 }
 
-pub async fn send_battery_status<C>(client: &mut C)
-where
-    C: Client,
-{
-    let connection = match zbus::Connection::system().await {
-        Ok(conn) => conn,
-        Err(err) => {
-            error!(
-                "couldn't connect to system dbus: {}",
-                stable_eyre::Report::new(err)
-            );
+#[derive(Debug, Default)]
+pub(crate) struct BatteryStatusTelemetry {
+    connection: Option<zbus::Connection>,
+}
 
-            return;
+impl BatteryStatusTelemetry {
+    pub(crate) async fn connect(&mut self) -> Option<&zbus::Connection> {
+        if self.connection.is_none() {
+            let connection = match zbus::Connection::system().await {
+                Ok(conn) => conn,
+                Err(err) => {
+                    error!(
+                        "couldn't connect to system dbus: {}",
+                        stable_eyre::Report::new(err)
+                    );
+
+                    return None;
+                }
+            };
+
+            self.connection = Some(connection);
         }
-    };
 
-    let devices = match enumerate_devices(&connection).await {
-        Ok(devices) => devices,
-        Err(err) => {
-            error!(
-                "couldn't enumerate the device: {}",
-                stable_eyre::Report::new(err)
-            );
+        self.connection.as_ref()
+    }
+}
 
+impl TelemetryTask for BatteryStatusTelemetry {
+    async fn send<C>(&mut self, client: &mut C)
+    where
+        C: Client + Send,
+    {
+        let Some(connection) = self.connect().await else {
             return;
-        }
-    };
+        };
 
-    for device_path in devices {
-        let (battery_slot, status) = match BatteryStatus::read(&connection, &device_path).await {
-            Ok(Some(res)) => res,
-            Ok(None) => {
-                continue;
-            }
+        let devices = match enumerate_devices(connection).await {
+            Ok(devices) => devices,
             Err(err) => {
-                error!("couldn't get battery status for {device_path}: {err}");
+                error!(
+                    "couldn't enumerate the device: {}",
+                    stable_eyre::Report::new(err)
+                );
 
-                continue;
+                return;
             }
         };
 
-        debug!(battery_slot, ?status, "found battery");
+        for device_path in devices {
+            let (battery_slot, status) = match BatteryStatus::read(connection, &device_path).await {
+                Ok(Some(res)) => res,
+                Ok(None) => {
+                    continue;
+                }
+                Err(err) => {
+                    error!("couldn't get battery status for {device_path}: {err}");
 
-        send_object_with_timestamp(client, INTERFACE, &battery_slot, status, Utc::now()).await;
+                    continue;
+                }
+            };
+
+            debug!(battery_slot, ?status, "found battery");
+
+            send_object_with_timestamp(client, INTERFACE, &battery_slot, status, Utc::now()).await;
+        }
     }
 }
 
@@ -274,7 +298,7 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        send_battery_status(&mut client).await;
+        BatteryStatusTelemetry::default().send(&mut client).await;
     }
 
     #[test]

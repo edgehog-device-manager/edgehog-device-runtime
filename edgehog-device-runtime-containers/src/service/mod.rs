@@ -1338,4 +1338,172 @@ mod tests {
         let start_event = service.events.recv().await.unwrap();
         service.on_event(start_event).await;
     }
+
+    #[tokio::test]
+    async fn should_delete_deployment_no_start() {
+        let tempdir = TempDir::new().unwrap();
+
+        let image_id = Uuid::new_v4();
+        let container_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+
+        let reference = "docker.io/nginx:stable-alpine-slim";
+
+        let client = docker_mock!(docker::Client::connect_with_local_defaults().unwrap(), {
+            use self::docker::tests::not_found_response;
+
+            let mut mock = docker::Client::new();
+            let mut seq = mockall::Sequence::new();
+
+            let container_name = container_id.to_string();
+            mock.expect_inspect_container()
+                .withf(move |name, _option| name == container_name)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_, _| Err(docker::tests::not_found_response()));
+
+            mock.expect_inspect_image()
+                .withf(move |name| name == reference)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| Err(not_found_response()));
+
+            mock
+        });
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{container_id}/status");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::from("Received")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{deployment_id}/status");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::String("Stopped".to_string())),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.DeploymentEvent"),
+                predicate::eq(format!("/{deployment_id}")),
+                predicate::eq(AstarteObject::from_iter([
+                    ("status".to_string(), AstarteData::from("Deleting")),
+                    ("message".to_string(), AstarteData::from("")),
+                ])),
+                predicate::always(),
+            )
+            .returning(|_, _, _, _| Ok(()));
+
+        let endpoint = format!("/{container_id}/status");
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint),
+            )
+            .returning(|_, _| Ok(()));
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+            )
+            .returning(|_, _| Ok(()));
+
+        let endpoint = format!("/{deployment_id}/status");
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
+                predicate::eq(endpoint),
+            )
+            .returning(|_, _| Ok(()));
+
+        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
+
+        let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
+
+        let image_req = ContainerRequest::from_event(create_image_req).unwrap();
+
+        let create_container_req = create_container_request_event(
+            container_id,
+            deployment_id,
+            image_id,
+            reference,
+            &Vec::<Uuid>::new(),
+            &Vec::<Uuid>::new(),
+        );
+
+        let container_req = ContainerRequest::from_event(create_container_req).unwrap();
+
+        let create_deployment_req = create_deployment_request_event(
+            &deployment_id.to_string(),
+            &[&container_id.to_string()],
+        );
+
+        let deployment_req = ContainerRequest::from_event(create_deployment_req).unwrap();
+
+        let delete = ContainerRequest::DeploymentCommand(DeploymentCommand {
+            id: deployment_id,
+            command: CommandValue::Delete,
+        });
+
+        handle.on_event(image_req).await.unwrap();
+        handle.on_event(container_req).await.unwrap();
+        handle.on_event(deployment_req).await.unwrap();
+        handle.on_event(delete).await.unwrap();
+
+        let image_event = service.events.recv().await.unwrap();
+        service.on_event(image_event).await;
+        let container_event = service.events.recv().await.unwrap();
+        service.on_event(container_event).await;
+        let deployment_event = service.events.recv().await.unwrap();
+        service.on_event(deployment_event).await;
+        let start_event = service.events.recv().await.unwrap();
+        service.on_event(start_event).await;
+    }
 }
