@@ -46,7 +46,7 @@ mod forwarder;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
-mod ota;
+pub mod ota;
 mod power_management;
 pub mod repository;
 #[cfg(feature = "systemd")]
@@ -72,6 +72,8 @@ pub struct DeviceManagerOptions {
     pub containers: containers::ContainersConfig,
     #[cfg(feature = "service")]
     pub service: Option<edgehog_service::config::Config>,
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    pub ota: self::ota::config::OtaConfig,
     pub interfaces_directory: PathBuf,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,

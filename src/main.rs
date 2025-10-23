@@ -34,7 +34,7 @@ use self::cli::Cli;
 use self::config::read_options;
 
 mod cli;
-mod config;
+pub mod config;
 
 #[tokio::main]
 async fn main() -> stable_eyre::Result<()> {

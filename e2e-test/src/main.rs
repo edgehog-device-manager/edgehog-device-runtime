@@ -19,6 +19,7 @@
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
 use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
+use edgehog_device_runtime::ota::config::OtaConfig;
 use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
 use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
 use edgehog_device_runtime::telemetry::status::runtime_info::{RuntimeInfo, RUNTIME_INFO};
@@ -152,6 +153,7 @@ async fn main() -> color_eyre::Result<()> {
         containers: edgehog_device_runtime::containers::ContainersConfig::default(),
         #[cfg(feature = "service")]
         service: None,
+        ota: OtaConfig::default(),
     };
 
     let store = connect_store(store_path.path())
