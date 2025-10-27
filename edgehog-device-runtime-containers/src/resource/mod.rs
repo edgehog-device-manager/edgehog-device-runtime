@@ -104,6 +104,8 @@ where
 
     fn delete(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
+    fn unset(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+
     async fn up(mut ctx: Context<'_, D>) -> Result<Self> {
         let (state, mut resource) = Self::fetch(&mut ctx).await?;
 
@@ -134,6 +136,8 @@ where
                 resource.delete(&mut ctx).await?
             }
         }
+
+        resource.unset(&mut ctx).await?;
 
         Ok(())
     }
