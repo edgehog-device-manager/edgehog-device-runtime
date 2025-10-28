@@ -152,7 +152,7 @@ displaydoc = "0.2.5"
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.1" }
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.1" }
-edgehog-proto = { package = "edgehog-device-runtime-proto", git = "https://github.com/edgehog-device-manager/edgehog-device-runtime-proto" }
+edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
 edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.9.1" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.1" }
 eyre = "0.6.12"

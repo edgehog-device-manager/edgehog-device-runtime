@@ -18,10 +18,11 @@
 
 use async_trait::async_trait;
 use edgehog_store::models::containers::volume::VolumeStatus;
+use tracing::warn;
 
 use crate::{
     properties::{volume::AvailableVolume, AvailableProp, Client},
-    volume::Volume,
+    volume::{Volume, VolumeId},
 };
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
@@ -100,6 +101,24 @@ where
         AvailableVolume::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_volume(ctx.id).await?;
+
+        Ok(())
+    }
+
+    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
+        if !ctx.store.check_volume_exists(ctx.id).await? {
+            warn!("couldn't find volume");
+
+            return Ok(());
+        };
+
+        let volume_id = VolumeId::new(ctx.id);
+
+        let created = volume_id.inspect(ctx.client).await?.is_some();
+
+        AvailableVolume::new(&ctx.id)
+            .send(ctx.device, created)
+            .await?;
 
         Ok(())
     }

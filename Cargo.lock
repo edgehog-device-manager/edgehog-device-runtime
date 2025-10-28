@@ -1428,8 +1428,9 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-proto"
-version = "0.10.0-aplha.1"
-source = "git+https://github.com/edgehog-device-manager/edgehog-device-runtime-proto#0c7d5338ba92c1c92ffcb724593cd447d46abe83"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12807d2216753a325df14ca0d086932ad9cf7daf0da581b14cbd6627db49ccbd"
 dependencies = [
  "chrono",
  "prost 0.14.1",

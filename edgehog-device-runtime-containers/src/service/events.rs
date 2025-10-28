@@ -49,14 +49,18 @@ use super::{CommandValue, Id, ResourceType};
 #[derive(Debug)]
 pub struct ServiceHandle<D> {
     /// Queue of events received from Astarte.
-    events: mpsc::UnboundedSender<AstarteEvent>,
+    events: mpsc::UnboundedSender<ContainerEvent>,
     device: D,
     store: StateStore,
 }
 
 impl<D> ServiceHandle<D> {
     /// Create the handle from the [channel](mpsc::UnboundedSender) shared with the [`Service`](super::Service).
-    pub fn new(device: D, store: StateStore, events: mpsc::UnboundedSender<AstarteEvent>) -> Self {
+    pub fn new(
+        device: D,
+        store: StateStore,
+        events: mpsc::UnboundedSender<ContainerEvent>,
+    ) -> Self {
         Self {
             events,
             device,
@@ -70,7 +74,7 @@ impl<D> ServiceHandle<D> {
     where
         D: Client + Sync + 'static,
     {
-        let event = AstarteEvent::from(&request);
+        let event = ContainerEvent::from(&request);
 
         let deployment_id = request.deployment_id();
 
@@ -133,7 +137,7 @@ impl<D> ServiceHandle<D> {
 
 /// Event sent by the [`ServiceHandle`] to the [`Service`](crate::service::Service)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AstarteEvent {
+pub enum ContainerEvent {
     /// Resource creation request event.
     Resource {
         /// Unique ID of the resource
@@ -145,15 +149,19 @@ pub enum AstarteEvent {
     DeploymentCmd(DeploymentCommand),
     /// Deployment update event.
     DeploymentUpdate(DeploymentUpdate),
+    /// Container runtime event happened.
+    ///
+    /// We need to handle deletion or a container stopped outside of Edgehog.
+    Refresh(Id),
 }
 
-impl From<&ContainerRequest> for AstarteEvent {
+impl From<&ContainerRequest> for ContainerEvent {
     fn from(value: &ContainerRequest) -> Self {
         match value {
             ContainerRequest::Image(create_image) => {
                 let resource = Id::new(ResourceType::Image, create_image.id.0);
 
-                AstarteEvent::Resource {
+                ContainerEvent::Resource {
                     resource,
                     deployment: create_image.deployment_id.0,
                 }
@@ -161,7 +169,7 @@ impl From<&ContainerRequest> for AstarteEvent {
             ContainerRequest::Volume(create_volume) => {
                 let resource = Id::new(ResourceType::Volume, create_volume.id.0);
 
-                AstarteEvent::Resource {
+                ContainerEvent::Resource {
                     resource,
                     deployment: create_volume.deployment_id.0,
                 }
@@ -169,7 +177,7 @@ impl From<&ContainerRequest> for AstarteEvent {
             ContainerRequest::Network(create_network) => {
                 let resource = Id::new(ResourceType::Network, create_network.id.0);
 
-                AstarteEvent::Resource {
+                ContainerEvent::Resource {
                     resource,
                     deployment: create_network.deployment_id.0,
                 }
@@ -177,7 +185,7 @@ impl From<&ContainerRequest> for AstarteEvent {
             ContainerRequest::DeviceMapping(create_device_mapping) => {
                 let resource = Id::new(ResourceType::DeviceMapping, create_device_mapping.id.0);
 
-                AstarteEvent::Resource {
+                ContainerEvent::Resource {
                     resource,
                     deployment: create_device_mapping.deployment_id.0,
                 }
@@ -185,7 +193,7 @@ impl From<&ContainerRequest> for AstarteEvent {
             ContainerRequest::Container(create_container) => {
                 let resource = Id::new(ResourceType::Container, create_container.id.0);
 
-                AstarteEvent::Resource {
+                ContainerEvent::Resource {
                     resource,
                     deployment: create_container.deployment_id.0,
                 }
@@ -193,7 +201,7 @@ impl From<&ContainerRequest> for AstarteEvent {
             ContainerRequest::Deployment(create_deployment) => {
                 let resource = Id::new(ResourceType::Deployment, create_deployment.id.0);
 
-                AstarteEvent::Resource {
+                ContainerEvent::Resource {
                     resource,
                     deployment: create_deployment.id.0,
                 }

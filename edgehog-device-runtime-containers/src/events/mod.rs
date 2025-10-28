@@ -18,25 +18,16 @@
 
 //! Send events to Astarte
 
-use bollard::models::{ContainerStateStatusEnum, EventMessageTypeEnum};
+use bollard::models::EventMessageTypeEnum;
 use eyre::Context;
 use futures::{future, TryStreamExt};
-use tracing::{debug, error, instrument, warn};
+use tokio::sync::mpsc;
+use tracing::{debug, error, instrument};
 use uuid::Uuid;
 
 use crate::{
-    container::ContainerId,
-    image::ImageId,
-    network::NetworkId,
-    properties::{
-        container::{AvailableContainer, ContainerStatus},
-        image::AvailableImage,
-        network::AvailableNetwork,
-        volume::AvailableVolume,
-        AvailableProp, Client,
-    },
+    service::{events::ContainerEvent, Id, ResourceType},
     store::StateStore,
-    volume::VolumeId,
     Docker,
 };
 
@@ -44,23 +35,20 @@ pub(crate) mod deployment;
 
 /// Handles the events received from the container runtime
 #[derive(Debug)]
-pub struct RuntimeListener<D> {
+pub struct RuntimeListener {
     client: Docker,
-    device: D,
     store: StateStore,
+    tx: mpsc::UnboundedSender<ContainerEvent>,
 }
 
-impl<D> RuntimeListener<D>
-where
-    D: Client + Send + Sync + 'static,
-{
+impl RuntimeListener {
     /// Creates a new instance.
-    pub fn new(client: Docker, device: D, store: StateStore) -> Self {
-        Self {
-            client,
-            device,
-            store,
-        }
+    pub fn new(
+        client: Docker,
+        store: StateStore,
+        tx: mpsc::UnboundedSender<ContainerEvent>,
+    ) -> Self {
+        Self { client, store, tx }
     }
 
     /// Handles events of the container runtime and sends the telemetry to Astarte.
@@ -97,6 +85,15 @@ where
     }
 
     #[instrument(skip(self))]
+    async fn refresh(&self, id: Id) -> eyre::Result<()> {
+        self.tx
+            .send(ContainerEvent::Refresh(id))
+            .wrap_err("couldn't send refresh event")?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
     async fn handle_container(&mut self, local_id: String) -> eyre::Result<()> {
         let Some(id) = self
             .store
@@ -108,66 +105,20 @@ where
             return Ok(());
         };
 
-        let mut container_id = ContainerId::new(Some(local_id), id);
-
-        let Some(inspect) = container_id.inspect(&self.client).await? else {
-            debug!("container deleted");
-
-            AvailableContainer::new(&id)
-                .send(&mut self.device, ContainerStatus::Received)
-                .await?;
-
-            return Ok(());
-        };
-
-        let Some(container_state) = inspect.state.and_then(|state| state.status) else {
-            warn!("couldn't find status in inspect container response");
-
-            return Ok(());
-        };
-
-        let status = match container_state {
-            ContainerStateStatusEnum::CREATED => ContainerStatus::Created,
-            ContainerStateStatusEnum::RUNNING | ContainerStateStatusEnum::RESTARTING => {
-                ContainerStatus::Running
-            }
-            ContainerStateStatusEnum::REMOVING => ContainerStatus::Received,
-            ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD => {
-                ContainerStatus::Stopped
-            }
-            ContainerStateStatusEnum::PAUSED | ContainerStateStatusEnum::EMPTY => {
-                debug!(%container_state, "ignoring state");
-
-                return Ok(());
-            }
-        };
-
-        AvailableContainer::new(&id)
-            .send(&mut self.device, status)
-            .await?;
+        self.refresh(Id::new(ResourceType::Container, id)).await?;
 
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn handle_image(&mut self, local_id: String) -> eyre::Result<()> {
-        let Some((id, reference)) = self.store.find_image_by_local_id(local_id.clone()).await?
-        else {
+        let Some((id, _)) = self.store.find_image_by_local_id(local_id.clone()).await? else {
             debug!("couldn't find image");
 
             return Ok(());
         };
 
-        let mut image_id = ImageId {
-            id: Some(local_id),
-            reference,
-        };
-
-        let pulled = image_id.inspect(&self.client).await?.is_some();
-
-        AvailableImage::new(&id)
-            .send(&mut self.device, pulled)
-            .await?;
+        self.refresh(Id::new(ResourceType::Image, id)).await?;
 
         Ok(())
     }
@@ -182,13 +133,7 @@ where
             return Ok(());
         };
 
-        let volume_id = VolumeId::new(id);
-
-        let created = volume_id.inspect(&self.client).await?.is_some();
-
-        AvailableVolume::new(&id)
-            .send(&mut self.device, created)
-            .await?;
+        self.refresh(Id::new(ResourceType::Volume, id)).await?;
 
         Ok(())
     }
@@ -205,13 +150,7 @@ where
             return Ok(());
         };
 
-        let mut network_id = NetworkId::new(Some(local_id), id);
-
-        let created = network_id.inspect(&self.client).await?.is_some();
-
-        AvailableNetwork::new(&id)
-            .send(&mut self.device, created)
-            .await?;
+        self.refresh(Id::new(ResourceType::Network, id)).await?;
 
         Ok(())
     }

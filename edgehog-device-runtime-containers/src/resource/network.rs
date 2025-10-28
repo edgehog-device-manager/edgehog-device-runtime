@@ -18,6 +18,7 @@
 
 use async_trait::async_trait;
 use edgehog_store::models::containers::network::NetworkStatus;
+use tracing::warn;
 
 use crate::{
     network::Network,
@@ -110,6 +111,22 @@ where
         AvailableNetwork::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_network(ctx.id).await?;
+
+        Ok(())
+    }
+
+    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
+        let Some(mut resource) = ctx.store.find_network(ctx.id).await? else {
+            warn!("couldn't find network");
+
+            return Ok(());
+        };
+
+        let created = resource.network.inspect(ctx.client).await?.is_some();
+
+        AvailableNetwork::new(&ctx.id)
+            .send(ctx.device, created)
+            .await?;
 
         Ok(())
     }

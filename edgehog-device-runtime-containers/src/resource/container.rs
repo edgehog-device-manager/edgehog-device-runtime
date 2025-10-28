@@ -17,7 +17,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use async_trait::async_trait;
+use bollard::secret::ContainerStateStatusEnum;
 use edgehog_store::models::containers::container::ContainerStatus;
+use tracing::{debug, warn};
 
 use crate::{
     container::Container,
@@ -172,6 +174,52 @@ where
         AvailableContainer::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_container(ctx.id).await?;
+
+        Ok(())
+    }
+
+    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
+        let Some(mut container) = ctx.store.find_container(ctx.id).await? else {
+            warn!("couldn't find container");
+
+            return Ok(());
+        };
+
+        let Some(inspect) = container.inspect(ctx.client).await? else {
+            debug!("container deleted");
+
+            AvailableContainer::new(&ctx.id)
+                .send(ctx.device, PropertyStatus::Received)
+                .await?;
+
+            return Ok(());
+        };
+
+        let Some(container_state) = inspect.state.and_then(|state| state.status) else {
+            warn!("couldn't find status in inspect container response");
+
+            return Ok(());
+        };
+
+        let status = match container_state {
+            ContainerStateStatusEnum::CREATED => PropertyStatus::Created,
+            ContainerStateStatusEnum::RUNNING | ContainerStateStatusEnum::RESTARTING => {
+                PropertyStatus::Running
+            }
+            ContainerStateStatusEnum::REMOVING => PropertyStatus::Received,
+            ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD => {
+                PropertyStatus::Stopped
+            }
+            ContainerStateStatusEnum::PAUSED | ContainerStateStatusEnum::EMPTY => {
+                debug!(%container_state, "ignoring state");
+
+                return Ok(());
+            }
+        };
+
+        AvailableContainer::new(&ctx.id)
+            .send(ctx.device, status)
+            .await?;
 
         Ok(())
     }
