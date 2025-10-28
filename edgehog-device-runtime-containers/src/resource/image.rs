@@ -18,9 +18,10 @@
 
 use async_trait::async_trait;
 use edgehog_store::models::containers::image::ImageStatus;
+use tracing::warn;
 
 use crate::{
-    image::Image,
+    image::{Image, ImageError},
     properties::{image::AvailableImage, AvailableProp, Client},
 };
 
@@ -97,7 +98,20 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.image.remove(ctx.client).await?;
+        match self.image.remove(ctx.client).await {
+            Ok(_) => {}
+            // HACK: this is a work around for two images having the same digest but different
+            //       references.
+            Err(ImageError::ImageInUse(err)) => {
+                warn!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "image in use by another container"
+                );
+            }
+            Err(err) => {
+                return Err(err.into());
+            }
+        }
 
         Ok(())
     }
