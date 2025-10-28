@@ -107,6 +107,8 @@ where
 
     fn unset(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
+    fn refresh(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+
     async fn up(mut ctx: Context<'_, D>) -> Result<Self> {
         let (state, mut resource) = Self::fetch(&mut ctx).await?;
 
