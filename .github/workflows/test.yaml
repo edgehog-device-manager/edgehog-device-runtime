@@ -73,7 +73,7 @@ jobs:
           echo "$PR_NUMBER" > ./pr_number
       - name: Upload coverage artifact
         if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage
           path: |
