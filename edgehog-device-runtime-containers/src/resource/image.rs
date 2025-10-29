@@ -18,7 +18,7 @@
 
 use async_trait::async_trait;
 use edgehog_store::models::containers::image::ImageStatus;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::{
     image::{Image, ImageError},
@@ -120,6 +120,22 @@ where
         AvailableImage::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_image(ctx.id).await?;
+
+        Ok(())
+    }
+
+    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
+        let Some(mut resource) = ctx.store.find_image(ctx.id).await? else {
+            debug!("couldn't find image");
+
+            return Ok(());
+        };
+
+        let pulled = resource.image.inspect(ctx.client).await?.is_some();
+
+        AvailableImage::new(&ctx.id)
+            .send(ctx.device, pulled)
+            .await?;
 
         Ok(())
     }
