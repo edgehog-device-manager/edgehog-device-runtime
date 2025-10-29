@@ -21,3 +21,6 @@ target/
 
 # Local coverage file
 tarpaulin-report.html
+
+# local files for test
+.tmp/
