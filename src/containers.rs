@@ -107,10 +107,7 @@ where
 }
 
 #[async_trait]
-impl<D> TryRun for &mut RuntimeListener<D>
-where
-    D: Client + Sync + Send + 'static,
-{
+impl TryRun for &mut RuntimeListener {
     type Out = ();
 
     async fn run(&mut self) -> stable_eyre::Result<()> {
@@ -161,26 +158,23 @@ where
 }
 
 #[cfg(not(test))]
-fn spawn_listener<D>(
+fn spawn_listener(
     config: ContainersConfig,
     store: &StateStore,
-    device: &D,
+    tx: tokio::sync::mpsc::UnboundedSender<edgehog_containers::service::events::ContainerEvent>,
     tasks: &mut JoinSet<Result<(), stable_eyre::eyre::Error>>,
-) where
-    D: Client + Clone + Send + Sync + 'static,
-{
+) {
     use tracing::warn;
 
     // Use a lazy clone since the handle will only write to the database
     let store_cl = store.clone();
-    let device_cl = device.clone();
     tasks.spawn(async move {
         let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
         let Some(client) = maybe_client else {
             return Ok(());
         };
 
-        let mut listener = RuntimeListener::new(client, device_cl, store_cl);
+        let mut listener = RuntimeListener::new(client, store_cl, tx);
 
         // TODO: the retry should have a reset time
         let should_exit = retry(&config, &mut listener).await?.is_none();
@@ -214,7 +208,7 @@ impl<D> ContainerService<D> {
 
         // fixes an issue with features normalization when testing with `--all-features --workspace`
         #[cfg(not(test))]
-        spawn_listener(config, &store, &device, tasks);
+        spawn_listener(config, &store, tx.clone(), tasks);
 
         // Use a lazy clone since the handle will only write to the database
         let store_cl = store.clone();

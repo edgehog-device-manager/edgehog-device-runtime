@@ -68,10 +68,7 @@ where
     Ok(())
 }
 
-async fn runtime_listen<D>(mut listener: RuntimeListener<D>) -> color_eyre::Result<()>
-where
-    D: Client + Send + Sync + 'static,
-{
+async fn runtime_listen(mut listener: RuntimeListener) -> color_eyre::Result<()> {
     listener.handle_events().await?;
 
     Ok(())
@@ -107,7 +104,7 @@ where
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    let listener = RuntimeListener::new(client.clone(), device.clone(), store.clone());
+    let listener = RuntimeListener::new(client.clone(), store.clone(), tx.clone());
     let stats = StatsMonitor::with_handle(client.clone(), store.clone());
     let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
     let service = Service::new(client, device.clone(), rx, store);

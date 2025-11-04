@@ -123,4 +123,20 @@ where
 
         Ok(())
     }
+
+    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
+        let Some(mut resource) = ctx.store.find_image(ctx.id).await? else {
+            warn!("couldn't find image");
+
+            return Ok(());
+        };
+
+        let pulled = resource.image.inspect(ctx.client).await?.is_some();
+
+        AvailableImage::new(&ctx.id)
+            .send(ctx.device, pulled)
+            .await?;
+
+        Ok(())
+    }
 }

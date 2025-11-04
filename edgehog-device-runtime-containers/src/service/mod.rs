@@ -43,7 +43,7 @@ use crate::{
     Docker,
 };
 
-use self::events::AstarteEvent;
+use self::events::ContainerEvent;
 
 pub mod events;
 
@@ -85,7 +85,7 @@ pub struct Service<D> {
     client: Docker,
     device: D,
     /// Queue of events received from Astarte.
-    events: mpsc::UnboundedReceiver<AstarteEvent>,
+    events: mpsc::UnboundedReceiver<ContainerEvent>,
     store: StateStore,
 }
 
@@ -96,7 +96,7 @@ impl<D> Service<D> {
     pub fn new(
         client: Docker,
         device: D,
-        events: mpsc::UnboundedReceiver<AstarteEvent>,
+        events: mpsc::UnboundedReceiver<ContainerEvent>,
         store: StateStore,
     ) -> Self {
         Self {
@@ -233,37 +233,40 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    async fn on_event(&mut self, event: AstarteEvent)
+    async fn on_event(&mut self, event: ContainerEvent)
     where
         D: Client + Send + Sync + 'static,
     {
         match event {
-            AstarteEvent::Resource {
+            ContainerEvent::Resource {
                 resource,
                 deployment,
             } => {
                 self.resource_req(resource, deployment).await;
             }
-            AstarteEvent::DeploymentCmd(DeploymentCommand {
+            ContainerEvent::DeploymentCmd(DeploymentCommand {
                 id,
                 command: CommandValue::Start,
             }) => {
                 self.start(id).await;
             }
-            AstarteEvent::DeploymentCmd(DeploymentCommand {
+            ContainerEvent::DeploymentCmd(DeploymentCommand {
                 id,
                 command: CommandValue::Stop,
             }) => {
                 self.stop(id).await;
             }
-            AstarteEvent::DeploymentCmd(DeploymentCommand {
+            ContainerEvent::DeploymentCmd(DeploymentCommand {
                 id,
                 command: CommandValue::Delete,
             }) => {
                 self.delete(id).await;
             }
-            AstarteEvent::DeploymentUpdate(from_to) => {
+            ContainerEvent::DeploymentUpdate(from_to) => {
                 self.update(from_to).await;
+            }
+            ContainerEvent::Refresh(id) => {
+                self.refresh(id).await;
             }
         }
     }
@@ -655,6 +658,32 @@ impl<D> Service<D> {
         self.start_deployment(bundle.to, to_start).await?;
 
         Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn refresh(&mut self, id: Id)
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        let mut ctx = self.context(*id.uuid());
+        let res = match id.resource_type() {
+            ResourceType::Image => ImageResource::refresh(&mut ctx).await,
+            ResourceType::Volume => VolumeResource::refresh(&mut ctx).await,
+            ResourceType::Network => NetworkResource::refresh(&mut ctx).await,
+            ResourceType::Container => ContainerResource::refresh(&mut ctx).await,
+            ResourceType::Deployment | ResourceType::DeviceMapping => {
+                debug!("nothing to refresh");
+
+                return;
+            }
+        };
+
+        if let Err(err) = res {
+            error!(
+                error = format!("{:#}", eyre::Report::new(err)),
+                "couldn't refresh resource status"
+            );
+        }
     }
 }
 
