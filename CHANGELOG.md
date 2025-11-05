@@ -25,7 +25,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - Unreleased
+## [0.10.0] - 2025-11-05
 
 ### Changed
 
@@ -35,6 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [#515](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/515)
 - Forward port release v0.9.1 with OTA reboot fix
   [#598](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/598)
+- Implement the new Containers features and interfaces, including container statistics.
+- Create a local service gRPC to comunicate with the edgehog-device-runtime.
 
 ## [0.9.1] - 2025-09-12
 
