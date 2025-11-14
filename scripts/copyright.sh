@@ -34,6 +34,7 @@ annotate() {
 
     if [[ ! -e "$*" ]]; then
         echo "skipping not existing"
+        return
     fi
 
     reuse annotate \

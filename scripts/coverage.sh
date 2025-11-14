@@ -107,6 +107,7 @@ export_lcov() {
 
     # shellcheck disable=2086,2046
     $LLVM_COV export \
+        -Xdemangler=rustfilt \
         -format=lcov \
         -ignore-filename-regex='/.cargo/registry' \
         -instr-profile="$PROFS_DIR/coverage.profdata" \
@@ -143,6 +144,7 @@ filter_lcov() {
             --branch-coverage \
             --dark-mode \
             --missed \
+            --demangle-cpp rustfilt \
             --ignore-errors category \
             --ignore-errors inconsistent \
             --output-directory "$COVERAGE_OUT_DIR/$1/genhtml" \

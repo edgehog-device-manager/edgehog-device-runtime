@@ -41,6 +41,8 @@ workingDir="$(mktemp -d)"
 
 mkdir -p "$workingDir"
 
+cp -v Cargo.toml Cargo.lock "$workingDir"
+
 echo "$toCopy" | while read -r file; do
     parent=$(dirname "$file")
     mkdir -p "$workingDir/${parent}"
@@ -48,4 +50,4 @@ echo "$toCopy" | while read -r file; do
     cp -v "$file" "$workingDir/$file"
 done
 
-cargo check --manifest-path "$workingDir/Cargo.toml" --workspace --all-features --locked
+cargo publish --dry-run --manifest-path "$workingDir/Cargo.toml" --workspace --all-features --locked
