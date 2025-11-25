@@ -38,7 +38,7 @@ jobs:
   e2e-test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
       - uses: mozilla-actions/sccache-action@v0.0.9
@@ -48,7 +48,7 @@ jobs:
         with:
           astarte_version: "1.2.0"
       - name: Checkout edgehog-astarte-interfaces
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: edgehog-device-manager/edgehog-astarte-interfaces.git
           # Update ref when updated interfaces are required.
