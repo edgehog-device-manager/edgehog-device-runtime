@@ -29,8 +29,10 @@ use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
 use crate::error::DeviceManagerError;
+use crate::ota::config::RaucDbus;
 use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
 
+use super::config::OtaConfig;
 use super::ProgressStream;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
@@ -211,10 +213,18 @@ impl SystemUpdate for OTARauc<'static> {
 
 impl<'a> OTARauc<'a> {
     #[instrument]
-    pub async fn connect() -> Result<OTARauc<'a>, DeviceManagerError> {
-        let connection = zbus::Connection::system().await?;
+    pub async fn connect(config: &OtaConfig) -> Result<OTARauc<'a>, DeviceManagerError> {
+        let connection = match &config.rauc.dbus_socket {
+            RaucDbus::System => zbus::Connection::system().await?,
+            RaucDbus::Session => zbus::Connection::session().await?,
+        };
 
         let rauc = RaucProxy::new(&connection).await?;
+
+        info!(
+            dbus_socket = %config.rauc.dbus_socket,
+            "connected to RAUC dbus"
+        );
 
         match rauc.boot_slot().await {
             Ok(boot_slot) => {
