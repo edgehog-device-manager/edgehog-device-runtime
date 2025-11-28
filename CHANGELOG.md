@@ -25,6 +25,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - Unreleased
+
+### Added
+
+- Configuration option `[ota.rauc]` with field `dbus_socket` to select either the session or system
+  bus [#651](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/651)
+
 ## [0.10.0] - 2025-11-05
 
 ### Changed
