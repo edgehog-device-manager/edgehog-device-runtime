@@ -31,7 +31,8 @@ use edgehog_store::models::containers::deployment::{
 };
 use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{
-    container_missing_images, container_missing_networks, container_missing_volumes, containers,
+    container_device_mappings, container_missing_images, container_missing_networks,
+    container_missing_volumes, container_networks, container_volumes, containers,
     deployment_containers, deployment_missing_containers, deployments,
 };
 use itertools::Itertools;
@@ -291,47 +292,41 @@ impl StateStore {
 
                 let volumes = Deployment::join_resources()
                     .filter(deployment_containers::deployment_id.eq(id))
-                    .select(Option::<ContainerVolume>::as_select())
+                    .select(container_volumes::volume_id.nullable())
                     .except(
                         Deployment::join_resources()
                             .filter(deployment_containers::deployment_id.ne(id))
-                            .select(Option::<ContainerVolume>::as_select()),
+                            .select(container_volumes::volume_id.nullable()),
                     )
-                    .load::<Option<ContainerVolume>>(reader)?
+                    .load::<Option<SqlUuid>>(reader)?
                     .into_iter()
-                    .filter_map(|container_volume| {
-                        container_volume.map(|value| Uuid::from(value.volume_id))
-                    })
+                    .filter_map(|container_volume| container_volume.map(Uuid::from))
                     .collect();
 
                 let networks = Deployment::join_resources()
                     .filter(deployment_containers::deployment_id.eq(id))
-                    .select(Option::<ContainerNetwork>::as_select())
+                    .select(container_networks::network_id.nullable())
                     .except(
                         Deployment::join_resources()
                             .filter(deployment_containers::deployment_id.ne(id))
-                            .select(Option::<ContainerNetwork>::as_select()),
+                            .select(container_networks::network_id.nullable()),
                     )
-                    .load::<Option<ContainerNetwork>>(reader)?
+                    .load::<Option<SqlUuid>>(reader)?
                     .into_iter()
-                    .filter_map(|container_network| {
-                        container_network.map(|value| Uuid::from(value.network_id))
-                    })
+                    .filter_map(|container_network| container_network.map(Uuid::from))
                     .collect();
 
                 let device_mapping = Deployment::join_resources()
                     .filter(deployment_containers::deployment_id.eq(id))
-                    .select(Option::<ContainerDeviceMapping>::as_select())
+                    .select(container_device_mappings::device_mapping_id.nullable())
                     .except(
                         Deployment::join_resources()
                             .filter(deployment_containers::deployment_id.ne(id))
-                            .select(Option::<ContainerDeviceMapping>::as_select()),
+                            .select(container_device_mappings::device_mapping_id.nullable()),
                     )
-                    .load::<Option<ContainerDeviceMapping>>(reader)?
+                    .load::<Option<SqlUuid>>(reader)?
                     .into_iter()
-                    .filter_map(|container_device_mapping| {
-                        container_device_mapping.map(|value| Uuid::from(value.device_mapping_id))
-                    })
+                    .filter_map(|container_device_mapping| container_device_mapping.map(Uuid::from))
                     .collect();
 
                 Ok(Some(DeploymentResource {
@@ -420,6 +415,8 @@ impl From<CreateDeployment> for Deployment {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use diesel::OptionalExtension;
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
@@ -585,5 +582,267 @@ mod tests {
             status: DeploymentStatus::Stopped,
         };
         assert_eq!(deployment, exp);
+    }
+
+    #[tokio::test]
+    async fn find_complete_deployment() {
+        let tmp = TempDir::with_prefix("create_full_deployment").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let deployment_id = Uuid::new_v4();
+
+        let image_id = Uuid::new_v4();
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "postgres:15".to_string(),
+            registry_auth: String::new(),
+        };
+        store.create_image(image).await.unwrap();
+
+        let volume_id = ReqUuid(Uuid::new_v4());
+        let volume = CreateVolume {
+            id: volume_id,
+            deployment_id: ReqUuid(deployment_id),
+            driver: "local".to_string(),
+            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                .map(str::to_string)
+                .to_vec(),
+        };
+        store.create_volume(volume).await.unwrap();
+
+        let network_id = ReqUuid(Uuid::new_v4());
+        let network = CreateNetwork {
+            id: network_id,
+            deployment_id: ReqUuid(deployment_id),
+            driver: "bridge".to_string(),
+            internal: true,
+            enable_ipv6: false,
+            options: vec!["isolate=true".to_string()],
+        };
+        store.create_network(network).await.unwrap();
+
+        let device_mapping_id = ReqUuid(Uuid::new_v4());
+        let device_mapping = CreateDeviceMapping {
+            id: device_mapping_id,
+            deployment_id: ReqUuid(deployment_id),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "dev/tty12".to_string(),
+            c_group_permissions: OptString::from("msv".to_string()),
+        };
+        store.create_device_mapping(device_mapping).await.unwrap();
+
+        let container_id = Uuid::new_v4();
+        let container = CreateContainer {
+            id: ReqUuid(container_id),
+            deployment_id: ReqUuid(deployment_id),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![network_id]),
+            volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
+            privileged: false,
+        };
+        store.create_container(Box::new(container)).await.unwrap();
+
+        let deployment_id = Uuid::new_v4();
+        let deployment = CreateDeployment {
+            id: ReqUuid(deployment_id),
+            containers: VecReqUuid(vec![ReqUuid(container_id)]),
+        };
+        store.create_deployment(deployment).await.unwrap();
+
+        let deployment = store
+            .find_complete_deployment(deployment_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let exp = DeploymentResource {
+            containers: HashSet::from_iter([container_id]),
+            images: HashSet::from_iter([image_id]),
+            volumes: HashSet::from_iter([volume_id.0]),
+            networks: HashSet::from_iter([network_id.0]),
+            device_mapping: HashSet::from_iter([device_mapping_id.0]),
+        };
+
+        assert_eq!(deployment, exp);
+    }
+
+    #[tokio::test]
+    async fn shared_resources_delete() {
+        let tmp = TempDir::with_prefix("create_full_deployment").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let deployment_id_1 = Uuid::new_v4();
+
+        let image_id = Uuid::new_v4();
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id_1),
+            reference: "postgres:15".to_string(),
+            registry_auth: String::new(),
+        };
+        store.create_image(image).await.unwrap();
+
+        let volume_id = ReqUuid(Uuid::new_v4());
+        let volume = CreateVolume {
+            id: volume_id,
+            deployment_id: ReqUuid(deployment_id_1),
+            driver: "local".to_string(),
+            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                .map(str::to_string)
+                .to_vec(),
+        };
+        store.create_volume(volume).await.unwrap();
+
+        let network_id = ReqUuid(Uuid::new_v4());
+        let network = CreateNetwork {
+            id: network_id,
+            deployment_id: ReqUuid(deployment_id_1),
+            driver: "bridge".to_string(),
+            internal: true,
+            enable_ipv6: false,
+            options: vec!["isolate=true".to_string()],
+        };
+        store.create_network(network).await.unwrap();
+
+        let device_mapping_id = ReqUuid(Uuid::new_v4());
+        let device_mapping = CreateDeviceMapping {
+            id: device_mapping_id,
+            deployment_id: ReqUuid(deployment_id_1),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "dev/tty12".to_string(),
+            c_group_permissions: OptString::from("msv".to_string()),
+        };
+        store.create_device_mapping(device_mapping).await.unwrap();
+
+        let container_id_1 = Uuid::new_v4();
+        let container_1 = CreateContainer {
+            id: ReqUuid(container_id_1),
+            deployment_id: ReqUuid(deployment_id_1),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![network_id]),
+            volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
+            privileged: false,
+        };
+        store.create_container(Box::new(container_1)).await.unwrap();
+
+        let deployment_1 = CreateDeployment {
+            id: ReqUuid(deployment_id_1),
+            containers: VecReqUuid(vec![ReqUuid(container_id_1)]),
+        };
+        store.create_deployment(deployment_1).await.unwrap();
+
+        let deployment_id_2 = Uuid::new_v4();
+        let container_id_2 = Uuid::new_v4();
+        let container_2 = CreateContainer {
+            id: ReqUuid(container_id_2),
+            deployment_id: ReqUuid(deployment_id_2),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![network_id]),
+            volume_ids: VecReqUuid(vec![volume_id]),
+            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
+            privileged: false,
+        };
+        store.create_container(Box::new(container_2)).await.unwrap();
+
+        let deployment_2 = CreateDeployment {
+            id: ReqUuid(deployment_id_2),
+            containers: VecReqUuid(vec![ReqUuid(container_id_2)]),
+        };
+        store.create_deployment(deployment_2).await.unwrap();
+
+        let res = store
+            .find_deployment_for_delete(deployment_id_1)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let exp = DeploymentResource {
+            containers: HashSet::from_iter([container_id_1]),
+            images: HashSet::new(),
+            volumes: HashSet::new(),
+            networks: HashSet::new(),
+            device_mapping: HashSet::new(),
+        };
+
+        assert_eq!(res, exp);
     }
 }
