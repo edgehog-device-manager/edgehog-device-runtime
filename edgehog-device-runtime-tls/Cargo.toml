@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 # This file is part of Edgehog.
 #
 # Copyright 2025 SECO Mind Srl
@@ -18,26 +16,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-set -exEuo pipefail
+[package]
+name = "edgehog-device-runtime-tls"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 
-# Trap -e errors
-trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
+[features]
+default = ["platform-verifier"]
+# Preferred, use the platform certificate and TLS verifier.
+platform-verifier = ["dep:rustls-platform-verifier"]
+# Compiled in copy of the root certificate trusted by Mozilla.
+webpki-roots = ["dep:webpki-roots"]
 
-if command -v docker; then
-    command="docker"
-elif command -v podman; then
-    command="podman"
-else
-    echo specify container runtime >&2
-    exit 1
-fi
-
-$command pull docker.io/library/nginx:stable-alpine-slim
-
-$command tag docker.io/library/nginx:stable-alpine-slim localhost:5000/library/nginx:stable-alpine-slim
-
-$command login localhost:5000 --username testusername --password testpassword
-
-$command push localhost:5000/library/nginx:stable-alpine-slim
-
-$command logout localhost:5000
+[dependencies]
+cfg-if.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+rustls-platform-verifier = { workspace = true, optional = true }
+tracing.workspace = true
+webpki-roots = { workspace = true, optional = true }

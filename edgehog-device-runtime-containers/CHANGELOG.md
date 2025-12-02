@@ -25,6 +25,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2025-12-19
+
+## [0.9.2] - 2025-12-18
+
+### Added
+
+- Add the bingen feature
+
+## [0.10.1] - 2025-11-28
+
+## [0.10.0] - 2025-11-05
+
+### Changed
+
+- Implement the new Container features and statistics.
+
 ## [0.9.1] - 2025-09-12
 
 ### Changed

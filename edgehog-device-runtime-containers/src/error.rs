@@ -31,7 +31,7 @@ pub enum DockerError {
     /// couldn't negotiate a supported version with the daemon docker
     Version(#[source] bollard::errors::Error),
     /// couldn't listen to events
-    Envents(#[source] bollard::errors::Error),
+    Events(#[source] bollard::errors::Error),
     /// couldn't ping the docker daemon
     Ping(#[source] bollard::errors::Error),
     /// couldn't complete the image operation

@@ -16,6 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Display;
+
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -24,6 +26,9 @@ pub struct OtaConfig {
     pub reboot: Reboot,
     #[serde(default)]
     pub streaming: bool,
+    /// RAUC configuration for the OTA
+    #[serde(default)]
+    pub rauc: RaucConfig,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -32,6 +37,34 @@ pub enum Reboot {
     #[default]
     Default,
     External,
+}
+
+/// Configuration for RAUC
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+pub struct RaucConfig {
+    /// DBUS socket to connect to
+    #[serde(default)]
+    pub dbus_socket: RaucDbus,
+}
+
+/// DBUS socket to communicate with the RAUC service
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RaucDbus {
+    /// Uses the system bus
+    #[default]
+    System,
+    /// Uses the current user session bus
+    Session,
+}
+
+impl Display for RaucDbus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RaucDbus::System => write!(f, "system"),
+            RaucDbus::Session => write!(f, "session"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -52,6 +85,9 @@ mod tests {
         let exp = OtaConfig {
             reboot: Reboot::External,
             streaming: true,
+            rauc: RaucConfig {
+                dbus_socket: RaucDbus::System,
+            },
         };
 
         assert_eq!(config, exp);
@@ -67,6 +103,29 @@ mod tests {
         let exp = OtaConfig {
             reboot: Reboot::Default,
             streaming: false,
+            rauc: RaucConfig {
+                dbus_socket: RaucDbus::System,
+            },
+        };
+
+        assert_eq!(config, exp);
+    }
+
+    #[test]
+    fn should_deserialize_rauc() {
+        let string = r#"
+        [rauc]
+        dbus_socket = "session"
+        "#;
+
+        let config: OtaConfig = toml::from_str(string).unwrap();
+
+        let exp = OtaConfig {
+            reboot: Reboot::Default,
+            streaming: false,
+            rauc: RaucConfig {
+                dbus_socket: RaucDbus::Session,
+            },
         };
 
         assert_eq!(config, exp);

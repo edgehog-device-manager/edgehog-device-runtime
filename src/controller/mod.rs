@@ -280,7 +280,7 @@ impl<C> Runtime<C> {
             RuntimeEvent::Ota(ota) => {
                 if let Err(err) = self.ota_handler.handle_event(ota).await {
                     error!(
-                        "error while processing ota envent {}",
+                        "error while processing ota event {}",
                         stable_eyre::Report::new(err)
                     );
                 }

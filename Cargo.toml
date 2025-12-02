@@ -16,14 +16,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-[package]
-name = "edgehog-device-runtime"
-version = { workspace = true }
-edition = { workspace = true }
-homepage = { workspace = true }
-rust-version = { workspace = true }
-description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
-
 [workspace]
 resolver = "2"
 members = [
@@ -35,19 +27,20 @@ members = [
   "edgehog-device-runtime-forwarder",
   "edgehog-device-runtime-service",
   "edgehog-device-runtime-store",
+  "edgehog-device-runtime-tls",
   "hardware-id-service",
   "led-manager-service",
 ]
 
 [workspace.package]
-version = "0.9.1"
+version = "0.10.3"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.78"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[profile.release-optimized]
+[profile.release-optimised]
 inherits = "release"
 strip = true
 # Similar to fat in term of performances, but takes substantially less time to run
@@ -55,6 +48,46 @@ lto = "thin"
 debug = true
 # Supported by all platform
 split-debuginfo = "packed"
+
+[package]
+name = "edgehog-device-runtime"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+rust-version = { workspace = true }
+description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
+
+[features]
+default = ["udev", "wifiscanner", "zbus", "platform-verifier"]
+# Enable the container management service
+containers = ["dep:edgehog-containers", "dep:edgehog-store", "edgehog-service/containers"]
+# Enable the forwarder service
+forwarder = ["dep:edgehog-forwarder"]
+# Enable connecting to astarte through the Message Hub
+message-hub = ["astarte-device-sdk/message-hub"]
+# Local service for the runtime
+service = ["dep:edgehog-service", "dep:edgehog-store"]
+# Notifies systemd of the status and health of the runtime service
+systemd = ["dep:systemd"]
+# Enable the telemetry that uses udev
+udev = ["dep:udev"]
+# Enable the wifi scanning telemetry
+wifiscanner = ["dep:wifiscanner"]
+# Enable the communication with DBUS
+zbus = ["dep:zbus"]
+# Preferred, use the platform certificate and TLS verifier.
+platform-verifier = ["edgehog-tls/platform-verifier"]
+# Uses the webpki-roots as a CA bundles
+webpki-roots = ["edgehog-tls/webpki-roots", "astarte-device-sdk/webpki"]
+# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
+# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
+# Uses and compiles the vendored version of the C dependencies
+vendored = ["edgehog-store/vendored"]
+# Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
+bindgen = ["dep:aws-lc-rs", "aws-lc-rs/bindgen", "edgehog-store/bindgen"]
+# Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
+# installed
+cross = ["vendored", "bindgen"]
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
@@ -67,10 +100,10 @@ edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-service = { workspace = true, optional = true }
 edgehog-store = { workspace = true, optional = true }
+edgehog-tls = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
-reqwest = { workspace = true, default-features = false, features = ["rustls-tls-native-roots-no-provider", "stream"] }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -94,6 +127,17 @@ zbus = { workspace = true, optional = true, default-features = false, features =
 aws-lc-rs = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 
+[dependencies.reqwest]
+workspace = true
+default-features = false
+features = [
+  "charset",
+  "http2",
+  "system-proxy",
+  "rustls-tls-native-roots-no-provider",
+  "stream",
+]
+
 [build-dependencies]
 rustc_version = { workspace = true }
 
@@ -105,33 +149,6 @@ pretty_assertions = { workspace = true }
 tempdir = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = { workspace = true, features = ["net"] }
-
-[features]
-default = ["udev", "wifiscanner", "zbus"]
-containers = ["dep:edgehog-containers", "dep:edgehog-store", "edgehog-service/containers"]
-forwarder = ["dep:edgehog-forwarder"]
-message-hub = ["astarte-device-sdk/message-hub"]
-# Local service for the runtime
-service = ["dep:edgehog-service", "dep:edgehog-store"]
-systemd = ["dep:systemd"]
-udev = ["dep:udev"]
-wifiscanner = ["dep:wifiscanner"]
-zbus = ["dep:zbus"]
-# Compiles the C dependencies at buildtime instead of using system libraries
-# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
-# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
-vendored = ["dep:rusqlite", "edgehog-store/vendored", "rusqlite/bundled"]
-# Requires bindgen or clang and CMake to generate C bindings at buildtime
-bindgen = [
-  "dep:rusqlite",
-  "dep:aws-lc-rs",
-  "edgehog-store/bindgen",
-  "rusqlite/buildtime_bindgen",
-  "aws-lc-rs/bindgen",
-]
-# Feature to make it easier to cross compile the runtime, it requires clang and CMake to be
-# installed
-cross = ["vendored", "bindgen"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.10.3"
@@ -149,12 +166,13 @@ deadpool = { version = "0.12.3", default-features = false }
 diesel = "2.2.12"
 diesel_migrations = "2.2.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.1" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.10.3" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.1" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.10.3" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
-edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.9.1" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.1" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.10.3" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.10.3" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.10.3" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -168,12 +186,13 @@ itertools = "0.14.0"
 mockall = "0.13.1"
 pretty_assertions = "1.4.1"
 procfs = "0.17.0"
-reqwest = { version = "0.12.24", default-features = false, features = ["charset", "http2", "macos-system-configuration"] }
+reqwest = { version = "0.12.24", default-features = false }
 rusqlite = "0.32.1"
 rustc_version = "0.4.1"
 rustls = "0.23.32"
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
+rustls-platform-verifier = "0.6.2"
 serde = "1.0.228"
 serde_json = "1.0.145"
 stable-eyre = "0.2.2"
@@ -192,5 +211,6 @@ tracing-subscriber = "0.3.20"
 udev = "0.9.3"
 url = "2.5.7"
 uuid = "1.18.1"
+webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
 zbus = { version = "5.11.0", default-features = false }

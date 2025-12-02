@@ -123,7 +123,7 @@ impl StatsMonitor {
         };
 
         let timestamp = stats.read.unwrap_or_else(|| {
-            debug!("missing read timestamp, genereting one");
+            debug!("missing read timestamp, generating one");
 
             Utc::now()
         });
