@@ -140,7 +140,7 @@ impl Default for DeployStatus {
 const DOWNLOAD_PERC_ROUNDING_STEP: f64 = 10.0;
 const DEPLOY_PERC_ROUNDING_STEP: i32 = 10;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistentState {
     pub uuid: Uuid,
     pub slot: String,
@@ -443,6 +443,8 @@ where
         let client = create_http_client(req)?;
 
         for i in 1..=5 {
+            debug!(time = i, "downloading ota image");
+
             let res = wget(&client, req, ota_path, &self.publisher_tx).await;
 
             match res {
@@ -533,6 +535,11 @@ where
             );
         }
 
+        OtaStatus::Deploying(ota_request.clone(), DeployProgress::default())
+    }
+
+    /// Handle the transition to the deployed status.
+    pub async fn deploy(&self, ota_request: OtaId) -> OtaStatus {
         let booted_slot = match self.system_update.boot_slot().await {
             Ok(slot) => slot,
             Err(err) => {
@@ -555,11 +562,6 @@ where
             return OtaStatus::Failure(OtaError::Io(message), Some(ota_request));
         };
 
-        OtaStatus::Deploying(ota_request.clone(), DeployProgress::default())
-    }
-
-    /// Handle the transition to the deployed status.
-    pub async fn deploy(&self, ota_request: OtaId) -> OtaStatus {
         if let Err(error) = self
             .system_update
             .install_bundle(&self.get_install_uri(&ota_request))
@@ -801,6 +803,8 @@ where
         let mut check_cancel = true;
 
         while self.is_ota_in_progress() {
+            info!(status = %self.ota_status, "ota progress");
+
             self.publish_status(self.ota_status.clone()).await;
 
             if self.ota_status.is_cancellable() {
@@ -1010,9 +1014,11 @@ mod tests {
 
     use futures::StreamExt;
     use httpmock::prelude::*;
-    use mockall::Sequence;
+    use mockall::{predicate, Sequence};
+    use pretty_assertions::assert_eq;
     use tempdir::TempDir;
     use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
     use crate::error::DeviceManagerError;
@@ -1137,6 +1143,162 @@ mod tests {
         ota.next().await;
 
         assert_eq!(ota.ota_status, OtaStatus::Downloading(ota_id.clone(), 0));
+    }
+
+    #[tokio::test]
+    async fn ota_streaming_success() {
+        let slot = "A";
+        let req = OtaId {
+            uuid: Uuid::new_v4(),
+            url: "http://example.com/ota.bin".to_string(),
+        };
+        let state = PersistentState {
+            uuid: req.uuid,
+            slot: slot.to_string(),
+        };
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok(slot.to_string()));
+
+        state_mock
+            .expect_write()
+            .once()
+            .with(predicate::eq(state.clone()))
+            .returning(|_| Ok(()));
+
+        system_update
+            .expect_install_bundle()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(req.url.clone()))
+            .returning(|_| Ok(()));
+
+        system_update
+            .expect_operation()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("".to_string()));
+
+        system_update
+            .expect_receive_completed()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| {
+                let progress = [
+                    DeployStatus::Progress(DeployProgress {
+                        percentage: 50,
+                        message: "Copy image".to_string(),
+                    }),
+                    DeployStatus::Progress(DeployProgress {
+                        percentage: 100,
+                        message: "Installing is done".to_string(),
+                    }),
+                    DeployStatus::Completed { signal: 0 },
+                ]
+                .map(Ok);
+
+                Ok(futures::stream::iter(progress).boxed())
+            });
+
+        state_mock
+            .expect_exists()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| true);
+
+        state_mock
+            .expect_read()
+            .once()
+            .in_sequence(&mut seq)
+            .return_once(|| Ok(state));
+
+        let new_slot = "B";
+
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .return_once(|| Ok(new_slot.to_string()));
+
+        system_update
+            .expect_get_primary()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok(new_slot.to_string()));
+
+        system_update
+            .expect_mark()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq("good"), predicate::eq(new_slot))
+            .return_once(|_, _| Ok((new_slot.to_string(), "".to_string())));
+
+        state_mock
+            .expect_exists()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| true);
+
+        state_mock
+            .expect_clear()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok(()));
+
+        let (tx, mut rx) = mpsc::channel(10);
+        let mut ota = Ota::mock_new(system_update, state_mock, tx);
+        ota.config.streaming = true;
+        ota.ota_status = OtaStatus::Acknowledged(req.clone());
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            ota.handle_ota_update(CancellationToken::new()),
+        )
+        .await
+        .unwrap();
+
+        let exp = [
+            OtaStatus::Acknowledged(req.clone()),
+            OtaStatus::Deploying(req.clone(), DeployProgress::default()),
+            OtaStatus::Deploying(
+                req.clone(),
+                DeployProgress {
+                    percentage: 50,
+                    message: "Copy image".to_string(),
+                },
+            ),
+            OtaStatus::Deploying(
+                req.clone(),
+                DeployProgress {
+                    percentage: 100,
+                    message: "Installing is done".to_string(),
+                },
+            ),
+            OtaStatus::Deployed(req.clone()),
+            OtaStatus::Rebooting(req.clone()),
+            OtaStatus::Rebooted,
+            OtaStatus::Success(OtaId {
+                uuid: req.uuid,
+                url: "".to_string(),
+            }),
+            OtaStatus::Idle,
+        ];
+
+        let mut received = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), rx.recv_many(&mut received, 10))
+            .await
+            .unwrap();
+
+        assert_eq!(received, exp);
+
+        assert!(rx.is_empty());
     }
 
     #[tokio::test]
@@ -1443,33 +1605,47 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_deploying_fail_call_boot_slot() {
-        let state_mock = MockStateRepository::<PersistentState>::new();
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
 
-        system_update.expect_info().returning(|_: &str| {
-            Ok(BundleInfo {
-                compatible: "rauc-demo-x86".to_string(),
-                version: "1".to_string(),
-            })
-        });
+        system_update
+            .expect_info()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_: &str| {
+                Ok(BundleInfo {
+                    compatible: "rauc-demo-x86".to_string(),
+                    version: "1".to_string(),
+                })
+            });
 
         system_update
             .expect_compatible()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Ok("rauc-demo-x86".to_string()));
 
-        system_update.expect_boot_slot().returning(|| {
-            Err(DeviceManagerError::Fatal(
-                "unable to call boot slot".to_string(),
-            ))
-        });
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| {
+                Err(DeviceManagerError::Fatal(
+                    "unable to call boot slot".to_string(),
+                ))
+            });
+
+        state_mock
+            .expect_exists()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| false);
 
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
 
-        let mut ota_request = OtaId::default();
         let server = MockServer::start_async().await;
-        let ota_url = server.url("/ota.bin");
-        ota_request.url = ota_url;
         let mock_ota_file_request = server
             .mock_async(|when, then| {
                 when.method(GET).path("/ota.bin");
@@ -1479,126 +1655,55 @@ mod tests {
             })
             .await;
 
-        let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
-        let (ota, _dir) = Ota::mock_new_with_path(
+        let url = server.url("/ota.bin");
+        let req = OtaId {
+            uuid: Uuid::new_v4(),
+            url,
+        };
+
+        let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(6);
+        let (mut ota, _dir) = Ota::mock_new_with_path(
             system_update,
             state_mock,
             "fail_call_boot_slot",
             ota_status_publisher,
         );
 
-        let ota_status = ota.download(ota_request).await;
+        ota.ota_status = OtaStatus::Acknowledged(req.clone());
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            ota.handle_ota_update(CancellationToken::new()),
+        )
+        .await
+        .unwrap();
+
+        let expected = [
+            OtaStatus::Acknowledged(req.clone()),
+            OtaStatus::Downloading(req.clone(), 0),
+            OtaStatus::Downloading(req.clone(), 100),
+            OtaStatus::Deploying(req.clone(), DeployProgress::default()),
+            OtaStatus::Failure(
+                OtaError::Internal("Unable to identify the booted slot"),
+                Some(req),
+            ),
+            OtaStatus::Idle,
+        ];
+
+        for exp in expected {
+            let status = ota_status_receiver.try_recv().unwrap();
+
+            assert_eq!(status, exp)
+        }
+
+        assert!(ota_status_receiver.is_empty());
+
         mock_ota_file_request.assert_async().await;
-
-        let receive_result = ota_status_receiver.try_recv();
-        assert!(receive_result.is_ok());
-        let ota_status_received = receive_result.unwrap();
-        assert!(matches!(
-            ota_status_received,
-            OtaStatus::Downloading(_, 100)
-        ));
-
-        let receive_result = ota_status_receiver.try_recv();
-        assert!(receive_result.is_err());
-
-        assert!(matches!(
-            ota_status,
-            OtaStatus::Failure(OtaError::Internal(_), _)
-        ));
     }
 
     #[tokio::test]
     async fn try_to_deploying_fail_write_state() {
         let mut state_mock = MockStateRepository::<PersistentState>::new();
-        let mut system_update = MockSystemUpdate::new();
-
-        state_mock.expect_write().returning(|_| {
-            Err(FileStateError::Write {
-                path: "/ota.bin".into(),
-                backtrace: io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
-            })
-        });
-
-        system_update.expect_info().returning(|_: &str| {
-            Ok(BundleInfo {
-                compatible: "rauc-demo-x86".to_string(),
-                version: "1".to_string(),
-            })
-        });
-
-        system_update
-            .expect_compatible()
-            .returning(|| Ok("rauc-demo-x86".to_string()));
-
-        system_update
-            .expect_boot_slot()
-            .returning(|| Ok("A".to_string()));
-
-        let binary_content = b"\x80\x02\x03";
-        let binary_size = binary_content.len();
-
-        let server = MockServer::start_async().await;
-        let ota_url = server.url("/ota.bin");
-
-        let mock_ota_file_request = server
-            .mock_async(|when, then| {
-                when.method(GET).path("/ota.bin");
-                then.status(200)
-                    .header("content-Length", binary_size.to_string())
-                    .body(binary_content);
-            })
-            .await;
-
-        tokio::time::pause();
-
-        let (publisher_tx, mut publisher_rx) = mpsc::channel(10);
-        let (ota, _dir) =
-            Ota::mock_new_with_path(system_update, state_mock, "fail_write_state", publisher_tx);
-
-        let ota_id = OtaId {
-            uuid: Uuid::new_v4(),
-            url: ota_url,
-        };
-        let ota_status = ota.download(ota_id.clone()).await;
-
-        let exp = [OtaStatus::Downloading(ota_id.clone(), 100)];
-
-        for status in exp {
-            let val = tokio::time::timeout(Duration::from_secs(2), publisher_rx.recv())
-                .await
-                .unwrap()
-                .unwrap();
-
-            assert_eq!(val, status);
-        }
-
-        assert!(publisher_rx.is_empty());
-
-        assert_eq!(
-            ota_status,
-            OtaStatus::Failure(
-                OtaError::Io("Unable to persist ota state".to_string()),
-                Some(ota_id),
-            ),
-        );
-
-        mock_ota_file_request.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn try_to_download_success() {
-        let uuid = Uuid::new_v4();
-
-        let mut state_mock = MockStateRepository::<PersistentState>::new();
-        let mut seq = Sequence::new();
-
-        state_mock
-            .expect_write()
-            .once()
-            .in_sequence(&mut seq)
-            .withf(move |p| p.uuid == uuid && p.slot == "A")
-            .returning(|_| Ok(()));
-
         let mut system_update = MockSystemUpdate::new();
         let mut seq = Sequence::new();
 
@@ -1624,6 +1729,113 @@ mod tests {
             .once()
             .in_sequence(&mut seq)
             .returning(|| Ok("A".to_string()));
+
+        state_mock
+            .expect_write()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_| {
+                Err(FileStateError::Write {
+                    path: "/ota.bin".into(),
+                    backtrace: io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
+                })
+            });
+
+        state_mock
+            .expect_exists()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| false);
+
+        let binary_content = b"\x80\x02\x03";
+        let binary_size = binary_content.len();
+
+        let server = MockServer::start_async().await;
+
+        let mock_ota_file_request = server
+            .mock_async(|when, then| {
+                when.method(GET).path("/ota.bin");
+                then.status(200)
+                    .header("content-length", binary_size.to_string())
+                    .body(binary_content);
+            })
+            .await;
+
+        let ota_url = server.url("/ota.bin");
+
+        let (publisher_tx, mut publisher_rx) = mpsc::channel(10);
+        let (mut ota, _dir) =
+            Ota::mock_new_with_path(system_update, state_mock, "fail_write_state", publisher_tx);
+
+        let ota_id = OtaId {
+            uuid: Uuid::new_v4(),
+            url: ota_url,
+        };
+
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_test_writer()
+            .init();
+
+        ota.ota_status = OtaStatus::Acknowledged(ota_id.clone());
+
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            ota.handle_ota_update(CancellationToken::new()),
+        )
+        .await
+        .unwrap();
+
+        let exp = [
+            OtaStatus::Acknowledged(ota_id.clone()),
+            OtaStatus::Downloading(ota_id.clone(), 0),
+            OtaStatus::Downloading(ota_id.clone(), 100),
+            OtaStatus::Deploying(ota_id.clone(), DeployProgress::default()),
+            OtaStatus::Failure(
+                OtaError::Io("Unable to persist ota state".to_string()),
+                Some(ota_id),
+            ),
+            OtaStatus::Idle,
+        ];
+
+        for status in exp {
+            let val = tokio::time::timeout(Duration::from_secs(2), publisher_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(val, status, "got {status}");
+        }
+
+        assert!(publisher_rx.is_empty());
+
+        mock_ota_file_request.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn try_to_download_success() {
+        let uuid = Uuid::new_v4();
+
+        let state_mock = MockStateRepository::<PersistentState>::new();
+        let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
+        system_update
+            .expect_info()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_: &str| {
+                Ok(BundleInfo {
+                    compatible: "rauc-demo-x86".to_string(),
+                    version: "1".to_string(),
+                })
+            });
+
+        system_update
+            .expect_compatible()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("rauc-demo-x86".to_string()));
 
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
@@ -1675,11 +1887,29 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_deployed_fail_install_bundle() {
-        let state_mock = MockStateRepository::<PersistentState>::new();
+        let req = OtaId::default();
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("A".to_string()));
+
+        state_mock
+            .expect_write()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |p| p.uuid == req.uuid && p.slot == "A")
+            .returning(|_| Ok(()));
 
         system_update
             .expect_install_bundle()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|_| Err(DeviceManagerError::Fatal("install fail".to_string())));
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
@@ -1690,7 +1920,7 @@ mod tests {
             ota_status_publisher,
         );
 
-        let ota_status = ota.deploy(OtaId::default()).await;
+        let ota_status = ota.deploy(req).await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_err());
@@ -1703,12 +1933,35 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_deployed_fail_operation() {
-        let state_mock = MockStateRepository::<PersistentState>::new();
-        let mut system_update = MockSystemUpdate::new();
+        let req = OtaId::default();
 
-        system_update.expect_install_bundle().returning(|_| Ok(()));
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        let mut seq = Sequence::new();
+
+        state_mock
+            .expect_write()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |p| p.uuid == req.uuid && p.slot == "A")
+            .returning(|_| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("A".to_string()));
+        system_update
+            .expect_install_bundle()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_| Ok(()));
         system_update
             .expect_operation()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Err(DeviceManagerError::Fatal("operation call fail".to_string())));
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
@@ -1719,7 +1972,7 @@ mod tests {
             ota_status_publisher,
         );
 
-        let ota_status = ota.deploy(OtaId::default()).await;
+        let ota_status = ota.deploy(req).await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_err());
@@ -1732,18 +1985,44 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_deployed_fail_receive_completed() {
-        let state_mock = MockStateRepository::<PersistentState>::new();
-        let mut system_update = MockSystemUpdate::new();
+        let req = OtaId::default();
 
-        system_update.expect_install_bundle().returning(|_| Ok(()));
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("A".to_string()));
+
+        state_mock
+            .expect_write()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |p| p.uuid == req.uuid && p.slot == "A")
+            .returning(|_| Ok(()));
+
+        system_update
+            .expect_install_bundle()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_| Ok(()));
         system_update
             .expect_operation()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Ok("".to_string()));
-        system_update.expect_receive_completed().returning(|| {
-            Err(DeviceManagerError::Fatal(
-                "receive_completed call fail".to_string(),
-            ))
-        });
+        system_update
+            .expect_receive_completed()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| {
+                Err(DeviceManagerError::Fatal(
+                    "receive_completed call fail".to_string(),
+                ))
+            });
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
         let (ota, _dir) = Ota::mock_new_with_path(
@@ -1753,7 +2032,7 @@ mod tests {
             ota_status_publisher,
         );
 
-        let ota_status = ota.deploy(OtaId::default()).await;
+        let ota_status = ota.deploy(req).await;
 
         let receive_result = ota_status_receiver.try_recv();
         assert!(receive_result.is_err());
@@ -1766,18 +2045,45 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_deployed_fail_signal() {
-        let state_mock = MockStateRepository::<PersistentState>::new();
-        let mut system_update = MockSystemUpdate::new();
+        let req = OtaId::default();
 
-        system_update.expect_install_bundle().returning(|_| Ok(()));
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        let mut seq = Sequence::new();
+
+        state_mock
+            .expect_write()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |p| p.uuid == req.uuid && p.slot == "A")
+            .returning(|_| Ok(()));
+
+        let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("A".to_string()));
+        system_update
+            .expect_install_bundle()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_| Ok(()));
         system_update
             .expect_operation()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Ok("".to_string()));
         system_update
             .expect_receive_completed()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| deploy_status_stream([DeployStatus::Completed { signal: -1 }]));
         system_update
             .expect_last_error()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Ok("Unable to deploy image".to_string()));
 
         let (ota_status_publisher, _) = mpsc::channel(1);
@@ -1788,7 +2094,7 @@ mod tests {
             ota_status_publisher,
         );
 
-        let ota_status = ota.deploy(OtaId::default()).await;
+        let ota_status = ota.deploy(req).await;
 
         assert!(matches!(
             ota_status,
@@ -1798,11 +2104,26 @@ mod tests {
 
     #[tokio::test]
     async fn try_to_deployed_success() {
-        let state_mock = MockStateRepository::<PersistentState>::new();
+        let req = OtaId::default();
+
+        let mut state_mock = MockStateRepository::<PersistentState>::new();
+        let mut seq = Sequence::new();
+
+        state_mock
+            .expect_write()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(move |p| p.uuid == req.uuid && p.slot == "A")
+            .returning(|_| Ok(()));
 
         let mut system_update = MockSystemUpdate::new();
         let mut seq = Sequence::new();
 
+        system_update
+            .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|| Ok("A".to_string()));
         system_update
             .expect_install_bundle()
             .once()
@@ -1838,22 +2159,18 @@ mod tests {
         let (ota, _dir) =
             Ota::mock_new_with_path(system_update, state_mock, "deployed_success", publisher_tx);
 
-        let ota_id = OtaId {
-            uuid: Uuid::new_v4(),
-            url: String::new(),
-        };
-        let status = ota.deploy(ota_id.clone()).await;
+        let status = ota.deploy(req.clone()).await;
 
         let exp = [
             OtaStatus::Deploying(
-                ota_id.clone(),
+                req.clone(),
                 DeployProgress {
                     percentage: 50,
                     message: "Copy image".to_string(),
                 },
             ),
             OtaStatus::Deploying(
-                ota_id.clone(),
+                req.clone(),
                 DeployProgress {
                     percentage: 100,
                     message: "Installing is done".to_string(),
@@ -1870,7 +2187,7 @@ mod tests {
             assert_eq!(val, status);
         }
 
-        assert_eq!(status, OtaStatus::Deployed(ota_id));
+        assert_eq!(status, OtaStatus::Deployed(req));
     }
 
     #[tokio::test]
@@ -2124,27 +2441,22 @@ mod tests {
 
     #[tokio::test]
     async fn do_pending_ota_fail_marked_wrong_slot() {
-        let uuid = Uuid::new_v4();
-        let slot = "A";
-
-        let mut state_mock = MockStateRepository::<PersistentState>::new();
-        state_mock.expect_exists().returning(|| true);
-        state_mock.expect_read().returning(move || {
-            Ok(PersistentState {
-                uuid,
-                slot: slot.to_owned(),
-            })
-        });
-
-        state_mock.expect_clear().returning(|| Ok(()));
-
+        let state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
+        let mut seq = Sequence::new();
+
         system_update
             .expect_boot_slot()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Ok("B".to_owned()));
+
         system_update
             .expect_get_primary()
+            .once()
+            .in_sequence(&mut seq)
             .returning(|| Ok("rootfs.0".to_owned()));
+
         system_update.expect_mark().returning(|_: &str, _: &str| {
             Ok((
                 "rootfs.1".to_owned(),
@@ -2155,10 +2467,14 @@ mod tests {
         let (ota_status_publisher, _ota_status_receiver) = mpsc::channel(1);
         let ota = Ota::mock_new(system_update, state_mock, ota_status_publisher);
 
-        let state = ota.state_repository.read().await.unwrap();
-        let result = ota.do_pending_ota(&state).await;
-        assert!(result.is_err());
-        assert!(matches!(result.err().unwrap(), OtaError::Internal(_),));
+        let state = PersistentState {
+            uuid: Uuid::new_v4(),
+            slot: "A".to_string(),
+        };
+
+        let err = ota.do_pending_ota(&state).await.unwrap_err();
+
+        assert_eq!(err, OtaError::Internal("Unable to mark slot"));
     }
 
     #[tokio::test]
