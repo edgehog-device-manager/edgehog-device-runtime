@@ -39,17 +39,17 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.72"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[profile.release-minimal]
+[profile.release-optimised]
 inherits = "release"
 strip = true
-lto = true
+lto = "thin"
 debug = true
 # Supported by all platform
 split-debuginfo = "packed"
@@ -67,7 +67,6 @@ edgehog-store = { workspace = true, optional = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
-reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider", "stream"] }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -89,13 +88,22 @@ wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
 # C dependencies
-aws-lc-rs = { version = "*", optional = true }
-openssl = { version = "*", optional = true }
+aws-lc-rs = { workspace = true, optional = true }
 
 # Pin transitive deps
 litemap = { workspace = true }
-native-tls = { workspace = true }
 zerofrom = { workspace = true }
+
+[dependencies.reqwest]
+workspace = true
+default-features = false
+features = [
+  "charset",
+  "http2",
+  "system-proxy",
+  "rustls-tls-native-roots-no-provider",
+  "stream",
+]
 
 [build-dependencies]
 rustc_version = { workspace = true }
@@ -119,10 +127,13 @@ wifiscanner = ["dep:wifiscanner"]
 zbus = ["dep:zbus"]
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
-vendored = ["edgehog-store/vendored", "dep:openssl", "openssl/vendored"]
+# Uses and compiles the vendored version of the C dependencies
+vendored = ["edgehog-store/vendored"]
+# Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
+bindgen = ["dep:aws-lc-rs", "aws-lc-rs/bindgen", "edgehog-store/bindgen"]
 # Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
 # installed
-cross = ["vendored", "dep:aws-lc-rs", "aws-lc-rs/bindgen"]
+cross = ["vendored", "bindgen"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.9.6"
@@ -139,10 +150,10 @@ color-eyre = "0.6.3"
 diesel = "=2.1.6"
 diesel_migrations = "=2.1.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.1" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.9.2" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.1" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.1" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.2" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.2" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -152,11 +163,10 @@ hyper = "1.6.0"
 indexmap = "2.8.0"
 itertools = "0.14.0"
 mockall = "0.13.1"
-native-tls = "=0.2.13"
 petgraph = "0.7.1"
 pretty_assertions = "1.4.1"
 procfs = "0.17.0"
-reqwest = "0.12.12"
+reqwest = { version = "0.12.12", default-features = false }
 rusqlite = "0.29.0"
 rustc_version = "0.4.1"
 rustls = { version = "0.23.23" }
@@ -183,6 +193,9 @@ url = "2.5.4"
 uuid = "1.15.1"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
+
+# C dependencies, not strictly require but used for cross compiling
+aws-lc-rs = "1.13.1"
 
 # Transitive dependencies
 hyperlocal = "=0.9.0"

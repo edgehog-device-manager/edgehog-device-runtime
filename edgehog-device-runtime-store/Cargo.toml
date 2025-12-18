@@ -27,7 +27,7 @@ rust-version.workspace = true
 diesel = { workspace = true, features = ["sqlite", "uuid"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 displaydoc = { workspace = true }
-rusqlite = { workspace = true, features = ["modern_sqlite", "buildtime_bindgen"] }
+rusqlite = { workspace = true, features = ["modern_sqlite"] }
 sync_wrapper = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
@@ -39,4 +39,7 @@ tempfile = { workspace = true }
 
 [features]
 containers = []
+# Recreates the C bindings at buildtime
+bindgen = ["rusqlite/buildtime_bindgen"]
+# Uses and compiles the vendored version of the C dependencies
 vendored = ["rusqlite/bundled"]
