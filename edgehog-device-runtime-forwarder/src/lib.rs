@@ -12,7 +12,6 @@ pub mod collection;
 pub mod connection;
 pub mod connections_manager;
 mod messages;
-pub mod tls;
 
 // re-exported dependencies
 pub use astarte_device_sdk;

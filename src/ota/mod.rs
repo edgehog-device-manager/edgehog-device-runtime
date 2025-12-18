@@ -29,6 +29,7 @@ use futures::stream::BoxStream;
 use futures::TryStreamExt;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use ota_handler::{OtaEvent, OtaInProgress, OtaMessage, OtaStatusMessage};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -435,13 +436,14 @@ where
     // Retries the download 5 times
     async fn retry_download(
         &self,
-        url: &str,
+        req: &OtaId,
         ota_path: &Path,
         ota_file: &str,
-        req: &OtaId,
     ) -> Result<String, OtaError> {
+        let client = create_http_client(req)?;
+
         for i in 1..=5 {
-            let res = wget(url, ota_path, &req.uuid, &self.publisher_tx).await;
+            let res = wget(&client, req, ota_path, &self.publisher_tx).await;
 
             match res {
                 Ok(()) => return Ok(ota_file.to_string()),
@@ -483,12 +485,7 @@ where
         };
 
         let download_res = self
-            .retry_download(
-                &ota_request.url,
-                &download_file_path,
-                download_file_str,
-                &ota_request,
-            )
+            .retry_download(&ota_request, &download_file_path, download_file_str)
             .await;
 
         let ota_file = match download_res {
@@ -870,10 +867,44 @@ where
     }
 }
 
+/// Create the http client
+fn create_http_client(req: &OtaId) -> Result<reqwest::Client, OtaError> {
+    let mut headers = HeaderMap::new();
+    let name = HeaderName::from_static("x-edgehog-ota-id");
+    match HeaderValue::try_from(req.uuid.to_string()) {
+        Ok(value) => {
+            headers.append(name, value);
+        }
+        Err(error) => {
+            error!(%error, "couldn't set ota-id HTTP header value")
+        }
+    };
+    let tls = edgehog_tls::config().map_err(|error| {
+        error!(%error, "couldn't setup TLS configuration");
+
+        OtaError::Internal("couldn setup TLS configuration")
+    })?;
+    let client = reqwest::Client::builder()
+        .use_preconfigured_tls(tls)
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .default_headers(headers)
+        .build()
+        .map_err(|error| {
+            error!(%error,"couldn't build HTTP client");
+
+            OtaError::Internal("couldn't build HTTP client")
+        })?;
+    Ok(client)
+}
+
 pub async fn wget(
-    url: &str,
+    client: &reqwest::Client,
+    req: &OtaId,
     file_path: &Path,
-    request_uuid: &Uuid,
     ota_status_publisher: &mpsc::Sender<OtaStatus>,
 ) -> Result<(), OtaError> {
     use tokio_stream::StreamExt;
@@ -890,18 +921,9 @@ pub async fn wget(
         })?;
     }
 
-    info!("Downloading {:?}", url);
+    info!(url = req.url, "Downloading");
 
-    // TODO: in the feature this will change, for now just set the default to make the tests pass
-    // Set default crypto provider
-    #[cfg(test)]
-    if rustls::crypto::CryptoProvider::get_default().is_none() {
-        let _ = rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .inspect_err(|_| error!("couldn't install default crypto provider"));
-    }
-
-    let result_response = reqwest::get(url).await;
+    let result_response = client.get(&req.url).send().await;
 
     match result_response {
         Err(err) => {
@@ -916,7 +938,7 @@ pub async fn wget(
                 .content_length()
                 .and_then(|size| if size == 0 { None } else { Some(size) })
                 .ok_or_else(|| {
-                    OtaError::Network(format!("Unable to get content length from: {url}"))
+                    OtaError::Network(format!("Unable to get content length from: {}", req.url))
                 })? as f64;
 
             let mut downloaded: f64 = 0.0;
@@ -958,10 +980,7 @@ pub async fn wget(
                     last_percentage_sent = progress_percentage;
                     if ota_status_publisher
                         .send(OtaStatus::Downloading(
-                            OtaId {
-                                uuid: *request_uuid,
-                                url: url.to_string(),
-                            },
+                            req.clone(),
                             progress_percentage as i32,
                         ))
                         .await
@@ -999,7 +1018,7 @@ mod tests {
     use crate::error::DeviceManagerError;
     use crate::ota::ota_handler_test::deploy_status_stream;
     use crate::ota::rauc::BundleInfo;
-    use crate::ota::{wget, Ota, OtaId, OtaStatus, PersistentState};
+    use crate::ota::{create_http_client, wget, Ota, OtaId, OtaStatus, PersistentState};
     use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, SystemUpdate};
     use crate::repository::file_state_repository::FileStateError;
     use crate::repository::{MockStateRepository, StateRepository};
@@ -2195,13 +2214,14 @@ mod tests {
         let ota_file = t_dir.join("ota,bin");
         let (ota_status_publisher, _) = mpsc::channel(1);
 
-        let result = wget(
-            server.url("/ota.bin").as_str(),
-            &ota_file,
-            &Uuid::new_v4(),
-            &ota_status_publisher,
-        )
-        .await;
+        let url = server.url("/ota.bin").to_string();
+        let req = OtaId {
+            uuid: Uuid::new_v4(),
+            url,
+        };
+
+        let client = create_http_client(&req).unwrap();
+        let result = wget(&client, &req, &ota_file, &ota_status_publisher).await;
 
         hello_mock.assert_async().await;
         assert!(result.is_err());
@@ -2226,17 +2246,15 @@ mod tests {
             .await;
 
         let ota_file = t_dir.join("ota.bin");
-        let uuid_request = Uuid::new_v4();
+        let req = OtaId {
+            uuid: Uuid::new_v4(),
+            url: ota_url,
+        };
 
         let (ota_status_publisher, _) = mpsc::channel(1);
+        let client = create_http_client(&req).unwrap();
 
-        let result = wget(
-            ota_url.as_str(),
-            &ota_file,
-            &uuid_request,
-            &ota_status_publisher,
-        )
-        .await;
+        let result = wget(&client, &req, &ota_file, &ota_status_publisher).await;
 
         mock_ota_file_request.assert_async().await;
         assert!(result.is_err());
@@ -2258,13 +2276,15 @@ mod tests {
         let ota_file = t_dir.join("ota.bin");
         let (ota_status_publisher, _) = mpsc::channel(1);
 
-        let result = wget(
-            server.url("/ota.bin").as_str(),
-            &ota_file,
-            &Uuid::new_v4(),
-            &ota_status_publisher,
-        )
-        .await;
+        let url = server.url("/ota.bin");
+        let req = OtaId {
+            url,
+            uuid: Uuid::new_v4(),
+        };
+
+        let client = create_http_client(&req).unwrap();
+
+        let result = wget(&client, &req, &ota_file, &ota_status_publisher).await;
 
         mock_ota_file_request.assert_async().await;
         assert!(result.is_err());
@@ -2290,17 +2310,16 @@ mod tests {
             .await;
 
         let ota_file = t_dir.join("ota.bin");
-        let uuid_request = Uuid::new_v4();
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
 
-        let result = wget(
-            ota_url.as_str(),
-            &ota_file,
-            &uuid_request,
-            &ota_status_publisher,
-        )
-        .await;
+        let req = OtaId {
+            uuid: Uuid::new_v4(),
+            url: ota_url,
+        };
+
+        let client = create_http_client(&req).unwrap();
+        let result = wget(&client, &req, &ota_file, &ota_status_publisher).await;
         mock_ota_file_request.assert_async().await;
 
         let receive_result = ota_status_receiver.try_recv();
