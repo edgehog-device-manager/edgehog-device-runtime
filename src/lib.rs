@@ -45,6 +45,7 @@ pub mod repository;
 #[cfg(feature = "systemd")]
 pub mod systemd_wrapper;
 pub mod telemetry;
+pub(crate) mod tls;
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum AstarteLibrary {
