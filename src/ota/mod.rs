@@ -841,7 +841,11 @@ fn create_http_client(req: &OtaId) -> Result<reqwest::Client, OtaError> {
             error!(%error, "couldn't set ota-id HTTP header value")
         }
     };
-    let tls = crate::tls::config();
+    let tls = edgehog_tls::config().map_err(|error| {
+        error!(%error, "couldn't setup TLS configuration");
+
+        OtaError::Internal("couldn setup TLS configuration")
+    })?;
     let client = reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .user_agent(concat!(

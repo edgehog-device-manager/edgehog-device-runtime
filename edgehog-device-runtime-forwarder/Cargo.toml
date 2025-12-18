@@ -16,17 +16,16 @@ async-trait = { workspace = true }
 backoff = { workspace = true, features = ["tokio"] }
 displaydoc = { workspace = true }
 edgehog-device-forwarder-proto = { workspace = true }
+edgehog-tls = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
 httpmock = { workspace = true, optional = true }
 reqwest = { workspace = true }
-rustls = { workspace = true , features = ["ring","logging","std","tls12"]}
-rustls-native-certs = { workspace = true }
-rustls-pemfile = { workspace = true }
+rustls = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true, features = ["rustls-tls-native-roots", "url"] }
+tokio-tungstenite = { workspace = true, features = ["__rustls-tls", "tokio-rustls", "url"] }
 tracing = { workspace = true, features = ["log"] }
 url = { workspace = true }
 

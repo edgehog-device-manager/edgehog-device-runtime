@@ -322,7 +322,14 @@ impl HttpRequest {
         let url = url::Url::parse(&url_str)?;
         let method = http::method::Method::from_str(self.method.as_str())?;
 
-        let http_builder = reqwest::Client::new()
+        let tls = edgehog_tls::config().map_err(|error| {
+            error!(%error, "couldn't configure TLS");
+
+            ProtocolError::ReqBuild(", configure TLS")
+        })?;
+        let http_builder = reqwest::Client::builder()
+            .use_preconfigured_tls(tls)
+            .build()?
             .request(method, url)
             .headers(self.headers)
             .body(self.body);

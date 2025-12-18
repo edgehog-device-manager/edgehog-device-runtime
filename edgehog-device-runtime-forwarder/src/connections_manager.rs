@@ -4,6 +4,7 @@
 //! Handle the interaction between the device connections and Edgehog.
 
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use backoff::{Error as BackoffError, ExponentialBackoff};
 use futures::{future, SinkExt, StreamExt, TryFutureExt};
@@ -11,9 +12,10 @@ use thiserror::Error as ThisError;
 use tokio::net::TcpStream;
 use tokio::select;
 use tokio::sync::mpsc::{channel, Receiver};
+use tokio_tungstenite::connect_async_tls_with_config;
 use tokio_tungstenite::{
-    connect_async_tls_with_config, tungstenite::Error as TungError,
-    tungstenite::Message as TungMessage, Connector, MaybeTlsStream, WebSocketStream,
+    tungstenite::Error as TungError, tungstenite::Message as TungMessage, Connector,
+    MaybeTlsStream, WebSocketStream,
 };
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
@@ -21,7 +23,6 @@ use url::Url;
 use crate::collection::Connections;
 use crate::connection::ConnectionError;
 use crate::messages::{Id, ProtoMessage, ProtocolError};
-use crate::tls::{device_tls_config, Error as TlsError};
 
 /// Size of the channels where to send proto messages.
 pub(crate) const CHANNEL_SIZE: usize = 50;
@@ -50,8 +51,8 @@ pub enum Error {
     TokenAlreadyUsed(String),
     /// Error while performing exponential backoff to create a WebSocket connection
     BackOff(#[from] BackoffError<Box<Error>>),
-    /// Tls error
-    Tls(#[from] TlsError),
+    /// TLS error
+    Tls(#[from] rustls::Error),
 }
 
 /// WebSocket error causing disconnection.
@@ -84,7 +85,9 @@ impl ConnectionsManager {
     pub async fn connect(url: Url, secure: bool) -> Result<Self, Error> {
         // compute the TLS connector information or use a plain ws connection
         let connector = if secure {
-            device_tls_config()?
+            let tls = edgehog_tls::config()?;
+
+            Connector::Rustls(Arc::new(tls))
         } else {
             Connector::Plain
         };
@@ -313,7 +316,9 @@ impl ConnectionsManager {
         debug!("trying to reconnect");
 
         let connector = if self.secure {
-            device_tls_config()?
+            let tls = edgehog_tls::config()?;
+
+            Connector::Rustls(Arc::new(tls))
         } else {
             Connector::Plain
         };

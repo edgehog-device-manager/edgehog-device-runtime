@@ -34,6 +34,7 @@ members = [
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
   "edgehog-device-runtime-store",
+  "edgehog-device-runtime-tls",
   "hardware-id-service",
   "led-manager-service",
 ]
@@ -64,6 +65,7 @@ displaydoc = { workspace = true }
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-store = { workspace = true, optional = true }
+edgehog-tls = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
@@ -155,6 +157,7 @@ edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.9.2" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.9.2" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.9.2" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -170,9 +173,8 @@ procfs = "0.17.0"
 reqwest = { version = "0.12.12", default-features = false }
 rusqlite = "0.29.0"
 rustc_version = "0.4.1"
-rustls = { version = "0.23.23" }
-rustls-native-certs = "0.8.1"
-rustls-pemfile = "2.2.0"
+rustls = "0.23.23"
+rustls-native-certs = "0.8.2"
 rustls-platform-verifier = "0.6.2"
 serde = "1.0.219"
 serde_json = "1.0.140"
@@ -193,6 +195,7 @@ tracing-subscriber = "0.3.19"
 udev = "0.9.3"
 url = "2.5.4"
 uuid = "1.15.1"
+webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
 zbus = { version = "3.15.2", default-features = false }
 
