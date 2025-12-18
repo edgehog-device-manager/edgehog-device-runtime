@@ -184,7 +184,7 @@ impl Debug for Handle {
 #[derive(Debug, Clone, Copy)]
 pub struct SqliteOpts {
     max_pool_size: NonZeroUsize,
-    busy_timout: Duration,
+    busy_timeout: Duration,
     cache_size: i16,
     max_page_count: u32,
     journal_size_limit: u64,
@@ -198,8 +198,8 @@ impl SqliteOpts {
     }
 
     /// Setter for the busy timeout
-    pub fn set_busy_timout(&mut self, busy_timout: Duration) {
-        self.busy_timout = busy_timout;
+    pub fn set_busy_timeout(&mut self, busy_timeout: Duration) {
+        self.busy_timeout = busy_timeout;
     }
 
     /// Setter for the max page count
@@ -229,7 +229,7 @@ impl Default for SqliteOpts {
 
         Self {
             max_pool_size: std::thread::available_parallelism().unwrap_or(DEFAULT_POOL_SIZE),
-            busy_timout: Duration::from_secs(5),
+            busy_timeout: Duration::from_secs(5),
             // 2 kib
             cache_size: -2 * 1024,
             // 2 gib (assumes 4096 page size)
@@ -266,7 +266,7 @@ impl Manager {
             // NOTE: Safe to format since we handle the options, do not pass strings.
             conn.batch_execute(&format!(
                 "PRAGMA busy_timeout = {};",
-                options.busy_timout.as_millis()
+                options.busy_timeout.as_millis()
             ))?;
             conn.batch_execute(&format!("PRAGMA cache_size = {};", options.cache_size))?;
             conn.batch_execute(&format!(

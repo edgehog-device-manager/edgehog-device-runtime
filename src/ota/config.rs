@@ -47,7 +47,7 @@ pub struct RaucConfig {
     pub dbus_socket: RaucDbus,
 }
 
-/// DBUS socket to comunicate with the RAUC service
+/// DBUS socket to communicate with the RAUC service
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RaucDbus {

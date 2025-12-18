@@ -47,7 +47,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Improve query to prevent conflicts when deleting shared resources (volume, netwroks, ...)
+- Improve query to prevent conflicts when deleting shared resources (volume, networks, ...)
   [#654](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/654)
 
 ## [0.10.1] - 2025-11-28
@@ -68,7 +68,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Forward port release v0.9.1 with OTA reboot fix
   [#598](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/598)
 - Implement the new Containers features and interfaces, including container statistics.
-- Create a local service gRPC to comunicate with the edgehog-device-runtime.
+- Create a local service gRPC to communicate with the edgehog-device-runtime.
 
 ## [0.9.1] - 2025-09-12
 

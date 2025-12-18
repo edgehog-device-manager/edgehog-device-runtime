@@ -16,14 +16,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-[package]
-name = "edgehog-device-runtime"
-version = { workspace = true }
-edition = { workspace = true }
-homepage = { workspace = true }
-rust-version = { workspace = true }
-description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
-
 [workspace]
 resolver = "2"
 members = [
@@ -56,6 +48,46 @@ lto = "thin"
 debug = true
 # Supported by all platform
 split-debuginfo = "packed"
+
+[package]
+name = "edgehog-device-runtime"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+rust-version = { workspace = true }
+description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
+
+[features]
+default = ["udev", "wifiscanner", "zbus", "platform-verifier"]
+# Enable the container management service
+containers = ["dep:edgehog-containers", "dep:edgehog-store", "edgehog-service/containers"]
+# Enable the forwarder service
+forwarder = ["dep:edgehog-forwarder"]
+# Enable connecting to astarte through the Message Hub
+message-hub = ["astarte-device-sdk/message-hub"]
+# Local service for the runtime
+service = ["dep:edgehog-service", "dep:edgehog-store"]
+# Notifies systemd of the status and health of the runtime service
+systemd = ["dep:systemd"]
+# Enable the telemetry that uses udev
+udev = ["dep:udev"]
+# Enable the wifi scanning telemetry
+wifiscanner = ["dep:wifiscanner"]
+# Enable the communication with DBUS
+zbus = ["dep:zbus"]
+# Preferred, use the platform certificate and TLS verifier.
+platform-verifier = ["edgehog-tls/platform-verifier"]
+# Uses the webpki-roots as a CA bundles
+webpki-roots = ["edgehog-tls/webpki-roots", "astarte-device-sdk/webpki"]
+# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
+# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
+# Uses and compiles the vendored version of the C dependencies
+vendored = ["edgehog-store/vendored"]
+# Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
+bindgen = ["dep:aws-lc-rs", "aws-lc-rs/bindgen", "edgehog-store/bindgen"]
+# Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
+# installed
+cross = ["vendored", "bindgen"]
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
@@ -117,27 +149,6 @@ pretty_assertions = { workspace = true }
 tempdir = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = { workspace = true, features = ["net"] }
-
-[features]
-default = ["udev", "wifiscanner", "zbus"]
-containers = ["dep:edgehog-containers", "dep:edgehog-store", "edgehog-service/containers"]
-forwarder = ["dep:edgehog-forwarder"]
-message-hub = ["astarte-device-sdk/message-hub"]
-# Local service for the runtime
-service = ["dep:edgehog-service", "dep:edgehog-store"]
-systemd = ["dep:systemd"]
-udev = ["dep:udev"]
-wifiscanner = ["dep:wifiscanner"]
-zbus = ["dep:zbus"]
-# Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
-# See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
-# Uses and compiles the vendored version of the C dependencies
-vendored = ["edgehog-store/vendored"]
-# Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
-bindgen = ["dep:aws-lc-rs", "aws-lc-rs/bindgen", "edgehog-store/bindgen"]
-# Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
-# installed
-cross = ["vendored", "bindgen"]
 
 [workspace.dependencies]
 astarte-device-sdk = "0.10.3"

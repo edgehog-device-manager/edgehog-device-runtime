@@ -24,9 +24,9 @@ homepage.workspace = true
 rust-version.workspace = true
 
 [features]
-default = ["platfrom-verifier"]
+default = ["platform-verifier"]
 # Preferred, use the platform certificate and TLS verifier.
-platfrom-verifier = ["dep:rustls-platform-verifier"]
+platform-verifier = ["dep:rustls-platform-verifier"]
 # Compiled in copy of the root certificate trusted by Mozilla.
 webpki-roots = ["dep:webpki-roots"]
 

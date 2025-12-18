@@ -36,7 +36,7 @@ $command pull docker.io/library/nginx:stable-alpine-slim
 
 $command tag docker.io/library/nginx:stable-alpine-slim localhost:5000/library/nginx:stable-alpine-slim
 
-$command login localhost:5000 --username testusername --passowrd testpassword
+$command login localhost:5000 --username testusername --password testpassword
 
 $command push localhost:5000/library/nginx:stable-alpine-slim
 
