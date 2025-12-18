@@ -25,12 +25,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2] - Unreleased
+## [0.9.2] - 2025-12-18
+
+### Added
+
+- Add HTTP user-agent for the HTTP ota requests with the runtime version [#660]
+- Add an HTTP header with the ota request id [#660]
+
+### Changed
+
+- Configure the TLS to use the system verifier and make [#660]
 
 ### Fixed
 
 - Pairing token was passed as credential secret
   [#659](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/659)
+
+[#660]: https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/660
 
 ## [0.9.1] - 2025-09-12
 
