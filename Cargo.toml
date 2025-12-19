@@ -33,7 +33,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.2"
+version = "0.10.3"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 rust-version = "1.78"
@@ -166,13 +166,13 @@ deadpool = { version = "0.12.3", default-features = false }
 diesel = "2.2.12"
 diesel_migrations = "2.2.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.10.2" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.10.3" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.10.2" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.10.3" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
-edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.10.2" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.10.2" }
-edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.10.2" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.10.3" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.10.3" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.10.3" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
