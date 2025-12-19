@@ -35,6 +35,7 @@ members = [
   "edgehog-device-runtime-forwarder",
   "edgehog-device-runtime-service",
   "edgehog-device-runtime-store",
+  "edgehog-device-runtime-tls",
   "hardware-id-service",
   "led-manager-service",
 ]
@@ -47,7 +48,7 @@ rust-version = "1.78"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[profile.release-optimized]
+[profile.release-optimised]
 inherits = "release"
 strip = true
 # Similar to fat in term of performances, but takes substantially less time to run
@@ -67,10 +68,10 @@ edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-service = { workspace = true, optional = true }
 edgehog-store = { workspace = true, optional = true }
+edgehog-tls = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 procfs = { workspace = true }
-reqwest = { workspace = true, default-features = false, features = ["rustls-tls-native-roots-no-provider", "stream"] }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -93,6 +94,17 @@ zbus = { workspace = true, optional = true, default-features = false, features =
 # C dependencies
 aws-lc-rs = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
+
+[dependencies.reqwest]
+workspace = true
+default-features = false
+features = [
+  "charset",
+  "http2",
+  "system-proxy",
+  "rustls-tls-native-roots-no-provider",
+  "stream",
+]
 
 [build-dependencies]
 rustc_version = { workspace = true }
@@ -117,19 +129,13 @@ systemd = ["dep:systemd"]
 udev = ["dep:udev"]
 wifiscanner = ["dep:wifiscanner"]
 zbus = ["dep:zbus"]
-# Compiles the C dependencies at buildtime instead of using system libraries
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
-vendored = ["dep:rusqlite", "edgehog-store/vendored", "rusqlite/bundled"]
-# Requires bindgen or clang and CMake to generate C bindings at buildtime
-bindgen = [
-  "dep:rusqlite",
-  "dep:aws-lc-rs",
-  "edgehog-store/bindgen",
-  "rusqlite/buildtime_bindgen",
-  "aws-lc-rs/bindgen",
-]
-# Feature to make it easier to cross compile the runtime, it requires clang and CMake to be
+# Uses and compiles the vendored version of the C dependencies
+vendored = ["edgehog-store/vendored"]
+# Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
+bindgen = ["dep:aws-lc-rs", "aws-lc-rs/bindgen", "edgehog-store/bindgen"]
+# Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
 # installed
 cross = ["vendored", "bindgen"]
 
@@ -155,6 +161,7 @@ edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./ed
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
 edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.10.2" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.10.2" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.10.2" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -168,12 +175,13 @@ itertools = "0.14.0"
 mockall = "0.13.1"
 pretty_assertions = "1.4.1"
 procfs = "0.17.0"
-reqwest = { version = "0.12.24", default-features = false, features = ["charset", "http2", "macos-system-configuration"] }
+reqwest = { version = "0.12.24", default-features = false }
 rusqlite = "0.32.1"
 rustc_version = "0.4.1"
 rustls = "0.23.32"
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
+rustls-platform-verifier = "0.6.2"
 serde = "1.0.228"
 serde_json = "1.0.145"
 stable-eyre = "0.2.2"
@@ -192,5 +200,6 @@ tracing-subscriber = "0.3.20"
 udev = "0.9.3"
 url = "2.5.7"
 uuid = "1.18.1"
+webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
 zbus = { version = "5.11.0", default-features = false }
