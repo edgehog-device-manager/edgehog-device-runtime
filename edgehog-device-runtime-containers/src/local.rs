@@ -161,7 +161,7 @@ impl ContainerHandle {
 
     /// Get all the containers
     ///
-    /// This will list the containers and get all the informations
+    /// This will list the containers and get all the information
     pub async fn get_all(
         &self,
         containers_status: Vec<ContainerStateStatusEnum>,

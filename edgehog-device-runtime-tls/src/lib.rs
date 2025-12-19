@@ -35,8 +35,8 @@ pub fn config() -> Result<ClientConfig, Error> {
         .unwrap_or_else(|| Arc::new(rustls::crypto::aws_lc_rs::default_provider()));
 
     cfg_if::cfg_if! {
-        if #[cfg(feature = "platfrom-verifier")] {
-            platfrom_verifier(provider)
+        if #[cfg(feature = "platform-verifier")] {
+            platform_verifier(provider)
         } else if #[cfg(feature = "webpki-roots")]{
             webpki(provider)
         } else {
@@ -45,9 +45,9 @@ pub fn config() -> Result<ClientConfig, Error> {
     }
 }
 
-#[cfg(feature = "platfrom-verifier")]
+#[cfg(feature = "platform-verifier")]
 #[instrument(skip(provider))]
-fn platfrom_verifier(provider: Arc<CryptoProvider>) -> Result<ClientConfig, Error> {
+fn platform_verifier(provider: Arc<CryptoProvider>) -> Result<ClientConfig, Error> {
     use rustls_platform_verifier::BuilderVerifierExt;
 
     let config = ClientConfig::builder_with_provider(provider)
@@ -131,11 +131,11 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "platfrom-verifier")]
+    #[cfg(feature = "platform-verifier")]
     fn configure_platform_verifier() {
         let provider = rustls::crypto::aws_lc_rs::default_provider();
 
-        platfrom_verifier(Arc::new(provider)).unwrap();
+        platform_verifier(Arc::new(provider)).unwrap();
     }
 
     #[test]
