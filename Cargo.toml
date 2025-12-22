@@ -167,7 +167,7 @@ indexmap = "2.11.4"
 itertools = "0.14.0"
 mockall = "0.13.1"
 pretty_assertions = "1.4.1"
-procfs = "0.17.0"
+procfs = "0.18.0"
 reqwest = { version = "0.12.24", default-features = false, features = ["charset", "http2", "macos-system-configuration"] }
 rusqlite = "0.32.1"
 rustc_version = "0.4.1"
