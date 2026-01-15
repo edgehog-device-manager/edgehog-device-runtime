@@ -18,6 +18,17 @@
 
 set -exEuo pipefail
 
+####
+# ENV
+#
+# EXPORT_BASE_COMMIT:   sha of the commit for diff coverage
+# EXPORT_FOR_CI:        copies the coverage files to the CWD
+#
+# TOOLS
+#
+# lcov:     used to merge coverages for many crates
+# genhtml:  better branch and function coverage
+
 # Output directories for the profile files and coverage
 #
 # You'll find the coverage report and `lcov` file under: $CARGO_TARGET_DIR/debug/coverage/
@@ -57,8 +68,6 @@ crates=(
 
 # Helpful for testing changes in the generation options
 if [[ ${1:-} != '--no-gen' ]]; then
-    cargo +nightly clean
-
     mkdir -p "$COVERAGE_OUT_DIR"
     mkdir -p "$PROFS_DIR"
 
@@ -86,14 +95,14 @@ LLVM_COV=${LLVM_COV:-$rustup_llvm_cov}
 $LLVM_PROFDATA merge -sparse "$PROFS_DIR/"*.profraw -o "$PROFS_DIR/coverage.profdata"
 
 object_files() {
-    tests=$(
+    objects=$(
         cargo +nightly test --tests --all-features --no-run --message-format=json "$@" |
             jq -r "select(.profile.test == true) | .filenames[]" |
             grep -v dSYM -
     )
 
-    for file in $tests; do
-        printf "%s %s " -object "$file"
+    for obj in "${objects[@]}"; do
+        echo "-object=$obj"
     done
 }
 
@@ -105,7 +114,8 @@ export_lcov() {
         src="$SRC_DIR/$1/src"
     fi
 
-    # shellcheck disable=2086,2046
+    obj_args=$(object_files -p "$p")
+
     $LLVM_COV export \
         -Xdemangler=rustfilt \
         -format=lcov \
@@ -113,7 +123,7 @@ export_lcov() {
         -instr-profile="$PROFS_DIR/coverage.profdata" \
         -ignore-filename-regex='.*test\.rs' \
         -ignore-filename-regex='.*mock\.rs' \
-        -sources "$src" $(object_files -p "$1") \
+        -sources "$src" "${obj_args[@]}" \
         >"$COVERAGE_OUT_DIR/$1/lcov.info"
 }
 
@@ -125,19 +135,39 @@ filter_lcov() {
         src="$SRC_DIR/$1"
     fi
 
-    grcov \
-        "$COVERAGE_OUT_DIR/$1/lcov.info" \
-        --binary-path "$CARGO_TARGET_DIR/debug" \
-        --output-path "$COVERAGE_OUT_DIR/$1/" \
-        --source-dir "$src" \
-        --branch \
-        --llvm \
-        --excl-start 'mod test(s)?' \
-        --output-type lcov,html
+    obj_args=$(object_files -p "$1")
+
+    mkdir -p "$COVERAGE_OUT_DIR/$1/lcov-show"
+    $LLVM_COV show \
+        -Xdemangler=rustfilt \
+        -format=html \
+        -show-directory-coverage \
+        -show-mcdc \
+        -show-line-counts-or-regions \
+        -instr-profile="$PROFS_DIR/coverage.profdata" \
+        -output-dir="$COVERAGE_OUT_DIR/$1/lcov-show" \
+        -sources "$src" "${obj_args[@]}"
 
     # Better branch coverage information
     if command -v genhtml; then
         mkdir -p "$COVERAGE_OUT_DIR/$1/genhtml"
+
+        arg_diff=()
+
+        if [[ -z "${EXPORT_BASE_COMMIT:-}" && -f "$COVERAGE_OUT_DIR/baseline-commit.txt" ]]; then
+            commit=$(cat "$COVERAGE_OUT_DIR/baseline-commit.txt")
+            current=$(git rev-parse HEAD)
+
+            if [[ $commit != "$current" ]]; then
+                git diff "$commit.." -p --src-prefix= --dst-prefix= >"$COVERAGE_OUT_DIR/patch.diff"
+
+                arg_diff+=(
+                    "--baseline-file=$COVERAGE_OUT_DIR/baseline-$commit-$p.info"
+                    "--diff-file=$COVERAGE_OUT_DIR/patch.diff"
+                )
+            fi
+        fi
+
         genhtml \
             --show-details \
             --legend \
@@ -145,11 +175,9 @@ filter_lcov() {
             --dark-mode \
             --missed \
             --demangle-cpp rustfilt \
-            --ignore-errors category \
-            --ignore-errors inconsistent \
             --output-directory "$COVERAGE_OUT_DIR/$1/genhtml" \
+            "${arg_diff[@]}" \
             "$COVERAGE_OUT_DIR/$1/lcov.info"
-
     fi
 }
 
@@ -160,10 +188,16 @@ for p in "${crates[@]}"; do
 
     filter_lcov "$p"
 
-    cp -v "$COVERAGE_OUT_DIR/$p/lcov" "$COVERAGE_OUT_DIR/coverage-$p.info"
+    cp -v "$COVERAGE_OUT_DIR/$p/lcov.info" "$COVERAGE_OUT_DIR/coverage-$p.info"
 
     if [[ -n "${EXPORT_FOR_CI:-}" ]]; then
         cp -v "$COVERAGE_OUT_DIR/$p/lcov" "$PWD/coverage-$p.info"
+    fi
+
+    if [[ -n "${EXPORT_BASE_COMMIT:-}" ]]; then
+        commit=$(git rev-parse HEAD)
+        cp -v "$COVERAGE_OUT_DIR/$p/lcov.info" "$COVERAGE_OUT_DIR/baseline-$commit-$p.info"
+        echo "$commit" >"$COVERAGE_OUT_DIR/baseline-commit.txt"
     fi
 done
 
