@@ -25,10 +25,9 @@ use std::{
     sync::OnceLock,
 };
 
-use bollard::{
-    errors::Error as BollardError, models::Network as DockerNetwork, models::NetworkCreateRequest,
-    query_parameters::InspectNetworkOptions,
-};
+use bollard::errors::Error as BollardError;
+use bollard::models::{NetworkCreateRequest, NetworkInspect};
+use bollard::query_parameters::InspectNetworkOptions;
 use tracing::{debug, instrument, trace, warn};
 use uuid::Uuid;
 
@@ -112,7 +111,7 @@ impl NetworkId {
     pub(crate) async fn inspect(
         &mut self,
         client: &Client,
-    ) -> Result<Option<DockerNetwork>, NetworkError> {
+    ) -> Result<Option<NetworkInspect>, NetworkError> {
         // We need to account to the case that we have an incorrect id, but it exists another
         // network with the correct name
         if let Some(id) = self.id.clone() {
@@ -137,7 +136,7 @@ impl NetworkId {
         &mut self,
         client: &Client,
         name: &str,
-    ) -> Result<Option<DockerNetwork>, NetworkError> {
+    ) -> Result<Option<NetworkInspect>, NetworkError> {
         debug!("inspecting the {}", self);
 
         let res = client
@@ -351,7 +350,7 @@ mod tests {
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
-            let network = bollard::models::Network {
+            let network = bollard::models::NetworkInspect {
                 name: Some(name.to_string()),
                 id: Some("id".to_string()),
                 driver: Some("bridge".to_string()),

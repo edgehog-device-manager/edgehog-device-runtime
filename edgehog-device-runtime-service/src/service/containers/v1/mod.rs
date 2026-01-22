@@ -241,7 +241,7 @@ mod tests {
     use std::collections::HashMap;
 
     use edgehog_containers::local::MockContainerHandle;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
     use pretty_assertions::assert_eq;
 
     use crate::service::tests::mock_service;

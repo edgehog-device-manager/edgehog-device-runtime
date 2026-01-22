@@ -3,30 +3,29 @@
 
 [package]
 name = "edgehog-device-runtime-forwarder"
-version = { workspace = true }
-edition = { workspace = true }
-homepage = { workspace = true }
-rust-version = { workspace = true }
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
-async-trait = { workspace = true }
 backoff = { workspace = true, features = ["tokio"] }
-displaydoc = { workspace = true }
-edgehog-device-forwarder-proto = { workspace = true }
-edgehog-tls = { workspace = true }
-futures = { workspace = true }
-hex = { workspace = true }
-http = { workspace = true }
+displaydoc.workspace = true
+edgehog-device-forwarder-proto.workspace = true
+edgehog-tls.workspace = true
+futures.workspace = true
+hex.workspace = true
+http.workspace = true
 httpmock = { workspace = true, optional = true }
-rustls = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
+rustls.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
 tokio-tungstenite = { workspace = true, features = ["__rustls-tls", "tokio-rustls", "url"] }
 tracing = { workspace = true, features = ["log"] }
-url = { workspace = true }
+url.workspace = true
 
 [dependencies.reqwest]
 workspace = true
@@ -35,14 +34,13 @@ features = [
   "charset",
   "http2",
   "system-proxy",
-  "rustls-tls-native-roots-no-provider",
-  "stream",
+  "rustls-no-provider",
 ]
 
 [dev-dependencies]
-httpmock = { workspace = true }
+httpmock.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
-tracing-subscriber = { workspace = true }
+tracing-subscriber.workspace = true
 
 [features]
 _test-utils = ["dep:httpmock", "tokio/test-util"]

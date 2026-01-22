@@ -21,24 +21,24 @@
 use std::{fmt::Display, ops::Deref};
 
 use diesel::{
+    Associations, ExpressionMethods, Insertable, QueryDsl, Queryable, Selectable,
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, Eq, Filter},
+    dsl::{Eq, Filter, exists},
     expression::AsExpression,
     select,
     serialize::{IsNull, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
-    Associations, ExpressionMethods, Insertable, QueryDsl, Queryable, Selectable,
 };
 
 use crate::{
     conversions::{QuotaValue, SqlUuid, Swappiness},
     models::{
+        ExistsFilterById, QueryModel,
         containers::{
             device_mapping::DeviceMapping, image::Image, network::Network, volume::Volume,
         },
-        ExistsFilterById, QueryModel,
     },
     schema::containers::{
         container_missing_device_mappings, container_missing_images, container_missing_networks,

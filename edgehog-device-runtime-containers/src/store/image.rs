@@ -16,12 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use diesel::{delete, insert_or_ignore_into, ExpressionMethods, OptionalExtension, RunQueryDsl};
-use diesel::{update, QueryDsl};
+use diesel::{ExpressionMethods, OptionalExtension, RunQueryDsl, delete, insert_or_ignore_into};
+use diesel::{QueryDsl, update};
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
-use edgehog_store::models::containers::image::ImageStatus;
 use edgehog_store::models::QueryModel;
+use edgehog_store::models::containers::image::ImageStatus;
 use edgehog_store::{
     models::containers::{container::ContainerMissingImage, image::Image},
     schema::containers::{container_missing_images, containers, images},

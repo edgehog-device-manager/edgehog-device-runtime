@@ -49,7 +49,7 @@ impl From<bollard::models::ContainerPidsStats> for ContainerProcesses {
 mod tests {
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{
-        aggregate::AstarteObject, store::SqliteStore, transport::mqtt::Mqtt, AstarteData,
+        AstarteData, aggregate::AstarteObject, store::SqliteStore, transport::mqtt::Mqtt,
     };
     use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::predicate;

@@ -25,29 +25,33 @@ use std::{
 };
 
 use crate::repository::StateRepository;
-use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::{debug, error};
 
-#[derive(thiserror::Error, displaydoc::Display, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum FileStateError {
     /// couldn't serialize value
+    #[error("couldn't serialize value")]
     Serialize(#[source] serde_json::Error),
     /// couldn't deserialize value
+    #[error("couldn't deserialize value")]
     Deserialize(#[source] serde_json::Error),
     /// couldn't write to file {path}
+    #[error("couldn't write to file {path}")]
     Write {
         #[source]
         backtrace: std::io::Error,
         path: String,
     },
     /// couldn't read from file {path}
+    #[error("couldn't read from file {path}")]
     Read {
         #[source]
         backtrace: std::io::Error,
         path: String,
     },
     /// couldn't remove file {path}
+    #[error("couldn't remove file {path}")]
     Remove {
         #[source]
         backtrace: std::io::Error,
@@ -70,7 +74,6 @@ impl<T> FileStateRepository<T> {
     }
 }
 
-#[async_trait]
 impl<T> StateRepository<T> for FileStateRepository<T>
 where
     T: Serialize + DeserializeOwned + Send + Sync,
@@ -142,8 +145,8 @@ mod tests {
     use std::marker::PhantomData;
     use std::path::Path;
 
-    use crate::repository::file_state_repository::FileStateRepository;
     use crate::repository::StateRepository;
+    use crate::repository::file_state_repository::FileStateRepository;
 
     #[tokio::test]
     async fn file_state_test() {
