@@ -25,7 +25,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - Unreleased
+## [0.10.3] - 2025-12-19
+
+### Fixed
+
+- Save the state file in the deployment step to fix the streaming feature
+  [#663](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/663)
+
+## [0.9.2] - 2025-12-18
+
+### Added
+
+- Add HTTP user-agent for the HTTP ota requests with the runtime version [#660]
+- Add an HTTP header with the ota request id [#660]
+
+### Changed
+
+- Configure the TLS to use the system verifier and make [#660]
+
+### Fixed
+
+- Pairing token was passed as credential secret
+  [#659](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/659)
+
+[#660]: https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/660
+
+## [0.10.2] - 2025-12-02
+
+### Fixed
+
+- Improve query to prevent conflicts when deleting shared resources (volume, networks, ...)
+  [#654](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/654)
+
+## [0.10.1] - 2025-11-28
+
+### Added
+
+- Configuration option `[ota.rauc]` with field `dbus_socket` to select either the session or system
+  bus [#651](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/651)
+
+## [0.10.0] - 2025-11-05
 
 ### Changed
 
@@ -35,6 +74,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [#515](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/515)
 - Forward port release v0.9.1 with OTA reboot fix
   [#598](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/598)
+- Implement the new Containers features and interfaces, including container statistics.
+- Create a local service gRPC to communicate with the edgehog-device-runtime.
 
 ## [0.9.1] - 2025-09-12
 

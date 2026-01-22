@@ -85,7 +85,7 @@ impl Docker {
         // Discard the result since it returns the string `OK`
         self.client
             .events(Some(options))
-            .map_err(DockerError::Envents)
+            .map_err(DockerError::Events)
     }
 }
 

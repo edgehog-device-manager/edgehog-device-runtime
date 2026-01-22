@@ -29,7 +29,7 @@ diesel = { workspace = true, features = ["sqlite", "uuid"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 displaydoc.workspace = true
 eyre.workspace = true
-rusqlite = { workspace = true, features = ["modern_sqlite", "buildtime_bindgen"] }
+rusqlite = { workspace = true, features = ["modern_sqlite"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tracing.workspace = true

@@ -100,7 +100,7 @@ impl OtaHandler {
         let (publisher_tx, publisher_rx) = mpsc::channel(8);
         let (ota_tx, ota_rx) = mpsc::channel(MAX_OTA_OPERATION);
 
-        let system_update = OTARauc::connect().await?;
+        let system_update = OTARauc::connect(&opts.ota).await?;
 
         let state_repository = FileStateRepository::new(&opts.store_directory, "state.json");
 

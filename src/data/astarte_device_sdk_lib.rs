@@ -107,7 +107,7 @@ impl AstarteDeviceSdkConfigOptions {
         }
 
         if let Some(token) = &self.pairing_token {
-            return Ok(Credential::secret(token));
+            return Ok(Credential::paring_token(token));
         }
 
         Err(DeviceSdkError::MissingCredentialSecret)
@@ -204,6 +204,25 @@ mod tests {
         let secret = options.credentials_secret("device_id", path).await.unwrap();
 
         assert_eq!(secret, Credential::secret("credentials_secret"));
+    }
+
+    #[tokio::test]
+    async fn credentials_pairing_token() {
+        let _dir = TempDir::new("sdk_cred").unwrap();
+        let path = _dir.path().to_owned();
+
+        let options = AstarteDeviceSdkConfigOptions {
+            realm: "".to_string(),
+            device_id: None,
+            credentials_secret: None,
+            pairing_url: Url::parse("http://[::]").unwrap(),
+            pairing_token: Some("pairing_token".to_string()),
+            ignore_ssl: false,
+        };
+
+        let secret = options.credentials_secret("device_id", path).await.unwrap();
+
+        assert_eq!(secret, Credential::paring_token("pairing_token"));
     }
 
     #[tokio::test]

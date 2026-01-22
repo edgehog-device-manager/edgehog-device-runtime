@@ -47,7 +47,7 @@ impl DiskUsage {
             warn!(
                 name,
                 kind = %disk.kind(),
-                "disks is not on the /dev folder level and containes an additional / in the name, ignoring"
+                "disks is not on the /dev folder level and contains an additional / in the name, ignoring"
             );
             return None;
         }

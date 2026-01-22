@@ -46,7 +46,7 @@ pub(crate) type DeploymentRow = (
     Option<ContainerDeviceMapping>,
 );
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Deployment {
     pub(crate) containers: HashSet<Uuid>,
     pub(crate) images: HashSet<Uuid>,
