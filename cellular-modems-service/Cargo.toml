@@ -26,8 +26,9 @@ rust-version.workspace = true
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
-stable-eyre = { workspace = true }
+color-eyre.workspace = true
+eyre.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
-tracing = { workspace = true }
+tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 zbus = { workspace = true, default-features = false, features = ["tokio"] }

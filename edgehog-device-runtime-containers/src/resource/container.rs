@@ -24,8 +24,8 @@ use tracing::{debug, warn};
 use crate::{
     container::Container,
     properties::{
-        container::{AvailableContainer, ContainerStatus as PropertyStatus},
         AvailableProp, Client,
+        container::{AvailableContainer, ContainerStatus as PropertyStatus},
     },
 };
 

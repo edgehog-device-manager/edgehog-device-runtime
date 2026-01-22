@@ -19,7 +19,7 @@
 //! Trait to generalize one task on the runtime.
 
 use async_trait::async_trait;
-use stable_eyre::eyre::Context;
+use eyre::Context;
 use tokio::sync::mpsc;
 use tracing::{debug, trace};
 
@@ -29,11 +29,11 @@ pub trait Actor: Sized {
 
     fn task() -> &'static str;
 
-    async fn init(&mut self) -> stable_eyre::Result<()>;
+    async fn init(&mut self) -> eyre::Result<()>;
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()>;
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()>;
 
-    async fn spawn(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> stable_eyre::Result<()> {
+    async fn spawn(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()> {
         self.init()
             .await
             .wrap_err_with(|| format!("init for {} task failed", Self::task()))?;
@@ -55,7 +55,7 @@ pub trait Actor: Sized {
     async fn spawn_unbounded(
         mut self,
         mut channel: mpsc::UnboundedReceiver<Self::Msg>,
-    ) -> stable_eyre::Result<()> {
+    ) -> eyre::Result<()> {
         self.init()
             .await
             .wrap_err_with(|| format!("init for {} task failed", Self::task()))?;

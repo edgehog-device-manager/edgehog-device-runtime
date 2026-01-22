@@ -22,7 +22,7 @@ use tracing::warn;
 
 use crate::{
     image::{Image, ImageError},
-    properties::{image::AvailableImage, AvailableProp, Client},
+    properties::{AvailableProp, Client, image::AvailableImage},
 };
 
 use super::{Context, Create, Resource, ResourceError, Result, State};

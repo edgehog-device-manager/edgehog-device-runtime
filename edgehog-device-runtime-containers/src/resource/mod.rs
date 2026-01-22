@@ -27,10 +27,10 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
+    Docker,
     error::DockerError,
     properties::{Client, PropertyError},
     store::{StateStore, StoreError},
-    Docker,
 };
 
 pub(crate) mod container;

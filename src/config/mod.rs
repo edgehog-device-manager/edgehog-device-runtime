@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 
 use edgehog_device_runtime::telemetry::TelemetryInterfaceConfig;
 use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions};
+use eyre::{OptionExt, ensure};
 use serde::Deserialize;
-use stable_eyre::eyre::{ensure, OptionExt};
 use tracing::info;
 
 use crate::cli::{Cli, Command, DeviceSdkArgs, OverrideOption};
@@ -51,7 +51,7 @@ pub struct Config {
 }
 
 impl TryFrom<Config> for DeviceManagerOptions {
-    type Error = stable_eyre::eyre::Error;
+    type Error = eyre::Error;
 
     fn try_from(value: Config) -> Result<Self, Self::Error> {
         let astarte_library = value
@@ -103,7 +103,7 @@ impl TryFrom<Config> for DeviceManagerOptions {
     }
 }
 
-pub async fn read_options(cli: Cli) -> stable_eyre::Result<DeviceManagerOptions> {
+pub async fn read_options(cli: Cli) -> eyre::Result<DeviceManagerOptions> {
     let paths = [
         Path::new("edgehog-config.toml"),
         Path::new("/etc/edgehog/config.toml"),

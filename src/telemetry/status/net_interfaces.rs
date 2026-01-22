@@ -21,9 +21,9 @@ use std::fmt::Display;
 use tracing::{debug, error};
 use udev::Device;
 
+use crate::Client;
 use crate::data::set_property;
 use crate::error::DeviceManagerError;
-use crate::Client;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.NetworkInterfaceProperties";
 
@@ -131,7 +131,7 @@ where
         Err(err) => {
             error!(
                 "couldn't get network interfaces: {}",
-                stable_eyre::Report::new(err)
+                eyre::Report::new(err)
             );
 
             return;
@@ -151,7 +151,7 @@ mod tests {
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::types::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
 
     #[test]
     fn technology_type_to_string_test() {

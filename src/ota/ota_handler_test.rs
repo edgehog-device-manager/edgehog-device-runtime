@@ -22,14 +22,14 @@ use std::time::Duration;
 
 use crate::controller::actor::Actor;
 use crate::ota::event::{OtaOperation, OtaRequest};
+use astarte_device_sdk::AstarteData;
 use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::mqtt::Mqtt;
-use astarte_device_sdk::AstarteData;
 use astarte_device_sdk_mock::MockDeviceClient;
 use futures::StreamExt;
 use httpmock::prelude::*;
-use mockall::{predicate, Sequence};
+use mockall::{Sequence, predicate};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -55,7 +55,7 @@ impl OtaPublisher<MockDeviceClient<Mqtt<SqliteStore>>> {
     fn mock_new(
         client: MockDeviceClient<Mqtt<SqliteStore>>,
         publisher_rx: mpsc::Receiver<OtaStatus>,
-    ) -> JoinHandle<stable_eyre::Result<()>> {
+    ) -> JoinHandle<eyre::Result<()>> {
         let publisher = Self::new(client);
 
         tokio::spawn(publisher.spawn(publisher_rx))

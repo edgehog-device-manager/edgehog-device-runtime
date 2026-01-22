@@ -20,8 +20,8 @@
 
 use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::chrono::{DateTime, Utc};
-use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::store::SqliteStore;
+use astarte_device_sdk::store::sqlite::SqliteError;
 use astarte_device_sdk::types::AstarteData;
 use futures::TryFutureExt;
 use std::path::Path;
@@ -66,7 +66,7 @@ pub(crate) async fn send_object_with_timestamp<C, T>(
 
     if let Err(err) = res {
         error!(
-            error = format!("{:#}", stable_eyre::Report::new(err)),
+            error = format!("{:#}", eyre::Report::new(err)),
             interface, path, "failed to publish",
         )
     }
@@ -85,7 +85,7 @@ pub(crate) async fn set_property<C>(
 {
     if let Err(err) = client.set_property(interface, path, data.into()).await {
         error!(
-            error = format!("{:#}", stable_eyre::Report::new(err)),
+            error = format!("{:#}", eyre::Report::new(err)),
             interface, path, "failed to set property",
         )
     }

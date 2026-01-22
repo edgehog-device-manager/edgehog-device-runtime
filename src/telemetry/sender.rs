@@ -24,10 +24,10 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
+use crate::Client;
+use crate::telemetry::stats::TelemetryInterface;
 use crate::telemetry::stats::storage_usage::StorageUsage;
 use crate::telemetry::stats::system_status::SystemStatusTelemetry;
-use crate::telemetry::stats::TelemetryInterface;
-use crate::Client;
 
 use super::stats::ContainerInterface;
 

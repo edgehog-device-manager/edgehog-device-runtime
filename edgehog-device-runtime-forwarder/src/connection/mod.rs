@@ -180,8 +180,8 @@ impl<T> Connection<T> {
 #[cfg(test)]
 mod tests {
     use super::{
-        http::Http, ConnectionError, ConnectionHandle, Id, ProtoMessage, ProtoWebSocketMessage,
-        Transport, WriteHandle, WS_CHANNEL_SIZE,
+        ConnectionError, ConnectionHandle, Id, ProtoMessage, ProtoWebSocketMessage, Transport,
+        WS_CHANNEL_SIZE, WriteHandle, http::Http,
     };
 
     use crate::messages::{
@@ -189,8 +189,8 @@ mod tests {
         WebSocket as ProtoWebSocket,
     };
 
-    use http::header::CONTENT_TYPE;
     use http::HeaderValue;
+    use http::header::CONTENT_TYPE;
     use httpmock::MockServer;
     use tokio::sync::mpsc::channel;
     use tokio_tungstenite::tungstenite::Bytes;

@@ -29,8 +29,8 @@ use edgehog_store::{
 use uuid::Uuid;
 
 use crate::properties::{
-    deployment::{AvailableDeployment, DeploymentStatus as PropertyStatus},
     AvailableProp, Client,
+    deployment::{AvailableDeployment, DeploymentStatus as PropertyStatus},
 };
 
 use super::{Context, Resource, Result};

@@ -18,18 +18,18 @@
 
 use diesel::dsl::exists;
 use diesel::{
-    delete, insert_or_ignore_into, select, update, CombineDsl, ExpressionMethods,
-    NullableExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper, SqliteConnection,
+    CombineDsl, ExpressionMethods, NullableExpressionMethods, QueryDsl, RunQueryDsl,
+    SelectableHelper, SqliteConnection, delete, insert_or_ignore_into, select, update,
 };
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
+use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::{
     Container, ContainerDeviceMapping, ContainerNetwork, ContainerVolume,
 };
 use edgehog_store::models::containers::deployment::{
     Deployment, DeploymentContainer, DeploymentMissingContainer, DeploymentStatus,
 };
-use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{
     container_device_mappings, container_missing_images, container_missing_networks,
     container_missing_volumes, container_networks, container_volumes, containers,
@@ -422,11 +422,11 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    use crate::requests::device_mapping::CreateDeviceMapping;
     use crate::requests::OptString;
+    use crate::requests::device_mapping::CreateDeviceMapping;
     use crate::requests::{
-        container::CreateContainer, image::CreateImage, network::CreateNetwork,
-        volume::CreateVolume, ReqUuid, VecReqUuid,
+        ReqUuid, VecReqUuid, container::CreateContainer, image::CreateImage,
+        network::CreateNetwork, volume::CreateVolume,
     };
 
     use super::*;
