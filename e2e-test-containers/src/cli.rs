@@ -19,6 +19,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use reqwest::Url;
 
 #[derive(Debug, Clone, Parser)]
 pub struct Cli {
@@ -61,7 +62,7 @@ pub struct AstarteConfig {
     pub credentials_secret: String,
     /// Astarte pairing url.
     #[arg(long, env = "ASTARTE_PAIRING_URL")]
-    pub pairing_url: String,
+    pub pairing_url: Url,
     /// Astarte interfaces directory.
     #[arg(long, env = "ASTARTE_INTERFACES_DIR")]
     pub interfaces_dir: PathBuf,

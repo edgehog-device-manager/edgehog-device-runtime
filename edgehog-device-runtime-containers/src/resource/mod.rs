@@ -22,15 +22,14 @@
 
 use std::future::Future;
 
-use async_trait::async_trait;
 use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
+    Docker,
     error::DockerError,
     properties::{Client, PropertyError},
     store::{StateStore, StoreError},
-    Docker,
 };
 
 pub(crate) mod container;
@@ -87,12 +86,11 @@ where
 
 type Result<T> = std::result::Result<T, ResourceError>;
 
-#[async_trait]
 pub(crate) trait Resource<D>: Sized
 where
     D: Client + Sync + 'static,
 {
-    async fn publish(ctx: Context<'_, D>) -> Result<()>;
+    fn publish(ctx: Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub(crate) trait Create<D>: Resource<D>

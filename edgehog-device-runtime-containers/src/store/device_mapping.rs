@@ -17,13 +17,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use diesel::query_dsl::methods::{FilterDsl, SelectDsl};
-use diesel::{delete, insert_or_ignore_into, update, ExpressionMethods, RunQueryDsl};
+use diesel::{ExpressionMethods, RunQueryDsl, delete, insert_or_ignore_into, update};
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
+use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::ContainerMissingDeviceMapping;
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
 use edgehog_store::models::containers::device_mapping::DeviceMappingStatus;
-use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{container_device_mappings, device_mappings};
 use tracing::instrument;
 use uuid::Uuid;

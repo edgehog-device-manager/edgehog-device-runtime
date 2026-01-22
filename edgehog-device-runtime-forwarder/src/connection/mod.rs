@@ -11,7 +11,6 @@ pub mod websocket;
 
 use std::ops::Deref;
 
-use async_trait::async_trait;
 use thiserror::Error as ThisError;
 use tokio::sync::mpsc::Sender;
 use tokio::task::{JoinError, JoinHandle};
@@ -94,22 +93,23 @@ impl ConnectionHandle {
 /// For each Connection implementing a given transport protocol (e.g., [`Http`], [`WebSocket`]), it
 /// provides a method returning a [`protocol message`](ProtoMessage) to send to the
 /// [`ConnectionsManager`](crate::collection::ConnectionsManager).
-#[async_trait]
 pub(crate) trait Transport {
-    async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError>;
+    fn next(
+        &mut self,
+        id: &Id,
+    ) -> impl Future<Output = Result<Option<ProtoMessage>, ConnectionError>> + Send;
 }
 
 /// Trait used by each transport builder (e.g., [`HttpBuilder`], [`WebSocketBuilder`]) to build the
 /// respective transport protocol struct.
-#[async_trait]
 pub(crate) trait TransportBuilder {
     type Connection: Transport;
 
-    async fn build(
+    fn build(
         self,
         id: &Id,
         tx_ws: Sender<ProtoMessage>,
-    ) -> Result<Self::Connection, ConnectionError>;
+    ) -> impl Future<Output = Result<Self::Connection, ConnectionError>> + Send;
 }
 
 /// Struct containing the connection information necessary to communicate with the
@@ -180,8 +180,8 @@ impl<T> Connection<T> {
 #[cfg(test)]
 mod tests {
     use super::{
-        http::Http, ConnectionError, ConnectionHandle, Id, ProtoMessage, ProtoWebSocketMessage,
-        Transport, WriteHandle, WS_CHANNEL_SIZE,
+        ConnectionError, ConnectionHandle, Id, ProtoMessage, ProtoWebSocketMessage, Transport,
+        WS_CHANNEL_SIZE, WriteHandle, http::Http,
     };
 
     use crate::messages::{
@@ -189,8 +189,8 @@ mod tests {
         WebSocket as ProtoWebSocket,
     };
 
-    use http::header::CONTENT_TYPE;
     use http::HeaderValue;
+    use http::header::CONTENT_TYPE;
     use httpmock::MockServer;
     use tokio::sync::mpsc::channel;
     use tokio_tungstenite::tungstenite::Bytes;

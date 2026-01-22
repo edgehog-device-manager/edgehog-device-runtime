@@ -22,7 +22,7 @@ use std::ops::Not;
 
 use edgehog_store::db::{self, HandleError};
 
-use crate::requests::{container::RestartPolicyError, BindingError};
+use crate::requests::{BindingError, container::RestartPolicyError};
 
 mod container;
 mod deployment;
@@ -91,8 +91,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::requests::{
-        container::CreateContainer, deployment::CreateDeployment, image::CreateImage,
-        network::CreateNetwork, volume::CreateVolume, ReqUuid, VecReqUuid,
+        ReqUuid, VecReqUuid, container::CreateContainer, deployment::CreateDeployment,
+        image::CreateImage, network::CreateNetwork, volume::CreateVolume,
     };
 
     use super::*;

@@ -18,7 +18,7 @@
 
 //! Create image request
 
-use astarte_device_sdk::{event::FromEventError, types::TypeError, AstarteData, FromEvent};
+use astarte_device_sdk::{AstarteData, FromEvent, event::FromEventError, types::TypeError};
 use tracing::error;
 use uuid::Uuid;
 

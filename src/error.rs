@@ -29,7 +29,7 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     Procfs(#[from] procfs::ProcError),
 
-    #[error(transparent)]
+    #[error("io error encountered")]
     Io(#[from] std::io::Error),
 
     #[cfg(all(feature = "zbus", target_os = "linux"))]

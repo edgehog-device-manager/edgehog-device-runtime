@@ -21,7 +21,6 @@
 use std::fmt::Display;
 
 use astarte_device_sdk::AstarteData;
-use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::AvailableProp;
@@ -40,7 +39,6 @@ impl<'a> AvailableContainer<'a> {
     }
 }
 
-#[async_trait]
 impl AvailableProp for AvailableContainer<'_> {
     type Data = ContainerStatus;
 
@@ -91,7 +89,7 @@ impl From<ContainerStatus> for AstarteData {
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use astarte_device_sdk_mock::{MockDeviceClient, mockall::Sequence};
     use mockall::predicate;
     use uuid::Uuid;
 

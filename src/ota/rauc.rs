@@ -20,9 +20,8 @@
 
 use std::task::Poll;
 
-use async_trait::async_trait;
 use futures::stream::FusedStream;
-use futures::{future, ready, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt, future, ready};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument, warn};
 use zbus::proxy;
@@ -32,8 +31,8 @@ use crate::error::DeviceManagerError;
 use crate::ota::config::RaucDbus;
 use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
 
-use super::config::OtaConfig;
 use super::ProgressStream;
+use super::config::OtaConfig;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
 #[zvariant(signature = "dict")]
@@ -67,7 +66,7 @@ pub struct BundleInfo {
     default_service = "de.pengutronix.rauc",
     default_path = "/"
 )]
-trait Rauc {
+pub trait Rauc {
     /// Triggers the installation of a bundle. This method call is non-blocking.
     /// After completion, the “Completed” signal will be emitted.
     fn install_bundle(
@@ -127,7 +126,6 @@ pub struct OTARauc<'a> {
     rauc: RaucProxy<'a>,
 }
 
-#[async_trait]
 impl SystemUpdate for OTARauc<'static> {
     async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError> {
         self.rauc

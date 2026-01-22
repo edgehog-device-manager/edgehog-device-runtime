@@ -20,7 +20,7 @@
 
 //! Manage the device forwarder operation.
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt::{Display, Formatter};
 
 use astarte_device_sdk::prelude::PropAccess;
@@ -280,15 +280,15 @@ impl<C> Forwarder<C> {
 mod tests {
     use super::*;
 
+    use astarte_device_sdk::Value;
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::astarte_interfaces::schema::Ownership;
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::store::{SqliteStore, StoredProp};
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::Value;
     use astarte_device_sdk::{DeviceEvent, FromEvent};
     use astarte_device_sdk_mock::MockDeviceClient;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
     use std::net::Ipv4Addr;
 
     #[test]

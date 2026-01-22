@@ -18,42 +18,41 @@
 
 [package]
 name = "edgehog-device-runtime-containers"
-version = { workspace = true }
-edition = { workspace = true }
-homepage = { workspace = true }
-rust-version = { workspace = true }
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
-async-trait = { workspace = true }
-base64 = { workspace = true }
+base64.workspace = true
 bollard = { workspace = true, features = ["chrono"] }
-cfg-if = { workspace = true }
-diesel = { workspace = true }
-displaydoc = { workspace = true }
+cfg-if.workspace = true
+diesel.workspace = true
+displaydoc.workspace = true
 edgehog-store = { workspace = true, features = ["containers"] }
-eyre = { workspace = true }
-futures = { workspace = true }
+eyre.workspace = true
+futures.workspace = true
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
-indexmap = { workspace = true }
-itertools = { workspace = true }
+indexmap.workspace = true
+itertools.workspace = true
 mockall = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "fs", "io-util"] }
 tracing = { workspace = true, features = ["log"] }
-uuid = { workspace = true }
+uuid.workspace = true
 
 [dev-dependencies]
-astarte-device-sdk-mock = { workspace = true }
-pretty_assertions = { workspace = true }
-tempfile = { workspace = true }
-tracing-subscriber = { workspace = true }
+astarte-device-sdk-mock.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+tracing-subscriber.workspace = true
 # Generate random unique names for the containers
 uuid = { workspace = true, features = ["v7"] }
 

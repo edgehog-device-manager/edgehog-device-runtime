@@ -20,9 +20,9 @@
 
 use std::sync::Arc;
 
+use astarte_device_sdk::Client;
 use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::chrono::{DateTime, Utc};
-use astarte_device_sdk::Client;
 use bollard::secret::ContainerStatsResponse;
 use edgehog_store::models::containers::container::ContainerStatus;
 use edgehog_store::models::containers::volume::VolumeStatus;
@@ -30,11 +30,11 @@ use tokio::sync::OnceCell;
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 
+use crate::Docker;
 use crate::container::ContainerId;
 use crate::local::ContainerHandle;
 use crate::store::StateStore;
 use crate::volume::VolumeId;
-use crate::Docker;
 
 use self::blkio::ContainerBlkio;
 use self::cpu::ContainerCpu;

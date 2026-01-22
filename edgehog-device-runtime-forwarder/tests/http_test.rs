@@ -3,8 +3,8 @@
 
 use edgehog_device_forwarder_proto::http::Message as HttpMessage;
 use edgehog_device_forwarder_proto::{
-    http::Response as HttpResponse, message::Protocol, prost::Message, Http,
-    Message as ProtoMessage,
+    Http, Message as ProtoMessage, http::Response as HttpResponse, message::Protocol,
+    prost::Message,
 };
 use edgehog_device_runtime_forwarder::test_utils::create_http_req;
 use futures::{SinkExt, StreamExt};

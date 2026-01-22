@@ -27,20 +27,20 @@ use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::{
+    Docker,
     error::DockerError,
     events::deployment::{DeploymentEvent, EventStatus},
-    properties::{deployment::AvailableDeployment, AvailableProp, Client},
+    properties::{AvailableProp, Client, deployment::AvailableDeployment},
     requests::{
-        deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
         ReqError,
+        deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
     },
     resource::{
-        container::ContainerResource, deployment::Deployment,
-        device_mapping::DeviceMappingResource, image::ImageResource, network::NetworkResource,
-        volume::VolumeResource, Context, Create, Resource, ResourceError, State,
+        Context, Create, Resource, ResourceError, State, container::ContainerResource,
+        deployment::Deployment, device_mapping::DeviceMappingResource, image::ImageResource,
+        network::NetworkResource, volume::VolumeResource,
     },
     store::{StateStore, StoreError},
-    Docker,
 };
 
 use self::events::ContainerEvent;
@@ -754,8 +754,8 @@ mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::{AstarteData, FromEvent};
-    use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use astarte_device_sdk_mock::mockall::Sequence;
     use bollard::query_parameters::CreateImageOptions;
     use edgehog_store::db;
     use mockall::predicate;
@@ -767,14 +767,14 @@ mod tests {
     use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
-    use crate::requests::container::tests::create_container_request_event;
+    use crate::requests::ContainerRequest;
     use crate::requests::container::RestartPolicy;
+    use crate::requests::container::tests::create_container_request_event;
     use crate::requests::deployment::tests::create_deployment_request_event;
     use crate::requests::device_mapping::tests::create_device_mapping_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
-    use crate::requests::ContainerRequest;
     use crate::volume::{Volume, VolumeId};
     use crate::{docker, docker_mock};
 

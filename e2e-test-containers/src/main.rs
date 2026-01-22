@@ -20,15 +20,14 @@ use std::env::VarError;
 
 use astarte_device_sdk::{
     builder::DeviceBuilder,
-    introspection::AddInterfaceError,
     rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
     store::SqliteStore,
-    transport::mqtt::{Credential, Mqtt, MqttConfig},
+    transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig},
     DeviceClient, EventLoop,
 };
 use clap::Parser;
 use cli::AstarteConfig;
-use color_eyre::eyre::{eyre, Context};
+use eyre::{eyre, WrapErr};
 use receive::receive;
 use tokio::task::JoinSet;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -44,26 +43,22 @@ async fn connect(
     astarte: &AstarteConfig,
     tasks: &mut JoinSet<color_eyre::Result<()>>,
 ) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore>>> {
-    let mut mqtt_config = MqttConfig::new(
-        &astarte.realm,
-        &astarte.device_id,
-        Credential::secret(astarte.credentials_secret.clone()),
-        &astarte.pairing_url,
-    );
-    mqtt_config.ignore_ssl_errors();
+    let mqtt_config = MqttConfig::new(MqttArgs {
+        realm: astarte.realm.clone(),
+        device_id: astarte.device_id.clone(),
+        credential: Credential::secret(astarte.credentials_secret.clone()),
+        pairing_url: astarte.pairing_url.clone(),
+    })
+    .ignore_ssl_errors();
+
+    let store = SqliteStore::options()
+        .with_writable_dir(&astarte.store_dir)
+        .await?;
 
     let (client, connection) = DeviceBuilder::new()
-        .interface_directory(&astarte.interfaces_dir)
-        .map_err(|err| {
-            // TODO: remove when the #[source] macro is added to the error
-            if let AddInterfaceError::InterfaceFile { backtrace, .. } = err {
-                return color_eyre::Report::new(backtrace);
-            }
-
-            err.into()
-        })?
-        .store_dir(&astarte.store_dir)
-        .await?
+        .interface_directory(&astarte.interfaces_dir)?
+        .writable_dir(&astarte.store_dir)
+        .store(store)
         .connection(mqtt_config)
         .build()
         .await?;
