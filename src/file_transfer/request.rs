@@ -24,6 +24,7 @@ use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use url::Url;
 use uuid::Uuid;
 
+use super::FileOptions;
 use super::interface::{DeviceToServer, ServerToDevice};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +40,18 @@ pub(crate) struct DownloadReq {
     pub(super) file_size: u64,
     pub(super) permission: FilePermissions,
     pub(super) destination: Target,
+}
+
+impl From<DownloadReq> for FileOptions {
+    fn from(value: DownloadReq) -> Self {
+        FileOptions {
+            id: value.id,
+            file_size: value.file_size,
+            file_digest: value.digest_type,
+            #[cfg(unix)]
+            perm: value.permission,
+        }
+    }
 }
 
 impl TryFrom<ServerToDevice> for DownloadReq {
@@ -218,11 +231,24 @@ impl FilePermissions {
             group_id,
         })
     }
+
+    #[cfg(unix)]
+    pub(super) fn mode(&self) -> u32 {
+        self.mode.unwrap_or(0o600)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FileDigest {
     Sha256,
+}
+
+impl From<FileDigest> for aws_lc_rs::digest::Context {
+    fn from(value: FileDigest) -> Self {
+        match value {
+            FileDigest::Sha256 => aws_lc_rs::digest::Context::new(&aws_lc_rs::digest::SHA256),
+        }
+    }
 }
 
 impl FromStr for FileDigest {

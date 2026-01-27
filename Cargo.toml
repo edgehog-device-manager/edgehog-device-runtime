@@ -100,7 +100,6 @@ webpki-roots = [
 vendored = ["edgehog-store/vendored"]
 # Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
 bindgen = [
-  "dep:aws-lc-rs",
   "aws-lc-rs/bindgen",
   "edgehog-store?/bindgen",
 ]
@@ -110,6 +109,7 @@ cross = ["vendored", "bindgen"]
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
+aws-lc-rs.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
@@ -123,6 +123,7 @@ edgehog-tls.workspace = true
 eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
+pin-project-lite.workspace = true
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -133,6 +134,7 @@ tokio-stream.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
 toml.workspace = true
 tracing.workspace = true
+tracing-error.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
@@ -140,7 +142,6 @@ wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
 # C dependencies
-aws-lc-rs = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 
 [dependencies.reqwest]
@@ -210,6 +211,7 @@ indexmap = "2.11.4"
 insta = "1.46.3"
 itertools = "0.14.0"
 mockall = "0.14.0"
+pin-project-lite = "0.2.17"
 pretty_assertions = "1.4.1"
 procfs = "0.18.0"
 reqwest = { version = "0.13.1", default-features = false }
@@ -217,6 +219,7 @@ rstest = "0.26.1"
 # Version required by diesel
 rusqlite = "0.36.0"
 rustc_version = "0.4.1"
+rustix = "1.1.4"
 rustls = "0.23.37"
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
@@ -234,6 +237,7 @@ tokio-tungstenite = "0.28.0"
 tokio-util = "0.7.16"
 toml = "1.0.2"
 tracing = "0.1.41"
+tracing-error = "0.2.1"
 tracing-subscriber = "0.3.20"
 udev = "0.9.3"
 url = "2.5.7"
