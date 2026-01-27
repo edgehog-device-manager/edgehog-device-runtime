@@ -19,10 +19,10 @@
  */
 
 use astarte_device_sdk::{
-    event::FromEventError, types::TypeError, AstarteData, DeviceEvent, FromEvent,
+    AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
 use async_trait::async_trait;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 use tracing::error;
 use zbus::proxy;
 
@@ -195,11 +195,11 @@ impl Actor for LedBlink {
         "led-behavior"
     }
 
-    async fn init(&mut self) -> stable_eyre::Result<()> {
+    async fn init(&mut self) -> eyre::Result<()> {
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
         match msg.behavior {
             LedBehavior::Behavior(blink) => {
                 BlinkConf::from(blink).blink(msg.led_id).await?;
@@ -216,8 +216,8 @@ mod tests {
 
     use super::*;
 
-    use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::Value;
+    use astarte_device_sdk::chrono::Utc;
     use tokio::time::Duration;
 
     #[tokio::test]

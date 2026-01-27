@@ -20,10 +20,10 @@
 
 use base64::prelude::*;
 use clap::{Parser, Subcommand};
-use stable_eyre::eyre::{Context, OptionExt};
+use eyre::{Context, OptionExt};
 use std::path::PathBuf;
 use tracing::{info, level_filters::LevelFilter};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 use zbus::interface;
 
@@ -81,10 +81,10 @@ impl Device {
 
 // Simple DBUS service that retrieves a machine specific id and publish it on a system channel
 #[tokio::main]
-async fn main() -> stable_eyre::Result<()> {
+async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
-    stable_eyre::install()?;
+    color_eyre::install()?;
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())

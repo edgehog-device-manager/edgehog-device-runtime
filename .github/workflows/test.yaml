@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2023 - 2025 SECO Mind Srl
+# Copyright 2023-2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
+  NEXTEST_PROFILE: "ci"
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -37,11 +38,35 @@ jobs:
       - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.15.2
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: cargo test --locked
-        run: cargo test --locked --all-features --all-targets --workspace
+      - uses: taiki-e/install-action@cargo-nextest
+      - run: cargo nextest run --locked --all-features --workspace
       # https://github.com/rust-lang/cargo/issues/6669
-      - name: Run cargo test --doc
-        run: cargo test --locked --all-features --doc --workspace
+      - name: run doc test
+        run: cargo test --locked --doc --all-features --workspace
+      # Upload the test results if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
+      - name: Upload to codecov.io
+        if: ${{ github.event_name == 'push' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+          fail_ci_if_error: true
+          report_type: test_results
+          files: junit.xml
+      # Save data to use in workflow_run
+      - name: Save PR number
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          echo "$PR_NUMBER" > ./pr_number
+      - name: Upload coverage artifact
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test_results
+          path: |
+            pr_number
+            junit.xml
   coverage:
     runs-on: ubuntu-24.04
     steps:
@@ -52,11 +77,12 @@ jobs:
           toolchain: nightly
           components: llvm-tools
       - uses: mozilla-actions/sccache-action@v0.0.9
-      - name: install grcov
-        uses: taiki-e/install-action@grcov
+      - uses: taiki-e/install-action@v2.49.43
+        with:
+          tool: rustfilt
       - name: Generate coverage
         run: |
-          EXPORT_FOR_CI=1 ./scripts/coverage.sh
+          EXPORT_FOR_CI=1 ./scripts/ci/coverage.sh
       # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
         if: ${{ github.event_name == 'push' }}

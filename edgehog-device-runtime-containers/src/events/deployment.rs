@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,17 +32,38 @@ const INTERFACE: &str = "io.edgehog.devicemanager.apps.DeploymentEvent";
 
 /// Deployment status event
 #[derive(Debug, Clone, IntoAstarteObject)]
+#[astarte_object(rename_all = "camelCase")]
 pub(crate) struct DeploymentEvent {
     pub(crate) status: EventStatus,
     pub(crate) message: String,
+    pub(crate) add_info: Vec<String>,
 }
 
 impl DeploymentEvent {
-    pub(crate) fn new(status: EventStatus, message: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        status: EventStatus,
+        message: impl Into<String>,
+        add_info: Vec<String>,
+    ) -> Self {
         Self {
             status,
             message: message.into(),
+            add_info,
         }
+    }
+
+    pub(crate) fn with_message(status: EventStatus, message: impl Into<String>) -> Self {
+        Self::new(status, message, Vec::new())
+    }
+
+    pub(crate) fn with_error(status: EventStatus, error: &dyn std::error::Error) -> Self {
+        let message = error.to_string();
+
+        let add_info: Vec<String> = std::iter::successors(error.source(), |prev| prev.source())
+            .map(|e| e.to_string())
+            .collect();
+
+        Self::new(status, message, add_info)
     }
 
     pub(crate) async fn send<D>(self, id: &Uuid, device: &mut D)
@@ -119,8 +140,8 @@ impl From<EventStatus> for AstarteData {
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk_mock::mockall::Sequence;
     use astarte_device_sdk_mock::MockDeviceClient;
+    use astarte_device_sdk_mock::mockall::Sequence;
     use mockall::predicate;
 
     use super::*;
@@ -143,12 +164,16 @@ mod tests {
                 predicate::eq(AstarteObject::from_iter([
                     ("status".to_string(), AstarteData::from("Starting")),
                     ("message".to_string(), AstarteData::from("")),
+                    (
+                        "addInfo".to_string(),
+                        AstarteData::from(Vec::<String>::new()),
+                    ),
                 ])),
                 predicate::always(),
             )
             .returning(|_, _, _, _| Ok(()));
 
-        let event = DeploymentEvent::new(EventStatus::Starting, "");
+        let event = DeploymentEvent::with_message(EventStatus::Starting, "");
 
         event.send(&id, &mut client).await;
     }

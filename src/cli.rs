@@ -22,8 +22,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
+use eyre::OptionExt;
 use serde::Deserialize;
-use stable_eyre::eyre::OptionExt;
 use url::Url;
 
 #[derive(Debug, Parser)]
@@ -113,7 +113,7 @@ pub struct DeviceSdkArgs {
 }
 
 impl TryFrom<DeviceSdkArgs> for AstarteDeviceSdkConfigOptions {
-    type Error = stable_eyre::eyre::Error;
+    type Error = eyre::Error;
 
     fn try_from(value: DeviceSdkArgs) -> Result<Self, Self::Error> {
         let realm = value.realm.ok_or_eyre("config is missing the realm")?;
@@ -163,7 +163,7 @@ impl MsgHubArgs {
 impl TryFrom<MsgHubArgs>
     for edgehog_device_runtime::data::astarte_message_hub_node::AstarteMessageHubOptions
 {
-    type Error = stable_eyre::eyre::Error;
+    type Error = eyre::Error;
 
     fn try_from(value: MsgHubArgs) -> Result<Self, Self::Error> {
         let endpoint = value

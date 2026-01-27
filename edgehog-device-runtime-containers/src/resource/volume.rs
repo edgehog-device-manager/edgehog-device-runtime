@@ -21,7 +21,7 @@ use edgehog_store::models::containers::volume::VolumeStatus;
 use tracing::warn;
 
 use crate::{
-    properties::{volume::AvailableVolume, AvailableProp, Client},
+    properties::{AvailableProp, Client, volume::AvailableVolume},
     volume::{Volume, VolumeId},
 };
 

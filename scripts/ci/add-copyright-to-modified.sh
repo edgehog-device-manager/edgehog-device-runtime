@@ -2,7 +2,7 @@
 
 # This file is part of Edgehog.
 #
-# Copyright 2025 SECO Mind Srl
+# Copyright 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,38 +18,22 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-##
-# Annotates the files passed from stdin
-#
-# For example
-#
-#   git status --short | cut -f 2 -d ' ' | ./scripts/copyright.sh
-#
-
 set -exEuo pipefail
 
-annotate() {
-    reuse annotate \
-        --copyright 'SECO Mind Srl' \
-        --copyright-prefix string \
-        --merge-copyrights \
-        --license 'Apache-2.0' \
-        --template apache-2 \
-        "$@"
-}
+# Trap -e errors
+trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
 
-if [[ $# != 0 ]]; then
-    annotate "$@"
-
-    exit
+if [ $# != 2 ]; then
+    echo 'to use the script pass the base and head refs'
+    echo "$1 BASE_REF HEAD_REF"
+    exit 1
 fi
 
-# Read from stdin line by line
-while read -r line; do
-    if [[ $line == '' ]]; then
-        echo "Empty line, skipping" 1>&2
-        continue
-    fi
+base=$1
+head=$2
 
-    annotate "$line"
-done </dev/stdin
+git_file_names() {
+    git diff --name-only "$base" "$head"
+}
+
+git_file_names | ./scripts/ci/copyright.sh

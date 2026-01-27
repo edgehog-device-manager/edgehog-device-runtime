@@ -23,7 +23,7 @@ use std::fmt::Display;
 use diesel::{
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
-    dsl::{exists, Eq, Filter, InnerJoin, IsNotNull, LeftJoin},
+    dsl::{Eq, Filter, InnerJoin, IsNotNull, LeftJoin, exists},
     expression::AsExpression,
     prelude::*,
     select,

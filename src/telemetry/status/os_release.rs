@@ -22,8 +22,8 @@ use futures::TryFutureExt;
 use serde::Deserialize;
 use tracing::{debug, error};
 
-use crate::data::set_property;
 use crate::Client;
+use crate::data::set_property;
 
 const OS_INFO_INTERFACE: &str = "io.edgehog.devicemanager.OSInfo";
 
@@ -205,9 +205,9 @@ impl From<&HashMap<&str, &str>> for BaseImage {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::predicate;
 

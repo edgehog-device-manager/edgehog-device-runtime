@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,8 +30,8 @@ use crate::{
     events::deployment::{DeploymentEvent, EventStatus},
     properties::Client,
     requests::{
-        deployment::{DeploymentCommand, DeploymentUpdate},
         ContainerRequest,
+        deployment::{DeploymentCommand, DeploymentUpdate},
     },
     store::StateStore,
 };
@@ -124,11 +124,11 @@ impl<D> ServiceHandle<D> {
         };
 
         if let Err(err) = res {
-            let error = format!("{:#}", eyre::Report::new(err));
+            let error = eyre::Report::new(err);
 
-            error!(%error, "couldn't store request");
+            error!(error = format!("{:#}", error), "couldn't store request");
 
-            DeploymentEvent::new(EventStatus::Error, error)
+            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&deployment_id, &mut self.device)
                 .await;
         }

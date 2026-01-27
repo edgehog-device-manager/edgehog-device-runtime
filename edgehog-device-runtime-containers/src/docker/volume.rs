@@ -26,8 +26,8 @@ use std::{
 };
 
 use bollard::{
-    errors::Error as BollardError, models::Volume as DockerVolume, models::VolumeCreateOptions,
-    query_parameters::RemoveVolumeOptions,
+    errors::Error as BollardError, models::Volume as DockerVolume,
+    query_parameters::RemoveVolumeOptions, secret::VolumeCreateRequest,
 };
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
@@ -181,7 +181,7 @@ impl Volume {
         debug!("creating {}", self);
 
         client
-            .create_volume(VolumeCreateOptions::from(self))
+            .create_volume(VolumeCreateRequest::from(self))
             .await
             .map_err(VolumeError::Create)?;
 
@@ -209,9 +209,9 @@ impl DerefMut for Volume {
     }
 }
 
-impl From<&Volume> for VolumeCreateOptions {
+impl From<&Volume> for VolumeCreateRequest {
     fn from(value: &Volume) -> Self {
-        VolumeCreateOptions {
+        VolumeCreateRequest {
             name: Some(value.name_as_str().to_string()),
             driver: Some(value.driver.clone()),
             driver_opts: Some(value.driver_opts.clone()),
@@ -271,7 +271,7 @@ mod tests {
             let v_cl = volume.clone();
             let name_exp = name.to_string();
             mock.expect_create_volume()
-                .with(predicate::eq(VolumeCreateOptions {
+                .with(predicate::eq(VolumeCreateRequest {
                     name: Some(name_exp),
                     driver: Some("local".to_string()),
                     driver_opts: Some(HashMap::new()),
