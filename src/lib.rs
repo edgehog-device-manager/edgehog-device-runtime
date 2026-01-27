@@ -33,6 +33,7 @@ pub mod data;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod device;
 pub mod error;
+pub mod file_transfer;
 #[cfg(feature = "forwarder")]
 mod forwarder;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -70,4 +71,26 @@ pub struct DeviceManagerOptions {
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
     pub telemetry_config: Option<Vec<TelemetryInterfaceConfig<'static>>>,
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use insta::assert_snapshot;
+
+    macro_rules! with_settings {
+        ($asserts:block) => {
+            ::insta::with_settings!({
+                snapshot_path => concat!(env!("CARGO_MANIFEST_DIR"), "/snapshots")
+            }, $asserts);
+        };
+    }
+
+    pub(crate) use with_settings;
+
+    #[test]
+    fn use_macro() {
+        self::with_settings!({
+            assert_snapshot!("using the macro");
+        });
+    }
 }

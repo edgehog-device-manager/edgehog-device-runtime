@@ -48,10 +48,10 @@ url.workspace = true
 workspace = true
 default-features = false
 features = [
-  "charset",
-  "http2",
-  "system-proxy",
-  "rustls-no-provider",
+    "charset",
+    "http2",
+    "system-proxy",
+    "rustls-no-provider",
 ]
 
 [dev-dependencies]
