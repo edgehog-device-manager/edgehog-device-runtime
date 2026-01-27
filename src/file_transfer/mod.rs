@@ -18,26 +18,37 @@
 
 //! Transfer files from and to the Device
 
+use std::path::PathBuf;
+
 use tracing::{info, instrument, trace};
 
 use crate::controller::actor::Actor;
 
+use self::file_system::{FileOptions, FileStorage, Fs, Limits};
 use self::interface::FileTransferEvent;
 use self::request::{DownloadReq, UploadReq};
 
+mod file_system;
 pub(crate) mod interface;
 mod request;
 
 #[derive(Debug)]
-pub(crate) struct FileTransfer {}
+pub(crate) struct FileTransfer<F> {
+    storage: FileStorage<F>,
+}
 
-impl FileTransfer {
-    pub fn new() -> Self {
-        Self {}
+impl FileTransfer<Fs> {
+    pub fn new(dir: PathBuf) -> Self {
+        Self {
+            storage: FileStorage::new(dir),
+        }
     }
 }
 
-impl Actor for FileTransfer {
+impl<F> Actor for FileTransfer<F>
+where
+    F: Send + Sync + Limits,
+{
     type Msg = FileTransferEvent;
 
     fn task() -> &'static str {
@@ -57,18 +68,42 @@ impl Actor for FileTransfer {
 
         match msg {
             FileTransferEvent::Download(server_to_device) => {
-                let _download = DownloadReq::try_from(server_to_device)?;
+                let download = DownloadReq::try_from(server_to_device)?;
 
                 info!("file download received");
 
-                unimplemented!("file download")
+                match download.destination {
+                    request::Target::Storage => {
+                        if self.storage.file_exists(&download.id).await? {
+                            info!("file already exists");
+
+                            return Ok(());
+                        }
+
+                        let opt = FileOptions::from(download);
+
+                        let (_file, _digest) = self.storage.create_write_handle(&opt).await?;
+
+                        // TODO: download...
+                        unimplemented!("file download");
+
+                        #[expect(unreachable_code)]
+                        self.storage.finalize_write(_file, &opt).await?;
+                    }
+                }
             }
             FileTransferEvent::Upload(device_to_server) => {
-                let _upload = UploadReq::try_from(device_to_server)?;
+                let upload = UploadReq::try_from(device_to_server)?;
 
                 info!("file upload received");
 
-                unimplemented!("file upload")
+                match upload.source {
+                    request::Target::Storage => {
+                        let _file = self.storage.open_read(&upload.id).await?;
+
+                        unimplemented!("file upload")
+                    }
+                }
             }
         }
     }
@@ -77,6 +112,7 @@ impl Actor for FileTransfer {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use tempdir::TempDir;
 
     use self::interface::tests::fs_server_to_device;
     use crate::file_transfer::interface::tests::fs_device_to_server;
@@ -87,8 +123,10 @@ mod tests {
     #[rstest]
     #[tokio::test]
     #[should_panic(expected = "not implemented: file download")]
-    async fn should_download_file(fs_server_to_device: ServerToDevice) {
-        let mut transfer = FileTransfer::new();
+    async fn should_download(fs_server_to_device: ServerToDevice) {
+        let dir = TempDir::new("download").unwrap();
+
+        let mut transfer = FileTransfer::new(dir.path().to_path_buf());
 
         transfer
             .handle(FileTransferEvent::Download(fs_server_to_device))
@@ -100,7 +138,13 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "not implemented: file upload")]
     async fn should_upload(fs_device_to_server: DeviceToServer) {
-        let mut transfer = FileTransfer::new();
+        let dir = TempDir::new("upload").unwrap();
+
+        let mut transfer = FileTransfer::new(dir.path().to_path_buf());
+
+        tokio::fs::write(dir.path().join(&fs_device_to_server.id), "Hello world!")
+            .await
+            .unwrap();
 
         transfer
             .handle(FileTransferEvent::Upload(fs_device_to_server))

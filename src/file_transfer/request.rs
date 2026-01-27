@@ -19,24 +19,39 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use eyre::{Context, eyre};
+use eyre::{Context, OptionExt, eyre};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use url::Url;
 use uuid::Uuid;
 
+use super::file_system::FileOptions;
 use super::interface::{DeviceToServer, ServerToDevice};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DownloadReq {
-    id: Uuid,
-    url: Url,
-    headers: HeaderMap,
-    progress: bool,
-    digest: String,
-    ttl: Option<Duration>,
-    compression: Compression,
-    permission: Permission,
-    destination: Target,
+    pub(super) id: Uuid,
+    pub(super) url: Url,
+    pub(super) headers: HeaderMap,
+    pub(super) progress: bool,
+    pub(super) digest_type: FileDigest,
+    pub(super) digest: Vec<u8>,
+    pub(super) ttl: Option<Duration>,
+    pub(super) compression: Compression,
+    pub(super) file_size: u64,
+    pub(super) permission: FilePermissions,
+    pub(super) destination: Target,
+}
+
+impl From<DownloadReq> for FileOptions {
+    fn from(value: DownloadReq) -> Self {
+        FileOptions {
+            id: value.id,
+            file_size: value.file_size,
+            file_digest: value.digest_type,
+            #[cfg(unix)]
+            perm: value.permission,
+        }
+    }
 }
 
 impl TryFrom<ServerToDevice> for DownloadReq {
@@ -49,6 +64,7 @@ impl TryFrom<ServerToDevice> for DownloadReq {
             http_header_key,
             http_header_value,
             compression,
+            file_size_bytes,
             progress,
             digest,
             ttl_seconds,
@@ -77,14 +93,24 @@ impl TryFrom<ServerToDevice> for DownloadReq {
             .wrap_err("couldn't convert ttl_seconds to duration")?
             .map(Duration::from_secs);
 
-        let permission = Permission::from_event(file_mode, user_id, group_id)?;
+        let permission = FilePermissions::from_event(file_mode, user_id, group_id)?;
+
+        let file_size = u64::try_from(file_size_bytes).wrap_err("couldn't convert file size")?;
+
+        let (digest_type, digest) = digest
+            .split_once(':')
+            .ok_or_eyre("couldn't parse digest, missing ':' delimiter")?;
+
+        let digest = hex::decode(digest).wrap_err("couldn't decode hex digest")?;
 
         Ok(Self {
             id: id.parse()?,
             url: url.parse()?,
             headers,
             compression: compression.parse()?,
+            file_size,
             progress,
+            digest_type: digest_type.parse()?,
             digest,
             ttl,
             destination: destination.parse()?,
@@ -95,13 +121,13 @@ impl TryFrom<ServerToDevice> for DownloadReq {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct UploadReq {
-    id: Uuid,
-    url: Url,
-    headers: HeaderMap,
-    progress: bool,
-    digest: String,
-    compression: Compression,
-    source: Target,
+    pub(super) id: Uuid,
+    pub(super) url: Url,
+    pub(super) headers: HeaderMap,
+    pub(super) progress: bool,
+    pub(super) digest: String,
+    pub(super) compression: Compression,
+    pub(super) source: Target,
 }
 
 impl TryFrom<DeviceToServer> for UploadReq {
@@ -178,24 +204,53 @@ impl FromStr for Compression {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Permission {
-    file_mode: Option<u32>,
-    user_id: Option<u32>,
-    group_id: Option<u32>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct FilePermissions {
+    pub(super) mode: Option<u32>,
+    pub(super) user_id: Option<u32>,
+    pub(super) group_id: Option<u32>,
 }
 
-impl Permission {
+impl FilePermissions {
     fn from_event(file_mode: i64, user_id: i64, group_id: i64) -> eyre::Result<Self> {
         let file_mode = conv_or_default(file_mode, 0).wrap_err("couldn't convert file mode")?;
         let user_id = conv_or_default(user_id, -1).wrap_err("couldn't convert user id")?;
         let group_id = conv_or_default(group_id, -1).wrap_err("couldn't convert group id")?;
 
         Ok(Self {
-            file_mode,
+            mode: file_mode,
             user_id,
             group_id,
         })
+    }
+
+    #[cfg(unix)]
+    pub(super) fn mode(&self) -> u32 {
+        self.mode.unwrap_or(0o600)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FileDigest {
+    Sha256,
+}
+
+impl From<FileDigest> for aws_lc_rs::digest::Context {
+    fn from(value: FileDigest) -> Self {
+        match value {
+            FileDigest::Sha256 => aws_lc_rs::digest::Context::new(&aws_lc_rs::digest::SHA256),
+        }
+    }
+}
+
+impl FromStr for FileDigest {
+    type Err = eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "sha256" => Ok(FileDigest::Sha256),
+            _ => Err(eyre!("unrecognize file digest: {s}")),
+        }
     }
 }
 
@@ -230,13 +285,15 @@ mod tests {
                     "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==",
                 ),
             )]),
+            file_size: 4096,
             compression: Compression::TarGz,
             progress: true,
-            digest: "sha256:28babb1cdf8aea6b62acc1097fdc83482cbf6e11c4fe7dcb39ae1682776baec5"
-                .to_string(),
+            digest_type: FileDigest::Sha256,
+            digest: hex::decode("28babb1cdf8aea6b62acc1097fdc83482cbf6e11c4fe7dcb39ae1682776baec5")
+                .unwrap(),
             ttl: None,
-            permission: Permission {
-                file_mode: Some(544),
+            permission: FilePermissions {
+                mode: Some(544),
                 user_id: Some(1000),
                 group_id: Some(100),
             },

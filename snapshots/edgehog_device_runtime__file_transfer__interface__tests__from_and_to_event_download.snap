@@ -39,6 +39,12 @@ AstarteObject {
             ),
         ),
         (
+            "fileSizeBytes",
+            LongInteger(
+                4096,
+            ),
+        ),
+        (
             "progress",
             Boolean(
                 true,
