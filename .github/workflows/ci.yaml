@@ -24,6 +24,8 @@ on:
       - release-*
 permissions:
   contents: read
+env:
+  CI: "true"
 # Spend CI time only on latest ref
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -41,6 +43,9 @@ jobs:
       pr: ${{ github.event.pull_request.number }}
   reuse:
     uses: ./.github/workflows/reuse-lint.yaml
+  common:
+    uses: ./.github/workflows/common.yaml
+    needs: [reuse, dco]
   warmup-caches:
     uses: ./.github/workflows/warmup-caches.yaml
     needs: [reuse, dco]

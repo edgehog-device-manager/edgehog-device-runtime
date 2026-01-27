@@ -21,7 +21,7 @@
 #
 # For example
 #
-#   git status --short | cut -f 2 -d ' ' | ./scripts/copyright.sh
+#   git status --short | cut -f 2 -d ' ' | ./scripts/ci/copyright.sh
 #
 
 set -exEuo pipefail
@@ -42,7 +42,6 @@ annotate() {
         echo "skipping not existing"
         return
     fi
-
 
     uv run reuse annotate \
         --copyright 'SECO Mind Srl' \

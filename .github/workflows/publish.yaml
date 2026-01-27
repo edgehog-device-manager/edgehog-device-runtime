@@ -46,7 +46,7 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
-      - run: ./scripts/check-for-publish.sh
+      - run: ./scripts/ci/check-for-publish.sh
   publish:
     name: stable / publish
     needs: [for-publish]
