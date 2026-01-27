@@ -61,9 +61,18 @@ rust-version.workspace = true
 description.workspace = true
 
 [features]
-default = ["udev", "wifiscanner", "zbus", "platform-verifier"]
+default = [
+  "udev",
+  "wifiscanner",
+  "zbus",
+  "platform-verifier",
+]
 # Enable the container management service
-containers = ["dep:edgehog-containers", "dep:edgehog-store", "edgehog-service?/containers"]
+containers = [
+  "dep:edgehog-containers",
+  "dep:edgehog-store",
+  "edgehog-service?/containers",
+]
 # Enable the forwarder service
 forwarder = ["dep:edgehog-forwarder"]
 # Enable connecting to astarte through the Message Hub
@@ -81,13 +90,20 @@ zbus = ["dep:zbus"]
 # Preferred, use the platform certificate and TLS verifier.
 platform-verifier = ["edgehog-tls/platform-verifier"]
 # Uses the webpki-roots as a CA bundles
-webpki-roots = ["edgehog-tls/webpki-roots", "astarte-device-sdk/webpki"]
+webpki-roots = [
+  "edgehog-tls/webpki-roots",
+  "astarte-device-sdk/webpki",
+]
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
 # Uses and compiles the vendored version of the C dependencies
 vendored = ["edgehog-store/vendored"]
 # Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
-bindgen = ["dep:aws-lc-rs", "aws-lc-rs/bindgen", "edgehog-store?/bindgen"]
+bindgen = [
+  "dep:aws-lc-rs",
+  "aws-lc-rs/bindgen",
+  "edgehog-store?/bindgen",
+]
 # Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
 # installed
 cross = ["vendored", "bindgen"]
@@ -113,7 +129,7 @@ sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream.workspace = true
-tokio-util.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -150,15 +166,17 @@ rustc_version.workspace = true
 [dev-dependencies]
 astarte-device-sdk-mock.workspace = true
 httpmock.workspace = true
+insta.workspace = true
 mockall.workspace = true
 pretty_assertions.workspace = true
+rstest.workspace = true
 tempdir.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = { workspace = true, features = ["net"] }
 
 [workspace.dependencies]
-astarte-device-sdk = { git = "https://github.com/astarte-platform/astarte-device-sdk-rust" }
-astarte-device-sdk-mock = { git = "https://github.com/astarte-platform/astarte-device-sdk-rust" }
+astarte-device-sdk = "0.12.1"
+astarte-device-sdk-mock = "0.12.1"
 async-trait = "0.1.89"
 aws-lc-rs = "1.14.1"
 backoff = "0.4.0"
@@ -188,11 +206,13 @@ http-body-util = "0.1.3"
 httpmock = "0.8.2"
 hyper = "1.7.0"
 indexmap = "2.11.4"
+insta = "1.46.3"
 itertools = "0.14.0"
 mockall = "0.14.0"
 pretty_assertions = "1.4.1"
 procfs = "0.18.0"
 reqwest = { version = "0.13.1", default-features = false }
+rstest = "0.26.1"
 # Version required by diesel
 rusqlite = "0.36.0"
 rustc_version = "0.4.1"
