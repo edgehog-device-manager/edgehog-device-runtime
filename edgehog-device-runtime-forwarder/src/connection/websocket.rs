@@ -9,18 +9,18 @@ use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
 use http::Request;
 use tokio::select;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio_tungstenite::tungstenite::Utf8Bytes;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{
-    error::ProtocolError as TungProtocolError, Error as TungError, Message as TungMessage,
+    Error as TungError, Message as TungMessage, error::ProtocolError as TungProtocolError,
 };
 use tracing::{debug, error, instrument, trace};
 
 use super::{
-    Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WriteHandle,
-    WS_CHANNEL_SIZE,
+    Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WS_CHANNEL_SIZE,
+    WriteHandle,
 };
 
 use crate::connections_manager::WsStream;

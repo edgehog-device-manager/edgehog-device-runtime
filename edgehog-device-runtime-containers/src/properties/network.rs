@@ -56,10 +56,10 @@ impl AvailableProp for AvailableNetwork<'_> {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
-    use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use astarte_device_sdk_mock::{MockDeviceClient, mockall::Sequence};
     use mockall::predicate;
     use uuid::Uuid;
 

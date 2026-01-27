@@ -19,10 +19,10 @@
 //! Models for all the resources.
 
 use diesel::{
+    AppearsOnTable, Expression, ExpressionMethods, Table,
     dsl::{Eq, Filter},
     query_dsl::methods::FilterDsl,
     sql_types::Binary,
-    AppearsOnTable, Expression, ExpressionMethods, Table,
 };
 
 use crate::conversions::SqlUuid;

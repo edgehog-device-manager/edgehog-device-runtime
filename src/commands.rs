@@ -18,7 +18,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-use astarte_device_sdk::{types::TypeError, AstarteData, FromEvent};
+use astarte_device_sdk::{AstarteData, FromEvent, types::TypeError};
 use tracing::error;
 
 use crate::error::DeviceManagerError;

@@ -18,7 +18,7 @@
 
 use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{Client, IntoAstarteObject};
-use stable_eyre::eyre::Context;
+use eyre::{Context, Report};
 use tracing::error;
 use wifiscanner::Wifi;
 
@@ -49,10 +49,7 @@ impl WifiScanResult {
         })
         .await
         .unwrap_or_else(|err| {
-            error!(
-                "couldn't get wifi networks: {}",
-                stable_eyre::Report::new(err)
-            );
+            error!("couldn't get wifi networks: {}", Report::new(err));
 
             Vec::new()
         })
@@ -69,7 +66,7 @@ impl WifiScanResult {
 }
 
 impl TryFrom<Wifi> for WifiScanResult {
-    type Error = stable_eyre::Report;
+    type Error = eyre::Report;
 
     fn try_from(wifi: Wifi) -> Result<Self, Self::Error> {
         let channel = wifi

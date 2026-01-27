@@ -22,11 +22,12 @@ use std::str::FromStr;
 
 use diesel::dsl::exists;
 use diesel::{
-    delete, insert_or_ignore_into, select, update, ExpressionMethods, OptionalExtension, QueryDsl,
-    RunQueryDsl, SelectableHelper, SqliteConnection,
+    ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
+    SqliteConnection, delete, insert_or_ignore_into, select, update,
 };
 use edgehog_store::conversions::{QuotaValue, SqlUuid, Swappiness};
 use edgehog_store::db::HandleError;
+use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::{
     ContainerAddCapability, ContainerBind, ContainerDeviceMapping, ContainerDropCapability,
     ContainerEnv, ContainerExtraHost, ContainerMissingDeviceMapping, ContainerNetwork,
@@ -35,7 +36,6 @@ use edgehog_store::models::containers::container::{
 };
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
-use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{
     container_add_capabilities, container_device_mappings, container_drop_capabilities,
     container_extra_hosts, container_storage_options, container_tmpfs, deployment_containers,
@@ -63,8 +63,8 @@ use uuid::Uuid;
 
 use crate::container::{Binding, ContainerId, PortBindingMap};
 use crate::docker::container::Container as ContainerResource;
-use crate::requests::container::{parse_port_binding, CreateContainer, RestartPolicy};
 use crate::requests::BindingError;
+use crate::requests::container::{CreateContainer, RestartPolicy, parse_port_binding};
 use crate::store::StoreError;
 
 use super::{Result, StateStore};
@@ -610,12 +610,12 @@ fn create_container(
         (None, Some(_)) => {
             return Err(StoreError::Conversion {
                 ctx: "cpu period missing, while cpu quota is set".to_string(),
-            })
+            });
         }
         (Some(_), None) => {
             return Err(StoreError::Conversion {
                 ctx: "cpu period was set, while cpu quota is missing".to_string(),
-            })
+            });
         }
     }
 
@@ -791,10 +791,10 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    use crate::requests::device_mapping::CreateDeviceMapping;
     use crate::requests::OptString;
+    use crate::requests::device_mapping::CreateDeviceMapping;
     use crate::requests::{
-        image::CreateImage, network::CreateNetwork, volume::CreateVolume, ReqUuid, VecReqUuid,
+        ReqUuid, VecReqUuid, image::CreateImage, network::CreateNetwork, volume::CreateVolume,
     };
 
     use super::*;

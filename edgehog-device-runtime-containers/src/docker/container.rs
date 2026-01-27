@@ -45,8 +45,8 @@ use uuid::Uuid;
 use crate::{
     client::*,
     requests::{
-        container::{parse_port_binding, RestartPolicy},
         BindingError,
+        container::{RestartPolicy, parse_port_binding},
     },
 };
 
@@ -761,7 +761,7 @@ mod tests {
         let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
@@ -821,7 +821,7 @@ mod tests {
         let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
@@ -919,7 +919,7 @@ mod tests {
         let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 

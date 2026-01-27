@@ -19,7 +19,6 @@
 use std::{path::Path, time::Duration};
 
 use astarte_device_sdk::{Client, FromEvent};
-use color_eyre::eyre::bail;
 use edgehog_containers::{
     events::RuntimeListener,
     requests::ContainerRequest,
@@ -29,6 +28,7 @@ use edgehog_containers::{
     Docker,
 };
 use edgehog_store::db::Handle;
+use eyre::bail;
 use tokio::task::JoinSet;
 use tracing::{error, info};
 

@@ -20,7 +20,6 @@ use std::env::VarError;
 
 use astarte_device_sdk::{
     builder::DeviceBuilder,
-    introspection::AddInterfaceError,
     rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
     store::SqliteStore,
     transport::mqtt::{Credential, Mqtt, MqttConfig},
@@ -28,7 +27,7 @@ use astarte_device_sdk::{
 };
 use clap::Parser;
 use cli::AstarteConfig;
-use color_eyre::eyre::{eyre, Context};
+use eyre::{eyre, WrapErr};
 use receive::receive;
 use tokio::task::JoinSet;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -53,15 +52,7 @@ async fn connect(
     mqtt_config.ignore_ssl_errors();
 
     let (client, connection) = DeviceBuilder::new()
-        .interface_directory(&astarte.interfaces_dir)
-        .map_err(|err| {
-            // TODO: remove when the #[source] macro is added to the error
-            if let AddInterfaceError::InterfaceFile { backtrace, .. } = err {
-                return color_eyre::Report::new(backtrace);
-            }
-
-            err.into()
-        })?
+        .interface_directory(&astarte.interfaces_dir)?
         .store_dir(&astarte.store_dir)
         .await?
         .connection(mqtt_config)

@@ -23,23 +23,21 @@ use std::marker::Send;
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use bollard::{
-    auth::DockerCredentials,
-    errors::Error,
-    models::{
-        ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse,
-        ContainerStatsResponse, ContainerWaitResponse, CreateImageInfo, EventMessage, ImageInspect,
-        ImageSummary, Network, NetworkCreateRequest, NetworkCreateResponse, Volume,
-        VolumeCreateOptions, VolumeListResponse,
-    },
-    query_parameters::{
-        CreateContainerOptions, CreateImageOptions, EventsOptions, InspectContainerOptions,
-        InspectNetworkOptions, ListContainersOptions, ListImagesOptions, ListNetworksOptions,
-        ListVolumesOptions, RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
-        StartContainerOptions, StatsOptions, StopContainerOptions, WaitContainerOptions,
-    },
-    service::{ContainerSummary, ImageDeleteResponseItem},
+use bollard::auth::DockerCredentials;
+use bollard::errors::Error;
+use bollard::models::NetworkInspect;
+use bollard::models::{
+    ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerStatsResponse,
+    ContainerWaitResponse, CreateImageInfo, EventMessage, ImageInspect, ImageSummary, Network,
+    NetworkCreateRequest, NetworkCreateResponse, Volume, VolumeCreateRequest, VolumeListResponse,
 };
+use bollard::query_parameters::{
+    CreateContainerOptions, CreateImageOptions, EventsOptions, InspectContainerOptions,
+    InspectNetworkOptions, ListContainersOptions, ListImagesOptions, ListNetworksOptions,
+    ListVolumesOptions, RemoveContainerOptions, RemoveImageOptions, RemoveVolumeOptions,
+    StartContainerOptions, StatsOptions, StopContainerOptions, WaitContainerOptions,
+};
+use bollard::service::{ContainerSummary, ImageDeleteResponseItem};
 use futures::Stream;
 use hyper::body::Bytes;
 use mockall::mock;
@@ -108,7 +106,7 @@ pub trait DockerTrait: Sized {
         &self,
         options: Option<ListImagesOptions>,
     ) -> Result<Vec<ImageSummary>, Error>;
-    async fn create_volume(&self, config: VolumeCreateOptions) -> Result<Volume, Error>;
+    async fn create_volume(&self, config: VolumeCreateRequest) -> Result<Volume, Error>;
     async fn inspect_volume(&self, volume_name: &str) -> Result<Volume, Error>;
     async fn remove_volume(
         &self,
@@ -127,7 +125,7 @@ pub trait DockerTrait: Sized {
         &self,
         network_name: &str,
         options: Option<InspectNetworkOptions>,
-    ) -> Result<Network, Error>;
+    ) -> Result<NetworkInspect, Error>;
     async fn remove_network(&self, network_name: &str) -> Result<(), Error>;
     async fn list_networks(
         &self,
@@ -202,7 +200,7 @@ mock! {
             &self,
             options: Option<ListImagesOptions>,
         ) -> Result<Vec<ImageSummary>, Error>;
-        async fn create_volume(&self, config: VolumeCreateOptions) -> Result<Volume, Error>;
+        async fn create_volume(&self, config: VolumeCreateRequest) -> Result<Volume, Error>;
         async fn inspect_volume(&self, volume_name: &str) -> Result<Volume, Error>;
         async fn remove_volume(
             &self,
@@ -221,7 +219,7 @@ mock! {
             &self,
             network_name: &str,
             options: Option<InspectNetworkOptions>,
-        ) -> Result<Network, Error>;
+        ) -> Result<NetworkInspect, Error>;
         async fn remove_network(&self, network_name: &str) -> Result<(), Error>;
         async fn list_networks(
             &self,

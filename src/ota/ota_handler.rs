@@ -19,8 +19,8 @@
  */
 
 use std::fmt::Debug;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::chrono::Utc;
@@ -33,13 +33,13 @@ use tracing::{debug, error, info};
 
 use crate::controller::actor::Actor;
 use crate::error::DeviceManagerError;
-use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
+use crate::ota::rauc::OTARauc;
 use crate::ota::{Ota, OtaId, OtaStatus};
 use crate::repository::file_state_repository::FileStateRepository;
 
-use super::event::{OtaOperation, OtaRequest};
 use super::PersistentState;
+use super::event::{OtaOperation, OtaRequest};
 
 const MAX_OTA_OPERATION: usize = 2;
 
@@ -90,7 +90,7 @@ pub struct OtaHandler {
 
 impl OtaHandler {
     pub async fn start<C>(
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         client: C,
         opts: &crate::DeviceManagerOptions,
     ) -> Result<Self, DeviceManagerError>
@@ -346,14 +346,14 @@ where
         "ota-publisher"
     }
 
-    async fn init(&mut self) -> stable_eyre::Result<()> {
+    async fn init(&mut self) -> eyre::Result<()> {
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
         if let Err(err) = self.send_ota_event(&msg).await {
             error!(
-                error = format!("{:#}", stable_eyre::Report::new(err)),
+                error = format!("{:#}", eyre::Report::new(err)),
                 "couldn't send ota event"
             );
         }
