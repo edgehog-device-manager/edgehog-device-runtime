@@ -27,22 +27,30 @@
 set -exEuo pipefail
 
 annotate() {
+    # ignored files
     if [[ "$*" == LICENSES/* ]]; then
         echo "skipping licence files"
         return
     fi
+    if [[ "$*" == *.snap || "$*" == *.snap.cbor ]]; then
+        echo "skipping licence files"
+        return
+    fi
 
+    # Diff could include deleted files
     if [[ ! -e "$*" ]]; then
         echo "skipping not existing"
         return
     fi
 
-    reuse annotate \
+
+    uv run reuse annotate \
         --copyright 'SECO Mind Srl' \
         --copyright-prefix string \
         --merge-copyrights \
         --license 'Apache-2.0' \
         --template apache-2 \
+        --skip-unrecognised \
         "$@"
 }
 
@@ -60,4 +68,4 @@ while read -r line; do
     fi
 
     annotate "$line"
-done </dev/stdin
+done
