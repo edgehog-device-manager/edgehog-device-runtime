@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -288,10 +288,10 @@ impl<D> Service<D> {
         };
 
         if let Err(err) = res {
-            let error = format!("{:#}", eyre::Report::new(err));
-            error!(error, "failed to create resource");
+            let error = eyre::Report::new(err);
+            error!(error = format!("{:#}", error), "failed to create resource");
 
-            DeploymentEvent::new(EventStatus::Error, error)
+            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&deployment_id, &mut self.device)
                 .await;
         }
@@ -308,18 +308,18 @@ impl<D> Service<D> {
             Ok(None) => {
                 error!("{id} not found");
 
-                DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
                     .send(&id, &mut self.device)
                     .await;
 
                 return;
             }
             Err(err) => {
-                let err = format!("{:#}", eyre::Report::new(err));
+                let error = eyre::Report::new(err);
 
-                error!(error = err, "couldn't start deployment");
+                error!(error = format!("{:#}", error), "couldn't start deployment");
 
-                DeploymentEvent::new(EventStatus::Error, err)
+                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -329,23 +329,23 @@ impl<D> Service<D> {
 
         info!("starting deployment");
 
-        DeploymentEvent::new(EventStatus::Starting, "")
+        DeploymentEvent::with_message(EventStatus::Starting, "")
             .send(&id, &mut self.device)
             .await;
 
         if let Err(err) = self.start_deployment(id, deployment).await {
-            let err = format!("{:#}", eyre::Report::new(err));
+            let error = eyre::Report::new(err);
 
-            error!(error = err, "couldn't start deployment");
+            error!(error = format!("{:#}", error), "couldn't start deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err)
+            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
 
-        DeploymentEvent::new(EventStatus::Started, "")
+        DeploymentEvent::with_message(EventStatus::Started, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -396,18 +396,18 @@ impl<D> Service<D> {
             Ok(None) => {
                 error!("{id} not found");
 
-                DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
                     .send(&id, &mut self.device)
                     .await;
 
                 return;
             }
             Err(err) => {
-                let err = format!("{:#}", eyre::Report::new(err));
+                let error = eyre::Report::new(err);
 
-                error!(error = err, "couldn't start deployment");
+                error!(error = format!("{:#}", error), "couldn't start deployment");
 
-                DeploymentEvent::new(EventStatus::Error, err)
+                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -417,23 +417,23 @@ impl<D> Service<D> {
 
         info!("stopping deployment");
 
-        DeploymentEvent::new(EventStatus::Stopping, "")
+        DeploymentEvent::with_message(EventStatus::Stopping, "")
             .send(&id, &mut self.device)
             .await;
 
         if let Err(err) = self.stop_deployment(id, containers).await {
-            let err = format!("{:#}", eyre::Report::new(err));
+            let error = eyre::Report::new(err);
 
-            error!(error = err, "couldn't stop deployment");
+            error!(error = format!("{:#}", error), "couldn't stop deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err)
+            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
 
-        DeploymentEvent::new(EventStatus::Stopped, "")
+        DeploymentEvent::with_message(EventStatus::Stopped, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -485,18 +485,18 @@ impl<D> Service<D> {
             Ok(None) => {
                 error!("{id} not found");
 
-                DeploymentEvent::new(EventStatus::Error, format!("{id} not found"))
+                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
                     .send(&id, &mut self.device)
                     .await;
 
                 return;
             }
             Err(err) => {
-                let err = format!("{:#}", eyre::Report::new(err));
+                let error = eyre::Report::new(err);
 
-                error!(error = err, "couldn't delete deployment");
+                error!(error = format!("{:#}", error), "couldn't delete deployment");
 
-                DeploymentEvent::new(EventStatus::Error, err)
+                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -506,16 +506,16 @@ impl<D> Service<D> {
 
         info!("deleting deployment");
 
-        DeploymentEvent::new(EventStatus::Deleting, "")
+        DeploymentEvent::with_message(EventStatus::Deleting, "")
             .send(&id, &mut self.device)
             .await;
 
         if let Err(err) = self.delete_deployment(id, deployment).await {
-            let err = format!("{:#}", eyre::Report::new(err));
+            let error = eyre::Report::new(err);
 
-            error!(error = err, "couldn't delete deployment");
+            error!(error = format!("{:#}", error), "couldn't delete deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err)
+            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
@@ -575,18 +575,18 @@ impl<D> Service<D> {
                 let msg = format!("{} not found", bundle.from);
                 error!("{msg}");
 
-                DeploymentEvent::new(EventStatus::Error, msg)
+                DeploymentEvent::with_message(EventStatus::Error, msg)
                     .send(&bundle.from, &mut self.device)
                     .await;
 
                 return;
             }
             Err(err) => {
-                let err = format!("{:#}", eyre::Report::new(err));
+                let err = eyre::Report::new(err);
 
-                error!(error = err, "couldn't update deployment");
+                error!(error = format!("{:#}", err), "couldn't update deployment");
 
-                DeploymentEvent::new(EventStatus::Error, err)
+                DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
                     .send(&bundle.from, &mut self.device)
                     .await;
 
@@ -600,18 +600,18 @@ impl<D> Service<D> {
                 let msg = format!("{} not found", bundle.to);
                 error!("{msg}");
 
-                DeploymentEvent::new(EventStatus::Error, msg)
+                DeploymentEvent::with_message(EventStatus::Error, msg)
                     .send(&bundle.to, &mut self.device)
                     .await;
 
                 return;
             }
             Err(err) => {
-                let err = format!("{:#}", eyre::Report::new(err));
+                let err = eyre::Report::new(err);
 
-                error!(error = err, "couldn't update deployment");
+                error!(error = format!("{:#}", err), "couldn't update deployment");
 
-                DeploymentEvent::new(EventStatus::Error, err)
+                DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
                     .send(&bundle.to, &mut self.device)
                     .await;
 
@@ -621,7 +621,7 @@ impl<D> Service<D> {
 
         info!("updating deployment");
 
-        DeploymentEvent::new(EventStatus::Updating, "")
+        DeploymentEvent::with_message(EventStatus::Updating, "")
             .send(&bundle.from, &mut self.device)
             .await;
 
@@ -630,11 +630,11 @@ impl<D> Service<D> {
             .update_deployment(bundle, from_deployment, to_deployment)
             .await
         {
-            let err = format!("{:#}", eyre::Report::new(err));
+            let err = eyre::Report::new(err);
 
-            error!(error = err, "couldn't update deployment");
+            error!(error = format!("{:#}", err), "couldn't update deployment");
 
-            DeploymentEvent::new(EventStatus::Error, err)
+            DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
                 .send(&bundle.from, &mut self.device)
                 .await;
 
@@ -1256,6 +1256,10 @@ mod tests {
                 predicate::eq(AstarteObject::from_iter([
                     ("status".to_string(), AstarteData::from("Starting")),
                     ("message".to_string(), AstarteData::from("")),
+                    (
+                        "addInfo".to_string(),
+                        AstarteData::from(Vec::<String>::new()),
+                    ),
                 ])),
                 predicate::always(),
             )
@@ -1319,6 +1323,10 @@ mod tests {
                 predicate::eq(AstarteObject::from_iter([
                     ("status".to_string(), AstarteData::from("Started")),
                     ("message".to_string(), AstarteData::from("")),
+                    (
+                        "addInfo".to_string(),
+                        AstarteData::from(Vec::<String>::new()),
+                    ),
                 ])),
                 predicate::always(),
             )
@@ -1454,6 +1462,10 @@ mod tests {
                 predicate::eq(AstarteObject::from_iter([
                     ("status".to_string(), AstarteData::from("Deleting")),
                     ("message".to_string(), AstarteData::from("")),
+                    (
+                        "addInfo".to_string(),
+                        AstarteData::from(Vec::<String>::new()),
+                    ),
                 ])),
                 predicate::always(),
             )
