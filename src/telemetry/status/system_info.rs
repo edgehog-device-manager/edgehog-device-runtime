@@ -20,8 +20,8 @@ use procfs::cmdline;
 use std::env;
 use tracing::{debug, error};
 
-use crate::data::set_property;
 use crate::Client;
+use crate::data::set_property;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.SystemInfo";
 
@@ -50,7 +50,7 @@ impl SystemInfo {
             Err(err) => {
                 error!(
                     "couldn't read the kernel cmd line: {}",
-                    stable_eyre::Report::new(err)
+                    eyre::Report::new(err)
                 );
             }
         }
@@ -81,17 +81,19 @@ impl SystemInfo {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
 
     use super::*;
 
     #[test]
     fn get_system_info_test() {
-        env::set_var("EDGEHOG_SYSTEM_SERIAL_NUMBER", "serial#");
-        env::set_var("EDGEHOG_SYSTEM_PART_NUMBER", "part#");
+        unsafe {
+            env::set_var("EDGEHOG_SYSTEM_SERIAL_NUMBER", "serial#");
+            env::set_var("EDGEHOG_SYSTEM_PART_NUMBER", "part#");
+        }
 
         let sysinfo = SystemInfo::read();
 

@@ -22,7 +22,7 @@ use tracing::warn;
 
 use crate::{
     network::Network,
-    properties::{network::AvailableNetwork, AvailableProp, Client},
+    properties::{AvailableProp, Client, network::AvailableNetwork},
 };
 
 use super::{Context, Create, Resource, ResourceError, Result, State};

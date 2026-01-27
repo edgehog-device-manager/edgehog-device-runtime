@@ -16,14 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::IntoAstarteObject;
+use astarte_device_sdk::chrono::Utc;
 use sysinfo::{Disk, Disks};
 use tracing::{error, warn};
 
+use crate::Client;
 use crate::data::send_object_with_timestamp;
 use crate::telemetry::sender::TelemetryTask;
-use crate::Client;
 
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.StorageUsage";
 

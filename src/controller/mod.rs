@@ -20,10 +20,10 @@
 use std::sync::Arc;
 
 use actor::Actor;
+use astarte_device_sdk::FromEvent;
 use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
-use astarte_device_sdk::FromEvent;
-use stable_eyre::eyre::Error;
+use eyre::Report;
 #[cfg(feature = "containers")]
 use tokio::sync::OnceCell;
 use tokio::{sync::mpsc, task::JoinSet};
@@ -32,8 +32,8 @@ use tracing::{error, info};
 
 use crate::commands::execute_command;
 use crate::error::DeviceManagerError;
-use crate::telemetry::event::TelemetryEvent;
 use crate::telemetry::Telemetry;
+use crate::telemetry::event::TelemetryEvent;
 use crate::{Client, DeviceManagerOptions};
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -62,7 +62,7 @@ pub struct Runtime<T> {
 
 impl<C> Runtime<C> {
     pub async fn new(
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         opts: DeviceManagerOptions,
         client: C,
         cancel: CancellationToken,
@@ -150,7 +150,7 @@ impl<C> Runtime<C> {
         config: crate::containers::ContainersConfig,
         store: &edgehog_store::db::Handle,
         container_handle: &Arc<OnceCell<edgehog_containers::local::ContainerHandle>>,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
     ) -> Result<
         mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
         DeviceManagerError,
@@ -180,7 +180,7 @@ impl<C> Runtime<C> {
         #[cfg(feature = "containers")] container_handle: &Arc<
             OnceCell<edgehog_containers::local::ContainerHandle>,
         >,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
     ) where
         C: Client + Clone + Send + Sync + 'static,
@@ -235,7 +235,7 @@ impl<C> Runtime<C> {
                     return Ok(());
                 }
                 Err(err) => {
-                    error!("error received: {}", Error::from(err));
+                    error!(error = %Report::new(err), "error received");
 
                     continue;
                 }
@@ -259,10 +259,7 @@ impl<C> Runtime<C> {
                 }
 
                 if let Err(err) = execute_command(cmd).await {
-                    error!(
-                        "command failed to execute: {}",
-                        stable_eyre::Report::new(err)
-                    );
+                    error!(error = %Report::new(err), "command failed to execute");
                 }
             }
             RuntimeEvent::Telemetry(event) => {
@@ -280,8 +277,8 @@ impl<C> Runtime<C> {
             RuntimeEvent::Ota(ota) => {
                 if let Err(err) = self.ota_handler.handle_event(ota).await {
                     error!(
-                        "error while processing ota event {}",
-                        stable_eyre::Report::new(err)
+                        error = %eyre::Report::new(err),
+                        "error while processing ota event",
                     );
                 }
             }

@@ -30,7 +30,7 @@ use crate::Client;
 
 use crate::{
     controller::actor::Actor,
-    repository::{file_state_repository::FileStateRepository, StateRepository},
+    repository::{StateRepository, file_state_repository::FileStateRepository},
 };
 
 use self::sender::Task;
@@ -229,7 +229,7 @@ impl<C> Telemetry<C> {
                 // Don't error here since the file is corrupted, but it will be overwritten
                 error!(
                     "couldn't read the saved telemetry configs: {}",
-                    stable_eyre::Report::new(err)
+                    eyre::Report::new(err)
                 );
 
                 return;
@@ -302,10 +302,7 @@ impl<C> Telemetry<C> {
             .collect();
 
         if let Err(err) = self.file_state.write(&telemetry_config).await {
-            error!(
-                "failed to write telemetry: {}",
-                stable_eyre::Report::new(err)
-            );
+            error!("failed to write telemetry: {}", eyre::Report::new(err));
         }
     }
 }
@@ -321,7 +318,7 @@ where
         "telemetry"
     }
 
-    async fn init(&mut self) -> stable_eyre::Result<()> {
+    async fn init(&mut self) -> eyre::Result<()> {
         self.initial_telemetry().await;
 
         self.run_telemetry();
@@ -329,12 +326,12 @@ where
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
         let interface = match TelemetryInterface::from_str(&msg.interface) {
             Ok(itf) => itf,
             Err(err) => {
                 error!(
-                    error = format!("{:#}", stable_eyre::Report::new(err)),
+                    error = format!("{:#}", eyre::Report::new(err)),
                     "couldn't parse telemetry interface"
                 );
 
@@ -450,7 +447,7 @@ pub(crate) mod tests {
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
     use event::TelemetryPeriod;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
     use tempdir::TempDir;
 
     use super::status::runtime_info::tests::mock_runtime_info_telemetry;

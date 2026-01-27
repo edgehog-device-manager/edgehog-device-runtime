@@ -20,8 +20,8 @@ use procfs::{CpuInfo, Meminfo, ProcResult};
 use serde::Deserialize;
 use tracing::{debug, error};
 
-use crate::data::set_property;
 use crate::Client;
+use crate::data::set_property;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.HardwareInfo";
 
@@ -71,10 +71,7 @@ impl Cpu {
                 cpu.vendor = cpu_info.fields.remove("vendor_id");
             }
             Err(err) => {
-                error!(
-                    "couldn't get the cpu info: {}",
-                    stable_eyre::Report::new(err)
-                );
+                error!("couldn't get the cpu info: {}", eyre::Report::new(err));
             }
         }
 
@@ -120,10 +117,7 @@ impl Mem {
         let mem_info = match get_meminfo() {
             Ok(mem_info) => mem_info,
             Err(err) => {
-                error!(
-                    "couldn't get the memory info: {}",
-                    stable_eyre::Report::new(err)
-                );
+                error!("couldn't get the memory info: {}", eyre::Report::new(err));
 
                 return mem;
             }
@@ -257,11 +251,11 @@ CmaFree:          194196 kB
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
 
     use super::*;
 

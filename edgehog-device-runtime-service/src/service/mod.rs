@@ -27,8 +27,8 @@ use cfg_if::cfg_if;
 use edgehog_proto::tonic::transport::server::{Connected, TcpIncoming};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -74,7 +74,7 @@ impl TryFrom<crate::config::Listener> for Listener {
                     if #[cfg(unix)] {
                         Ok(Listener::Unix(path_buf))
                     } else {
-                        Err(eyre::eyre!("target doesn't support unix socket: {}", path_buf.display()))
+                        Err(eyre!("target doesn't support unix socket: {}", path_buf.display()))
                     }
                 }
             }

@@ -25,8 +25,8 @@ use std::{
 
 use async_trait::async_trait;
 use event::OtaRequest;
-use futures::stream::BoxStream;
 use futures::TryStreamExt;
+use futures::stream::BoxStream;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use ota_handler::{OtaEvent, OtaInProgress, OtaMessage, OtaStatusMessage};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -39,11 +39,11 @@ use uuid::Uuid;
 #[cfg(test)]
 use mockall::automock;
 
+use crate::DeviceManagerOptions;
 use crate::controller::actor::Actor;
 use crate::error::DeviceManagerError;
 use crate::ota::rauc::BundleInfo;
 use crate::repository::StateRepository;
-use crate::DeviceManagerOptions;
 
 use self::config::{OtaConfig, Reboot};
 
@@ -53,7 +53,7 @@ pub mod event;
 pub(crate) mod ota_handler;
 #[cfg(test)]
 mod ota_handler_test;
-pub(crate) mod rauc;
+pub mod rauc;
 
 /// Provides deploying progress information.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -351,7 +351,7 @@ where
         "ota"
     }
 
-    async fn init(&mut self) -> stable_eyre::Result<()> {
+    async fn init(&mut self) -> eyre::Result<()> {
         if self.state_repository.exists().await {
             self.ota_status = OtaStatus::Rebooted;
         }
@@ -365,7 +365,7 @@ where
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
         if self.ota_status != OtaStatus::Idle {
             error!("ota request already in progress");
 
@@ -655,7 +655,7 @@ where
                         error!("{message}: {err}");
                     }
                     Err(err) => {
-                        error!("{message}: {}", stable_eyre::Report::new(err));
+                        error!("{message}: {}", eyre::Report::new(err));
                     }
                 }
 
@@ -1014,7 +1014,7 @@ mod tests {
 
     use futures::StreamExt;
     use httpmock::prelude::*;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
     use pretty_assertions::assert_eq;
     use tempdir::TempDir;
     use tokio::sync::mpsc;
@@ -1024,8 +1024,8 @@ mod tests {
     use crate::error::DeviceManagerError;
     use crate::ota::ota_handler_test::deploy_status_stream;
     use crate::ota::rauc::BundleInfo;
-    use crate::ota::{create_http_client, wget, Ota, OtaId, OtaStatus, PersistentState};
     use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, SystemUpdate};
+    use crate::ota::{Ota, OtaId, OtaStatus, PersistentState, create_http_client, wget};
     use crate::repository::file_state_repository::FileStateError;
     use crate::repository::{MockStateRepository, StateRepository};
 
@@ -1432,7 +1432,7 @@ mod tests {
             )
         );
 
-        mock_ota_file_request.assert_hits_async(5).await;
+        mock_ota_file_request.assert_calls_async(5).await;
     }
 
     #[tokio::test]

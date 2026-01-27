@@ -18,8 +18,8 @@
 
 use edgehog_containers::stats::StatsMonitor;
 
-use crate::telemetry::sender::TelemetryTask;
 use crate::Client;
+use crate::telemetry::sender::TelemetryTask;
 
 use super::ContainerInterface;
 

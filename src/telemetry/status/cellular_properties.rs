@@ -18,15 +18,15 @@
 
 //! Cellular connection properties telemetry information.
 
+use eyre::WrapErr;
 use futures::StreamExt;
-use stable_eyre::eyre::WrapErr;
 use std::collections::HashMap;
 use tracing::{debug, error};
 use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::data::set_property;
 use crate::Client;
+use crate::data::set_property;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.CellularConnectionProperties";
 
@@ -65,7 +65,7 @@ impl CellularConnection {
         }
     }
 
-    async fn get_cellular_properties() -> stable_eyre::Result<HashMap<String, ModemProperties>> {
+    async fn get_cellular_properties() -> eyre::Result<HashMap<String, ModemProperties>> {
         let connection = zbus::Connection::session().await?;
         let proxy = CellularModemsProxy::new(&connection).await?;
 
@@ -122,7 +122,7 @@ mod tests {
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::types::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
 
     #[tokio::test]
     async fn get_modem_properties_test() {

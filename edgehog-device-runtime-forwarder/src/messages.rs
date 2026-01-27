@@ -19,6 +19,7 @@ use url::ParseError;
 
 use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::{
+    Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
     http::Message as ProtobufHttpMessage,
     http::Request as ProtobufHttpRequest,
     http::Response as ProtobufHttpResponse,
@@ -26,7 +27,6 @@ use edgehog_device_forwarder_proto::{
     prost::{self, Message as ProstMessage},
     web_socket::Close as ProtobufWsClose,
     web_socket::Message as ProtobufWsMessage,
-    Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
 };
 
 /// Errors occurring while handling [`protobuf`](https://protobuf.dev/overview/) messages
