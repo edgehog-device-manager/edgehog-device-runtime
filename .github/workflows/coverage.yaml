@@ -26,7 +26,7 @@ defaults:
   run:
     shell: bash
 jobs:
-  upload:
+  upload-coverage:
     runs-on: ubuntu-24.04
     # Run only if originated from a PR
     if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' }}
@@ -53,6 +53,41 @@ jobs:
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v5
         with:
+          codecov_yml_path: master/.github/codecov.yaml
+          token: ${{secrets.CODECOV_TOKEN}}
+          fail_ci_if_error: true
+          override_branch: ${{ github.event.workflow_run.head_branch }}
+          override_commit: ${{ github.event.workflow_run.head_sha }}
+          override_pr: ${{ env.PR_NUMBER }}
+  upload-test:
+    runs-on: ubuntu-24.04
+    # Run only if originated from a PR
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      # Checkout codecov.yaml config from master
+      - uses: actions/checkout@v5
+        with:
+          path: master
+          sparse-checkout: |
+            .github/codecov.yaml
+          sparse-checkout-cone-mode: false
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: test_results
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Get PR number
+        run: |
+          echo "PR_NUMBER=$(cat ./pr_number)" >> "$GITHUB_ENV"
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v5
+        with:
+          report_type: test_results
+          files: junit.xml
           codecov_yml_path: master/.github/codecov.yaml
           token: ${{secrets.CODECOV_TOKEN}}
           fail_ci_if_error: true
