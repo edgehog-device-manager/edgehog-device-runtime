@@ -522,6 +522,13 @@ impl From<&Container> for ContainerCreateBody {
             maximum_retry_count: None,
         };
 
+        // NOTE: to expose ports you need to set both port_bindings in the host_config and exposed_ports
+        let exposed_ports = port_bindings
+            .keys()
+            .cloned()
+            .map(|k| (k, HashMap::new()))
+            .collect();
+
         let host_config = HostConfig {
             restart_policy: Some(restart_policy),
             binds: Some(binds),
@@ -556,6 +563,7 @@ impl From<&Container> for ContainerCreateBody {
             env: Some(env),
             host_config: Some(host_config),
             networking_config: Some(networking_config),
+            exposed_ports: Some(exposed_ports),
             ..Default::default()
         }
     }
