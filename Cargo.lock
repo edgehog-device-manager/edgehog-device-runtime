@@ -186,7 +186,7 @@ checksum = "2f0aee93a48ca074c8c4cb6c2c864f1590802377999411a1737cba3e226a370d"
 dependencies = [
  "astarte-device-sdk",
  "chrono",
- "mockall",
+ "mockall 0.13.1",
 ]
 
 [[package]]
@@ -1350,7 +1350,7 @@ dependencies = [
  "eyre",
  "futures",
  "httpmock",
- "mockall",
+ "mockall 0.14.0",
  "pretty_assertions",
  "procfs",
  "reqwest",
@@ -1397,7 +1397,7 @@ dependencies = [
  "hyper 1.8.1",
  "indexmap 2.11.4",
  "itertools 0.14.0",
- "mockall",
+ "mockall 0.14.0",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -1456,7 +1456,7 @@ dependencies = [
  "edgehog-device-runtime-proto",
  "edgehog-device-runtime-store",
  "eyre",
- "mockall",
+ "mockall 0.14.0",
  "pretty_assertions",
  "serde",
  "tokio",
@@ -2809,7 +2809,21 @@ dependencies = [
  "cfg-if",
  "downcast",
  "fragile",
- "mockall_derive",
+ "mockall_derive 0.13.1",
+ "predicates",
+ "predicates-tree",
+]
+
+[[package]]
+name = "mockall"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f58d964098a5f9c6b63d0798e5372fd04708193510a7af313c22e9f29b7b620b"
+dependencies = [
+ "cfg-if",
+ "downcast",
+ "fragile",
+ "mockall_derive 0.14.0",
  "predicates",
  "predicates-tree",
 ]
@@ -2824,6 +2838,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "mockall_derive"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca41ce716dda6a9be188b385aa78ee5260fc25cd3802cb2a8afdc6afbe6b6dbf"
+dependencies = [
+ "cfg-if",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
