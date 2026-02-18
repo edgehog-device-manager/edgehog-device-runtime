@@ -18,7 +18,6 @@
 
 //! Available [`Image`](crate::docker::image::Image) property.
 
-use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::AvailableProp;
@@ -37,7 +36,6 @@ impl<'a> AvailableDeviceMapping<'a> {
     }
 }
 
-#[async_trait]
 impl AvailableProp for AvailableDeviceMapping<'_> {
     type Data = bool;
 
@@ -56,10 +54,10 @@ impl AvailableProp for AvailableDeviceMapping<'_> {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
-    use astarte_device_sdk_mock::{mockall::Sequence, MockDeviceClient};
+    use astarte_device_sdk_mock::{MockDeviceClient, mockall::Sequence};
     use mockall::predicate;
     use uuid::Uuid;
 

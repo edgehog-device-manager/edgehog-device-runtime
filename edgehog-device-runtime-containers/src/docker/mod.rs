@@ -73,7 +73,7 @@ impl Docker {
     }
 
     /// Ping the Docker daemon
-    pub fn events(&self) -> impl Stream<Item = Result<EventMessage, DockerError>> {
+    pub fn events(&self) -> impl Stream<Item = Result<EventMessage, DockerError>> + use<> {
         let types = ["container", "image", "volume", "network"]
             .map(str::to_string)
             .to_vec();

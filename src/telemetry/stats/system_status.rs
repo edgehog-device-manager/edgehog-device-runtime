@@ -16,14 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::IntoAstarteObject;
+use astarte_device_sdk::chrono::Utc;
 use procfs::Current;
 use tracing::error;
 
+use crate::Client;
 use crate::data::send_object_with_timestamp;
 use crate::telemetry::sender::TelemetryTask;
-use crate::Client;
 
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.SystemStatus";
 
@@ -47,7 +47,7 @@ impl SystemStatus {
             Err(err) => {
                 error!(
                     "couldn't get current process meminfo: {}",
-                    stable_eyre::Report::new(err)
+                    eyre::Report::new(err)
                 );
 
                 return None;
@@ -67,10 +67,7 @@ impl SystemStatus {
             .unwrap_or_default();
 
         let boot_id = procfs::sys::kernel::random::boot_id().unwrap_or_else(|err| {
-            error!(
-                "couldn't get the boot_id: {}",
-                stable_eyre::Report::new(err)
-            );
+            error!("couldn't get the boot_id: {}", eyre::Report::new(err));
 
             String::new()
         });
@@ -85,7 +82,7 @@ impl SystemStatus {
                 })
             })
             .unwrap_or_else(|err| {
-                error!("couldn't get task_count: {}", stable_eyre::Report::new(err));
+                error!("couldn't get task_count: {}", eyre::Report::new(err));
 
                 0
             });
@@ -101,10 +98,7 @@ impl SystemStatus {
                 })
             })
             .unwrap_or_else(|err| {
-                error!(
-                    "couldn't get uptime_millis: {}",
-                    stable_eyre::Report::new(err)
-                );
+                error!("couldn't get uptime_millis: {}", eyre::Report::new(err));
 
                 0
             });

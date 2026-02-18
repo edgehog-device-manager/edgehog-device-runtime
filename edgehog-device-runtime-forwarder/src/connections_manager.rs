@@ -7,15 +7,15 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use backoff::{Error as BackoffError, ExponentialBackoff};
-use futures::{future, SinkExt, StreamExt, TryFutureExt};
+use futures::{SinkExt, StreamExt, TryFutureExt, future};
 use thiserror::Error as ThisError;
 use tokio::net::TcpStream;
 use tokio::select;
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::{Receiver, channel};
 use tokio_tungstenite::connect_async_tls_with_config;
 use tokio_tungstenite::{
-    tungstenite::Error as TungError, tungstenite::Message as TungMessage, Connector,
-    MaybeTlsStream, WebSocketStream,
+    Connector, MaybeTlsStream, WebSocketStream, tungstenite::Error as TungError,
+    tungstenite::Message as TungMessage,
 };
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;

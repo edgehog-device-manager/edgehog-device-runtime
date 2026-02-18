@@ -4,16 +4,16 @@
 use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::message::Protocol;
 use edgehog_device_forwarder_proto::{
-    message::Protocol as ProtobufProtocol, web_socket::Message as ProtobufWsMessage,
-    WebSocket as ProtobufWebSocket,
+    WebSocket as ProtobufWebSocket, message::Protocol as ProtobufProtocol,
+    web_socket::Message as ProtobufWsMessage,
 };
 use tokio_tungstenite::tungstenite::Bytes;
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 
 use edgehog_device_runtime_forwarder::test_utils::create_ws_msg;
 use edgehog_device_runtime_forwarder::test_utils::{
-    create_http_upgrade_req, is_ws_upgrade_response, send_ws_and_wait_next, MockWebSocket,
-    TestConnections,
+    MockWebSocket, TestConnections, create_http_upgrade_req, is_ws_upgrade_response,
+    send_ws_and_wait_next,
 };
 
 #[tokio::test]

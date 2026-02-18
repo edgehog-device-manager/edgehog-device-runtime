@@ -19,7 +19,6 @@
 //! Container properties sent from the device to Astarte.
 
 use astarte_device_sdk::AstarteData;
-use async_trait::async_trait;
 use tracing::error;
 use uuid::Uuid;
 
@@ -57,7 +56,6 @@ pub enum PropertyError {
     },
 }
 
-#[async_trait]
 pub(crate) trait AvailableProp {
     type Data: Into<AstarteData> + Send + 'static;
 

@@ -23,9 +23,11 @@ use edgehog_containers::bollard;
 use edgehog_containers::bollard::models::{
     ContainerBlkioStatEntry, ContainerBlkioStats, ContainerCpuStats, ContainerCpuUsage,
     ContainerMemoryStats, ContainerNetworkStats, ContainerStateStatusEnum,
-    ContainerSummaryStateEnum, ContainerThrottlingData, PortBinding, PortTypeEnum,
+    ContainerSummaryStateEnum, ContainerThrottlingData, PortBinding,
 };
-use edgehog_containers::bollard::secret::{ContainerInspectResponse, ContainerStatsResponse};
+use edgehog_containers::bollard::secret::{
+    ContainerInspectResponse, ContainerStatsResponse, PortSummaryTypeEnum,
+};
 use edgehog_proto::containers::v1::{
     BlkioStats, BlkioValue, Container, ContainerId, ContainerState, ContainerSummary, CpuStats,
     CpuThrottlingData, CpuUsage, MemoryStats, NetworkStats, PidsStats, PortMapping, PortType,
@@ -33,7 +35,7 @@ use edgehog_proto::containers::v1::{
 };
 use edgehog_proto::prost_types::Timestamp;
 use edgehog_proto::tonic::Status;
-use eyre::{bail, Context};
+use eyre::{Context, bail};
 use tracing::error;
 use uuid::Uuid;
 
@@ -308,10 +310,10 @@ pub(crate) fn convert_container_summary(
                 protocol: port
                     .typ
                     .map(|typ| match typ {
-                        PortTypeEnum::EMPTY => PortType::Unspecified,
-                        PortTypeEnum::TCP => PortType::Tcp,
-                        PortTypeEnum::UDP => PortType::Udp,
-                        PortTypeEnum::SCTP => PortType::Sctp,
+                        PortSummaryTypeEnum::EMPTY => PortType::Unspecified,
+                        PortSummaryTypeEnum::TCP => PortType::Tcp,
+                        PortSummaryTypeEnum::UDP => PortType::Udp,
+                        PortSummaryTypeEnum::SCTP => PortType::Sctp,
                     })
                     .unwrap_or(PortType::Unspecified)
                     .into(),

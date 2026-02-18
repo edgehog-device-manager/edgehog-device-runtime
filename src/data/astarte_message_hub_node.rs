@@ -22,17 +22,17 @@
 
 use std::path::Path;
 
+use astarte_device_sdk::DeviceClient;
 use astarte_device_sdk::builder::DeviceBuilder;
 use astarte_device_sdk::error::Error as AstarteError;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::grpc::{Grpc, GrpcConfig, GrpcError};
-use astarte_device_sdk::DeviceClient;
 use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
-use uuid::{uuid, Uuid};
+use uuid::{Uuid, uuid};
 
 /// Device runtime node identifier.
 const DEVICE_RUNTIME_NODE_UUID: Uuid = uuid!("d72a6187-7cf1-44cc-87e8-e991936166db");
@@ -60,7 +60,7 @@ pub struct AstarteMessageHubOptions {
 impl AstarteMessageHubOptions {
     pub async fn connect<P>(
         &self,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
         interface_dir: P,
     ) -> Result<DeviceClient<Grpc>, MessageHubError>

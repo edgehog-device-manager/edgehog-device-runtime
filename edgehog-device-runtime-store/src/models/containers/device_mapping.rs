@@ -21,6 +21,7 @@
 use std::fmt::Display;
 
 use diesel::{
+    Insertable, Queryable, Selectable,
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
     dsl::exists,
@@ -29,7 +30,6 @@ use diesel::{
     serialize::{IsNull, ToSql},
     sql_types::SmallInt,
     sqlite::Sqlite,
-    Insertable, Queryable, Selectable,
 };
 
 use crate::{

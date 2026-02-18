@@ -21,7 +21,7 @@
 use std::{borrow::Borrow, fmt::Display, num::ParseIntError, ops::Deref};
 
 use astarte_device_sdk::{
-    event::FromEventError, types::TypeError, AstarteData, DeviceEvent, FromEvent,
+    AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
 use container::{CreateContainer, RestartPolicyError};
 use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
@@ -52,9 +52,10 @@ pub enum ReqError {
 
 /// Error from parsing a binding
 #[non_exhaustive]
-#[derive(Debug, displaydoc::Display, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum BindingError {
-    /// couldn't parse {binding} port {value}
+    /// Couldn't parse binding port
+    #[error("couldn't parse {binding} port {value}")]
     Port {
         /// Binding received
         binding: &'static str,
@@ -264,7 +265,7 @@ mod tests {
     use super::*;
 
     use image::tests::create_image_request_event;
-    use network::{tests::create_network_request_event, CreateNetwork};
+    use network::{CreateNetwork, tests::create_network_request_event};
     use pretty_assertions::assert_eq;
 
     use crate::requests::ContainerRequest;

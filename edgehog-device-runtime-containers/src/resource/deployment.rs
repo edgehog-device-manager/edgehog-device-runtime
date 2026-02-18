@@ -18,7 +18,6 @@
 
 use std::collections::HashSet;
 
-use async_trait::async_trait;
 use edgehog_store::{
     conversions::SqlUuid,
     models::containers::{
@@ -29,8 +28,8 @@ use edgehog_store::{
 use uuid::Uuid;
 
 use crate::properties::{
-    deployment::{AvailableDeployment, DeploymentStatus as PropertyStatus},
     AvailableProp, Client,
+    deployment::{AvailableDeployment, DeploymentStatus as PropertyStatus},
 };
 
 use super::{Context, Resource, Result};
@@ -82,7 +81,6 @@ impl From<Vec<DeploymentRow>> for Deployment {
     }
 }
 
-#[async_trait]
 impl<D> Resource<D> for Deployment
 where
     D: Client + Send + Sync + 'static,

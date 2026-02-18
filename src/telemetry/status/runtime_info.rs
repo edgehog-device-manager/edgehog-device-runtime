@@ -20,8 +20,8 @@ use std::borrow::Cow;
 
 use serde::Deserialize;
 
-use crate::data::set_property;
 use crate::Client;
+use crate::data::set_property;
 
 const INTERFACE: &str = "io.edgehog.devicemanager.RuntimeInfo";
 
@@ -65,11 +65,11 @@ impl RuntimeInfo<'static> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
 
     use super::*;
 

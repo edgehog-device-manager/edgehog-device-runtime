@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use astarte_device_sdk::{event::FromEventError, DeviceEvent, FromEvent};
+use astarte_device_sdk::{DeviceEvent, FromEvent, event::FromEventError};
 
 use crate::{commands::Commands, telemetry::event::TelemetryEvent};
 

@@ -16,13 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use edgehog_store::models::containers::image::ImageStatus;
 use tracing::warn;
 
 use crate::{
     image::{Image, ImageError},
-    properties::{image::AvailableImage, AvailableProp, Client},
+    properties::{AvailableProp, Client, image::AvailableImage},
 };
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
@@ -38,7 +37,6 @@ impl ImageResource {
     }
 }
 
-#[async_trait]
 impl<D> Resource<D> for ImageResource
 where
     D: Client + Send + Sync + 'static,
