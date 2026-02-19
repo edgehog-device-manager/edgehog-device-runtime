@@ -21,7 +21,7 @@
 use std::time::Duration;
 
 use astarte_device_sdk::{
-    event::FromEventError, types::TypeError, AstarteData, DeviceEvent, FromEvent,
+    AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
 use tracing::warn;
 

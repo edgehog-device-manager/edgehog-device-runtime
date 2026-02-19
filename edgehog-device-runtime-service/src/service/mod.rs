@@ -27,8 +27,8 @@ use cfg_if::cfg_if;
 use edgehog_proto::tonic::transport::server::{Connected, TcpIncoming};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -74,7 +74,7 @@ impl TryFrom<crate::config::Listener> for Listener {
                     if #[cfg(unix)] {
                         Ok(Listener::Unix(path_buf))
                     } else {
-                        Err(eyre::eyre!("target doesn't support unix socket: {}", path_buf.display()))
+                        Err(eyre!("target doesn't support unix socket: {}", path_buf.display()))
                     }
                 }
             }
@@ -157,13 +157,13 @@ impl Drop for EdgehogService {
         match &self.options.listener {
             #[cfg(unix)]
             Listener::Unix(path_buf) => {
-                if path_buf.exists() {
-                    if let Err(err) = std::fs::remove_file(path_buf) {
-                        tracing::error!(
-                            error = format!("{:#}", eyre::Report::new(err)),
-                            "couldn't remove unix socket"
-                        );
-                    }
+                if path_buf.exists()
+                    && let Err(err) = std::fs::remove_file(path_buf)
+                {
+                    tracing::error!(
+                        error = format!("{:#}", eyre::Report::new(err)),
+                        "couldn't remove unix socket"
+                    );
                 }
             }
             Listener::Socket(_) => {}

@@ -3,7 +3,6 @@
 
 //! Define the necessary structs and traits to represent an HTTP connection.
 
-use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 use tracing::{debug, instrument, trace};
 
@@ -27,7 +26,6 @@ impl HttpBuilder {
     }
 }
 
-#[async_trait]
 impl TransportBuilder for HttpBuilder {
     type Connection = Http;
 
@@ -68,7 +66,6 @@ impl Http {
     }
 }
 
-#[async_trait]
 impl Transport for Http {
     /// Send the [HTTP request](reqwest::Request), wait for a response and return it.
     #[instrument(skip(self))]

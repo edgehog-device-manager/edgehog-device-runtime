@@ -31,7 +31,7 @@ use bollard::{
     models::{ImageDeleteResponseItem, ImageInspect},
     query_parameters::{CreateImageOptions, RemoveImageOptions},
 };
-use futures::{future, TryStreamExt};
+use futures::{TryStreamExt, future};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::client::*;
@@ -237,10 +237,6 @@ impl Image {
             .try_for_each(|create_info| {
                 trace!("creating image: {:?}", create_info);
 
-                if let Some(err) = create_info.error {
-                    error!("create {self} returned an error: {err}");
-                }
-
                 if let Some(err) = create_info.error_detail {
                     error!(
                         "create {self} error details with code {:?} and message: {:?}",
@@ -353,7 +349,7 @@ mod tests {
     #[tokio::test]
     async fn pull_hello_world() {
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
@@ -395,7 +391,7 @@ mod tests {
     #[tokio::test]
     async fn inspect_hello_world() {
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
@@ -483,7 +479,7 @@ mod tests {
     #[tokio::test]
     async fn remove_image() {
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
 
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();

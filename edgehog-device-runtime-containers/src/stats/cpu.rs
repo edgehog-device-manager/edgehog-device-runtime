@@ -84,14 +84,14 @@ impl Metric for ContainerCpu {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
-    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk_mock::MockDeviceClient;
     use bollard::models::{ContainerCpuUsage, ContainerThrottlingData};
-    use mockall::{predicate, Sequence};
+    use mockall::{Sequence, predicate};
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 

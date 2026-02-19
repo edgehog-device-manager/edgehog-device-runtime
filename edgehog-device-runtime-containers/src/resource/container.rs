@@ -16,7 +16,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use bollard::secret::ContainerStateStatusEnum;
 use edgehog_store::models::containers::container::ContainerStatus;
 use tracing::{debug, warn};
@@ -24,8 +23,8 @@ use tracing::{debug, warn};
 use crate::{
     container::Container,
     properties::{
-        container::{AvailableContainer, ContainerStatus as PropertyStatus},
         AvailableProp, Client,
+        container::{AvailableContainer, ContainerStatus as PropertyStatus},
     },
 };
 
@@ -98,7 +97,6 @@ impl ContainerResource {
     }
 }
 
-#[async_trait]
 impl<D> Resource<D> for ContainerResource
 where
     D: Client + Send + Sync + 'static,

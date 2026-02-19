@@ -18,11 +18,11 @@
 
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
-use color_eyre::eyre::{bail, eyre, OptionExt, WrapErr};
 use edgehog_device_runtime::ota::config::OtaConfig;
 use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
 use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
-use edgehog_device_runtime::telemetry::status::runtime_info::{RuntimeInfo, RUNTIME_INFO};
+use edgehog_device_runtime::telemetry::status::runtime_info::{RUNTIME_INFO, RuntimeInfo};
+use eyre::{OptionExt, WrapErr, bail, eyre};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -34,9 +34,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, error, info};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 use url::Url;
 
 use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;

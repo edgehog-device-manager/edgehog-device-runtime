@@ -19,16 +19,16 @@
 use std::io::IsTerminal;
 
 use clap::Parser;
-use eyre::{eyre, OptionExt, WrapErr};
+use eyre::{OptionExt, WrapErr, eyre};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
-use edgehog_device_runtime::data::connect_store;
 use edgehog_device_runtime::AstarteLibrary;
+use edgehog_device_runtime::data::connect_store;
 
 use self::cli::Cli;
 use self::config::read_options;
@@ -37,8 +37,8 @@ mod cli;
 pub mod config;
 
 #[tokio::main]
-async fn main() -> stable_eyre::Result<()> {
-    stable_eyre::install()?;
+async fn main() -> eyre::Result<()> {
+    color_eyre::install()?;
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(std::io::stdout().is_terminal()))

@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        msrv: [1.78]
+        msrv: [1.88]
     name: msrv / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v6

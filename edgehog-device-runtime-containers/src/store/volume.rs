@@ -18,13 +18,13 @@
 
 use std::collections::HashMap;
 
-use diesel::{delete, insert_or_ignore_into, ExpressionMethods, OptionalExtension, RunQueryDsl};
-use diesel::{update, QueryDsl};
+use diesel::{ExpressionMethods, OptionalExtension, RunQueryDsl, delete, insert_or_ignore_into};
+use diesel::{QueryDsl, update};
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
+use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::ContainerMissingVolume;
 use edgehog_store::models::containers::volume::{Volume, VolumeDriverOpts, VolumeStatus};
-use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{container_volumes, volume_driver_opts, volumes};
 use itertools::Itertools;
 use tracing::instrument;
@@ -34,7 +34,7 @@ use crate::docker::volume::Volume as ContainerVolume;
 use crate::requests::volume::CreateVolume;
 use crate::resource::volume::VolumeResource;
 
-use super::{split_key_value, Result, StateStore, StoreError};
+use super::{Result, StateStore, StoreError, split_key_value};
 
 impl StateStore {
     /// Stores the volume received from the CreateRequest

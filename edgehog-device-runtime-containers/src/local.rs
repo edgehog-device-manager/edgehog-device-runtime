@@ -29,9 +29,9 @@ use edgehog_store::models::containers::container::ContainerStatus;
 use tracing::trace;
 use uuid::Uuid;
 
+use crate::Docker;
 use crate::container::ContainerId;
 use crate::store::StateStore;
-use crate::Docker;
 
 #[cfg(feature = "__mock")]
 use crate::client::DockerTrait;

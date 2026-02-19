@@ -2,7 +2,7 @@
 
 # This file is part of Edgehog.
 #
-# Copyright 2025 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,16 @@
 
 set -exEuo pipefail
 
-nightly_version="nightly-2025-07-21"
+####
+# ENV
+#
+# EXPORT_BASE_COMMIT:   sha of the commit for diff coverage
+# EXPORT_FOR_CI:        copies the coverage files to the CWD
+#
+# TOOLS
+#
+# lcov:     used to merge coverages for many crates
+# genhtml:  better branch and function coverage
 
 # Output directories for the profile files and coverage
 #
@@ -33,7 +42,7 @@ CARGO_TARGET_DIR=$(
 )
 export CARGO_TARGET_DIR
 SRC_DIR="$(
-    cargo "+$nightly_version" locate-project |
+    cargo +nightly locate-project |
         jq .root --raw-output |
         xargs dirname
 )"
@@ -53,7 +62,7 @@ export COVERAGE_OUT_DIR="$CARGO_TARGET_DIR/debug/coverage"
 export RUSTFLAGS="-Cinstrument-coverage -Zcoverage-options=branch --cfg=__coverage"
 export CARGO_INCREMENTAL=0
 
-main='edgehog-device-runtime'
+src_crate='edgehog-device-runtime'
 crates=(
     'edgehog-device-runtime'
     'edgehog-device-runtime-containers'
@@ -63,13 +72,11 @@ crates=(
 
 # Helpful for testing changes in the generation options
 if [[ ${1:-} != '--no-gen' ]]; then
-    cargo "+$nightly_version" clean
-
     mkdir -p "$COVERAGE_OUT_DIR"
     mkdir -p "$PROFS_DIR"
 
     for crate in "${crates[@]}"; do
-        cargo "+$nightly_version" test --locked --all-features --tests --no-fail-fast -p "$crate"
+        cargo +nightly test --locked --all-features --tests --no-fail-fast -p "$crate"
     done
 fi
 
@@ -92,68 +99,89 @@ LLVM_COV=${LLVM_COV:-$rustup_llvm_cov}
 $LLVM_PROFDATA merge -sparse "$PROFS_DIR/"*.profraw -o "$PROFS_DIR/coverage.profdata"
 
 object_files() {
-    tests=$(
-        cargo "+$nightly_version" test --tests --all-features --no-run --message-format=json "$@" |
+    objects=$(
+        cargo +nightly test --tests --all-features --no-run --message-format=json "$@" |
             jq -r "select(.profile.test == true) | .filenames[]" |
             grep -v dSYM -
     )
 
-    for file in $tests; do
-        printf "%s %s " -object "$file"
+    for obj in "${objects[@]}"; do
+        echo "-object=$obj"
     done
 }
 
 export_lcov() {
     local src
-    if [[ $1 == "$main" ]]; then
+    if [[ $1 == "$src_crate" ]]; then
         src="$SRC_DIR/src"
     else
         src="$SRC_DIR/$1/src"
     fi
 
-    # shellcheck disable=2086,2046
+    obj_args=$(object_files -p "$p")
+
     $LLVM_COV export \
+        -Xdemangler=rustfilt \
         -format=lcov \
         -ignore-filename-regex='/.cargo/registry' \
         -instr-profile="$PROFS_DIR/coverage.profdata" \
         -ignore-filename-regex='.*test\.rs' \
         -ignore-filename-regex='.*mock\.rs' \
-        -sources "$src" $(object_files -p "$1") \
+        -sources "$src" "${obj_args[@]}" \
         >"$COVERAGE_OUT_DIR/$1/lcov.info"
 }
 
 filter_lcov() {
     local src
-    if [[ $1 == "$main" ]]; then
+    if [[ $1 == "$src_crate" ]]; then
         src="$SRC_DIR"
     else
         src="$SRC_DIR/$1"
     fi
 
-    grcov \
-        "$COVERAGE_OUT_DIR/$1/lcov.info" \
-        --binary-path "$CARGO_TARGET_DIR/debug" \
-        --output-path "$COVERAGE_OUT_DIR/$1/" \
-        --source-dir "$src" \
-        --branch \
-        --llvm \
-        --excl-start 'mod test(s)?' \
-        --output-type lcov,html
+    obj_args=$(object_files -p "$1")
+
+    mkdir -p "$COVERAGE_OUT_DIR/$1/lcov-show"
+    $LLVM_COV show \
+        -Xdemangler=rustfilt \
+        -format=html \
+        -show-directory-coverage \
+        -show-mcdc \
+        -show-line-counts-or-regions \
+        -instr-profile="$PROFS_DIR/coverage.profdata" \
+        -output-dir="$COVERAGE_OUT_DIR/$1/lcov-show" \
+        -sources "$src" "${obj_args[@]}"
 
     # Better branch coverage information
     if command -v genhtml; then
         mkdir -p "$COVERAGE_OUT_DIR/$1/genhtml"
+
+        arg_diff=()
+
+        if [[ -z "${EXPORT_BASE_COMMIT:-}" && -f "$COVERAGE_OUT_DIR/baseline-commit.txt" ]]; then
+            commit=$(cat "$COVERAGE_OUT_DIR/baseline-commit.txt")
+            current=$(git rev-parse HEAD)
+
+            if [[ $commit != "$current" ]]; then
+                git diff "$commit.." -p --src-prefix= --dst-prefix= >"$COVERAGE_OUT_DIR/patch.diff"
+
+                arg_diff+=(
+                    "--baseline-file=$COVERAGE_OUT_DIR/baseline-$commit-$p.info"
+                    "--diff-file=$COVERAGE_OUT_DIR/patch.diff"
+                )
+            fi
+        fi
+
         genhtml \
             --show-details \
             --legend \
             --branch-coverage \
             --dark-mode \
             --missed \
-            --ignore-errors category \
-            --ignore-errors inconsistent \
+            --demangle-cpp rustfilt \
             --output-directory "$COVERAGE_OUT_DIR/$1/genhtml" \
+            "${arg_diff[@]}" \
             "$COVERAGE_OUT_DIR/$1/lcov.info"
-
     fi
 }
 
@@ -164,10 +192,16 @@ for p in "${crates[@]}"; do
 
     filter_lcov "$p"
 
-    cp -v "$COVERAGE_OUT_DIR/$p/lcov" "$COVERAGE_OUT_DIR/coverage-$p.info"
+    cp -v "$COVERAGE_OUT_DIR/$p/lcov.info" "$COVERAGE_OUT_DIR/coverage-$p.info"
 
     if [[ -n "${EXPORT_FOR_CI:-}" ]]; then
         cp -v "$COVERAGE_OUT_DIR/$p/lcov" "$PWD/coverage-$p.info"
+    fi
+
+    if [[ -n "${EXPORT_BASE_COMMIT:-}" ]]; then
+        commit=$(git rev-parse HEAD)
+        cp -v "$COVERAGE_OUT_DIR/$p/lcov.info" "$COVERAGE_OUT_DIR/baseline-$commit-$p.info"
+        echo "$commit" >"$COVERAGE_OUT_DIR/baseline-commit.txt"
     fi
 done
 
