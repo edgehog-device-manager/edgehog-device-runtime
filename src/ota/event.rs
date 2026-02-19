@@ -20,7 +20,7 @@
 
 use std::ops::Deref;
 
-use astarte_device_sdk::{types::TypeError, AstarteData, FromEvent};
+use astarte_device_sdk::{AstarteData, FromEvent, types::TypeError};
 use tracing::error;
 use uuid::Uuid;
 
@@ -62,7 +62,7 @@ impl TryFrom<AstarteData> for OtaUuid {
         Uuid::try_parse(&str).map(OtaUuid).map_err(|err| {
             error!(
                 value = str,
-                error = format!("{:#}", stable_eyre::Report::new(err)),
+                error = format!("{:#}", eyre::Report::new(err)),
                 "coudln't parse Ota UUID",
             );
 
@@ -107,7 +107,7 @@ mod tests {
 
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
-    use astarte_device_sdk::{event::FromEventError, DeviceEvent, Value};
+    use astarte_device_sdk::{DeviceEvent, Value, event::FromEventError};
 
     #[test]
     fn should_convert_ota_from_event() {

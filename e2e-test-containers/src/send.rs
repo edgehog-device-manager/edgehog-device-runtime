@@ -89,7 +89,7 @@ impl ApiClient {
         Ok(())
     }
 
-    fn interface_url(&self, interface: &str, path: &str) -> Result<Url, color_eyre::eyre::Error> {
+    fn interface_url(&self, interface: &str, path: &str) -> eyre::Result<Url> {
         let mut url = self.url.clone();
         url.path_segments_mut()
             .map_err(|_| eyre!("couldn't get the url path {}", self.url))?

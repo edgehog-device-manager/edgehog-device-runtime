@@ -36,7 +36,7 @@ use std::{
 };
 
 use deadpool::managed::{BuildError, Pool, PoolError};
-use diesel::{connection::SimpleConnection, Connection, ConnectionError, SqliteConnection};
+use diesel::{Connection, ConnectionError, SqliteConnection, connection::SimpleConnection};
 use tokio::{sync::Mutex, task::JoinError};
 
 type DynError = Box<dyn Error + Send + Sync>;
@@ -155,9 +155,7 @@ impl Handle {
         let mut reader = self.readers.get().await?;
 
         // If this task panics (the error is returned) the connection would still be null
-        let res = tokio::task::spawn_blocking(move || (f)(&mut reader)).await?;
-
-        res
+        tokio::task::spawn_blocking(move || (f)(&mut reader)).await?
     }
 
     /// Passes the writer to a callback with a transaction already started.
@@ -311,10 +309,11 @@ impl deadpool::managed::Manager for Manager {
 }
 
 /// Error returned while creating a connection
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ManagerError {
-    /// couldn't connect to the database {db_file}
+    /// Couldn't connect to the database {db_file}
+    #[error("couldn't connect to the database {db_file}")]
     Connection {
         /// Connection to the database file
         db_file: String,
@@ -322,9 +321,11 @@ pub enum ManagerError {
         #[source]
         backtrace: ConnectionError,
     },
-    /// couldn't join database task
+    /// Couldn't join database task
+    #[error("couldn't join database task")]
     Join(#[from] JoinError),
-    /// couldn't execute the query
+    /// Couldn't execute the query
+    #[error("couldn't execute the query")]
     Query(#[from] diesel::result::Error),
 }
 

@@ -18,13 +18,13 @@
 
 use diesel::query_dsl::methods::{FilterDsl, SelectDsl};
 use diesel::{
-    delete, insert_or_ignore_into, update, ExpressionMethods, OptionalExtension, RunQueryDsl,
+    ExpressionMethods, OptionalExtension, RunQueryDsl, delete, insert_or_ignore_into, update,
 };
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
+use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::ContainerMissingNetwork;
 use edgehog_store::models::containers::network::{Network, NetworkDriverOpts, NetworkStatus};
-use edgehog_store::models::QueryModel;
 use edgehog_store::schema::containers::{container_networks, network_driver_opts, networks};
 use itertools::Itertools;
 use tracing::instrument;
@@ -33,7 +33,7 @@ use uuid::Uuid;
 use crate::resource::network::NetworkResource;
 use crate::{docker::network::Network as ContainerNetwork, requests::network::CreateNetwork};
 
-use super::{split_key_value, Result, StateStore, StoreError};
+use super::{Result, StateStore, StoreError, split_key_value};
 
 impl StateStore {
     /// Stores the network received from the CreateRequest

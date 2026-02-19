@@ -18,8 +18,8 @@
 
 //! Container and volume storage stats.
 
-use astarte_device_sdk::chrono::{DateTime, Utc};
 use astarte_device_sdk::IntoAstarteObject;
+use astarte_device_sdk::chrono::{DateTime, Utc};
 
 use super::Metric;
 
@@ -54,8 +54,8 @@ impl From<bollard::models::Volume> for VolumeUsage {
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::{
-        aggregate::AstarteObject, chrono::TimeZone, store::SqliteStore, transport::mqtt::Mqtt,
-        AstarteData,
+        AstarteData, aggregate::AstarteObject, chrono::TimeZone, store::SqliteStore,
+        transport::mqtt::Mqtt,
     };
     use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::predicate;

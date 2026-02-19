@@ -20,19 +20,17 @@
 
 use std::error::Error;
 
-use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
 
 pub(crate) mod file_state_repository;
 
 #[cfg_attr(test, automock(type Err = self::file_state_repository::FileStateError;))]
-#[async_trait]
 pub trait StateRepository<T: Send + Sync>: Send + Sync {
     type Err: Error;
 
-    async fn write(&self, value: &T) -> Result<(), Self::Err>;
-    async fn read(&self) -> Result<T, Self::Err>;
-    async fn exists(&self) -> bool;
-    async fn clear(&self) -> Result<(), Self::Err>;
+    fn write(&self, value: &T) -> impl Future<Output = Result<(), Self::Err>> + Send;
+    fn read(&self) -> impl Future<Output = Result<T, Self::Err>> + Send;
+    fn exists(&self) -> impl Future<Output = bool> + Send;
+    fn clear(&self) -> impl Future<Output = Result<(), Self::Err>> + Send;
 }

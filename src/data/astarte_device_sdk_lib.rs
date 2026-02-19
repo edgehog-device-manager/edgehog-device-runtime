@@ -20,19 +20,19 @@
 
 use std::path::Path;
 
+use astarte_device_sdk::DeviceClient;
 use astarte_device_sdk::builder::{BuilderError, DeviceBuilder};
 use astarte_device_sdk::error::Error as AstarteError;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::mqtt::{Credential, Mqtt, MqttConfig};
-use astarte_device_sdk::DeviceClient;
 use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 
-use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
+use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 
 /// Error returned by the [`astarte_device_sdk`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -115,7 +115,7 @@ impl AstarteDeviceSdkConfigOptions {
 
     pub async fn connect<P>(
         &self,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
         store_dir: P,
         interface_dir: P,

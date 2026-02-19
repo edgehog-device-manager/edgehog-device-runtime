@@ -19,7 +19,7 @@
  */
 
 use tracing::{debug, info, level_filters::LevelFilter};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use zbus::interface;
 
 pub const SERVICE_NAME: &str = "io.edgehog.LedManager";
@@ -53,8 +53,9 @@ impl LedManager {
 }
 
 #[tokio::main]
-async fn main() -> stable_eyre::Result<()> {
-    stable_eyre::install()?;
+async fn main() -> eyre::Result<()> {
+    color_eyre::install()?;
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(

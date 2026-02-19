@@ -16,12 +16,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use edgehog_store::models::containers::volume::VolumeStatus;
 use tracing::warn;
 
 use crate::{
-    properties::{volume::AvailableVolume, AvailableProp, Client},
+    properties::{AvailableProp, Client, volume::AvailableVolume},
     volume::{Volume, VolumeId},
 };
 
@@ -38,7 +37,6 @@ impl VolumeResource {
     }
 }
 
-#[async_trait]
 impl<D> Resource<D> for VolumeResource
 where
     D: Client + Send + Sync + 'static,

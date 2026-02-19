@@ -7,21 +7,21 @@ use crate::connections_manager::{ConnectionsManager, Disconnected};
 
 use edgehog_device_forwarder_proto as proto;
 use edgehog_device_forwarder_proto::{
-    http::Message as ProtobufHttpMessage, http::Request as ProtobufHttpRequest,
-    message::Protocol as ProtobufProtocol, prost::Message, web_socket::Close as ProtobufClose,
-    web_socket::Message as ProtobufWsMessage, Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
+    Http as ProtobufHttp, WebSocket as ProtobufWebSocket, http::Message as ProtobufHttpMessage,
+    http::Request as ProtobufHttpRequest, message::Protocol as ProtobufProtocol, prost::Message,
+    web_socket::Close as ProtobufClose, web_socket::Message as ProtobufWsMessage,
 };
 use futures::{SinkExt, StreamExt};
-use httpmock::prelude::*;
 use httpmock::Mock;
+use httpmock::prelude::*;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
-use tokio_tungstenite::tungstenite::Message as TungMessage;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message as TungMessage;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tracing::{debug, instrument, warn};
 use url::{ParseError, Url};
 

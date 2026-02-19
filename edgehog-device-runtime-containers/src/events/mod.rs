@@ -20,15 +20,15 @@
 
 use bollard::models::EventMessageTypeEnum;
 use eyre::Context;
-use futures::{future, TryStreamExt};
+use futures::{TryStreamExt, future};
 use tokio::sync::mpsc;
 use tracing::{debug, error, instrument};
 use uuid::Uuid;
 
 use crate::{
-    service::{events::ContainerEvent, Id, ResourceType},
-    store::StateStore,
     Docker,
+    service::{Id, ResourceType, events::ContainerEvent},
+    store::StateStore,
 };
 
 pub(crate) mod deployment;
