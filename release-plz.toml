@@ -1,4 +1,4 @@
-# This file is part of Astarte.
+# This file is part of Edgehog.
 #
 # Copyright 2026 SECO Mind Srl
 #
@@ -29,7 +29,7 @@ git_release_body = """
 """
 
 [[package]]
-name = "@MAIN_CRATE@"
+name = "edgehog-device-runtime"
 git_release_name = "v{{ version }}"
 git_tag_name = "v{{ version }}"
 git_tag_enable = true

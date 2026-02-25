@@ -44,7 +44,7 @@ jobs:
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-24.04
-    if: ${{ github.repository_owner == '@OWNER@' }}
+    if: ${{ github.repository_owner == 'edgehog-device-manager' }}
     permissions:
       contents: write
       id-token: write

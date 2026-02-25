@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2022 - 2025 SECO Mind Srl
+# Copyright 2022-2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,12 +106,10 @@ edgehog-store = { workspace = true, optional = true }
 edgehog-tls.workspace = true
 eyre.workspace = true
 futures.workspace = true
-procfs.workspace = true
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sysinfo.workspace = true
-systemd = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream.workspace = true
@@ -119,7 +117,6 @@ tokio-util.workspace = true
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-udev = { workspace = true, optional = true }
 url.workspace = true
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true, optional = true }
@@ -139,6 +136,13 @@ features = [
   "rustls-no-provider",
   "stream",
 ]
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+procfs.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+udev = { workspace = true, optional = true }
+systemd = { workspace = true, optional = true }
 
 [build-dependencies]
 rustc_version.workspace = true

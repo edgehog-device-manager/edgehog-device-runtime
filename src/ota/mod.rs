@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1790,11 +1790,6 @@ mod tests {
             uuid: Uuid::new_v4(),
             url: ota_url,
         };
-
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_test_writer()
-            .init();
 
         ota.ota_status = OtaStatus::Acknowledged(ota_id.clone());
 

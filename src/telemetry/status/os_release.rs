@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ use std::{collections::HashMap, io};
 
 use futures::TryFutureExt;
 use serde::Deserialize;
+use sysinfo::System;
 use tracing::{debug, error};
 
 use crate::Client;
@@ -47,13 +48,17 @@ fn split_key_value(line: &str) -> Option<(&str, &str)> {
         .filter(|(k, v)| !k.is_empty() && !v.is_empty())
 }
 
+fn parse_file(s: &str) -> HashMap<&str, &str> {
+    s.lines().filter_map(split_key_value).collect()
+}
+
 pub struct OsRelease {
     pub os_info: OsInfo,
     pub base_image: BaseImage,
 }
 
 impl OsRelease {
-    pub async fn read() -> Option<Self> {
+    pub async fn read() -> Self {
         let content = try_read_file("/etc/os-release")
             .and_then(|file| async move {
                 if file.is_some() {
@@ -65,9 +70,15 @@ impl OsRelease {
             })
             .await
             .ok()
-            .flatten()?;
+            .flatten()
+            .unwrap_or_default();
 
-        Some(Self::from(content.as_str()))
+        let values = parse_file(&content);
+
+        Self {
+            os_info: OsInfo::read(&values),
+            base_image: BaseImage::read(&values),
+        }
     }
 
     pub async fn send<C>(self, client: &mut C)
@@ -76,17 +87,6 @@ impl OsRelease {
     {
         self.os_info.send(client).await;
         self.base_image.send(client).await;
-    }
-}
-
-impl From<&str> for OsRelease {
-    fn from(s: &str) -> Self {
-        let lines: HashMap<&str, &str> = s.lines().filter_map(split_key_value).collect();
-
-        Self {
-            os_info: OsInfo::from(&lines),
-            base_image: BaseImage::from(&lines),
-        }
     }
 }
 
@@ -99,6 +99,22 @@ pub struct OsInfo {
 }
 
 impl OsInfo {
+    fn read(value: &HashMap<&str, &str>) -> Self {
+        let name = System::name().or_else(|| value.get("NAME").map(|name| name.to_string()));
+
+        let version = System::os_version().or_else(|| {
+            value
+                .get("VERSION_ID")
+                .or_else(|| value.get("BUILD_ID"))
+                .map(|version| version.to_string())
+        });
+
+        Self {
+            os_name: name,
+            os_version: version,
+        }
+    }
+
     pub async fn send<C>(self, client: &mut C)
     where
         C: Client,
@@ -123,22 +139,6 @@ impl OsInfo {
     }
 }
 
-impl From<&HashMap<&str, &str>> for OsInfo {
-    fn from(value: &HashMap<&str, &str>) -> Self {
-        let name = value.get("NAME").map(|name| name.to_string());
-
-        let version = value
-            .get("VERSION_ID")
-            .or_else(|| value.get("BUILD_ID"))
-            .map(|version| version.to_string());
-
-        Self {
-            os_name: name,
-            os_version: version,
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct BaseImage {
     name: Option<String>,
@@ -147,6 +147,27 @@ pub struct BaseImage {
 }
 
 impl BaseImage {
+    fn read(value: &HashMap<&str, &str>) -> Self {
+        let name = value.get("IMAGE_ID").map(|name| name.to_string());
+
+        let (version, build_id) = value
+            .get("IMAGE_VERSION")
+            // cursed some mapping
+            .map(|version| match version.split_once('+') {
+                Some((version, build_id)) => {
+                    (Some(version.to_string()), Some(build_id.to_string()))
+                }
+                None => (Some(version.to_string()), None),
+            })
+            .unwrap_or_default();
+
+        Self {
+            name,
+            version,
+            build_id,
+        }
+    }
+
     pub async fn send<C>(self, client: &mut C)
     where
         C: Client,
@@ -180,29 +201,6 @@ impl BaseImage {
     }
 }
 
-impl From<&HashMap<&str, &str>> for BaseImage {
-    fn from(value: &HashMap<&str, &str>) -> Self {
-        let name = value.get("IMAGE_ID").map(|name| name.to_string());
-
-        let (version, build_id) = value
-            .get("IMAGE_VERSION")
-            // cursed some mapping
-            .map(|version| match version.split_once('+') {
-                Some((version, build_id)) => {
-                    (Some(version.to_string()), Some(build_id.to_string()))
-                }
-                None => (Some(version.to_string()), None),
-            })
-            .unwrap_or_default();
-
-        Self {
-            name,
-            version,
-            build_id,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::AstarteData;
@@ -227,9 +225,9 @@ BUG_REPORT_URL="https://bugs.archlinux.org/"
 LOGO=archlinux-logo
 "#;
 
-        let data = OsRelease::from(file).os_info;
-        assert_eq!(data.os_name.unwrap(), "Arch Linux");
-        assert_eq!(data.os_version.unwrap(), "rolling");
+        let data = parse_file(file);
+        assert_eq!(*data.get("NAME").unwrap(), "Arch Linux");
+        assert_eq!(*data.get("BUILD_ID").unwrap(), "rolling");
 
         let file = r#"PRETTY_NAME="Debian GNU/Linux 11 (bullseye)"
 NAME="Debian GNU/Linux"
@@ -241,9 +239,9 @@ HOME_URL="https://www.debian.org/"
 SUPPORT_URL="https://www.debian.org/support"
 BUG_REPORT_URL="https://bugs.debian.org/""#;
 
-        let data = OsRelease::from(file).os_info;
-        assert_eq!(data.os_name.unwrap(), "Debian GNU/Linux");
-        assert_eq!(data.os_version.unwrap(), "11");
+        let data = parse_file(file);
+        assert_eq!(*data.get("NAME").unwrap(), "Debian GNU/Linux");
+        assert_eq!(*data.get("VERSION_ID").unwrap(), "11");
     }
 
     #[test]
@@ -252,27 +250,27 @@ BUG_REPORT_URL="https://bugs.debian.org/""#;
 
 VERSION_ID="11""#;
 
-        let data = OsRelease::from(file).os_info;
-        assert_eq!(data.os_name.unwrap(), "Debian GNU/Linux");
-        assert_eq!(data.os_version.unwrap(), "11");
+        let data = parse_file(file);
+        assert_eq!(*data.get("NAME").unwrap(), "Debian GNU/Linux");
+        assert_eq!(*data.get("VERSION_ID").unwrap(), "11");
     }
 
     #[test]
     fn os_release_with_only_name() {
         let file = r#"NAME="Arch Linux"#;
 
-        let data = OsRelease::from(file).os_info;
-        assert_eq!(data.os_name.unwrap(), "Arch Linux");
-        assert!(data.os_version.is_none());
+        let data = parse_file(file);
+        assert!(data.contains_key("NAME"));
+        assert!(!data.contains_key("VERSION_ID"));
     }
 
     #[test]
     fn os_release_malformed() {
         let file = r#"NAME["Arch Linux"@@"#;
 
-        let data = OsRelease::from(file).os_info;
-        assert!(data.os_name.is_none());
-        assert!(data.os_version.is_none());
+        let data = parse_file(file);
+        assert!(!data.contains_key("NAME"));
+        assert!(!data.contains_key("VERSION_ID"));
     }
 
     #[test]
@@ -331,10 +329,8 @@ VERSION_ID="11""#;
     }
 
     #[tokio::test]
-    #[cfg(target_os = "linux")]
     async fn get_base_image_test() {
-        let result = OsRelease::read().await;
-        assert!(result.is_some());
+        OsRelease::read().await;
     }
 
     #[test]
@@ -353,7 +349,7 @@ PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-poli
 VERSION_CODENAME=bionic
 UBUNTU_CODENAME=bionic"#;
 
-        let base_image = OsRelease::from(OS_RELEASE).base_image;
+        let base_image = BaseImage::read(&parse_file(OS_RELEASE));
         assert!(base_image.name.is_none());
         assert!(base_image.version.is_none());
         assert!(base_image.build_id.is_none());
@@ -377,7 +373,7 @@ UBUNTU_CODENAME=bionic
 IMAGE_ID="testOs"
 IMAGE_VERSION="1.0.0+20220922""#;
 
-        let base_image = OsRelease::from(OS_RELEASE).base_image;
+        let base_image = BaseImage::read(&parse_file(OS_RELEASE));
         assert_eq!(base_image.name.unwrap(), "testOs");
         assert_eq!(base_image.version.unwrap(), "1.0.0");
         assert_eq!(base_image.build_id.unwrap(), "20220922");

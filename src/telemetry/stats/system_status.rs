@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashSet;
+use std::time::Duration;
+
 use astarte_device_sdk::IntoAstarteObject;
 use astarte_device_sdk::chrono::Utc;
-use procfs::Current;
+use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
 use tracing::error;
 
 use crate::Client;
@@ -42,38 +45,40 @@ impl SystemStatus {
     /// The fields that errors or have an invalid value (too big to be sent to Astarte), will be
     /// set to 0 or empty as a null/default value.
     pub fn read() -> Option<Self> {
-        let meminfo = match procfs::Meminfo::current() {
-            Ok(meminfo) => meminfo,
-            Err(err) => {
-                error!(
-                    "couldn't get current process meminfo: {}",
-                    eyre::Report::new(err)
-                );
+        let system = System::new_with_specifics(
+            RefreshKind::nothing()
+                .with_memory(MemoryRefreshKind::nothing().with_ram())
+                .with_processes(ProcessRefreshKind::nothing().with_tasks()),
+        );
 
-                return None;
+        let mem_avail = system.available_memory();
+        let avail_memory_bytes = i64::try_from(mem_avail)
+            .inspect_err(|_| error!(mem_avail, "value to big to send as i64"))
+            .unwrap_or_default();
+
+        cfg_if::cfg_if! {
+            if #[cfg(any(target_os = "linux", target_os = "android"))] {
+                let boot_id = procfs::sys::kernel::random::boot_id().unwrap_or_else(|err| {
+                    error!(error = %err, "couldn't get the boot_id");
+
+                    String::new()
+                });
+            } else {
+                let boot_id = String::new();
             }
         };
 
-        let avail_memory_bytes = meminfo
-            .mem_available
-            .and_then(|mem| match i64::try_from(mem) {
-                Ok(mem) => Some(mem),
-                Err(_) => {
-                    error!("avail_memory_bytes to big to send as i64: {mem}");
+        let task_count = system
+            .processes()
+            .values()
+            .map(|procs| {
+                procs.tasks().map(HashSet::len).unwrap_or_else(|| {
+                    error!("missing tasks for process");
 
-                    None
-                }
+                    // Count at least the process
+                    1
+                })
             })
-            .unwrap_or_default();
-
-        let boot_id = procfs::sys::kernel::random::boot_id().unwrap_or_else(|err| {
-            error!("couldn't get the boot_id: {}", eyre::Report::new(err));
-
-            String::new()
-        });
-
-        let task_count = procfs::process::all_processes()
-            .map(|procs| procs.count())
             .map(|procs| {
                 i32::try_from(procs).unwrap_or_else(|_| {
                     error!("task_count to big to send as i32: {procs}");
@@ -81,24 +86,12 @@ impl SystemStatus {
                     0
                 })
             })
-            .unwrap_or_else(|err| {
-                error!("couldn't get task_count: {}", eyre::Report::new(err));
+            .sum();
 
-                0
-            });
-
-        let uptime_millis = procfs::Uptime::current()
-            .map(|uptime| {
-                let millis = uptime.uptime_duration().as_millis();
-
-                i64::try_from(millis).unwrap_or_else(|_| {
-                    error!("uptime_millis to big to send as i64: {millis}");
-
-                    0
-                })
-            })
-            .unwrap_or_else(|err| {
-                error!("couldn't get uptime_millis: {}", eyre::Report::new(err));
+        let uptime = System::uptime();
+        let uptime_millis =
+            i64::try_from(Duration::from_secs(uptime).as_millis()).unwrap_or_else(|_| {
+                error!(uptime_secs = uptime, "to big to send as millis i64");
 
                 0
             });
@@ -136,8 +129,10 @@ mod tests {
     fn get_system_status_test() {
         let system_status = SystemStatus::read().unwrap();
 
-        assert!(system_status.avail_memory_bytes > 0);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         assert!(!system_status.boot_id.is_empty());
+
+        assert!(system_status.avail_memory_bytes > 0);
         assert!(system_status.task_count > 0);
         assert!(system_status.uptime_millis > 0);
     }

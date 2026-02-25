@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use procfs::{CpuInfo, Meminfo, ProcResult};
 use serde::Deserialize;
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 use tracing::{debug, error};
 
 use crate::Client;
@@ -26,6 +26,7 @@ use crate::data::set_property;
 const INTERFACE: &str = "io.edgehog.devicemanager.HardwareInfo";
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HardwareInfo {
     pub cpu: Cpu,
     pub mem: Mem,
@@ -33,8 +34,14 @@ pub struct HardwareInfo {
 
 impl HardwareInfo {
     pub async fn read() -> Self {
-        let cpu = Cpu::read().await;
-        let mem = Mem::read().await;
+        let system = System::new_with_specifics(
+            RefreshKind::nothing()
+                .with_cpu(CpuRefreshKind::nothing())
+                .with_memory(MemoryRefreshKind::nothing().with_ram()),
+        );
+
+        let cpu = Cpu::read(&system).await;
+        let mem = Mem::read(&system).await;
 
         HardwareInfo { cpu, mem }
     }
@@ -50,7 +57,7 @@ impl HardwareInfo {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Cpu {
     pub architecture: String,
     pub model: Option<String>,
@@ -59,21 +66,20 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    async fn read() -> Self {
+    async fn read(system: &System) -> Self {
         let mut cpu = Cpu {
-            architecture: get_machine_architecture(),
+            architecture: std::env::consts::ARCH.into(),
             ..Default::default()
         };
-        match get_cpu_info() {
-            Ok(mut cpu_info) => {
-                cpu.model = cpu_info.fields.remove("model");
-                cpu.model_name = cpu_info.fields.remove("model name");
-                cpu.vendor = cpu_info.fields.remove("vendor_id");
-            }
-            Err(err) => {
-                error!("couldn't get the cpu info: {}", eyre::Report::new(err));
-            }
+
+        // The interface doesn't support multiple CPUs
+        if let Some(info) = system.cpus().first() {
+            cpu.model_name = Some(info.brand().to_string());
+            cpu.vendor = Some(info.vendor_id().to_string());
         }
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        update_cpu_info(&mut cpu);
 
         cpu
     }
@@ -105,34 +111,22 @@ impl Cpu {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Mem {
     pub total_bytes: Option<i64>,
 }
 
 impl Mem {
-    async fn read() -> Self {
-        let mut mem = Mem::default();
+    async fn read(system: &System) -> Self {
+        let mem_total = system.total_memory();
 
-        let mem_info = match get_meminfo() {
-            Ok(mem_info) => mem_info,
-            Err(err) => {
-                error!("couldn't get the memory info: {}", eyre::Report::new(err));
+        let total_bytes = i64::try_from(mem_total)
+            .inspect_err(|_| {
+                error!(mem_total, "value too big to be sent to astarte",);
+            })
+            .ok();
 
-                return mem;
-            }
-        };
-
-        if let Ok(mem_total) = i64::try_from(mem_info.mem_total) {
-            mem.total_bytes = Some(mem_total);
-        } else {
-            error!(
-                "mem total too big to be sent to astarte: {}",
-                mem_info.mem_total
-            );
-        }
-
-        mem
+        Mem { total_bytes }
     }
 
     async fn send<C>(self, client: &mut C)
@@ -147,106 +141,26 @@ impl Mem {
     }
 }
 
-#[cfg(not(test))]
-fn get_cpu_info() -> ProcResult<CpuInfo> {
-    use procfs::Current;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn update_cpu_info(cpu: &mut Cpu) {
+    use procfs::{CpuInfo, Current, FromRead};
 
-    procfs::CpuInfo::current()
-}
+    let info = if cfg!(test) {
+        let data = include_bytes!("../../../assets/procfs/cpu_info.txt");
 
-#[cfg(not(test))]
-fn get_machine_architecture() -> String {
-    std::env::consts::ARCH.to_owned()
-}
+        CpuInfo::from_read(data.as_slice())
+    } else {
+        CpuInfo::current()
+    };
 
-#[cfg(not(test))]
-fn get_meminfo() -> ProcResult<Meminfo> {
-    use procfs::Current;
+    let Some(mut info) = info
+        .inspect_err(|error| error!(%error, "couldn't read CPU info"))
+        .ok()
+    else {
+        return;
+    };
 
-    procfs::Meminfo::current()
-}
-
-#[cfg(test)]
-fn get_cpu_info() -> ProcResult<CpuInfo> {
-    use procfs::FromRead;
-
-    let data = r#"processor       : 0
-vendor_id       : GenuineIntel
-model           : 158
-model name      : ARMv7 Processor rev 10 (v7l)
-BogoMIPS        : 6.00
-Features        : half thumb fastmult vfp edsp neon vfpv3 tls vfpd32
-CPU implementer : 0x41
-CPU architecture: 7
-CPU variant     : 0x2
-CPU part        : 0xc09
-CPU revision    : 10
-
-Hardware        : Freescale i.MX6 SoloX (Device Tree)
-Revision        : 0000
-Serial          : 0000000000000000
-"#;
-
-    let r = std::io::Cursor::new(data.as_bytes());
-
-    Ok(CpuInfo::from_read(r).unwrap())
-}
-
-#[cfg(test)]
-fn get_machine_architecture() -> String {
-    "test_architecture".to_owned()
-}
-
-#[cfg(test)]
-fn get_meminfo() -> ProcResult<Meminfo> {
-    use procfs::FromRead;
-
-    let data = r#"MemTotal:        1019356 kB
-MemFree:          739592 kB
-MemAvailable:     802296 kB
-Buffers:            7372 kB
-Cached:            88364 kB
-SwapCached:            0 kB
-Active:            41328 kB
-Inactive:          64908 kB
-Active(anon):       1224 kB
-Inactive(anon):    35160 kB
-Active(file):      40104 kB
-Inactive(file):    29748 kB
-Unevictable:           0 kB
-Mlocked:               0 kB
-HighTotal:             0 kB
-HighFree:              0 kB
-LowTotal:        1019356 kB
-LowFree:          739592 kB
-SwapTotal:             0 kB
-SwapFree:              0 kB
-Dirty:                 4 kB
-Writeback:             0 kB
-AnonPages:         10500 kB
-Mapped:            21688 kB
-Shmem:             25884 kB
-KReclaimable:       8452 kB
-Slab:              21180 kB
-SReclaimable:       8452 kB
-SUnreclaim:        12728 kB
-KernelStack:         752 kB
-PageTables:          656 kB
-NFS_Unstable:          0 kB
-Bounce:                0 kB
-WritebackTmp:          0 kB
-CommitLimit:      509676 kB
-Committed_AS:     139696 kB
-VmallocTotal:    1032192 kB
-VmallocUsed:        6648 kB
-VmallocChunk:          0 kB
-Percpu:              376 kB
-CmaTotal:         327680 kB
-CmaFree:          194196 kB
-"#;
-
-    let r = std::io::Cursor::new(data.as_bytes());
-    Ok(Meminfo::from_read(r).unwrap())
+    cpu.model = info.fields.remove("model");
 }
 
 #[cfg(test)]
@@ -272,10 +186,11 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
                 predicate::eq("/cpu/architecture"),
-                predicate::eq(AstarteData::String("test_architecture".to_string())),
+                predicate::eq(AstarteData::String(std::env::consts::ARCH.to_string())),
             )
             .returning(|_, _, _| Ok(()));
 
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         client
             .expect_set_property()
             .once()
@@ -283,7 +198,7 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
                 predicate::eq("/cpu/model"),
-                predicate::eq(AstarteData::String("158".to_string())),
+                predicate::always(),
             )
             .returning(|_, _, _| Ok(()));
 
@@ -294,9 +209,7 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
                 predicate::eq("/cpu/modelName"),
-                predicate::eq(AstarteData::String(
-                    "ARMv7 Processor rev 10 (v7l)".to_string(),
-                )),
+                predicate::always(),
             )
             .returning(|_, _, _| Ok(()));
 
@@ -307,7 +220,7 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
                 predicate::eq("/cpu/vendor"),
-                predicate::eq(AstarteData::String("GenuineIntel".to_string())),
+                predicate::always(),
             )
             .returning(|_, _, _| Ok(()));
 
@@ -318,7 +231,7 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.HardwareInfo"),
                 predicate::eq("/mem/totalBytes"),
-                predicate::eq(AstarteData::LongInteger(1043820544)),
+                predicate::always(),
             )
             .returning(|_, _, _| Ok(()));
 

@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ async fn main() -> eyre::Result<()> {
         .install_default()
         .map_err(|_| eyre!("failed to install default crypto provider"))?;
 
-    #[cfg(feature = "systemd")]
+    #[cfg(all(feature = "systemd", target_os = "linux"))]
     {
         let default_panic_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic_info| {
@@ -167,10 +167,8 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "systemd")]
-// clippy warns about the deprecated type, even if the alternative is not present in the MSRV
-#[allow(deprecated)]
-fn systemd_panic_hook(panic_info: &std::panic::PanicInfo) {
+#[cfg(all(feature = "systemd", target_os = "linux"))]
+fn systemd_panic_hook(panic_info: &std::panic::PanicHookInfo) {
     // Error code state not recoverable
     const ENOTRECOVERABLE: i32 = 131;
 

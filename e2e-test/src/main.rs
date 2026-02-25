@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@
 
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
-use edgehog_device_runtime::ota::config::OtaConfig;
 use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
 use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
 use edgehog_device_runtime::telemetry::status::runtime_info::{RUNTIME_INFO, RuntimeInfo};
@@ -153,7 +152,8 @@ async fn main() -> color_eyre::Result<()> {
         containers: edgehog_device_runtime::containers::ContainersConfig::default(),
         #[cfg(feature = "service")]
         service: None,
-        ota: OtaConfig::default(),
+        #[cfg(target_os = "linux")]
+        ota: edgehog_device_runtime::ota::config::OtaConfig::default(),
     };
 
     let store = connect_store(store_path.path())
@@ -183,9 +183,7 @@ async fn main() -> color_eyre::Result<()> {
     //Waiting for Edgehog Device Runtime to be ready...
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
-    let info = OsRelease::read()
-        .await
-        .ok_or_eyre("couldn't read os release")?;
+    let info = OsRelease::read().await;
 
     os_info_test(&cli, info.os_info).await?;
     hardware_info_test(&cli).await?;

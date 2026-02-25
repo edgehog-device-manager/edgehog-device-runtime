@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,8 @@ pub enum DeviceManagerError {
     #[error(transparent)]
     Astarte(#[from] astarte_device_sdk::error::Error),
 
-    #[error(transparent)]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[error("couldn't read procfs")]
     Procfs(#[from] procfs::ProcError),
 
     #[error("io error encountered")]

@@ -98,10 +98,10 @@ filter_lcov() {
 }
 
 if [[ -n "${EXPORT_FOR_CI:-}" ]]; then
-    out_path="$PWD/coverage-@MAIN_CRATE@.info"
+    out_path="$PWD/coverage-edgehog-device-runtime.info"
 else
     mkdir -p "$CARGO_TARGET_DIR/lcov"
-    out_path="$CARGO_TARGET_DIR/lcov/coverage-@MAIN_CRATE@.info"
+    out_path="$CARGO_TARGET_DIR/lcov/coverage-edgehog-device-runtime.info"
 fi
 
 # Currently branch coverage can be broken on nightly
