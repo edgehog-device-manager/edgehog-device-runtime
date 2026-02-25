@@ -19,27 +19,27 @@
  */
 
 use std::fmt::Debug;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use astarte_device_sdk::aggregate::AstarteObject;
 use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{Client, IntoAstarteObject};
-use async_trait::async_trait;
+use eyre::Context;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use crate::controller::actor::Actor;
 use crate::error::DeviceManagerError;
-use crate::ota::rauc::OTARauc;
 use crate::ota::OtaError;
+use crate::ota::rauc::OTARauc;
 use crate::ota::{Ota, OtaId, OtaStatus};
 use crate::repository::file_state_repository::FileStateRepository;
 
-use super::event::{OtaOperation, OtaRequest};
 use super::PersistentState;
+use super::event::{OtaOperation, OtaRequest};
 
 const MAX_OTA_OPERATION: usize = 2;
 
@@ -90,17 +90,21 @@ pub struct OtaHandler {
 
 impl OtaHandler {
     pub async fn start<C>(
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         client: C,
         opts: &crate::DeviceManagerOptions,
-    ) -> Result<Self, DeviceManagerError>
+    ) -> eyre::Result<Self>
     where
         C: Client + Send + Sync + 'static,
     {
+        trace!("starting ota handler");
+
         let (publisher_tx, publisher_rx) = mpsc::channel(8);
         let (ota_tx, ota_rx) = mpsc::channel(MAX_OTA_OPERATION);
 
-        let system_update = OTARauc::connect(&opts.ota).await?;
+        let system_update = OTARauc::connect(&opts.ota)
+            .await
+            .wrap_err("couldn't connect to RAUC")?;
 
         let state_repository = FileStateRepository::new(&opts.store_directory, "state.json");
 
@@ -114,10 +118,12 @@ impl OtaHandler {
             flag.clone(),
             system_update,
             state_repository,
-        )?;
+        );
 
         tasks.spawn(publisher.spawn(publisher_rx));
         tasks.spawn(ota.spawn(ota_rx));
+
+        trace!("ota handler started");
 
         Ok(Self {
             ota_tx,
@@ -335,7 +341,6 @@ impl<C> OtaPublisher<C> {
     }
 }
 
-#[async_trait]
 impl<C> Actor for OtaPublisher<C>
 where
     C: Client + Send + Sync,
@@ -346,14 +351,14 @@ where
         "ota-publisher"
     }
 
-    async fn init(&mut self) -> stable_eyre::Result<()> {
+    async fn init(&mut self) -> eyre::Result<()> {
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
         if let Err(err) = self.send_ota_event(&msg).await {
             error!(
-                error = format!("{:#}", stable_eyre::Report::new(err)),
+                error = format!("{:#}", eyre::Report::new(err)),
                 "couldn't send ota event"
             );
         }

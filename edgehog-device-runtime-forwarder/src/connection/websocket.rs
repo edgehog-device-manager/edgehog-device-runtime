@@ -5,22 +5,21 @@
 
 use std::ops::ControlFlow;
 
-use async_trait::async_trait;
 use futures::{SinkExt, StreamExt};
 use http::Request;
 use tokio::select;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio_tungstenite::tungstenite::Utf8Bytes;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{
-    error::ProtocolError as TungProtocolError, Error as TungError, Message as TungMessage,
+    Error as TungError, Message as TungMessage, error::ProtocolError as TungProtocolError,
 };
 use tracing::{debug, error, instrument, trace};
 
 use super::{
-    Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WriteHandle,
-    WS_CHANNEL_SIZE,
+    Connection, ConnectionError, ConnectionHandle, Transport, TransportBuilder, WS_CHANNEL_SIZE,
+    WriteHandle,
 };
 
 use crate::connections_manager::WsStream;
@@ -51,7 +50,6 @@ impl WebSocketBuilder {
     }
 }
 
-#[async_trait]
 impl TransportBuilder for WebSocketBuilder {
     type Connection = WebSocket;
 
@@ -90,7 +88,6 @@ pub(crate) struct WebSocket {
     rx_con: Receiver<ProtoWebSocketMessage>,
 }
 
-#[async_trait]
 impl Transport for WebSocket {
     /// Write to or Read from a WebSocket.
     ///
@@ -98,15 +95,16 @@ impl Transport for WebSocket {
     /// If a message needs to be forwarded to the device's WebSocket connection, a recursive
     /// function call will be invoked.
     async fn next(&mut self, id: &Id) -> Result<Option<ProtoMessage>, ConnectionError> {
-        match self.select().await {
-            // message from internal WebSocket connection (e.g., with TTYD) to the connections manager
-            WsEither::Read(tung_res) => self.handle_ws_read(id.clone(), tung_res).await,
-            // message from the connections manager to the internal WebSocket connection
-            WsEither::Write(chan_data) => {
-                if let ControlFlow::Break(()) = self.handle_ws_write(chan_data).await? {
-                    return Ok(None);
+        loop {
+            match self.select().await {
+                // message from internal WebSocket connection (e.g., with TTYD) to the connections manager
+                WsEither::Read(tung_res) => return self.handle_ws_read(id.clone(), tung_res).await,
+                // message from the connections manager to the internal WebSocket connection
+                WsEither::Write(chan_data) => {
+                    if let ControlFlow::Break(()) = self.handle_ws_write(chan_data).await? {
+                        return Ok(None);
+                    }
                 }
-                self.next(id).await
             }
         }
     }

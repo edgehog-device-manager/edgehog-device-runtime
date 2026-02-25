@@ -16,24 +16,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(feature = "containers")]
-use std::sync::Arc;
-
 use actor::Actor;
+use astarte_device_sdk::FromEvent;
 use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
-use astarte_device_sdk::FromEvent;
-use stable_eyre::eyre::Error;
-#[cfg(feature = "containers")]
-use tokio::sync::OnceCell;
+use eyre::{Context, Report};
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::commands::execute_command;
-use crate::error::DeviceManagerError;
-use crate::telemetry::event::TelemetryEvent;
 use crate::telemetry::Telemetry;
+use crate::telemetry::event::TelemetryEvent;
 use crate::{Client, DeviceManagerOptions};
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -62,11 +56,11 @@ pub struct Runtime<T> {
 
 impl<C> Runtime<C> {
     pub async fn new(
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         opts: DeviceManagerOptions,
         client: C,
         cancel: CancellationToken,
-    ) -> Result<Self, DeviceManagerError>
+    ) -> eyre::Result<Self>
     where
         C: Client + PropAccess + Send + Sync + 'static,
     {
@@ -80,12 +74,16 @@ impl<C> Runtime<C> {
         let _ = cancel;
 
         #[cfg(feature = "containers")]
-        let store = Self::store(&opts.store_directory).await?;
+        let store = Self::store(&opts.store_directory)
+            .await
+            .wrap_err("couldn't connect to container store")?;
         #[cfg(feature = "containers")]
-        let container_handle = Arc::new(OnceCell::new());
+        let container_handle = std::sync::Arc::new(tokio::sync::OnceCell::new());
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
-        let ota_handler = OtaHandler::start(tasks, client.clone(), &opts).await?;
+        let ota_handler = OtaHandler::start(tasks, client.clone(), &opts)
+            .await
+            .wrap_err("couldn't initialize ota handler")?;
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let led_tx = {
@@ -101,7 +99,7 @@ impl<C> Runtime<C> {
             &opts.telemetry_config.unwrap_or_default(),
             opts.store_directory.clone(),
             #[cfg(feature = "containers")]
-            Arc::clone(&container_handle),
+            std::sync::Arc::clone(&container_handle),
         )
         .await;
 
@@ -115,7 +113,8 @@ impl<C> Runtime<C> {
             &container_handle,
             tasks,
         )
-        .await?;
+        .await
+        .wrap_err("couldn't setup the container task")?;
 
         #[cfg(feature = "service")]
         Self::setup_service(
@@ -128,7 +127,9 @@ impl<C> Runtime<C> {
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
-        let forwarder = crate::forwarder::Forwarder::init(client.clone()).await?;
+        let forwarder = crate::forwarder::Forwarder::init(client.clone())
+            .await
+            .wrap_err("couldn't initialize the forwarder")?;
 
         Ok(Self {
             client,
@@ -149,12 +150,11 @@ impl<C> Runtime<C> {
         client: C,
         config: crate::containers::ContainersConfig,
         store: &edgehog_store::db::Handle,
-        container_handle: &Arc<OnceCell<edgehog_containers::local::ContainerHandle>>,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
-    ) -> Result<
-        mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
-        DeviceManagerError,
-    >
+        container_handle: &std::sync::Arc<
+            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
+        >,
+        tasks: &mut JoinSet<eyre::Result<()>>,
+    ) -> eyre::Result<mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>>
     where
         C: Client + Clone + Send + Sync + 'static,
     {
@@ -167,7 +167,8 @@ impl<C> Runtime<C> {
             container_handle,
             tasks,
         )
-        .await?;
+        .await
+        .wrap_err("couldn't create container service")?;
 
         tasks.spawn(containers.spawn_unbounded(container_rx));
 
@@ -177,10 +178,10 @@ impl<C> Runtime<C> {
     #[cfg(feature = "service")]
     fn setup_service(
         config: edgehog_service::config::Config,
-        #[cfg(feature = "containers")] container_handle: &Arc<
-            OnceCell<edgehog_containers::local::ContainerHandle>,
+        #[cfg(feature = "containers")] container_handle: &std::sync::Arc<
+            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
         >,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
     ) where
         C: Client + Clone + Send + Sync + 'static,
@@ -205,7 +206,7 @@ impl<C> Runtime<C> {
         let service = edgehog_service::service::EdgehogService::new(
             options,
             #[cfg(feature = "containers")]
-            Arc::clone(container_handle),
+            std::sync::Arc::clone(container_handle),
         );
 
         tasks.spawn(async {
@@ -217,7 +218,7 @@ impl<C> Runtime<C> {
         });
     }
 
-    pub async fn run(&mut self) -> Result<(), DeviceManagerError>
+    pub async fn run(&mut self) -> eyre::Result<()>
     where
         C: Client + Send + Sync + 'static,
     {
@@ -228,14 +229,14 @@ impl<C> Runtime<C> {
 
         loop {
             let event = match self.client.recv().await {
-                Ok(event) => RuntimeEvent::from_event(event)?,
+                Ok(event) => RuntimeEvent::from_event(event).wrap_err("couldn't convert event")?,
                 Err(RecvError::Disconnected) => {
                     error!("the Runtime was disconnected");
 
                     return Ok(());
                 }
                 Err(err) => {
-                    error!("error received: {}", Error::from(err));
+                    error!(error = %Report::new(err), "error received");
 
                     continue;
                 }
@@ -259,10 +260,7 @@ impl<C> Runtime<C> {
                 }
 
                 if let Err(err) = execute_command(cmd).await {
-                    error!(
-                        "command failed to execute: {}",
-                        stable_eyre::Report::new(err)
-                    );
+                    error!(error = %Report::new(err), "command failed to execute");
                 }
             }
             RuntimeEvent::Telemetry(event) => {
@@ -280,8 +278,8 @@ impl<C> Runtime<C> {
             RuntimeEvent::Ota(ota) => {
                 if let Err(err) = self.ota_handler.handle_event(ota).await {
                     error!(
-                        "error while processing ota event {}",
-                        stable_eyre::Report::new(err)
+                        error = %eyre::Report::new(err),
+                        "error while processing ota event",
                     );
                 }
             }

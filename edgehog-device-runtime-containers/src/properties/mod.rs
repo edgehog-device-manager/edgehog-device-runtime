@@ -19,17 +19,10 @@
 //! Container properties sent from the device to Astarte.
 
 use astarte_device_sdk::AstarteData;
-use async_trait::async_trait;
 use tracing::error;
 use uuid::Uuid;
 
-cfg_if::cfg_if! {
-    if #[cfg(test)] {
-        pub use astarte_device_sdk_mock::Client;
-    } else {
-        pub use astarte_device_sdk::Client;
-    }
-}
+pub use astarte_device_sdk::Client;
 
 pub(crate) mod container;
 pub(crate) mod deployment;
@@ -57,7 +50,6 @@ pub enum PropertyError {
     },
 }
 
-#[async_trait]
 pub(crate) trait AvailableProp {
     type Data: Into<AstarteData> + Send + 'static;
 

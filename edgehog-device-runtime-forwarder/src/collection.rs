@@ -3,8 +3,8 @@
 
 //! Collection of connections and respective methods.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
 
 use tokio::sync::mpsc::Sender;

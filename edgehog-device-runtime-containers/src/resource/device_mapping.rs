@@ -16,17 +16,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use edgehog_store::models::containers::device_mapping::DeviceMappingStatus;
 
-use crate::properties::{device_mapping::AvailableDeviceMapping, AvailableProp, Client};
+use crate::properties::{AvailableProp, Client, device_mapping::AvailableDeviceMapping};
 
 use super::{Context, Resource, Result};
 
 #[derive(Debug, Default)]
 pub(crate) struct DeviceMappingResource;
 
-#[async_trait]
 impl<D> Resource<D> for DeviceMappingResource
 where
     D: Client + Send + Sync + 'static,

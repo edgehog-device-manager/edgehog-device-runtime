@@ -5,7 +5,7 @@ use clap::Parser;
 use edgehog_forwarder::test_utils::con_manager;
 use tokio::task::JoinSet;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
 struct Cli {

@@ -129,7 +129,7 @@ impl FromStr for TelemetryInterface {
             _ => {
                 return Err(TelemetryInterfaceError {
                     interface: s.to_string(),
-                })
+                });
             }
         };
 

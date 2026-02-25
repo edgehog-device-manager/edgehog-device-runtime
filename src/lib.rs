@@ -23,15 +23,7 @@ use serde::Deserialize;
 pub use self::controller::Runtime;
 use self::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
 use self::telemetry::TelemetryInterfaceConfig;
-
-cfg_if::cfg_if! {
-    if #[cfg(test)] {
-        // Used for the mocks
-        pub use astarte_device_sdk_mock::Client;
-    } else {
-        pub use astarte_device_sdk::Client;
-    }
-}
+pub use astarte_device_sdk::Client;
 
 mod commands;
 #[cfg(feature = "containers")]

@@ -18,28 +18,27 @@
 
 use std::{future::Future, sync::Arc, time::Duration};
 
-use async_trait::async_trait;
 use edgehog_containers::{
+    Docker,
     events::RuntimeListener,
     local::ContainerHandle,
     requests::ContainerRequest,
     service::{
-        events::{EventError, ServiceHandle},
         Service, ServiceError,
+        events::{EventError, ServiceHandle},
     },
     store::StateStore,
-    Docker,
 };
 use edgehog_store::db::{self};
+use eyre::WrapErr;
+use eyre::eyre;
 use futures::TryFutureExt;
 use serde::Deserialize;
-use stable_eyre::eyre::eyre;
-use stable_eyre::eyre::WrapErr;
 use tokio::{sync::OnceCell, task::JoinSet};
 use tracing::error;
 
-use crate::controller::actor::Actor;
 use crate::Client;
+use crate::controller::actor::Actor;
 
 /// Maximum number of retries for the initialization of the service
 pub const MAX_INIT_RETRIES: usize = 10;
@@ -72,52 +71,48 @@ impl Default for ContainersConfig {
 }
 
 /// Trait used since a FnMut is not enough to return a Future for the `service.init` case
-#[async_trait]
 trait TryRun {
     type Out;
 
-    async fn run(&mut self) -> stable_eyre::Result<Self::Out>;
+    fn run(&mut self) -> impl Future<Output = eyre::Result<Self::Out>> + Send;
 }
 
-#[async_trait]
 impl<F, Fut, O> TryRun for F
 where
     F: FnMut() -> Fut + Send,
-    Fut: Future<Output = stable_eyre::Result<O>> + Send,
+    Fut: Future<Output = eyre::Result<O>> + Send,
 {
     type Out = O;
 
-    async fn run(&mut self) -> stable_eyre::Result<Self::Out> {
+    async fn run(&mut self) -> eyre::Result<Self::Out> {
         (self)().await
     }
 }
 
-#[async_trait]
 impl<D> TryRun for &mut Service<D>
 where
     D: Client + Sync + Send + 'static,
 {
     type Out = ();
 
-    async fn run(&mut self) -> stable_eyre::Result<()> {
+    async fn run(&mut self) -> eyre::Result<()> {
         self.init().await?;
 
         Ok(())
     }
 }
 
-#[async_trait]
 impl TryRun for &mut RuntimeListener {
     type Out = ();
 
-    async fn run(&mut self) -> stable_eyre::Result<()> {
+    async fn run(&mut self) -> eyre::Result<()> {
         self.handle_events().await?;
 
         Ok(())
     }
 }
 
-async fn retry<S, O>(config: &ContainersConfig, mut init: S) -> stable_eyre::Result<Option<O>>
+async fn retry<S, O>(config: &ContainersConfig, mut init: S) -> eyre::Result<Option<O>>
 where
     S: TryRun<Out = O>,
     O: 'static,
@@ -162,7 +157,7 @@ fn spawn_listener(
     config: ContainersConfig,
     store: &StateStore,
     tx: tokio::sync::mpsc::UnboundedSender<edgehog_containers::service::events::ContainerEvent>,
-    tasks: &mut JoinSet<Result<(), stable_eyre::eyre::Error>>,
+    tasks: &mut JoinSet<Result<(), eyre::Error>>,
 ) {
     use tracing::warn;
 
@@ -197,7 +192,7 @@ impl<D> ContainerService<D> {
         config: ContainersConfig,
         store: &db::Handle,
         container_handle: &Arc<OnceCell<ContainerHandle>>,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
     ) -> Result<Self, ServiceError>
     where
         D: Client + Clone + Send + Sync + 'static,
@@ -242,7 +237,6 @@ impl<D> ContainerService<D> {
     }
 }
 
-#[async_trait]
 impl<D> Actor for ContainerService<D>
 where
     D: Client + Send + Sync + 'static,
@@ -253,16 +247,16 @@ where
         "containers"
     }
 
-    async fn init(&mut self) -> stable_eyre::Result<()> {
+    async fn init(&mut self) -> eyre::Result<()> {
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> stable_eyre::Result<()> {
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
         let res = self.handle.on_event(*msg).await;
         match res {
             Ok(()) => {}
             Err(EventError::Disconnected) => {
-                return res.wrap_err("couldn't handle container event")
+                return res.wrap_err("couldn't handle container event");
             }
         }
 

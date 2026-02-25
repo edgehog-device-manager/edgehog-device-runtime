@@ -30,8 +30,8 @@ use crate::{
     events::deployment::{DeploymentEvent, EventStatus},
     properties::Client,
     requests::{
-        deployment::{DeploymentCommand, DeploymentUpdate},
         ContainerRequest,
+        deployment::{DeploymentCommand, DeploymentUpdate},
     },
     store::StateStore,
 };

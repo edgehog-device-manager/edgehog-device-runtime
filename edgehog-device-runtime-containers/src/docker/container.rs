@@ -45,8 +45,8 @@ use uuid::Uuid;
 use crate::{
     client::*,
     requests::{
-        container::{parse_port_binding, RestartPolicy},
         BindingError,
+        container::{RestartPolicy, parse_port_binding},
     },
 };
 
@@ -523,11 +523,7 @@ impl From<&Container> for ContainerCreateBody {
         };
 
         // NOTE: to expose ports you need to set both port_bindings in the host_config and exposed_ports
-        let exposed_ports = port_bindings
-            .keys()
-            .cloned()
-            .map(|k| (k, HashMap::new()))
-            .collect();
+        let exposed_ports = port_bindings.keys().cloned().collect();
 
         let host_config = HostConfig {
             restart_policy: Some(restart_policy),
@@ -769,7 +765,7 @@ mod tests {
         let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
@@ -829,7 +825,7 @@ mod tests {
         let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 
@@ -927,7 +923,7 @@ mod tests {
         let name = Uuid::now_v7();
 
         let docker = docker_mock!(Client::connect_with_local_defaults().unwrap(), {
-            use futures::{stream, StreamExt};
+            use futures::{StreamExt, stream};
             let mut mock = Client::new();
             let mut seq = mockall::Sequence::new();
 

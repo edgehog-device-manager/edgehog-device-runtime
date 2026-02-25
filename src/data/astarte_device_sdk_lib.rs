@@ -20,19 +20,19 @@
 
 use std::path::Path;
 
+use astarte_device_sdk::DeviceClient;
 use astarte_device_sdk::builder::{BuilderError, DeviceBuilder};
 use astarte_device_sdk::error::Error as AstarteError;
 use astarte_device_sdk::introspection::AddInterfaceError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::transport::mqtt::{Credential, Mqtt, MqttConfig};
-use astarte_device_sdk::DeviceClient;
+use astarte_device_sdk::transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig};
 use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 
-use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 use crate::repository::StateRepository;
+use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
 
 /// Error returned by the [`astarte_device_sdk`].
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
@@ -115,7 +115,7 @@ impl AstarteDeviceSdkConfigOptions {
 
     pub async fn connect<P>(
         &self,
-        tasks: &mut JoinSet<stable_eyre::Result<()>>,
+        tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
         store_dir: P,
         interface_dir: P,
@@ -127,21 +127,21 @@ impl AstarteDeviceSdkConfigOptions {
 
         let credentials_secret = self.credentials_secret(&device_id, &store_dir).await?;
 
-        let mut mqtt_cfg = MqttConfig::new(
-            &self.realm,
-            &device_id,
-            credentials_secret,
-            self.pairing_url.clone(),
-        );
+        let mut mqtt_cfg = MqttConfig::new(MqttArgs {
+            realm: self.realm.clone(),
+            device_id: device_id.clone(),
+            credential: credentials_secret,
+            pairing_url: self.pairing_url.clone(),
+        });
 
         if self.ignore_ssl {
-            mqtt_cfg.ignore_ssl_errors();
+            mqtt_cfg = mqtt_cfg.ignore_ssl_errors();
         }
 
         let (client, connection) = DeviceBuilder::new()
-            .store(store)
             .interface_directory(interface_dir)?
-            .writable_dir(store_dir)?
+            .writable_dir(store_dir)
+            .store(store)
             .connection(mqtt_cfg)
             .build()
             .await

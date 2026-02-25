@@ -26,7 +26,7 @@ Edgehog Device Runtime has a number of requirements in order to provide device m
 
 ### Dependencies
 
-- **Rust** >= 1.78
+- **Rust** >= 1.88
 - **libsystemd** (optional)
 - **libudev**: Gathering information about network interfaces.
 - **ttyd** >= 1.7.4
@@ -60,8 +60,8 @@ cargo build --features systemd
 ```
 
 To allow systemd to receive status changes from service, you need to set the
-[NotifyAccess](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#NotifyAccess=) option to
-either `exec` or `main`.
+[NotifyAccess](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#NotifyAccess=)
+option to either `exec` or `main`.
 
 ```
 [Service]

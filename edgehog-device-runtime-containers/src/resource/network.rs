@@ -16,13 +16,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use edgehog_store::models::containers::network::NetworkStatus;
 use tracing::warn;
 
 use crate::{
     network::Network,
-    properties::{network::AvailableNetwork, AvailableProp, Client},
+    properties::{AvailableProp, Client, network::AvailableNetwork},
 };
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
@@ -38,7 +37,6 @@ impl NetworkResource {
     }
 }
 
-#[async_trait]
 impl<D> Resource<D> for NetworkResource
 where
     D: Client + Send + Sync + 'static,

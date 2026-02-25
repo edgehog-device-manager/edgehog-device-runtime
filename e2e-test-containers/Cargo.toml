@@ -25,16 +25,26 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk = { workspace = true }
+astarte-device-sdk.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
-color-eyre = { workspace = true }
-edgehog-containers = { workspace = true }
-edgehog-store = { workspace = true }
-reqwest = { workspace = true, features = ["rustls-tls-native-roots-no-provider"] }
+color-eyre.workspace = true
+edgehog-containers.workspace = true
+edgehog-store.workspace = true
+eyre.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-tempfile = { workspace = true }
+serde_json.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "signal"] }
-tracing = { workspace = true }
+tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
+
+[dependencies.reqwest]
+workspace = true
+default-features = false
+features = [
+  "charset",
+  "http2",
+  "system-proxy",
+  "rustls-no-provider",
+]
