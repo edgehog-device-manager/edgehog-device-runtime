@@ -25,15 +25,15 @@ use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::{
-    Container, ContainerDeviceMapping, ContainerNetwork, ContainerVolume,
+    Container, ContainerDeviceMapping, ContainerDeviceRequest, ContainerNetwork, ContainerVolume,
 };
 use edgehog_store::models::containers::deployment::{
     Deployment, DeploymentContainer, DeploymentMissingContainer, DeploymentStatus,
 };
 use edgehog_store::schema::containers::{
-    container_device_mappings, container_missing_images, container_missing_networks,
-    container_missing_volumes, container_networks, container_volumes, containers,
-    deployment_containers, deployment_missing_containers, deployments,
+    container_device_mappings, container_device_requests, container_missing_images,
+    container_missing_networks, container_missing_volumes, container_networks, container_volumes,
+    containers, deployment_containers, deployment_missing_containers, deployments,
 };
 use itertools::Itertools;
 use tracing::{debug, instrument};
@@ -243,6 +243,7 @@ impl StateStore {
                         Option::<ContainerNetwork>::as_select(),
                         Option::<ContainerVolume>::as_select(),
                         Option::<ContainerDeviceMapping>::as_select(),
+                        Option::<ContainerDeviceRequest>::as_select(),
                     ))
                     .load::<DeploymentRow>(reader)?;
 
@@ -325,7 +326,7 @@ impl StateStore {
                     .filter_map(|container_network| container_network.map(Uuid::from))
                     .collect();
 
-                let device_mapping = Deployment::join_resources()
+                let device_mappings = Deployment::join_resources()
                     .filter(deployment_containers::deployment_id.eq(id))
                     .select(container_device_mappings::device_mapping_id.nullable())
                     .except(
@@ -338,12 +339,26 @@ impl StateStore {
                     .filter_map(|container_device_mapping| container_device_mapping.map(Uuid::from))
                     .collect();
 
+                let device_requests = Deployment::join_resources()
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_device_requests::device_request_id.nullable())
+                    .except(
+                        Deployment::join_resources()
+                            .filter(deployment_containers::deployment_id.ne(id))
+                            .select(container_device_requests::device_request_id.nullable()),
+                    )
+                    .load::<Option<SqlUuid>>(reader)?
+                    .into_iter()
+                    .filter_map(|container_device_request| container_device_request.map(Uuid::from))
+                    .collect();
+
                 Ok(Some(DeploymentResource {
                     containers,
                     images,
                     volumes,
                     networks,
-                    device_mapping,
+                    device_mappings,
+                    device_requests,
                 }))
             })
             .await?;
@@ -433,6 +448,7 @@ mod tests {
 
     use crate::requests::OptString;
     use crate::requests::device_mapping::CreateDeviceMapping;
+    use crate::requests::device_request::tests::create_device_request;
     use crate::requests::{
         ReqUuid, VecReqUuid, container::CreateContainer, image::CreateImage,
         network::CreateNetwork, volume::CreateVolume,
@@ -505,6 +521,10 @@ mod tests {
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
+        let device_request_id = ReqUuid(Uuid::new_v4());
+        let device_request = create_device_request(device_request_id.0, deployment_id);
+        store.create_device_request(device_request).await.unwrap();
+
         let container_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
@@ -513,6 +533,7 @@ mod tests {
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
             device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            device_request_ids: VecReqUuid(vec![device_request_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -645,6 +666,10 @@ mod tests {
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
+        let device_request_id = ReqUuid(Uuid::new_v4());
+        let device_request = create_device_request(device_request_id.0, deployment_id);
+        store.create_device_request(device_request).await.unwrap();
+
         let container_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
@@ -653,6 +678,7 @@ mod tests {
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
             device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            device_request_ids: VecReqUuid(vec![device_request_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -697,7 +723,8 @@ mod tests {
             images: HashSet::from_iter([image_id]),
             volumes: HashSet::from_iter([volume_id.0]),
             networks: HashSet::from_iter([network_id.0]),
-            device_mapping: HashSet::from_iter([device_mapping_id.0]),
+            device_mappings: HashSet::from_iter([device_mapping_id.0]),
+            device_requests: HashSet::from_iter([device_request_id.0]),
         };
 
         assert_eq!(deployment, exp);
@@ -755,6 +782,10 @@ mod tests {
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
+        let device_request_id = ReqUuid(Uuid::new_v4());
+        let device_request = create_device_request(device_request_id.0, deployment_id_1);
+        store.create_device_request(device_request).await.unwrap();
+
         let container_id_1 = Uuid::new_v4();
         let container_1 = CreateContainer {
             id: ReqUuid(container_id_1),
@@ -763,6 +794,7 @@ mod tests {
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
             device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            device_request_ids: VecReqUuid(vec![device_request_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -805,6 +837,7 @@ mod tests {
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
             device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            device_request_ids: VecReqUuid(vec![device_request_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -849,7 +882,8 @@ mod tests {
             images: HashSet::new(),
             volumes: HashSet::new(),
             networks: HashSet::new(),
-            device_mapping: HashSet::new(),
+            device_mappings: HashSet::new(),
+            device_requests: HashSet::new(),
         };
 
         assert_eq!(res, exp);
@@ -915,6 +949,7 @@ mod tests {
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
             device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            device_request_ids: VecReqUuid(vec![]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -950,6 +985,7 @@ mod tests {
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
             device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            device_request_ids: VecReqUuid(vec![]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -994,7 +1030,8 @@ mod tests {
             images: HashSet::from_iter([image_id]),
             volumes: HashSet::from_iter([volume_id]),
             networks: HashSet::from_iter([network_id]),
-            device_mapping: HashSet::from_iter([device_mapping_id]),
+            device_mappings: HashSet::from_iter([device_mapping_id]),
+            device_requests: HashSet::new(),
         };
 
         assert_eq!(res, exp);
