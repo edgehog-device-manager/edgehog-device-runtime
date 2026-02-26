@@ -107,6 +107,11 @@ impl<D> ServiceHandle<D> {
                     .create_device_mapping(create_device_mapping)
                     .await
             }
+            ContainerRequest::DeviceRequest(create_device_request) => {
+                self.store
+                    .create_device_request(create_device_request)
+                    .await
+            }
             ContainerRequest::Container(create_container) => {
                 self.store.create_container(create_container).await
             }
@@ -188,6 +193,14 @@ impl From<&ContainerRequest> for ContainerEvent {
                 ContainerEvent::Resource {
                     resource,
                     deployment: create_device_mapping.deployment_id.0,
+                }
+            }
+            ContainerRequest::DeviceRequest(create_device_request) => {
+                let resource = Id::new(ResourceType::DeviceRequest, create_device_request.id.0);
+
+                ContainerEvent::Resource {
+                    resource,
+                    deployment: create_device_request.deployment_id.0,
                 }
             }
             ContainerRequest::Container(create_container) => {
