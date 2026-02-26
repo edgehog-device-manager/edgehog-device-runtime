@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,24 +22,25 @@ use std::str::FromStr;
 
 use diesel::dsl::exists;
 use diesel::{
-    ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
+    ExpressionMethods, OptionalExtension, QueryDsl, QueryResult, RunQueryDsl, SelectableHelper,
     SqliteConnection, delete, insert_or_ignore_into, select, update,
 };
 use edgehog_store::conversions::{QuotaValue, SqlUuid, Swappiness};
 use edgehog_store::db::HandleError;
 use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::{
-    ContainerAddCapability, ContainerBind, ContainerDeviceMapping, ContainerDropCapability,
-    ContainerEnv, ContainerExtraHost, ContainerMissingDeviceMapping, ContainerNetwork,
-    ContainerPortBind, ContainerRestartPolicy, ContainerStatus, ContainerStorageOptions,
-    ContainerTmpfs, ContainerVolume, HostPort,
+    ContainerAddCapability, ContainerBind, ContainerDeviceMapping, ContainerDeviceRequest,
+    ContainerDropCapability, ContainerEnv, ContainerExtraHost, ContainerMissingDeviceMapping,
+    ContainerMissingDeviceRequest, ContainerNetwork, ContainerPortBind, ContainerRestartPolicy,
+    ContainerStatus, ContainerStorageOptions, ContainerTmpfs, ContainerVolume, HostPort,
 };
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
+use edgehog_store::models::containers::device_request::DeviceRequest;
 use edgehog_store::schema::containers::{
-    container_add_capabilities, container_device_mappings, container_drop_capabilities,
-    container_extra_hosts, container_storage_options, container_tmpfs, deployment_containers,
-    images,
+    container_add_capabilities, container_device_mappings, container_device_requests,
+    container_drop_capabilities, container_extra_hosts, container_missing_device_requests,
+    container_storage_options, container_tmpfs, deployment_containers, device_requests, images,
 };
 use edgehog_store::schema::containers::{container_missing_device_mappings, device_mappings};
 use edgehog_store::{
@@ -66,6 +67,7 @@ use crate::docker::container::Container as ContainerResource;
 use crate::requests::BindingError;
 use crate::requests::container::{CreateContainer, RestartPolicy, parse_port_binding};
 use crate::store::StoreError;
+use crate::store::device_request::load_stored_device_request;
 
 use super::{Result, StateStore};
 
@@ -81,6 +83,7 @@ impl StateStore {
             network_ids,
             volume_ids,
             device_mapping_ids,
+            device_request_ids,
             hostname,
             restart_policy,
             env,
@@ -110,6 +113,7 @@ impl StateStore {
         let networks = network_ids.iter().map(SqlUuid::new).collect_vec();
         let volumes = volume_ids.iter().map(SqlUuid::new).collect_vec();
         let device_mappings = device_mapping_ids.iter().map(SqlUuid::new).collect_vec();
+        let device_requests = device_request_ids.iter().map(SqlUuid::new).collect_vec();
 
         let envs = container_env_from_vec(&container_id, env);
         let extra_hosts = container_extra_hosts_from_vec(&container_id, extra_hosts);
@@ -250,6 +254,27 @@ impl StateStore {
                             .values(ContainerDeviceMapping {
                                 container_id: container.id,
                                 device_mapping_id,
+                            })
+                            .execute(writer)?;
+                    }
+                }
+
+                for device_request_id in device_requests {
+                    let device_request_exists: bool =
+                        DeviceRequest::exists(&device_request_id).get_result(writer)?;
+
+                    if !device_request_exists {
+                        insert_or_ignore_into(container_missing_device_requests::table)
+                            .values(ContainerMissingDeviceRequest {
+                                container_id: container.id,
+                                device_request_id,
+                            })
+                            .execute(writer)?;
+                    } else {
+                        insert_or_ignore_into(container_device_requests::table)
+                            .values(ContainerDeviceRequest {
+                                container_id: container.id,
+                                device_request_id,
                             })
                             .execute(writer)?;
                     }
@@ -414,6 +439,7 @@ impl StateStore {
                 debug_assert!(!has_missing_networks(reader, &id).unwrap());
                 debug_assert!(!has_missing_volumes(reader, &id).unwrap());
                 debug_assert!(!has_missing_device_mappings(reader, &id).unwrap());
+                debug_assert!(!has_missing_device_requests(reader, &id).unwrap());
 
                 // Error if not found (foreign key constraint is broken).
                 let image = images::table
@@ -477,6 +503,18 @@ impl StateStore {
                     .map(crate::docker::container::DeviceMapping::from)
                     .collect();
 
+                let device_requests = device_requests::table
+                    .select(DeviceRequest::as_select())
+                    .inner_join(container_device_requests::table)
+                    .filter(container_device_requests::container_id.eq(&id))
+                    .load::<DeviceRequest>(reader)?
+                    .into_iter()
+                    .map(|device_request| {
+                        load_stored_device_request(reader, device_request)
+                            .map(crate::docker::container::DeviceRequest::from)
+                    })
+                    .collect::<QueryResult<Vec<crate::docker::container::DeviceRequest>>>()?;
+
                 Ok(Some(ContainerResource {
                     id: ContainerId::new(container.local_id, *container.id),
                     image,
@@ -491,6 +529,7 @@ impl StateStore {
                     cap_add,
                     cap_drop,
                     device_mappings,
+                    device_requests,
                     privileged: container.privileged,
                     cpu_period: container.cpu_period.map(|v| *v),
                     cpu_quota: container.cpu_quota.map(|v| *v),
@@ -564,6 +603,17 @@ fn has_missing_device_mappings(
 ) -> std::result::Result<bool, HandleError> {
     select(exists(container_missing_device_mappings::table.filter(
         container_missing_device_mappings::container_id.eq(container_id),
+    )))
+    .get_result::<bool>(connection)
+    .map_err(HandleError::from)
+}
+
+fn has_missing_device_requests(
+    connection: &mut SqliteConnection,
+    container_id: &SqlUuid,
+) -> std::result::Result<bool, HandleError> {
+    select(exists(container_missing_device_requests::table.filter(
+        container_missing_device_requests::container_id.eq(container_id),
     )))
     .get_result::<bool>(connection)
     .map_err(HandleError::from)
@@ -793,6 +843,7 @@ mod tests {
 
     use crate::requests::OptString;
     use crate::requests::device_mapping::CreateDeviceMapping;
+    use crate::requests::device_request::tests::create_device_request;
     use crate::requests::{
         ReqUuid, VecReqUuid, image::CreateImage, network::CreateNetwork, volume::CreateVolume,
     };
@@ -920,6 +971,10 @@ mod tests {
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
+        let device_request_id = ReqUuid(Uuid::new_v4());
+        let device_request = create_device_request(device_request_id.0, deployment_id);
+        store.create_device_request(device_request).await.unwrap();
+
         let container_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
@@ -928,6 +983,7 @@ mod tests {
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
             device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            device_request_ids: VecReqUuid(vec![device_request_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -1025,6 +1081,7 @@ mod tests {
         let network_id = Uuid::new_v4();
         let volume_id = Uuid::new_v4();
         let device_mapping_id = Uuid::new_v4();
+        let device_request_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
@@ -1032,6 +1089,7 @@ mod tests {
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
             device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            device_request_ids: VecReqUuid(vec![ReqUuid(device_request_id)]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -1103,6 +1161,8 @@ mod tests {
         let network_id = Uuid::new_v4();
         let volume_id = Uuid::new_v4();
         let device_mapping_id = Uuid::new_v4();
+        let device_request_id = Uuid::new_v4();
+
         let container = CreateContainer {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
@@ -1110,6 +1170,7 @@ mod tests {
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
             device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            device_request_ids: VecReqUuid(vec![ReqUuid(device_request_id)]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
@@ -1167,6 +1228,7 @@ mod tests {
         let network_id = Uuid::new_v4();
         let volume_id = Uuid::new_v4();
         let device_mapping_id = Uuid::new_v4();
+        let device_request_id = Uuid::new_v4();
         let container = CreateContainer {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
@@ -1174,6 +1236,7 @@ mod tests {
             network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
             volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
             device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            device_request_ids: VecReqUuid(vec![ReqUuid(device_request_id)]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
