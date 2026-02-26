@@ -37,8 +37,9 @@ use crate::{
     },
     resource::{
         Context, Create, Resource, ResourceError, State, container::ContainerResource,
-        deployment::Deployment, device_mapping::DeviceMappingResource, image::ImageResource,
-        network::NetworkResource, volume::VolumeResource,
+        deployment::Deployment, device_mapping::DeviceMappingResource,
+        device_request::DeviceRequestResource, image::ImageResource, network::NetworkResource,
+        volume::VolumeResource,
     },
     store::{StateStore, StoreError},
 };
@@ -154,6 +155,10 @@ impl<D> Service<D> {
 
         for id in self.store.load_device_mappings_to_publish().await? {
             DeviceMappingResource::publish(self.context(id)).await?;
+        }
+
+        for id in self.store.load_device_requests_to_publish().await? {
+            DeviceRequestResource::publish(self.context(id)).await?;
         }
 
         for id in self.store.load_containers_to_publish().await? {
@@ -282,6 +287,9 @@ impl<D> Service<D> {
             ResourceType::Network => NetworkResource::publish(self.context(*id.uuid())).await,
             ResourceType::DeviceMapping => {
                 DeviceMappingResource::publish(self.context(*id.uuid())).await
+            }
+            ResourceType::DeviceRequest => {
+                DeviceRequestResource::publish(self.context(*id.uuid())).await
             }
             ResourceType::Container => ContainerResource::publish(self.context(*id.uuid())).await,
             ResourceType::Deployment => Deployment::publish(self.context(*id.uuid())).await,
@@ -545,8 +553,12 @@ impl<D> Service<D> {
             ImageResource::down(self.context(id)).await?;
         }
 
-        for id in deployment.device_mapping {
+        for id in deployment.device_mappings {
             self.store.delete_device_mapping(id).await?;
+        }
+
+        for id in deployment.device_requests {
+            self.store.delete_device_request(id).await?;
         }
 
         AvailableDeployment::new(&deployment_id)
@@ -671,7 +683,9 @@ impl<D> Service<D> {
             ResourceType::Volume => VolumeResource::refresh(&mut ctx).await,
             ResourceType::Network => NetworkResource::refresh(&mut ctx).await,
             ResourceType::Container => ContainerResource::refresh(&mut ctx).await,
-            ResourceType::Deployment | ResourceType::DeviceMapping => {
+            ResourceType::Deployment
+            | ResourceType::DeviceMapping
+            | ResourceType::DeviceRequest => {
                 debug!("nothing to refresh");
 
                 return;
@@ -726,6 +740,8 @@ pub enum ResourceType {
     Network,
     /// Device mapping resource.
     DeviceMapping,
+    /// Device request resource.
+    DeviceRequest,
     /// Container resource.
     Container,
     /// Deployment resource.
@@ -739,6 +755,7 @@ impl Display for ResourceType {
             ResourceType::Volume => write!(f, "Volume"),
             ResourceType::Network => write!(f, "Network"),
             ResourceType::DeviceMapping => write!(f, "DeviceMapping"),
+            ResourceType::DeviceRequest => write!(f, "DeviceRequest"),
             ResourceType::Container => write!(f, "Container"),
             ResourceType::Deployment => write!(f, "Deployment"),
         }
@@ -762,7 +779,9 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    use crate::container::{Binding, Container, ContainerId, DeviceMapping, PortBindingMap};
+    use crate::container::{
+        Binding, Container, ContainerId, DeviceMapping, DeviceRequest, PortBindingMap,
+    };
     use crate::image::Image;
     use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
@@ -772,6 +791,7 @@ mod tests {
     use crate::requests::container::tests::create_container_request_event;
     use crate::requests::deployment::tests::create_deployment_request_event;
     use crate::requests::device_mapping::tests::create_device_mapping_request_event;
+    use crate::requests::device_request::tests::create_device_request_event;
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
@@ -966,6 +986,7 @@ mod tests {
         let image_id = Uuid::new_v4();
         let network_id = Uuid::new_v4();
         let device_mapping_id = Uuid::new_v4();
+        let device_request_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
 
         let client = Docker::connect().await.unwrap();
@@ -1013,6 +1034,17 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceRequests"),
+                predicate::eq(format!("/{device_request_id}/present")),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
         let endpoint = format!("/{id}/status");
         device
             .expect_set_property()
@@ -1056,6 +1088,14 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
+        // Device request
+        let create_device_request_req =
+            create_device_request_event(device_request_id, deployment_id);
+        let req = ContainerRequest::from_event(create_device_request_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
         // Container
         let create_container_req = create_container_request_event(
             id,
@@ -1064,6 +1104,7 @@ mod tests {
             "image",
             &[network_id],
             &[device_mapping_id.to_string()],
+            &[device_request_id.to_string()],
         );
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
@@ -1098,6 +1139,18 @@ mod tests {
                 path_on_host: "/dev/tty12".to_string(),
                 path_in_container: "/dev/tty12".to_string(),
                 cgroup_permissions: Some("msv".to_string()),
+            }],
+            device_requests: vec![DeviceRequest {
+                driver: Some("nvidia".to_string()),
+                count: -1,
+                device_ids: ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
+                    .map(str::to_string)
+                    .to_vec(),
+                capabilities: vec![["compute", "gpu", "nvidia"].map(str::to_string).to_vec()],
+                options: HashMap::from_iter(
+                    [("property1", "string"), ("property2", "string")]
+                        .map(|(k, v)| (k.to_string(), v.to_string())),
+                ),
             }],
             privileged: false,
             cpu_period: Some(1000),
@@ -1345,6 +1398,7 @@ mod tests {
             reference,
             &Vec::<Uuid>::new(),
             &Vec::<Uuid>::new(),
+            &Vec::<Uuid>::new(),
         );
 
         let container_req = ContainerRequest::from_event(create_container_req).unwrap();
@@ -1515,6 +1569,7 @@ mod tests {
             deployment_id,
             image_id,
             reference,
+            &Vec::<Uuid>::new(),
             &Vec::<Uuid>::new(),
             &Vec::<Uuid>::new(),
         );

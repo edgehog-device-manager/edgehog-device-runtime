@@ -29,11 +29,13 @@ use tracing::error;
 use uuid::Uuid;
 
 use self::device_mapping::CreateDeviceMapping;
+use self::device_request::CreateDeviceRequest;
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
 pub mod container;
 pub mod deployment;
 pub mod device_mapping;
+pub mod device_request;
 pub mod image;
 pub mod network;
 pub mod volume;
@@ -81,6 +83,8 @@ pub enum ContainerRequest {
     Network(CreateNetwork),
     /// Request to create a device mapping.
     DeviceMapping(CreateDeviceMapping),
+    /// Request to create a device request.
+    DeviceRequest(CreateDeviceRequest),
     /// Request to create a container.
     Container(Box<CreateContainer>),
     /// Request to create a deployment.
@@ -98,7 +102,8 @@ impl ContainerRequest {
             ContainerRequest::Volume(value) => value.deployment_id.0,
             ContainerRequest::Network(value) => value.deployment_id.0,
             ContainerRequest::Container(value) => value.deployment_id.0,
-            ContainerRequest::DeviceMapping(dm) => dm.deployment_id.0,
+            ContainerRequest::DeviceMapping(value) => value.deployment_id.0,
+            ContainerRequest::DeviceRequest(value) => value.deployment_id.0,
             ContainerRequest::Deployment(create_deployment) => create_deployment.id.0,
             ContainerRequest::DeploymentCommand(deployment_command) => deployment_command.id,
             ContainerRequest::DeploymentUpdate(deployment_update) => deployment_update.from,
@@ -122,6 +127,9 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.CreateDeviceMappingRequest" => {
                 CreateDeviceMapping::from_event(value).map(ContainerRequest::DeviceMapping)
+            }
+            "io.edgehog.devicemanager.apps.CreateDeviceRequest" => {
+                CreateDeviceRequest::from_event(value).map(ContainerRequest::DeviceRequest)
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
                 CreateContainer::from_event(value)
@@ -204,6 +212,18 @@ impl From<&ReqUuid> for Uuid {
     }
 }
 
+impl From<Uuid> for ReqUuid {
+    fn from(value: Uuid) -> Self {
+        ReqUuid(value)
+    }
+}
+
+impl From<ReqUuid> for AstarteData {
+    fn from(value: ReqUuid) -> Self {
+        AstarteData::String(value.to_string())
+    }
+}
+
 /// Wrapper to convert an [`AstarteData`] to [`Vec<Uuid>`].
 ///
 /// This is required because we cannot implement [`TryFrom<AstarteData>`] for [`Vec<ReqUuid>`], because
@@ -257,9 +277,21 @@ impl From<String> for OptString {
     }
 }
 
+impl<'a> From<&'a str> for OptString {
+    fn from(value: &'a str) -> Self {
+        Self::from(value.to_string())
+    }
+}
+
 impl From<OptString> for Option<String> {
     fn from(value: OptString) -> Self {
         value.0
+    }
+}
+
+impl From<OptString> for AstarteData {
+    fn from(value: OptString) -> Self {
+        AstarteData::String(value.0.unwrap_or_default())
     }
 }
 

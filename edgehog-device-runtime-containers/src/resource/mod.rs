@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ use crate::{
 pub(crate) mod container;
 pub(crate) mod deployment;
 pub(crate) mod device_mapping;
+pub(crate) mod device_request;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
