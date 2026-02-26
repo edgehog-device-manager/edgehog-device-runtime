@@ -316,6 +316,7 @@ impl MockWebSocket {
                 .await
                 .expect("failed to accept connection");
 
+            #[expect(clippy::result_large_err)]
             tokio_tungstenite::accept_hdr_async(stream, |req: &Request, mut res: Response| {
                 if let Some(h) = req.headers().get("Sec-WebSocket-Protocol") {
                     res.headers_mut()
