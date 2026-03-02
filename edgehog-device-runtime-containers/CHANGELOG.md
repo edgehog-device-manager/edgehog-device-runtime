@@ -1,7 +1,7 @@
 <!--
 This file is part of Edgehog.
 
-Copyright 2025 SECO Mind Srl
+Copyright 2025, 2026 SECO Mind Srl
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+
+- Update the deployment event interface to v0.2
+  [#667](https://github.com/edgehog-device-manager/edgehog-device-runtime/pull/667)
 
 ## [0.10.4] - 2026-02-11
 

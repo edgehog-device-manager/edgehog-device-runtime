@@ -18,6 +18,7 @@
 
 style = "conventional"
 subject_capitalized = false
+subject_length = 80
 merge_commit = true
 allowed_types = [
   # User facing
