@@ -36,6 +36,7 @@ pub mod error;
 pub mod file_transfer;
 #[cfg(feature = "forwarder")]
 mod forwarder;
+mod http;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;
 #[cfg(all(feature = "zbus", target_os = "linux"))]

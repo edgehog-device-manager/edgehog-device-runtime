@@ -18,11 +18,18 @@
 
 //! Transfer files from and to the Device
 
+use std::cmp;
+use std::io::SeekFrom;
 use std::path::PathBuf;
 
+use aws_lc_rs::digest;
+use eyre::{Context, OptionExt};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tracing::{info, instrument, trace};
 
 use crate::controller::actor::Actor;
+use crate::file_transfer::file_system::{FileRange, WriteHandle};
+use crate::http::{DownloadRange, FileDownloadResponse, FileTransferHttpClient};
 
 use self::file_system::{FileOptions, FileStorage, Fs, Limits};
 use self::interface::FileTransferEvent;
@@ -32,16 +39,56 @@ mod file_system;
 pub(crate) mod interface;
 mod request;
 
-#[derive(Debug)]
 pub(crate) struct FileTransfer<F> {
     storage: FileStorage<F>,
+    client: FileTransferHttpClient,
 }
 
 impl FileTransfer<Fs> {
-    pub fn new(dir: PathBuf) -> Self {
-        Self {
+    pub fn new(dir: PathBuf) -> eyre::Result<Self> {
+        Ok(Self {
             storage: FileStorage::new(dir),
+            client: FileTransferHttpClient::create()
+                .wrap_err("can't construct file transfer client")?,
+        })
+    }
+}
+
+impl<F> FileTransfer<F> {
+    async fn write_chunks(
+        file: &mut WriteHandle,
+        digest: &mut digest::Context,
+        mut download_resp: FileDownloadResponse,
+    ) -> eyre::Result<()> {
+        let mut written = file
+            .seek(SeekFrom::Start(download_resp.range().start()))
+            .await?;
+
+        let complete_len = file.range().complete_len();
+
+        while let Some(bytes) = download_resp
+            .chunk()
+            .await
+            .wrap_err("error while getting response chunk")?
+        {
+            let remaining =
+                usize::try_from(complete_len.saturating_sub(written)).unwrap_or(usize::MAX);
+            let max_write = cmp::min(bytes.len(), remaining);
+
+            file.write_all_buf(&mut &bytes[..max_write]).await?;
+            file.flush().await?;
+
+            digest.update(&bytes);
+            written = written.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
         }
+
+        Ok(())
+    }
+}
+
+impl From<&FileRange> for Option<DownloadRange> {
+    fn from(value: &FileRange) -> Self {
+        DownloadRange::create(value.start(), value.complete_len())
     }
 }
 
@@ -72,7 +119,6 @@ where
 
                 info!("file download received");
 
-                // TODO check the digest
                 match download.destination {
                     request::Target::Storage => {
                         if self.storage.file_exists(&download.id).await? {
@@ -81,15 +127,21 @@ where
                             return Ok(());
                         }
 
-                        let opt = FileOptions::from(download);
+                        let opt = FileOptions::from(&download);
 
-                        let (_file, _digest) = self.storage.create_write_handle(&opt).await?;
+                        let (mut file, mut digest) = self.storage.create_write_handle(&opt).await?;
+                        let download_range = Option::<DownloadRange>::from(file.range())
+                            .ok_or_eyre("invalid file range")?;
 
-                        // TODO: download...
-                        unimplemented!("file download");
+                        let file_resp = self
+                            .client
+                            .download(&download.url, download.headers, download_range)
+                            .await
+                            .wrap_err("download request error")?;
 
-                        #[expect(unreachable_code)]
-                        self.storage.finalize_write(_file, &opt).await?;
+                        Self::write_chunks(&mut file, &mut digest, file_resp).await?;
+
+                        self.storage.finalize_write(file, &opt).await
                     }
                 }
             }
@@ -112,27 +164,323 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use httpmock::Mock;
+    use httpmock::{Method::GET, MockServer};
+    use rstest::{fixture, rstest};
     use tempdir::TempDir;
 
-    use self::interface::tests::fs_server_to_device;
     use crate::file_transfer::interface::tests::fs_device_to_server;
     use crate::file_transfer::interface::{DeviceToServer, ServerToDevice};
 
     use super::*;
 
+    #[fixture]
+    #[once]
+    fn mock_fs() -> MockServer {
+        MockServer::start()
+    }
+
+    struct MockedFsCall<'a> {
+        call_get: Mock<'a>,
+        call_full_get: Option<Mock<'a>>,
+        event: ServerToDevice,
+        content: Vec<u8>,
+    }
+
+    impl<'a> MockedFsCall<'a> {
+        fn new(call_get: Mock<'a>, event: ServerToDevice, content: Vec<u8>) -> Self {
+            Self {
+                call_get,
+                event,
+                content,
+                call_full_get: None,
+            }
+        }
+
+        fn with_get_full(
+            call_get: Mock<'a>,
+            call_full_get: Mock<'a>,
+            event: ServerToDevice,
+            content: Vec<u8>,
+        ) -> Self {
+            Self {
+                call_get,
+                event,
+                content,
+                call_full_get: Some(call_full_get),
+            }
+        }
+    }
+
+    #[fixture]
+    async fn mock_fs_download<'a>(mock_fs: &'a MockServer) -> MockedFsCall<'a> {
+        let url = mock_fs.url("/file");
+        let size = 1024usize;
+        let content = vec![1u8; size];
+        let mut digest = digest::Context::new(&digest::SHA256);
+        digest.update(&content);
+        let digest = format!(
+            "sha256:{}",
+            digest
+                .finish()
+                .as_ref()
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<String>()
+        );
+
+        let headers = [
+            ("authorization".to_string(), "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk811kA==".to_string()),
+        ];
+
+        let call_get = mock_fs
+            .mock_async(|mut when, then| {
+                when = when
+                    .method(GET)
+                    .path("/file")
+                    .header_includes("range", "bytes=0-");
+
+                headers
+                    .iter()
+                    .fold(when, |when, (n, s)| when.header_includes(n, s));
+
+                then.status(reqwest::StatusCode::PARTIAL_CONTENT)
+                    .header("Content-Range", "bytes 0-1023/1024")
+                    .body(&content);
+            })
+            .await;
+
+        let event = ServerToDevice {
+            id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
+            url,
+            http_header_key: headers.iter().map(|(k, _)| k).cloned().collect(),
+            http_header_value: headers.iter().map(|(_, v)| v).cloned().collect(),
+            compression: "tar.gz".to_string(),
+            file_size_bytes: i64::try_from(size).unwrap(),
+            progress: true,
+            digest,
+            ttl_seconds: 0,
+            file_mode: 544,
+            user_id: 1000,
+            group_id: 100,
+            destination: "storage".to_string(),
+        };
+
+        MockedFsCall::new(call_get, event, content)
+    }
+
+    #[fixture]
+    async fn mock_fs_download_part<'a>(mock_fs: &'a MockServer) -> MockedFsCall<'a> {
+        let url = mock_fs.url("/file-part");
+        let size = 1024usize;
+        let content = vec![3u8; size];
+        let mut digest = digest::Context::new(&digest::SHA256);
+        digest.update(&content);
+        let digest = format!(
+            "sha256:{}",
+            digest
+                .finish()
+                .as_ref()
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<String>()
+        );
+        let partial_content = vec![3u8; 512];
+
+        let headers = [
+            ("authorization".to_string(), "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()),
+        ];
+
+        let call_get = mock_fs
+            .mock_async(|mut when, then| {
+                when = when
+                    .method(GET)
+                    .path("/file-part")
+                    .header_includes("range", format!("bytes={}-", partial_content.len()));
+
+                headers
+                    .iter()
+                    .fold(when, |when, (n, s)| when.header_includes(n, s));
+
+                then.status(reqwest::StatusCode::PARTIAL_CONTENT)
+                    .header("Content-Range", "bytes 512-1023/1024")
+                    .body(&partial_content);
+            })
+            .await;
+        let event = ServerToDevice {
+            id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
+            url,
+            http_header_key: headers.iter().map(|(k, _)| k).cloned().collect(),
+            http_header_value: headers.iter().map(|(_, v)| v).cloned().collect(),
+            compression: "tar.gz".to_string(),
+            file_size_bytes: i64::try_from(size).unwrap(),
+            progress: true,
+            digest,
+            ttl_seconds: 0,
+            file_mode: 544,
+            user_id: 1000,
+            group_id: 100,
+            destination: "storage".to_string(),
+        };
+
+        MockedFsCall::new(call_get, event, content)
+    }
+
+    #[fixture]
+    async fn mock_fs_download_part_not_satisfied<'a>(mock_fs: &'a MockServer) -> MockedFsCall<'a> {
+        let url = mock_fs.url("/file-part-not-206");
+        let size = 1024usize;
+        let content = vec![4u8; size];
+        let mut digest = digest::Context::new(&digest::SHA256);
+        digest.update(&content);
+        let digest = format!(
+            "sha256:{}",
+            digest
+                .finish()
+                .as_ref()
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<String>()
+        );
+
+        let headers = [
+            ("authorization".to_string(), "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()),
+        ];
+
+        let call_get = mock_fs
+            .mock_async(|mut when, then| {
+                when = when
+                    .method(GET)
+                    .path("/file-part-not-206")
+                    .header_includes("range", "bytes=512-");
+
+                headers
+                    .iter()
+                    .fold(when, |when, (n, s)| when.header_includes(n, s));
+
+                then.status(reqwest::StatusCode::RANGE_NOT_SATISFIABLE);
+            })
+            .await;
+        let call_get_full = mock_fs
+            .mock_async(|mut when, then| {
+                when = when
+                    .method(GET)
+                    .path("/file-part-not-206")
+                    .header_missing("range");
+
+                headers
+                    .iter()
+                    .fold(when, |when, (n, s)| when.header_includes(n, s));
+
+                then.status(reqwest::StatusCode::OK)
+                    .header("Content-Length", content.len().to_string())
+                    .body(&content);
+            })
+            .await;
+
+        let event = ServerToDevice {
+            id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
+            url,
+            http_header_key: headers.iter().map(|(k, _)| k).cloned().collect(),
+            http_header_value: headers.iter().map(|(_, v)| v).cloned().collect(),
+            compression: "tar.gz".to_string(),
+            file_size_bytes: i64::try_from(size).unwrap(),
+            progress: true,
+            digest,
+            ttl_seconds: 0,
+            file_mode: 544,
+            user_id: 1000,
+            group_id: 100,
+            destination: "storage".to_string(),
+        };
+
+        MockedFsCall::with_get_full(call_get, call_get_full, event, content)
+    }
+
     #[rstest]
     #[tokio::test]
-    #[should_panic(expected = "not implemented: file download")]
-    async fn should_download(fs_server_to_device: ServerToDevice) {
+    async fn should_download(#[future] mock_fs_download: MockedFsCall<'_>) {
+        let mock_download_event = mock_fs_download.await;
         let dir = TempDir::new("download").unwrap();
 
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf());
+        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
+        let complete_file = dir.path().join(&mock_download_event.event.id);
 
         transfer
-            .handle(FileTransferEvent::Download(fs_server_to_device))
+            .handle(FileTransferEvent::Download(mock_download_event.event))
             .await
             .unwrap();
+
+        mock_download_event.call_get.assert_async().await;
+
+        let content = tokio::fs::read(complete_file).await.unwrap();
+
+        assert_eq!(content, mock_download_event.content);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn should_download_part(#[future] mock_fs_download_part: MockedFsCall<'_>) {
+        let mock_download_event = mock_fs_download_part.await;
+        let dir = TempDir::new("download").unwrap();
+
+        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
+        let partial_file = dir
+            .path()
+            .join(format!("{}.part", mock_download_event.event.id));
+        let complete_file = dir.path().join(&mock_download_event.event.id);
+
+        // write partial file
+        tokio::fs::write(&partial_file, &mock_download_event.content[0..512])
+            .await
+            .unwrap();
+
+        transfer
+            .handle(FileTransferEvent::Download(mock_download_event.event))
+            .await
+            .unwrap();
+
+        mock_download_event.call_get.assert_async().await;
+
+        let content = tokio::fs::read(complete_file).await.unwrap();
+
+        assert_eq!(content, mock_download_event.content);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn should_download_full_when_unsatisfiable(
+        #[future] mock_fs_download_part_not_satisfied: MockedFsCall<'_>,
+    ) {
+        let mock_download_event = mock_fs_download_part_not_satisfied.await;
+        let dir = TempDir::new("download").unwrap();
+
+        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
+        let partial_file = dir
+            .path()
+            .join(format!("{}.part", mock_download_event.event.id));
+        let complete_file = dir.path().join(&mock_download_event.event.id);
+
+        // write partial file
+        tokio::fs::write(&partial_file, &mock_download_event.content[0..512])
+            .await
+            .unwrap();
+
+        transfer
+            .handle(FileTransferEvent::Download(mock_download_event.event))
+            .await
+            .unwrap();
+
+        mock_download_event.call_get.assert_async().await;
+        mock_download_event
+            .call_full_get
+            .unwrap()
+            .assert_async()
+            .await;
+
+        let content = tokio::fs::read(complete_file).await.unwrap();
+
+        assert_eq!(content, mock_download_event.content);
     }
 
     #[rstest]
@@ -141,7 +489,7 @@ mod tests {
     async fn should_upload(fs_device_to_server: DeviceToServer) {
         let dir = TempDir::new("upload").unwrap();
 
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf());
+        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
 
         tokio::fs::write(dir.path().join(&fs_device_to_server.id), "Hello world!")
             .await
