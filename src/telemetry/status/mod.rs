@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@
 //! Initial telemetry sent by the device on startup.
 
 use astarte_device_sdk::Client;
-use tracing::debug;
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use self::cellular_properties::CellularConnection;
@@ -31,7 +30,7 @@ use self::system_info::SystemInfo;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod cellular_properties;
 pub mod hardware_info;
-#[cfg(feature = "udev")]
+#[cfg(all(feature = "udev", target_os = "linux"))]
 pub(crate) mod net_interfaces;
 pub mod os_release;
 pub mod runtime_info;
@@ -42,20 +41,16 @@ pub(crate) async fn initial_telemetry<C>(client: &mut C)
 where
     C: Client,
 {
-    #[cfg(feature = "systemd")]
+    #[cfg(all(feature = "systemd", target_os = "linux"))]
     crate::systemd_wrapper::systemd_notify_status("Sending initial telemetry");
 
-    if let Some(os_release) = OsRelease::read().await {
-        debug!("couldn't read os release information");
-
-        os_release.send(client).await;
-    }
+    OsRelease::read().await.send(client).await;
 
     HardwareInfo::read().await.send(client).await;
 
     RUNTIME_INFO.send(client).await;
 
-    #[cfg(feature = "udev")]
+    #[cfg(all(feature = "udev", target_os = "linux"))]
     self::net_interfaces::send_network_interface_properties(client).await;
 
     SystemInfo::read().send(client).await;

@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use procfs::cmdline;
 use std::env;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::Client;
 use crate::data::set_property;
@@ -33,26 +32,38 @@ pub struct SystemInfo {
 
 impl SystemInfo {
     pub fn read() -> Self {
-        let mut serial_number: Option<String> = env::var("EDGEHOG_SYSTEM_SERIAL_NUMBER").ok();
-        let mut part_number: Option<String> = env::var("EDGEHOG_SYSTEM_PART_NUMBER").ok();
+        let mut serial_number: Option<String> = None;
+        let mut part_number: Option<String> = None;
 
-        match cmdline() {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        match procfs::cmdline() {
             Ok(cmdline) => {
                 cmdline
                     .iter()
                     .filter_map(|line| line.split_once('='))
                     .for_each(|(k, v)| match k {
-                        "edgehog_system_serial_number" => serial_number = Some(v.to_string()),
-                        "edgehog_system_part_number" => part_number = Some(v.to_string()),
+                        "edgehog_system_serial_number" => {
+                            serial_number = Some(v.to_string());
+                        }
+                        "edgehog_system_part_number" => {
+                            part_number = Some(v.to_string());
+                        }
                         _ => {}
                     });
             }
             Err(err) => {
-                error!(
+                tracing::error!(
                     "couldn't read the kernel cmd line: {}",
                     eyre::Report::new(err)
                 );
             }
+        }
+
+        if let Ok(serial) = env::var("EDGEHOG_SYSTEM_SERIAL_NUMBER") {
+            serial_number = Some(serial);
+        }
+        if let Ok(part) = env::var("EDGEHOG_SYSTEM_PART_NUMBER") {
+            part_number = Some(part)
         }
 
         Self {

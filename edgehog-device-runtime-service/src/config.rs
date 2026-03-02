@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,10 +18,9 @@
 
 //! Configuration for the service
 
-use std::net::SocketAddr;
+use std::net::{SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 
-use cfg_if::cfg_if;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the [`EdgehogService`](crate::service::EdgehogService)
@@ -47,17 +46,18 @@ pub enum Listener {
 
 impl Default for Listener {
     fn default() -> Self {
-        cfg_if! {
-            if #[cfg(unix)] {
-                let path = std::env::var("XDG_RUNTIME_DIR")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from("/tmp"))
-                    .join("edgehog-device-runtime.sock");
+        if cfg!(unix) {
+            let path = std::env::var("XDG_RUNTIME_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/tmp"))
+                .join("edgehog-device-runtime.sock");
 
-                Listener::Unix(path)
-            } else {
-                Listener::Socket(std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 50052))
-            }
+            Listener::Unix(path)
+        } else {
+            Listener::Socket(SocketAddr::V4(SocketAddrV4::new(
+                std::net::Ipv4Addr::LOCALHOST,
+                50052,
+            )))
         }
     }
 }

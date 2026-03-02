@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2025 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,9 @@ name = "edgehog-device-runtime-service"
 version.workspace = true
 edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 rust-version.workspace = true
+description.workspace = true
 
 [features]
 # Enable the local management of containers
@@ -44,6 +46,6 @@ uuid.workspace = true
 [dev-dependencies]
 # Enable mocking for the tests
 edgehog-containers = { workspace = true, features = ["__mock"] }
+mockall.workspace = true
 pretty_assertions.workspace = true
 toml.workspace = true
-mockall.workspace = true

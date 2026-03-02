@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2022 - 2025 SECO Mind Srl
+# Copyright 2022-2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,7 +36,9 @@ members = [
 version = "0.10.4"
 edition = "2024"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
+license = "Apache-2.0"
 rust-version = "1.88"
+description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -54,8 +56,9 @@ name = "edgehog-device-runtime"
 version.workspace = true
 edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 rust-version.workspace = true
-description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
+description.workspace = true
 
 [features]
 default = ["udev", "wifiscanner", "zbus", "platform-verifier"]
@@ -103,12 +106,10 @@ edgehog-store = { workspace = true, optional = true }
 edgehog-tls.workspace = true
 eyre.workspace = true
 futures.workspace = true
-procfs.workspace = true
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sysinfo.workspace = true
-systemd = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream.workspace = true
@@ -116,7 +117,6 @@ tokio-util.workspace = true
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-udev = { workspace = true, optional = true }
 url.workspace = true
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true, optional = true }
@@ -136,6 +136,13 @@ features = [
   "rustls-no-provider",
   "stream",
 ]
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+procfs.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+udev = { workspace = true, optional = true }
+systemd = { workspace = true, optional = true }
 
 [build-dependencies]
 rustc_version.workspace = true

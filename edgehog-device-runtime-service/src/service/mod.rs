@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,15 +20,12 @@
 
 use std::fmt::Display;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use cfg_if::cfg_if;
 use edgehog_proto::tonic::transport::server::{Connected, TcpIncoming};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::UnixListener;
 use tokio_stream::Stream;
-use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -59,7 +56,7 @@ impl TryFrom<Config> for ServiceOptions {
 pub enum Listener {
     /// Unix domain socket
     #[cfg(unix)]
-    Unix(PathBuf),
+    Unix(std::path::PathBuf),
     /// TCP socket
     Socket(SocketAddr),
 }
@@ -74,7 +71,7 @@ impl TryFrom<crate::config::Listener> for Listener {
                     if #[cfg(unix)] {
                         Ok(Listener::Unix(path_buf))
                     } else {
-                        Err(eyre!("target doesn't support unix socket: {}", path_buf.display()))
+                        Err(eyre::eyre!("target doesn't support unix socket: {}", path_buf.display()))
                     }
                 }
             }
@@ -136,8 +133,8 @@ impl EdgehogService {
                     tokio::fs::remove_file(&path_buf).await?;
                 }
 
-                let listener = UnixListener::bind(path_buf)?;
-                let stream = UnixListenerStream::new(listener);
+                let listener = tokio::net::UnixListener::bind(path_buf)?;
+                let stream = tokio_stream::wrappers::UnixListenerStream::new(listener);
 
                 serve(this, cancel, stream).await?;
             }
@@ -214,14 +211,11 @@ cfg_if! {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
-    #[cfg(feature = "containers")]
-    use edgehog_containers::local::MockContainerHandle;
-
     use super::*;
 
+    #[cfg_attr(not(feature = "containers"), expect(dead_code))]
     pub(crate) fn mock_service(
-        #[cfg(feature = "containers")] handle: MockContainerHandle,
+        #[cfg(feature = "containers")] handle: edgehog_containers::local::MockContainerHandle,
     ) -> EdgehogService {
         EdgehogService {
             options: ServiceOptions {

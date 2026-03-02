@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -64,7 +64,7 @@ impl<C> Runtime<C> {
     where
         C: Client + PropAccess + Send + Sync + 'static,
     {
-        #[cfg(feature = "systemd")]
+        #[cfg(all(feature = "systemd", target_os = "linux"))]
         crate::systemd_wrapper::systemd_notify_status("Initializing");
 
         info!("Initializing");
@@ -222,7 +222,7 @@ impl<C> Runtime<C> {
     where
         C: Client + Send + Sync + 'static,
     {
-        #[cfg(feature = "systemd")]
+        #[cfg(all(feature = "systemd", target_os = "linux"))]
         crate::systemd_wrapper::systemd_notify_status("Running");
 
         info!("Running");
@@ -283,13 +283,13 @@ impl<C> Runtime<C> {
                     );
                 }
             }
-            #[cfg(all(feature = "containers", target_os = "linux"))]
+            #[cfg(feature = "containers")]
             RuntimeEvent::Container(event) => {
                 if self.containers_tx.send(event).is_err() {
                     error!("couldn't handle the container event")
                 }
             }
-            #[cfg(all(feature = "forwarder", target_os = "linux"))]
+            #[cfg(feature = "forwarder")]
             RuntimeEvent::Session(event) => {
                 self.forwarder.handle_sessions(event);
             }

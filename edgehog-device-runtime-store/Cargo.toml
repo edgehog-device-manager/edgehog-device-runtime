@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2025 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,9 @@ name = "edgehog-device-runtime-store"
 version.workspace = true
 edition.workspace = true
 homepage.workspace = true
+license.workspace = true
 rust-version.workspace = true
+description.workspace = true
 
 [dependencies]
 deadpool = { workspace = true, default-features = false, features = ["rt_tokio_1", "managed"] }
@@ -40,6 +42,7 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 
 [features]
+# Enables the models to persist the state of the containers
 containers = []
 # Compiles the C dependencies at buildtime instead of using system libraries
 vendored = ["rusqlite/bundled"]
