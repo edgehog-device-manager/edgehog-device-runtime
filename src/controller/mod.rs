@@ -111,7 +111,8 @@ impl<C> Runtime<C> {
         tasks.spawn(telemetry.spawn(telemetry_rx));
 
         // TODO: Add configuration
-        let file_transfer = Self::file_transfer(tasks, opts.store_directory.join("file-store"));
+        let file_transfer = Self::file_transfer(tasks, opts.store_directory.join("file-store"))
+            .wrap_err("could't initialize file transfer")?;
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
@@ -157,12 +158,12 @@ impl<C> Runtime<C> {
     fn file_transfer(
         tasks: &mut JoinSet<eyre::Result<()>>,
         store_dir: std::path::PathBuf,
-    ) -> mpsc::Sender<FileTransferEvent> {
+    ) -> eyre::Result<mpsc::Sender<FileTransferEvent>> {
         let (tx, rx) = mpsc::channel(EVENT_BUFFER);
 
-        tasks.spawn(FileTransfer::new(store_dir).spawn(rx));
+        tasks.spawn(FileTransfer::new(store_dir)?.spawn(rx));
 
-        tx
+        Ok(tx)
     }
 
     #[cfg(feature = "containers")]

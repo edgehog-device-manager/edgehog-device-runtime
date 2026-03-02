@@ -41,6 +41,7 @@ use mockall::automock;
 use crate::DeviceManagerOptions;
 use crate::controller::actor::Actor;
 use crate::error::DeviceManagerError;
+use crate::http::default_http_client_builder;
 use crate::ota::rauc::BundleInfo;
 use crate::repository::StateRepository;
 
@@ -888,18 +889,12 @@ fn create_http_client(req: &OtaId) -> Result<reqwest::Client, OtaError> {
             error!(%error, "couldn't set ota-id HTTP header value")
         }
     };
-    let tls = edgehog_tls::config().map_err(|error| {
-        error!(%error, "couldn't setup TLS configuration");
+    let client = default_http_client_builder()
+        .map_err(|error| {
+            error!(%error, "couldn't setup TLS configuration");
 
-        OtaError::Internal("couldn setup TLS configuration")
-    })?;
-    let client = reqwest::Client::builder()
-        .use_preconfigured_tls(tls)
-        .user_agent(concat!(
-            env!("CARGO_PKG_NAME"),
-            "/",
-            env!("CARGO_PKG_VERSION")
-        ))
+            OtaError::Internal("couldn't setup TLS configuration")
+        })?
         .default_headers(headers)
         .build()
         .map_err(|error| {

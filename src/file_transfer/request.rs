@@ -24,8 +24,10 @@ use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use url::Url;
 use uuid::Uuid;
 
-use super::FileOptions;
-use super::interface::{DeviceToServer, ServerToDevice};
+use super::{
+    FileOptions,
+    interface::{DeviceToServer, ServerToDevice},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DownloadReq {
@@ -42,8 +44,8 @@ pub(crate) struct DownloadReq {
     pub(super) destination: Target,
 }
 
-impl From<DownloadReq> for FileOptions {
-    fn from(value: DownloadReq) -> Self {
+impl From<&DownloadReq> for FileOptions {
+    fn from(value: &DownloadReq) -> Self {
         FileOptions {
             id: value.id,
             file_size: value.file_size,
