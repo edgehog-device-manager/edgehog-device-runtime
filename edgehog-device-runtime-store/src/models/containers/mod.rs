@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 pub mod container;
 pub mod deployment;
 pub mod device_mapping;
+pub mod device_request;
 pub mod image;
 pub mod network;
 pub mod volume;

@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ use crate::requests::{BindingError, container::RestartPolicyError};
 mod container;
 mod deployment;
 mod device_mapping;
+mod device_request;
 mod image;
 mod network;
 mod volume;
@@ -125,6 +126,7 @@ mod tests {
         let volume_id = ReqUuid(Uuid::new_v4());
         let network_id = ReqUuid(Uuid::new_v4());
         let device_mapping_id = ReqUuid(Uuid::new_v4());
+        let device_request_id = ReqUuid(Uuid::new_v4());
         let container_id = ReqUuid(Uuid::new_v4());
         let deployment_id = ReqUuid(Uuid::new_v4());
 
@@ -141,6 +143,7 @@ mod tests {
             network_ids: VecReqUuid(vec![network_id]),
             volume_ids: VecReqUuid(vec![volume_id]),
             device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
+            device_request_ids: VecReqUuid(vec![device_request_id]),
             hostname: "database".to_string(),
             restart_policy: "unless-stopped".to_string(),
             env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
