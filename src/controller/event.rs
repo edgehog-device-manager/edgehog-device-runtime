@@ -16,14 +16,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fmt::Display;
+
 use astarte_device_sdk::{DeviceEvent, FromEvent, event::FromEventError};
 
+use crate::file_transfer::interface::FileTransferEvent;
 use crate::{commands::Commands, telemetry::event::TelemetryEvent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeEvent {
     Command(Commands),
     Telemetry(TelemetryEvent),
+    FileTransfer(FileTransferEvent),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     Ota(crate::ota::event::OtaRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -31,7 +35,39 @@ pub enum RuntimeEvent {
     #[cfg(feature = "containers")]
     Container(Box<edgehog_containers::requests::ContainerRequest>),
     #[cfg(feature = "forwarder")]
-    Session(edgehog_forwarder::astarte::SessionInfo),
+    Forwarder(edgehog_forwarder::astarte::SessionInfo),
+}
+
+impl Display for RuntimeEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RuntimeEvent::Command(_commands) => {
+                write!(f, "Command")
+            }
+            RuntimeEvent::Telemetry(_telemetry_event) => {
+                write!(f, "Telemetry")
+            }
+            RuntimeEvent::FileTransfer(_file_transfer_event) => {
+                write!(f, "FileTransfer")
+            }
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            RuntimeEvent::Ota(_ota_request) => {
+                write!(f, "Ota")
+            }
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            RuntimeEvent::Led(_led_event) => {
+                write!(f, "Led")
+            }
+            #[cfg(feature = "containers")]
+            RuntimeEvent::Container(_container_request) => {
+                write!(f, "Container")
+            }
+            #[cfg(feature = "forwarder")]
+            RuntimeEvent::Forwarder(_session_info) => {
+                write!(f, "Forwarder")
+            }
+        }
+    }
 }
 
 impl FromEvent for RuntimeEvent {
@@ -44,6 +80,9 @@ impl FromEvent for RuntimeEvent {
             }
             "io.edgehog.devicemanager.config.Telemetry" => {
                 TelemetryEvent::from_event(event).map(RuntimeEvent::Telemetry)
+            }
+            interface if interface.starts_with("io.edgehog.devicemanager.fileTransfer") => {
+                FileTransferEvent::from_event(event).map(RuntimeEvent::FileTransfer)
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             "io.edgehog.devicemanager.LedBehavior" => {
@@ -61,7 +100,7 @@ impl FromEvent for RuntimeEvent {
             #[cfg(feature = "forwarder")]
             "io.edgehog.devicemanager.ForwarderSessionRequest" => {
                 edgehog_forwarder::astarte::SessionInfo::from_event(event)
-                    .map(RuntimeEvent::Session)
+                    .map(RuntimeEvent::Forwarder)
             }
             _ => Err(FromEventError::Interface(event.interface)),
         }
