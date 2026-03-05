@@ -20,34 +20,39 @@
 
 use std::path::PathBuf;
 
-use tracing::{info, instrument, trace};
+use tracing::{info, instrument};
 
 use crate::controller::actor::Actor;
 
-use self::file_system::{FileOptions, FileStorage, Fs, Limits};
+use self::file_system::FileOptions;
+use self::file_system::store::{FileStorage, Fs, Limits};
+use self::file_system::stream::{Pipe, Streaming, SysPipe};
 use self::interface::FileTransferEvent;
-use self::request::{DownloadReq, UploadReq};
+use self::request::{DownloadReq, Target, UploadReq};
 
 mod file_system;
 pub(crate) mod interface;
 mod request;
 
 #[derive(Debug)]
-pub(crate) struct FileTransfer<F> {
+pub(crate) struct FileTransfer<F, S> {
     storage: FileStorage<F>,
+    stream: Streaming<S>,
 }
 
-impl FileTransfer<Fs> {
+impl FileTransfer<Fs, SysPipe> {
     pub fn new(dir: PathBuf) -> Self {
         Self {
             storage: FileStorage::new(dir),
+            stream: Streaming::new(),
         }
     }
 }
 
-impl<F> Actor for FileTransfer<F>
+impl<F, S> Actor for FileTransfer<F, S>
 where
-    F: Send + Sync + Limits,
+    F: Limits + Send + Sync,
+    S: Pipe + Send + Sync,
 {
     type Msg = FileTransferEvent;
 
@@ -57,15 +62,11 @@ where
 
     #[instrument(skip_all)]
     async fn init(&mut self) -> eyre::Result<()> {
-        trace!("initializing file transfer");
-
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
-        trace!("handle file transfer request");
-
         match msg {
             FileTransferEvent::Download(server_to_device) => {
                 let download = DownloadReq::try_from(server_to_device)?;
@@ -74,7 +75,7 @@ where
 
                 // TODO check the digest
                 match download.destination {
-                    request::Target::Storage => {
+                    Target::Storage => {
                         if self.storage.file_exists(&download.id).await? {
                             info!("file already exists");
 
@@ -91,6 +92,13 @@ where
                         #[expect(unreachable_code)]
                         self.storage.finalize_write(_file, &opt).await?;
                     }
+                    Target::Stream => {
+                        let opt = FileOptions::from(download);
+
+                        let (_file, _digest) = self.stream.open_writer(&opt).await?;
+
+                        unimplemented!("file download");
+                    }
                 }
             }
             FileTransferEvent::Upload(device_to_server) => {
@@ -99,10 +107,15 @@ where
                 info!("file upload received");
 
                 match upload.source {
-                    request::Target::Storage => {
+                    Target::Storage => {
                         let _file = self.storage.open_read(&upload.id).await?;
 
                         unimplemented!("file upload")
+                    }
+                    Target::Stream => {
+                        let _file = self.stream.create_reader(&upload.id).await?;
+
+                        unimplemented!("file download");
                     }
                 }
             }
@@ -121,13 +134,17 @@ mod tests {
 
     use super::*;
 
+    fn mk_transfe(prefix: &str) -> (FileTransfer<Fs, SysPipe>, TempDir) {
+        let dir = TempDir::new(prefix).unwrap();
+
+        (FileTransfer::new(dir.path().to_path_buf()), dir)
+    }
+
     #[rstest]
     #[tokio::test]
     #[should_panic(expected = "not implemented: file download")]
     async fn should_download(fs_server_to_device: ServerToDevice) {
-        let dir = TempDir::new("download").unwrap();
-
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf());
+        let (mut transfer, _dir) = mk_transfe("download");
 
         transfer
             .handle(FileTransferEvent::Download(fs_server_to_device))
@@ -139,9 +156,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "not implemented: file upload")]
     async fn should_upload(fs_device_to_server: DeviceToServer) {
-        let dir = TempDir::new("upload").unwrap();
-
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf());
+        let (mut transfer, dir) = mk_transfe("upload");
 
         tokio::fs::write(dir.path().join(&fs_device_to_server.id), "Hello world!")
             .await
