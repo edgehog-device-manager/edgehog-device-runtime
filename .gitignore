@@ -28,6 +28,8 @@ target/
 
 # RustRover IDE
 .idea/
+# nvim
+.nvim.lua
 
 # Helix
 .helix/

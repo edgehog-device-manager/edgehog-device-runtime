@@ -18,83 +18,73 @@
 
 //! Transfer files from and to the Device
 
-use std::cmp;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 
 use aws_lc_rs::digest;
 use eyre::{Context, OptionExt};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-use tracing::{info, instrument, trace};
+use tokio::io::{AsyncSeekExt, AsyncWrite, AsyncWriteExt};
+use tracing::{info, instrument};
 
 use crate::controller::actor::Actor;
-use crate::file_transfer::file_system::{FileRange, WriteHandle};
 use crate::http::{DownloadRange, FileDownloadResponse, FileTransferHttpClient};
 
-use self::file_system::{FileOptions, FileStorage, Fs, Limits};
+use self::file_system::FileOptions;
+use self::file_system::store::{FileStorage, Fs, Limits};
+use self::file_system::stream::{Pipe, Streaming, SysPipe};
 use self::interface::FileTransferEvent;
-use self::request::{DownloadReq, UploadReq};
+use self::request::{DownloadReq, Target, UploadReq};
 
 mod file_system;
 pub(crate) mod interface;
 mod request;
 
-pub(crate) struct FileTransfer<F> {
+#[derive(Debug)]
+pub(crate) struct FileTransfer<F, S> {
     storage: FileStorage<F>,
+    stream: Streaming<S>,
     client: FileTransferHttpClient,
 }
 
-impl FileTransfer<Fs> {
+impl FileTransfer<Fs, SysPipe> {
     pub fn new(dir: PathBuf) -> eyre::Result<Self> {
         Ok(Self {
             storage: FileStorage::new(dir),
+            stream: Streaming::new(),
             client: FileTransferHttpClient::create()
                 .wrap_err("can't construct file transfer client")?,
         })
     }
 }
 
-impl<F> FileTransfer<F> {
-    async fn write_chunks(
-        file: &mut WriteHandle,
+impl<F, S> FileTransfer<F, S> {
+    async fn write_chunks<W>(
+        sink: &mut W,
         digest: &mut digest::Context,
         mut download_resp: FileDownloadResponse,
-    ) -> eyre::Result<()> {
-        let mut written = file
-            .seek(SeekFrom::Start(download_resp.range().start()))
-            .await?;
-
-        let complete_len = file.range().complete_len();
-
+    ) -> eyre::Result<()>
+    where
+        W: AsyncWrite + Unpin,
+    {
         while let Some(bytes) = download_resp
             .chunk()
             .await
             .wrap_err("error while getting response chunk")?
         {
-            let remaining =
-                usize::try_from(complete_len.saturating_sub(written)).unwrap_or(usize::MAX);
-            let max_write = cmp::min(bytes.len(), remaining);
-
-            file.write_all_buf(&mut &bytes[..max_write]).await?;
-            file.flush().await?;
+            sink.write_all(&bytes).await?;
+            sink.flush().await?;
 
             digest.update(&bytes);
-            written = written.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
         }
 
         Ok(())
     }
 }
 
-impl From<&FileRange> for Option<DownloadRange> {
-    fn from(value: &FileRange) -> Self {
-        DownloadRange::create(value.start(), value.complete_len())
-    }
-}
-
-impl<F> Actor for FileTransfer<F>
+impl<F, S> Actor for FileTransfer<F, S>
 where
-    F: Send + Sync + Limits,
+    F: Limits + Send + Sync,
+    S: Pipe + Send + Sync,
 {
     type Msg = FileTransferEvent;
 
@@ -104,15 +94,11 @@ where
 
     #[instrument(skip_all)]
     async fn init(&mut self) -> eyre::Result<()> {
-        trace!("initializing file transfer");
-
         Ok(())
     }
 
     #[instrument(skip(self))]
     async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
-        trace!("handle file transfer request");
-
         match msg {
             FileTransferEvent::Download(server_to_device) => {
                 let download = DownloadReq::try_from(server_to_device)?;
@@ -120,7 +106,7 @@ where
                 info!("file download received");
 
                 match download.destination {
-                    request::Target::Storage => {
+                    Target::Storage => {
                         if self.storage.file_exists(&download.id).await? {
                             info!("file already exists");
 
@@ -130,8 +116,10 @@ where
                         let opt = FileOptions::from(&download);
 
                         let (mut file, mut digest) = self.storage.create_write_handle(&opt).await?;
-                        let download_range = Option::<DownloadRange>::from(file.range())
-                            .ok_or_eyre("invalid file range")?;
+
+                        let download_range =
+                            DownloadRange::create(file.current_size(), opt.file_size)
+                                .ok_or_eyre("invalid download range")?;
 
                         let file_resp = self
                             .client
@@ -139,9 +127,31 @@ where
                             .await
                             .wrap_err("download request error")?;
 
+                        if file_resp.range().start() != file.current_size() {
+                            file.seek(SeekFrom::Start(file_resp.range().start()))
+                                .await?;
+                        }
+
                         Self::write_chunks(&mut file, &mut digest, file_resp).await?;
 
                         self.storage.finalize_write(file, &opt).await
+                    }
+                    Target::Stream => {
+                        let opt = FileOptions::from(&download);
+
+                        let (mut file, mut digest) = self.stream.open_writer(&opt).await?;
+
+                        let range = DownloadRange::with_size(opt.file_size);
+
+                        let file_resp = self
+                            .client
+                            .download(&download.url, download.headers, range)
+                            .await
+                            .wrap_err("download request error")?;
+
+                        Self::write_chunks(&mut file, &mut digest, file_resp).await?;
+
+                        unimplemented!("file download");
                     }
                 }
             }
@@ -151,10 +161,15 @@ where
                 info!("file upload received");
 
                 match upload.source {
-                    request::Target::Storage => {
+                    Target::Storage => {
                         let _file = self.storage.open_read(&upload.id).await?;
 
                         unimplemented!("file upload")
+                    }
+                    Target::Stream => {
+                        let _file = self.stream.create_reader(&upload.id).await?;
+
+                        unimplemented!("file download");
                     }
                 }
             }
@@ -173,6 +188,12 @@ mod tests {
     use crate::file_transfer::interface::{DeviceToServer, ServerToDevice};
 
     use super::*;
+
+    fn mk_transfer(prefix: &str) -> (FileTransfer<Fs, SysPipe>, TempDir) {
+        let dir = TempDir::new(prefix).unwrap();
+
+        (FileTransfer::new(dir.path().to_path_buf()).unwrap(), dir)
+    }
 
     #[fixture]
     #[once]
@@ -401,9 +422,8 @@ mod tests {
     #[tokio::test]
     async fn should_download(#[future] mock_fs_download: MockedFsCall<'_>) {
         let mock_download_event = mock_fs_download.await;
-        let dir = TempDir::new("download").unwrap();
 
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
+        let (mut transfer, dir) = mk_transfer("should_download");
         let complete_file = dir.path().join(&mock_download_event.event.id);
 
         transfer
@@ -422,9 +442,8 @@ mod tests {
     #[tokio::test]
     async fn should_download_part(#[future] mock_fs_download_part: MockedFsCall<'_>) {
         let mock_download_event = mock_fs_download_part.await;
-        let dir = TempDir::new("download").unwrap();
 
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
+        let (mut transfer, dir) = mk_transfer("download");
         let partial_file = dir
             .path()
             .join(format!("{}.part", mock_download_event.event.id));
@@ -487,10 +506,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "not implemented: file upload")]
     async fn should_upload(fs_device_to_server: DeviceToServer) {
-        let dir = TempDir::new("upload").unwrap();
-
-        let mut transfer = FileTransfer::new(dir.path().to_path_buf()).unwrap();
-
+        let (mut transfer, dir) = mk_transfer("upload");
         tokio::fs::write(dir.path().join(&fs_device_to_server.id), "Hello world!")
             .await
             .unwrap();

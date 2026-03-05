@@ -28,19 +28,17 @@ use tokio::io::{AsyncBufReadExt, AsyncSeek, AsyncWrite, BufReader};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
 
-use super::request::FileDigest;
-#[cfg(unix)]
-use super::request::FilePermissions;
+use super::FileOptions;
 
 /// Stores files in the storage
 #[derive(Debug)]
-pub(super) struct FileStorage<F> {
-    fs: F,
+pub(crate) struct FileStorage<F> {
     dir: PathBuf,
+    fs: F,
 }
 
 impl FileStorage<Fs> {
-    pub(super) fn new(dir: PathBuf) -> Self {
+    pub(crate) fn new(dir: PathBuf) -> Self {
         Self { fs: Fs {}, dir }
     }
 }
@@ -88,8 +86,6 @@ impl<F> FileStorage<F> {
     where
         F: Limits,
     {
-        trace!("creating write handle");
-
         let file_path = self.partial_file_path(&opt.id);
 
         self.fs
@@ -131,8 +127,8 @@ impl<F> FileStorage<F> {
         Ok((
             WriteHandle {
                 id: opt.id,
+                current_size,
                 file: reader.into_inner(),
-                range: FileRange::new(current_size, opt.file_size),
             },
             digest,
         ))
@@ -147,8 +143,6 @@ impl<F> FileStorage<F> {
     where
         F: Limits,
     {
-        trace!("finalizing write handle");
-
         handle
             .file
             .sync_all()
@@ -184,57 +178,20 @@ impl<F> FileStorage<F> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FileOptions {
-    pub(super) id: Uuid,
-    pub(super) file_size: u64,
-    pub(super) file_digest: FileDigest,
-    #[cfg(unix)]
-    pub(super) perm: FilePermissions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FileRange {
-    start: u64,
-    complete_len: u64,
-}
-
-impl FileRange {
-    pub(super) fn new(start: u64, complete_len: u64) -> Self {
-        Self {
-            start,
-            complete_len,
-        }
-    }
-
-    pub(super) fn start(&self) -> u64 {
-        self.start
-    }
-
-    pub(super) fn complete_len(&self) -> u64 {
-        self.complete_len
-    }
-}
-
 pin_project! {
     #[derive(Debug)]
-    pub(super) struct WriteHandle {
+    pub(crate) struct WriteHandle {
         id: Uuid,
+        current_size: u64,
         // TODO limit the size of the file
         #[pin]
         file: tokio::fs::File,
-        range: FileRange,
     }
 }
 
 impl WriteHandle {
-    #[cfg(test)]
-    pub(super) fn current_size(&self) -> u64 {
-        self.range.start
-    }
-
-    pub(super) fn range(&self) -> &FileRange {
-        &self.range
+    pub(crate) fn current_size(&self) -> u64 {
+        self.current_size
     }
 }
 
@@ -338,6 +295,10 @@ mod tests {
     use mockall::{Sequence, predicate};
     use tempdir::TempDir;
     use tokio::io::AsyncWriteExt;
+
+    use crate::file_transfer::request::FileDigest;
+    #[cfg(unix)]
+    use crate::file_transfer::request::FilePermissions;
 
     use super::*;
 
@@ -464,7 +425,7 @@ mod tests {
         };
         let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
 
-        assert_eq!(write.current_size(), 0);
+        assert_eq!(write.current_size, 0);
 
         write.write_all(content.as_bytes()).await.unwrap();
         digest.update(content.as_bytes());
@@ -526,9 +487,9 @@ mod tests {
         // Write rest
         let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
 
-        assert_eq!(write.current_size(), content_1.len() as u64);
+        assert_eq!(write.current_size, content_1.len() as u64);
 
-        let remaining = &content.as_bytes()[(write.current_size() as usize)..];
+        let remaining = &content.as_bytes()[(write.current_size as usize)..];
         write.write_all(remaining).await.unwrap();
         digest.update(remaining);
 
