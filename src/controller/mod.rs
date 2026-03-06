@@ -23,9 +23,11 @@ use astarte_device_sdk::prelude::PropAccess;
 use eyre::{Context, Report};
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, instrument, trace};
 
 use crate::commands::execute_command;
+use crate::file_transfer::FileTransfer;
+use crate::file_transfer::interface::FileTransferEvent;
 use crate::telemetry::Telemetry;
 use crate::telemetry::event::TelemetryEvent;
 use crate::{Client, DeviceManagerOptions};
@@ -40,10 +42,13 @@ use self::event::RuntimeEvent;
 pub mod actor;
 pub mod event;
 
+const EVENT_BUFFER: usize = 8;
+
 #[derive(Debug)]
 pub struct Runtime<T> {
     client: T,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
+    file_transfer: mpsc::Sender<FileTransferEvent>,
     #[cfg(feature = "containers")]
     containers_tx: mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
     #[cfg(feature = "forwarder")]
@@ -87,12 +92,12 @@ impl<C> Runtime<C> {
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let led_tx = {
-            let (led_tx, led_rx) = mpsc::channel(8);
+            let (led_tx, led_rx) = mpsc::channel(EVENT_BUFFER);
             tasks.spawn(LedBlink.spawn(led_rx));
             led_tx
         };
 
-        let (telemetry_tx, telemetry_rx) = mpsc::channel(8);
+        let (telemetry_tx, telemetry_rx) = mpsc::channel(EVENT_BUFFER);
 
         let telemetry = Telemetry::from_config(
             client.clone(),
@@ -104,6 +109,9 @@ impl<C> Runtime<C> {
         .await;
 
         tasks.spawn(telemetry.spawn(telemetry_rx));
+
+        // TODO: Add configuration
+        let file_transfer = Self::file_transfer(tasks, opts.store_directory.join("file-store"));
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
@@ -134,6 +142,7 @@ impl<C> Runtime<C> {
         Ok(Self {
             client,
             telemetry_tx,
+            file_transfer,
             #[cfg(feature = "containers")]
             containers_tx,
             #[cfg(feature = "forwarder")]
@@ -143,6 +152,17 @@ impl<C> Runtime<C> {
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             ota_handler,
         })
+    }
+
+    fn file_transfer(
+        tasks: &mut JoinSet<eyre::Result<()>>,
+        store_dir: std::path::PathBuf,
+    ) -> mpsc::Sender<FileTransferEvent> {
+        let (tx, rx) = mpsc::channel(EVENT_BUFFER);
+
+        tasks.spawn(FileTransfer::new(store_dir).spawn(rx));
+
+        tx
     }
 
     #[cfg(feature = "containers")]
@@ -218,10 +238,13 @@ impl<C> Runtime<C> {
         });
     }
 
+    #[instrument(skip(self))]
     pub async fn run(&mut self) -> eyre::Result<()>
     where
         C: Client + Send + Sync + 'static,
     {
+        trace!("started running");
+
         #[cfg(all(feature = "systemd", target_os = "linux"))]
         crate::systemd_wrapper::systemd_notify_status("Running");
 
@@ -246,10 +269,13 @@ impl<C> Runtime<C> {
         }
     }
 
+    #[instrument(skip_all, fields(event = %event))]
     async fn handle_event(&mut self, event: RuntimeEvent)
     where
         C: Client + Send + Sync + 'static,
     {
+        trace!("received file transfer event");
+
         match event {
             RuntimeEvent::Command(cmd) => {
                 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -266,6 +292,11 @@ impl<C> Runtime<C> {
             RuntimeEvent::Telemetry(event) => {
                 if self.telemetry_tx.send(event).await.is_err() {
                     error!("couldn't send the telemetry event");
+                }
+            }
+            RuntimeEvent::FileTransfer(event) => {
+                if self.file_transfer.send(event).await.is_err() {
+                    error!("couldn't send file transfer event");
                 }
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -290,7 +321,7 @@ impl<C> Runtime<C> {
                 }
             }
             #[cfg(feature = "forwarder")]
-            RuntimeEvent::Session(event) => {
+            RuntimeEvent::Forwarder(event) => {
                 self.forwarder.handle_sessions(event);
             }
         }

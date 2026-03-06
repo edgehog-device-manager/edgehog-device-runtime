@@ -47,6 +47,7 @@ async fn main() -> eyre::Result<()> {
                 .with_default_directive("edgehog_device_runtime=info".parse()?)
                 .from_env_lossy(),
         )
+        .with(tracing_error::ErrorLayer::default())
         .try_init()?;
 
     // Set default crypto provider
