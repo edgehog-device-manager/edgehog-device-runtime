@@ -155,8 +155,8 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk"
-version = "0.11.3"
-source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust#7a1ab5ce9a4fb0802e74b17cb0b3fab1b9a16faf"
+version = "0.12.0"
+source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust#07b389d980ea4870d208cd70366ce51b85c5dbcf"
 dependencies = [
  "astarte-device-sdk-derive",
  "astarte-interfaces",
@@ -193,8 +193,8 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-derive"
-version = "0.11.3"
-source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust#7a1ab5ce9a4fb0802e74b17cb0b3fab1b9a16faf"
+version = "0.12.0"
+source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust#07b389d980ea4870d208cd70366ce51b85c5dbcf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -203,8 +203,8 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-mock"
-version = "0.11.3"
-source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust#7a1ab5ce9a4fb0802e74b17cb0b3fab1b9a16faf"
+version = "0.12.0"
+source = "git+https://github.com/astarte-platform/astarte-device-sdk-rust#07b389d980ea4870d208cd70366ce51b85c5dbcf"
 dependencies = [
  "astarte-device-sdk",
  "chrono",
@@ -2823,7 +2823,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn",
@@ -4451,7 +4451,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
