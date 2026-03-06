@@ -196,7 +196,7 @@ reqwest = { version = "0.13.1", default-features = false }
 # Version required by diesel
 rusqlite = "0.36.0"
 rustc_version = "0.4.1"
-rustls = "0.23.32"
+rustls = "0.23.37"
 rustls-native-certs = "0.8.1"
 rustls-pemfile = "2.2.0"
 rustls-platform-verifier = "0.6.2"
