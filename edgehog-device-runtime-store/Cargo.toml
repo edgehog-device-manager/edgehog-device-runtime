@@ -40,6 +40,8 @@ uuid.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 tempfile.workspace = true
+rstest.workspace = true
+insta.workspace = true
 
 [features]
 # Enables the models to persist the state of the containers

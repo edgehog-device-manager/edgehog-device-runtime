@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2025 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,11 +19,45 @@
 # For documentation on how to configure this file,
 # see https://diesel.rs/guides/configuring-diesel-cli
 
-[print_schema]
+[print_schema.runtime]
+file = "src/schema/runtime.rs"
+custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
+with_docs = true
+
+[print_schema.runtime.filter]
+only_tables = [
+  "job_queue",
+]
+
+[print_schema.containers]
 file = "src/schema/containers.rs"
 custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 with_docs = true
-patch_file = "assets/schema.patch"
 
-[migrations_directory]
-dir = "migrations"
+[print_schema.containers.filter]
+only_tables = [
+  "container_missing_device_mappings",
+  "container_device_mappings",
+  "device_mappings",
+  "container_tmpfs",
+  "container_storage_options",
+  "container_drop_capabilities",
+  "container_add_capabilities",
+  "container_extra_hosts",
+  "deployment_containers",
+  "deployments",
+  "container_port_bindings",
+  "container_binds",
+  "container_env",
+  "container_missing_images",
+  "container_missing_networks",
+  "container_missing_volumes",
+  "container_volumes",
+  "container_networks",
+  "containers",
+  "volume_driver_opts",
+  "volumes",
+  "network_driver_opts",
+  "networks",
+  "images",
+]

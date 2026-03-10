@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ use crate::conversions::SqlUuid;
 
 #[cfg(feature = "containers")]
 pub mod containers;
+pub mod job;
 
 type ById<'a, Id> = Eq<Id, &'a SqlUuid>;
 type FilterById<'a, Table, Id> = Filter<Table, ById<'a, Id>>;
