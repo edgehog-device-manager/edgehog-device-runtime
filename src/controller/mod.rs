@@ -110,7 +110,8 @@ impl<C> Runtime<C> {
 
         tasks.spawn(telemetry.spawn(telemetry_rx));
 
-        let file_transfer = Self::file_transfer(tasks);
+        // TODO: Add configuration
+        let file_transfer = Self::file_transfer(tasks, opts.store_directory.join("file-store"));
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
@@ -153,10 +154,13 @@ impl<C> Runtime<C> {
         })
     }
 
-    fn file_transfer(tasks: &mut JoinSet<eyre::Result<()>>) -> mpsc::Sender<FileTransferEvent> {
+    fn file_transfer(
+        tasks: &mut JoinSet<eyre::Result<()>>,
+        store_dir: std::path::PathBuf,
+    ) -> mpsc::Sender<FileTransferEvent> {
         let (tx, rx) = mpsc::channel(EVENT_BUFFER);
 
-        tasks.spawn(FileTransfer::new().spawn(rx));
+        tasks.spawn(FileTransfer::new(store_dir).spawn(rx));
 
         tx
     }
