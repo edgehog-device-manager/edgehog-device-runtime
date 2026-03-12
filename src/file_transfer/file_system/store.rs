@@ -28,19 +28,17 @@ use tokio::io::{AsyncBufReadExt, AsyncWrite, BufReader};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
 
-use super::request::FileDigest;
-#[cfg(unix)]
-use super::request::FilePermissions;
+use super::FileOptions;
 
 /// Stores files in the storage
 #[derive(Debug)]
-pub(super) struct FileStorage<F> {
-    fs: F,
+pub(crate) struct FileStorage<F> {
     dir: PathBuf,
+    fs: F,
 }
 
 impl FileStorage<Fs> {
-    pub(super) fn new(dir: PathBuf) -> Self {
+    pub(crate) fn new(dir: PathBuf) -> Self {
         Self { fs: Fs {}, dir }
     }
 }
@@ -88,8 +86,6 @@ impl<F> FileStorage<F> {
     where
         F: Limits,
     {
-        trace!("creating write handle");
-
         let file_path = self.partial_file_path(&opt.id);
 
         self.fs
@@ -147,8 +143,6 @@ impl<F> FileStorage<F> {
     where
         F: Limits,
     {
-        trace!("finalizing write handle");
-
         handle
             .file
             .sync_all()
@@ -184,18 +178,9 @@ impl<F> FileStorage<F> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct FileOptions {
-    pub(super) id: Uuid,
-    pub(super) file_size: u64,
-    pub(super) file_digest: FileDigest,
-    #[cfg(unix)]
-    pub(super) perm: FilePermissions,
-}
-
 pin_project! {
     #[derive(Debug)]
-    pub(super) struct WriteHandle {
+    pub(crate) struct WriteHandle {
         id: Uuid,
         current_size: u64,
         // TODO limit the size of the file
@@ -284,6 +269,10 @@ mod tests {
     use mockall::{Sequence, predicate};
     use tempdir::TempDir;
     use tokio::io::AsyncWriteExt;
+
+    use crate::file_transfer::request::FileDigest;
+    #[cfg(unix)]
+    use crate::file_transfer::request::FilePermissions;
 
     use super::*;
 
