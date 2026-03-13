@@ -244,4 +244,4 @@ url = "2.5.7"
 uuid = "1.18.1"
 webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
-zbus = { version = "5.11.0", default-features = false }
+zbus = { version = "5.14.0", default-features = false }
