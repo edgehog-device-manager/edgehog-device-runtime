@@ -180,7 +180,7 @@ tokio-stream = { workspace = true, features = ["net"] }
 astarte-device-sdk = "0.12.1"
 astarte-device-sdk-mock = "0.12.1"
 async-trait = "0.1.89"
-aws-lc-rs = "1.14.1"
+aws-lc-rs = "1.16.1"
 backoff = "0.4.0"
 base64 = "0.22.1"
 bollard = "0.20.0"
