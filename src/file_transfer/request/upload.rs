@@ -36,7 +36,7 @@ pub(crate) struct Upload {
     #[cbor(n(0), with = "derive::url")]
     pub(crate) url: Url,
     #[cbor(n(1), with = "derive::header_map")]
-    pub(super) headers: HeaderMap,
+    pub(crate) headers: HeaderMap,
     #[n(2)]
     pub(crate) progress: bool,
     #[n(3)]
