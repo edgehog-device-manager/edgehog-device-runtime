@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use eyre::WrapErr;
 use pin_project_lite::pin_project;
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, AsyncWrite, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncSeek, AsyncWrite, BufReader};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
 
@@ -131,8 +131,8 @@ impl<F> FileStorage<F> {
         Ok((
             WriteHandle {
                 id: opt.id,
-                current_size,
                 file: reader.into_inner(),
+                range: FileRange::new(current_size, opt.file_size),
             },
             digest,
         ))
@@ -184,7 +184,7 @@ impl<F> FileStorage<F> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct FileOptions {
     pub(super) id: Uuid,
     pub(super) file_size: u64,
@@ -193,14 +193,48 @@ pub(super) struct FileOptions {
     pub(super) perm: FilePermissions,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FileRange {
+    start: u64,
+    complete_len: u64,
+}
+
+impl FileRange {
+    pub(super) fn new(start: u64, complete_len: u64) -> Self {
+        Self {
+            start,
+            complete_len,
+        }
+    }
+
+    pub(super) fn start(&self) -> u64 {
+        self.start
+    }
+
+    pub(super) fn complete_len(&self) -> u64 {
+        self.complete_len
+    }
+}
+
 pin_project! {
     #[derive(Debug)]
     pub(super) struct WriteHandle {
         id: Uuid,
-        current_size: u64,
         // TODO limit the size of the file
         #[pin]
         file: tokio::fs::File,
+        range: FileRange,
+    }
+}
+
+impl WriteHandle {
+    #[cfg(test)]
+    pub(super) fn current_size(&self) -> u64 {
+        self.range.start
+    }
+
+    pub(super) fn range(&self) -> &FileRange {
+        &self.range
     }
 }
 
@@ -237,6 +271,26 @@ impl AsyncWrite for WriteHandle {
         let this = self.project();
 
         this.file.poll_shutdown(cx)
+    }
+}
+
+impl AsyncSeek for WriteHandle {
+    fn start_seek(
+        self: std::pin::Pin<&mut Self>,
+        position: std::io::SeekFrom,
+    ) -> std::io::Result<()> {
+        let this = self.project();
+
+        this.file.start_seek(position)
+    }
+
+    fn poll_complete(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<u64>> {
+        let this = self.project();
+
+        this.file.poll_complete(cx)
     }
 }
 
@@ -358,7 +412,7 @@ mod tests {
 
         let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
 
-        assert_eq!(write.current_size, 0);
+        assert_eq!(write.current_size(), 0);
 
         write.write_all(content.as_bytes()).await.unwrap();
         digest.update(content.as_bytes());
@@ -410,7 +464,7 @@ mod tests {
         };
         let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
 
-        assert_eq!(write.current_size, 0);
+        assert_eq!(write.current_size(), 0);
 
         write.write_all(content.as_bytes()).await.unwrap();
         digest.update(content.as_bytes());
@@ -472,9 +526,9 @@ mod tests {
         // Write rest
         let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
 
-        assert_eq!(write.current_size, content_1.len() as u64);
+        assert_eq!(write.current_size(), content_1.len() as u64);
 
-        let remaining = &content.as_bytes()[(write.current_size as usize)..];
+        let remaining = &content.as_bytes()[(write.current_size() as usize)..];
         write.write_all(remaining).await.unwrap();
         digest.update(remaining);
 

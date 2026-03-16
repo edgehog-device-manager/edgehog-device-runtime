@@ -29,6 +29,9 @@ target/
 # RustRover IDE
 .idea/
 
+# Helix
+.helix/
+
 /telemetry.json
 
 # GitHub actions checks before committing
