@@ -185,6 +185,7 @@ impl TryFrom<DeviceToServer> for UploadReq {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Target {
     Storage,
+    Stream,
 }
 
 impl FromStr for Target {
@@ -193,6 +194,7 @@ impl FromStr for Target {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "storage" => Ok(Target::Storage),
+            "stream" => Ok(Target::Stream),
             _ => Err(eyre!("unrecognize file transfer target: {s}")),
         }
     }
@@ -342,5 +344,14 @@ mod tests {
         let req = UploadReq::try_from(fs_device_to_server).unwrap();
 
         assert_eq!(req, upload_req);
+    }
+
+    #[rstest]
+    #[case("storage", Target::Storage)]
+    #[case("stream", Target::Stream)]
+    fn targets_from_str(#[case] input: &str, #[case] exp: Target) {
+        let res: Target = input.parse().unwrap();
+
+        assert_eq!(res, exp);
     }
 }

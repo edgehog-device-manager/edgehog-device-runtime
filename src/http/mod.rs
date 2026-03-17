@@ -65,6 +65,14 @@ pub struct DownloadRange {
 }
 
 impl DownloadRange {
+    pub fn with_size(total_len: u64) -> Self {
+        Self {
+            start: 0,
+            total_len,
+        }
+    }
+
+    // TODO: start can be equal to total_len
     pub fn create(start: u64, total_len: u64) -> Option<Self> {
         (start < total_len).then_some(Self { start, total_len })
     }

@@ -20,7 +20,7 @@ use std::fmt::Display;
 
 use astarte_device_sdk::event::FromEventError;
 use astarte_device_sdk::{FromEvent, IntoAstarteObject};
-use tracing::{error, instrument, trace};
+use tracing::{error, instrument};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FileTransferEvent {
@@ -46,8 +46,6 @@ impl FromEvent for FileTransferEvent {
 
     #[instrument(fields(interface = event.interface, path = event.path), skip(event))]
     fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
-        trace!("converting device event");
-
         match event.interface.as_str() {
             "io.edgehog.devicemanager.fileTransfer.posix.ServerToDevice" => {
                 ServerToDevice::from_event(event).map(FileTransferEvent::Download)
