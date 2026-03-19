@@ -70,7 +70,6 @@ default = [
 # Enable the container management service
 containers = [
   "dep:edgehog-containers",
-  "dep:edgehog-store",
   "edgehog-service?/containers",
 ]
 # Enable the forwarder service
@@ -78,7 +77,7 @@ forwarder = ["dep:edgehog-forwarder"]
 # Enable connecting to astarte through the Message Hub
 message-hub = ["astarte-device-sdk/message-hub"]
 # Local service for the runtime
-service = ["dep:edgehog-service", "dep:edgehog-store"]
+service = ["dep:edgehog-service"]
 # Notifies systemd of the status and health of the runtime service
 systemd = ["dep:systemd"]
 # Enable the telemetry that uses udev
@@ -101,7 +100,7 @@ vendored = ["edgehog-store/vendored"]
 # Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
 bindgen = [
   "aws-lc-rs/bindgen",
-  "edgehog-store?/bindgen",
+  "edgehog-store/bindgen",
 ]
 # Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
 # installed
@@ -114,16 +113,18 @@ bytes.workspace = true
 cfg-if.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
+diesel.workspace = true
 dirs.workspace = true
 displaydoc.workspace = true
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-service = { workspace = true, optional = true }
-edgehog-store = { workspace = true, optional = true }
+edgehog-store.workspace = true
 edgehog-tls.workspace = true
 eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
+minicbor = { workspace = true, features = ["std", "derive"] }
 pin-project-lite.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 rustls.workspace = true
@@ -213,6 +214,7 @@ hyper = "1.7.0"
 indexmap = "2.11.4"
 insta = "1.46.3"
 itertools = "0.14.0"
+minicbor = "2.2.1"
 mockall = "0.14.0"
 pin-project-lite = "0.2.17"
 pretty_assertions = "1.4.1"

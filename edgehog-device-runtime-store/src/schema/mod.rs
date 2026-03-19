@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,9 +19,16 @@
 //! Database schema definitions
 
 #[cfg(feature = "containers")]
+#[expect(missing_docs)]
 pub mod containers;
+#[expect(missing_docs)]
+pub mod runtime;
 
-/// Embedded migrations
+/// Embedded runtime migrations
+pub(crate) const RUNTIME_MIGRATIONS: diesel_migrations::EmbeddedMigrations =
+    diesel_migrations::embed_migrations!("migrations/runtime");
+
+/// Embedded containers migrations
 #[cfg(feature = "containers")]
 pub(crate) const CONTAINER_MIGRATIONS: diesel_migrations::EmbeddedMigrations =
-    diesel_migrations::embed_migrations!("migrations");
+    diesel_migrations::embed_migrations!("migrations/containers");

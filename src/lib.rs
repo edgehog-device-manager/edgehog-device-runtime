@@ -37,6 +37,7 @@ pub mod file_transfer;
 #[cfg(feature = "forwarder")]
 mod forwarder;
 mod http;
+mod jobs;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -77,8 +78,36 @@ pub struct DeviceManagerOptions {
 #[cfg(test)]
 pub(crate) mod tests {
     use insta::assert_snapshot;
+    use std::borrow::Borrow;
+    use std::fmt::Display;
 
-    macro_rules! with_settings {
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct Hexdump<T>(pub(crate) T)
+    where
+        T: Borrow<[u8]>;
+
+    impl<T> Display for Hexdump<T>
+    where
+        T: Borrow<[u8]>,
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let buf = self.0.borrow();
+            writeln!(f, "Length: {} ({:#x}) bytes", buf.len(), buf.len())?;
+
+            for (i, b) in buf.iter().map(|b| b.to_le()).enumerate() {
+                let b_h = b >> 4;
+                let b_l = b & 0x0f;
+
+                let c = if b.is_ascii_graphic() { b as char } else { '.' };
+
+                writeln!(f, "{i:04}: | {b_h:04b} {b_l:04b} | ({b:#04x}) '{c}'")?;
+            }
+
+            Ok(())
+        }
+    }
+
+    macro_rules! with_insta {
         ($asserts:block) => {
             ::insta::with_settings!({
                 snapshot_path => concat!(env!("CARGO_MANIFEST_DIR"), "/snapshots")
@@ -86,11 +115,11 @@ pub(crate) mod tests {
         };
     }
 
-    pub(crate) use with_settings;
+    pub(crate) use with_insta;
 
     #[test]
     fn use_macro() {
-        self::with_settings!({
+        self::with_insta!({
             assert_snapshot!("using the macro");
         });
     }

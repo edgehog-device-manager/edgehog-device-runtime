@@ -45,12 +45,6 @@ AstarteObject {
             ),
         ),
         (
-            "digest",
-            String(
-                "sha256:28babb1cdf8aea6b62acc1097fdc83482cbf6e11c4fe7dcb39ae1682776baec5",
-            ),
-        ),
-        (
             "source",
             String(
                 "storage",

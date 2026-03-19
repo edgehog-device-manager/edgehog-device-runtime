@@ -27,7 +27,13 @@ SPDX-FileCopyrightText = "2024 - 2025 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["snapshots/*.snap"]
+path = ["snapshots/*.snap", "edgehog-device-runtime-store/snapshots/*.snap"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 - 2026 SECO Mind Srl"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["edgehog-device-runtime-store/migrations/**.sql"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 - 2026 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"

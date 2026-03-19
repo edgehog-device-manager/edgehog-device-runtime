@@ -18,9 +18,12 @@
 
 //! Trait to generalize one task on the runtime.
 
+use edgehog_store::models::job::Job;
 use eyre::Context;
-use tokio::sync::mpsc;
-use tracing::{debug, trace};
+use tokio::sync::{Notify, mpsc};
+use tracing::{debug, error, instrument, trace};
+
+use crate::jobs::Queue;
 
 pub trait Actor: Sized {
     type Msg: Send + 'static;
@@ -31,42 +34,95 @@ pub trait Actor: Sized {
 
     fn handle(&mut self, msg: Self::Msg) -> impl Future<Output = eyre::Result<()>> + Send;
 
-    async fn spawn(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()> {
-        self.init()
-            .await
-            .wrap_err_with(|| format!("init for {} task failed", Self::task()))?;
+    #[instrument(skip_all, fields(task = Self::task()))]
+    async fn run(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()> {
+        self.init().await.wrap_err("init task failed")?;
 
         while let Some(msg) = channel.recv().await {
-            trace!(task = Self::task(), "message received");
+            trace!("message received");
 
-            self.handle(msg)
-                .await
-                .wrap_err_with(|| format!("handle for {} task failed", Self::task()))?;
+            self.handle(msg).await.wrap_err("handle failed")?;
         }
 
-        debug!("task {} disconnected, closing", Self::task());
+        debug!("task disconnected, closing");
 
         Ok(())
     }
+}
 
-    #[cfg(feature = "containers")]
-    async fn spawn_unbounded(
-        mut self,
-        mut channel: mpsc::UnboundedReceiver<Self::Msg>,
-    ) -> eyre::Result<()> {
-        self.init()
-            .await
-            .wrap_err_with(|| format!("init for {} task failed", Self::task()))?;
+/// Persisted jobs for an actor
+pub trait Persisted: Sized {
+    type Msg: Send + 'static;
 
-        while let Some(msg) = channel.recv().await {
-            trace!(task = Self::task(), "message received");
+    type Event;
 
-            self.handle(msg)
-                .await
-                .wrap_err_with(|| format!("handle for {} task failed", Self::task()))?;
+    fn task() -> &'static str;
+
+    fn init(&mut self) -> impl Future<Output = eyre::Result<()>> + Send;
+
+    /// Queue struct
+    fn queue(&self) -> &Queue;
+
+    /// Notify to wake a worker thead
+    fn workers(&self) -> &Notify;
+
+    /// Validate a msg and converts it into a Job.
+    fn validate_job(
+        &mut self,
+        msg: &Self::Msg,
+    ) -> impl Future<Output = eyre::Result<Self::Event>> + Send;
+
+    /// Handles the case when a job cannot be queued
+    fn fail_job(&mut self, msg: &Self::Msg) -> impl Future<Output = ()> + Send;
+
+    /// Handles the case when a job cannot be queued
+    fn handle_backpressure(&mut self, job: &Self::Event) -> impl Future<Output = ()> + Send;
+
+    #[instrument(skip_all)]
+    async fn handle(&mut self, msg: Self::Msg)
+    where
+        for<'a> &'a Self::Event: TryInto<Job, Error = eyre::Report>,
+    {
+        trace!("message received");
+
+        let job = match self.validate_job(&msg).await {
+            Ok(job) => job,
+            Err(error) => {
+                error!(%error, "couldn't queue the job");
+
+                self.fail_job(&msg).await;
+
+                return;
+            }
+        };
+
+        if let Err(error) = self.queue().insert(&job).await {
+            error!(%error, "couldn't queue the job");
+
+            self.handle_backpressure(&job).await;
         }
 
-        debug!("task {} disconnected, closing", Self::task());
+        debug!("task queued");
+
+        self.workers().notify_one();
+
+        debug!("task notified");
+    }
+
+    #[instrument(skip_all, fields(task = Self::task()))]
+    async fn run(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()>
+    where
+        for<'a> &'a Self::Event: TryInto<Job, Error = eyre::Report>,
+    {
+        self.init().await.wrap_err("init failed")?;
+
+        while let Some(msg) = channel.recv().await {
+            trace!("message received");
+
+            self.handle(msg).await;
+        }
+
+        debug!("task disconnected, closing");
 
         Ok(())
     }

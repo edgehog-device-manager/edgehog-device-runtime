@@ -84,7 +84,7 @@ impl<F> FileStorage<F> {
         opt: &FileOptions,
     ) -> eyre::Result<(WriteHandle, aws_lc_rs::digest::Context)>
     where
-        F: Limits,
+        F: Space,
     {
         let file_path = self.partial_file_path(&opt.id);
 
@@ -134,6 +134,7 @@ impl<F> FileStorage<F> {
         ))
     }
 
+    // TODO: validate the digest
     #[instrument(skip_all, fields(id = %handle.id))]
     pub(crate) async fn finalize_write(
         &self,
@@ -141,7 +142,7 @@ impl<F> FileStorage<F> {
         opt: &FileOptions,
     ) -> eyre::Result<()>
     where
-        F: Limits,
+        F: Space,
     {
         handle
             .file
@@ -252,7 +253,7 @@ impl AsyncSeek for WriteHandle {
 }
 
 #[cfg_attr(test, mockall::automock)]
-pub(crate) trait Limits {
+pub(crate) trait Space {
     /// Reserves the space for the file on the device.
     ///
     /// It will make sure that at least the 10% of free space is available on the device the files
@@ -273,7 +274,7 @@ pub(crate) struct Fs {}
 
 impl Fs {}
 
-impl Limits for Fs {
+impl Space for Fs {
     async fn reserve_space(&self, _id: Uuid, _path: &Path, _file_size: u64) -> eyre::Result<()> {
         // TODO: ensure 10% of the free space on disk
 
@@ -310,7 +311,7 @@ mod tests {
         (FileStorage::new(dir.path().to_path_buf()), dir)
     }
 
-    fn mock_fs_storage(mock: MockLimits) -> (FileStorage<MockLimits>, TempDir) {
+    fn mock_fs_storage(mock: MockSpace) -> (FileStorage<MockSpace>, TempDir) {
         let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
 
         (
@@ -351,7 +352,7 @@ mod tests {
             },
         };
 
-        let mut mock = MockLimits::new();
+        let mut mock = MockSpace::new();
         let mut seq = Sequence::new();
 
         mock.expect_reserve_space()

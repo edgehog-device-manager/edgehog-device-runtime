@@ -101,7 +101,6 @@ pub(crate) struct DeviceToServer {
     pub(crate) http_header_value: Vec<String>,
     pub(crate) compression: String,
     pub(crate) progress: bool,
-    pub(crate) digest: String,
     pub(crate) source: String,
 }
 
@@ -112,7 +111,7 @@ pub(crate) mod tests {
     use astarte_device_sdk::chrono::Utc;
     use rstest::{fixture, rstest};
 
-    use crate::tests::with_settings;
+    use crate::tests::with_insta;
 
     use super::*;
 
@@ -162,7 +161,6 @@ pub(crate) mod tests {
             http_header_value: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
             compression: "tar.gz".to_string(),
             progress: true,
-            digest: "sha256:28babb1cdf8aea6b62acc1097fdc83482cbf6e11c4fe7dcb39ae1682776baec5".to_string(),
             source: "storage".to_string(),
         }
     }
@@ -186,7 +184,7 @@ pub(crate) mod tests {
 
         assert_eq!(download, fs_server_to_device);
 
-        with_settings!({
+        with_insta!({
             insta::assert_debug_snapshot!(data);
         });
     }
@@ -210,7 +208,7 @@ pub(crate) mod tests {
 
         assert_eq!(upload, fs_device_to_server);
 
-        with_settings!({
+        with_insta!({
             insta::assert_debug_snapshot!(data);
         });
     }

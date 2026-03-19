@@ -16,18 +16,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use actor::Actor;
 use astarte_device_sdk::FromEvent;
 use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
+use edgehog_store::db::{Handle, HandleError};
 use eyre::{Context, Report};
+use tokio::sync::Notify;
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, trace};
 
 use crate::commands::execute_command;
-use crate::file_transfer::FileTransfer;
 use crate::file_transfer::interface::FileTransferEvent;
+use crate::file_transfer::{self, FileTransfer};
+use crate::jobs::Queue;
 use crate::telemetry::Telemetry;
 use crate::telemetry::event::TelemetryEvent;
 use crate::{Client, DeviceManagerOptions};
@@ -37,6 +42,7 @@ use crate::led_behavior::{LedBlink, LedEvent};
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use crate::ota::ota_handler::OtaHandler;
 
+use self::actor::Persisted;
 use self::event::RuntimeEvent;
 
 pub mod actor;
@@ -50,7 +56,7 @@ pub struct Runtime<T> {
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
     file_transfer: mpsc::Sender<FileTransferEvent>,
     #[cfg(feature = "containers")]
-    containers_tx: mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>,
+    containers_tx: mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>,
     #[cfg(feature = "forwarder")]
     forwarder: crate::forwarder::Forwarder<T>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -78,10 +84,13 @@ impl<C> Runtime<C> {
         #[cfg(not(feature = "service"))]
         let _ = cancel;
 
-        #[cfg(feature = "containers")]
         let store = Self::store(&opts.store_directory)
             .await
             .wrap_err("couldn't connect to container store")?;
+
+        let jobs = Queue::new(store.clone());
+        jobs.init().await?;
+
         #[cfg(feature = "containers")]
         let container_handle = std::sync::Arc::new(tokio::sync::OnceCell::new());
 
@@ -93,7 +102,7 @@ impl<C> Runtime<C> {
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let led_tx = {
             let (led_tx, led_rx) = mpsc::channel(EVENT_BUFFER);
-            tasks.spawn(LedBlink.spawn(led_rx));
+            tasks.spawn(LedBlink.run(led_rx));
             led_tx
         };
 
@@ -108,11 +117,12 @@ impl<C> Runtime<C> {
         )
         .await;
 
-        tasks.spawn(telemetry.spawn(telemetry_rx));
+        tasks.spawn(telemetry.run(telemetry_rx));
 
         // TODO: Add configuration
-        let file_transfer = Self::file_transfer(tasks, opts.store_directory.join("file-store"))
-            .wrap_err("could't initialize file transfer")?;
+        let file_transfer =
+            Self::file_transfer(tasks, jobs, opts.store_directory.join("file-store"))
+                .wrap_err("could't initialize file transfer")?;
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
@@ -157,11 +167,14 @@ impl<C> Runtime<C> {
 
     fn file_transfer(
         tasks: &mut JoinSet<eyre::Result<()>>,
+        jobs: Queue,
         store_dir: std::path::PathBuf,
     ) -> eyre::Result<mpsc::Sender<FileTransferEvent>> {
         let (tx, rx) = mpsc::channel(EVENT_BUFFER);
+        let notify = Arc::new(Notify::new());
 
-        tasks.spawn(FileTransfer::new(store_dir)?.spawn(rx));
+        tasks.spawn(FileTransfer::create(jobs.clone(), store_dir)?.run(Arc::clone(&notify)));
+        tasks.spawn(file_transfer::Receiver::new(jobs, notify).run(rx));
 
         Ok(tx)
     }
@@ -170,16 +183,16 @@ impl<C> Runtime<C> {
     async fn setup_containers(
         client: C,
         config: crate::containers::ContainersConfig,
-        store: &edgehog_store::db::Handle,
+        store: &Handle,
         container_handle: &std::sync::Arc<
             tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
         >,
         tasks: &mut JoinSet<eyre::Result<()>>,
-    ) -> eyre::Result<mpsc::UnboundedSender<Box<edgehog_containers::requests::ContainerRequest>>>
+    ) -> eyre::Result<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>
     where
         C: Client + Clone + Send + Sync + 'static,
     {
-        let (container_tx, container_rx) = mpsc::unbounded_channel();
+        let (container_tx, container_rx) = mpsc::channel(EVENT_BUFFER);
 
         let containers = crate::containers::ContainerService::new(
             client,
@@ -191,7 +204,7 @@ impl<C> Runtime<C> {
         .await
         .wrap_err("couldn't create container service")?;
 
-        tasks.spawn(containers.spawn_unbounded(container_rx));
+        tasks.spawn(containers.run(container_rx));
 
         Ok(container_tx)
     }
@@ -317,7 +330,7 @@ impl<C> Runtime<C> {
             }
             #[cfg(feature = "containers")]
             RuntimeEvent::Container(event) => {
-                if self.containers_tx.send(event).is_err() {
+                if self.containers_tx.send(event).await.is_err() {
                     error!("couldn't handle the container event")
                 }
             }
@@ -328,12 +341,7 @@ impl<C> Runtime<C> {
         }
     }
 
-    #[cfg(feature = "containers")]
-    async fn store(
-        store_dir: &std::path::Path,
-    ) -> Result<edgehog_store::db::Handle, edgehog_store::db::HandleError> {
-        use edgehog_store::db::Handle;
-
+    async fn store(store_dir: &std::path::Path) -> Result<Handle, HandleError> {
         let db_file = store_dir.join("state.db");
 
         let store = Handle::open(&db_file).await?;

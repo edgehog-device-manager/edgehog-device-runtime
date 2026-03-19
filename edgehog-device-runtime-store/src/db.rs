@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,9 @@ use std::{
 
 use deadpool::managed::{BuildError, Pool, PoolError};
 use diesel::{Connection, ConnectionError, SqliteConnection, connection::SimpleConnection};
+use diesel_migrations::MigrationHarness;
 use tokio::{sync::Mutex, task::JoinError};
+use tracing::instrument;
 
 type DynError = Box<dyn Error + Send + Sync>;
 /// Result for the [`HandleError`] returned by the [`Handle`].
@@ -101,11 +103,13 @@ pub struct Handle {
 
 impl Handle {
     /// Create a new instance by connecting to the file with default options
+    #[instrument(skip_all)]
     pub async fn open(db_file: impl AsRef<Path>) -> Result<Self> {
         Self::with_options(db_file, SqliteOpts::default()).await
     }
 
     /// Create a new instance by connecting to the file
+    #[instrument(skip_all)]
     pub async fn with_options(db_file: impl AsRef<Path>, options: SqliteOpts) -> Result<Self> {
         let db_path = db_file.as_ref();
         let db_str: String = db_path
@@ -118,15 +122,15 @@ impl Handle {
             options,
         };
 
-        let writer = manager.establish(false).await?;
-        // We don't have migrations other than the containers for now
-        #[cfg(feature = "containers")]
-        let mut writer = writer;
+        let mut writer = manager.establish(false).await?;
 
         let writer = tokio::task::spawn_blocking(move || -> Result<SqliteConnection> {
+            writer
+                .run_pending_migrations(crate::schema::RUNTIME_MIGRATIONS)
+                .map_err(HandleError::Migrations)?;
+
             #[cfg(feature = "containers")]
             {
-                use diesel_migrations::MigrationHarness;
                 writer
                     .run_pending_migrations(crate::schema::CONTAINER_MIGRATIONS)
                     .map_err(HandleError::Migrations)?;
@@ -147,6 +151,7 @@ impl Handle {
     }
 
     /// Passes the reader to a callback to execute a query.
+    #[instrument(skip_all)]
     pub async fn for_read<F, O>(&self, f: F) -> Result<O>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<O> + Send + 'static,
@@ -159,6 +164,7 @@ impl Handle {
     }
 
     /// Passes the writer to a callback with a transaction already started.
+    #[instrument(skip_all)]
     pub async fn for_write<F, O>(&self, f: F) -> Result<O>
     where
         F: FnOnce(&mut SqliteConnection) -> Result<O> + Send + 'static,
