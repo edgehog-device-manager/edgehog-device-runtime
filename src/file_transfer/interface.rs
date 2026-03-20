@@ -83,6 +83,7 @@ pub(crate) struct ServerToDevice {
     pub(crate) file_mode: i64,
     pub(crate) user_id: i64,
     pub(crate) group_id: i64,
+    pub(crate) destination_type: String,
     pub(crate) destination: String,
 }
 
@@ -101,6 +102,7 @@ pub(crate) struct DeviceToServer {
     pub(crate) http_header_value: Vec<String>,
     pub(crate) compression: String,
     pub(crate) progress: bool,
+    pub(crate) source_type: String,
     pub(crate) source: String,
 }
 
@@ -148,7 +150,8 @@ pub(crate) mod tests {
             file_mode: 544,
             user_id: 1000,
             group_id: 100,
-            destination: "storage".to_string(),
+            destination_type: "storage".to_string(),
+            destination: String::new(),
         }
     }
 
@@ -161,7 +164,8 @@ pub(crate) mod tests {
             http_header_value: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
             compression: "tar.gz".to_string(),
             progress: true,
-            source: "storage".to_string(),
+            source_type: "storage".to_string(),
+            source: String::new(),
         }
     }
 

@@ -45,9 +45,15 @@ AstarteObject {
             ),
         ),
         (
-            "source",
+            "sourceType",
             String(
                 "storage",
+            ),
+        ),
+        (
+            "source",
+            String(
+                "",
             ),
         ),
     ],

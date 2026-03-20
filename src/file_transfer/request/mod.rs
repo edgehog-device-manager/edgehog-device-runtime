@@ -120,7 +120,7 @@ impl FromStr for Target {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, minicbor::Encode, minicbor::Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
 #[cbor(index_only)]
 #[repr(u8)]
 pub(crate) enum Compression {

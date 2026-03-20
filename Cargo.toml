@@ -108,6 +108,8 @@ cross = ["vendored", "bindgen"]
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
+async-compression = { workspace = true, features = ["tokio", "gzip"] }
+async-tar = { workspace = true, default-features = false, features = ["runtime-tokio", "xattr"] }
 aws-lc-rs.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
@@ -125,7 +127,7 @@ eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["std", "derive"] }
-pin-project-lite.workspace = true
+pin-project.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 rustls.workspace = true
 serde.workspace = true
@@ -141,6 +143,7 @@ tracing-error.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
+walkdir.workspace = true
 wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
@@ -182,6 +185,8 @@ tokio-stream = { workspace = true, features = ["net"] }
 [workspace.dependencies]
 astarte-device-sdk = "0.12.1"
 astarte-device-sdk-mock = "0.12.1"
+async-compression = "0.4.41"
+async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
 aws-lc-rs = "1.16.2"
 backoff = "0.4.0"
@@ -216,7 +221,7 @@ insta = "1.47.0"
 itertools = "0.14.0"
 minicbor = "2.2.1"
 mockall = "0.14.0"
-pin-project-lite = "0.2.17"
+pin-project = "1.1.11"
 pretty_assertions = "1.4.1"
 procfs = "0.18.0"
 reqwest = { version = "0.13.1", default-features = false }
@@ -247,6 +252,7 @@ tracing-subscriber = "0.3.20"
 udev = "0.9.3"
 url = "2.5.7"
 uuid = "1.23.0"
+walkdir = "2.5.0"
 webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
 zbus = { version = "5.14.0", default-features = false }

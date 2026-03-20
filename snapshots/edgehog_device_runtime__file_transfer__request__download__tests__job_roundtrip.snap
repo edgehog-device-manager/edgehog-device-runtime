@@ -2,8 +2,8 @@
 source: src/file_transfer/request/download.rs
 expression: Hexdump(data)
 ---
-Length: 188 (0xbc) bytes
-0000: | 1000 1010 | (0x8a) '.'
+Length: 189 (0xbd) bytes
+0000: | 1000 1011 | (0x8b) '.'
 0001: | 0111 0111 | (0x77) 'w'
 0002: | 0110 1000 | (0x68) 'h'
 0003: | 0111 0100 | (0x74) 't'
@@ -191,3 +191,4 @@ Length: 188 (0xbc) bytes
 0185: | 0001 1000 | (0x18) '.'
 0186: | 0110 0100 | (0x64) 'd'
 0187: | 0000 0000 | (0x00) '.'
+0188: | 0110 0000 | (0x60) '`'

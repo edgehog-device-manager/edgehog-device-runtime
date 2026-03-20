@@ -16,22 +16,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use uuid::Uuid;
+//! Compression Reader and Writer
 
-#[cfg(unix)]
-use super::request::FilePermissions;
-use super::request::{Compression, FileDigest};
-
-pub(super) mod store;
-pub(super) mod stream;
-pub(crate) mod walk;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FileOptions {
-    pub(super) id: Uuid,
-    pub(super) file_size: u64,
-    pub(super) file_digest: FileDigest,
-    #[cfg(unix)]
-    pub(super) perm: FilePermissions,
-    pub(super) compression: Option<Compression>,
-}
+pub(crate) mod tar_gz;

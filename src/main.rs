@@ -16,8 +16,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::IsTerminal;
-
 use clap::Parser;
 use eyre::{OptionExt, WrapErr, eyre};
 use tokio::task::JoinSet;
@@ -40,8 +38,16 @@ pub mod config;
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
+    let fmt = tracing_subscriber::fmt::layer();
+    #[cfg(not(windows))]
+    let fmt = {
+        use std::io::IsTerminal;
+
+        fmt.with_ansi(std::io::stdout().is_terminal())
+    };
+
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_ansi(std::io::stdout().is_terminal()))
+        .with(fmt)
         .with(
             EnvFilter::builder()
                 .with_default_directive("edgehog_device_runtime=info".parse()?)

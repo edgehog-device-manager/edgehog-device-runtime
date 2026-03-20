@@ -58,7 +58,9 @@ pub(crate) struct Download {
     #[n(8)]
     pub(crate) permission: FilePermissions,
     #[n(9)]
-    pub(crate) destination: Target,
+    pub(crate) destination_type: Target,
+    #[n(10)]
+    pub(crate) destination: String,
 }
 
 impl Download {
@@ -73,6 +75,7 @@ impl From<&Download> for FileOptions {
             file_digest: value.digest_type,
             #[cfg(unix)]
             perm: value.permission,
+            compression: value.compression,
         }
     }
 }
@@ -94,6 +97,7 @@ impl TryFrom<&ServerToDevice> for Download {
             file_mode,
             user_id,
             group_id,
+            destination_type,
             destination,
         } = value;
 
@@ -142,7 +146,9 @@ impl TryFrom<&ServerToDevice> for Download {
             digest_type: digest_type.parse()?,
             digest,
             ttl,
-            destination: destination.parse()?,
+            destination_type: destination_type.parse()?,
+            // TODO: find better type
+            destination: destination.clone(),
             permission,
         })
     }
@@ -224,7 +230,8 @@ mod tests {
                 user_id: Some(1000),
                 group_id: Some(100),
             },
-            destination: Target::Storage,
+            destination_type: Target::Storage,
+            destination: String::new(),
         }
     }
 

@@ -22,7 +22,7 @@ use std::{fmt::Debug, ops::RangeInclusive};
 
 use aws_lc_rs::digest;
 use bytes::Bytes;
-use eyre::{Context, OptionExt, Report, bail, eyre};
+use eyre::{Context, OptionExt, eyre};
 use futures::TryStream;
 use reqwest::{
     StatusCode,
@@ -48,70 +48,15 @@ pub fn default_http_client_builder() -> Result<reqwest::ClientBuilder, rustls::E
     Ok(client)
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum FileTransferError {
-    #[error("requested range can't be satisfied (complete len {0:?})")]
-    RangeNotSatisfiable(Option<u64>),
-    #[error("expected range {exp:?} got {got:?}")]
-    UnexpectedRange {
-        exp: DownloadRange,
-        got: DownloadRange,
+#[derive(Debug)]
+pub enum FileTransferRange {
+    Content {
+        range_start: u64,
+        range_total: Option<u64>,
     },
-    #[error(transparent)]
-    Other(#[from] Report),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DownloadRange {
-    start: u64,
-    total_len: u64,
-}
-
-impl DownloadRange {
-    pub fn with_size(total_len: u64) -> Self {
-        Self {
-            start: 0,
-            total_len,
-        }
-    }
-
-    // TODO: start can be equal to total_len
-    pub fn create(start: u64, total_len: u64) -> Option<Self> {
-        (start < total_len).then_some(Self { start, total_len })
-    }
-
-    pub fn start(&self) -> u64 {
-        self.start
-    }
-
-    pub fn total_len(&self) -> u64 {
-        self.total_len
-    }
-
-    pub fn len(&self) -> u64 {
-        self.total_len - self.start
-    }
-
-    fn reset_start(mut self) -> Self {
-        self.start = 0;
-
-        self
-    }
-}
-
-impl PartialOrd for DownloadRange {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        (self.total_len == other.total_len).then(|| {
-            // a range with lower start is bigger than one with a higher start
-            self.start.cmp(&other.start).reverse()
-        })
-    }
-}
-
-impl std::fmt::Display for DownloadRange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}..{}", self.start, self.total_len)
-    }
+    RangeNotSatisfiable {
+        range_total: Option<u64>,
+    },
 }
 
 /// Create the http client
@@ -130,15 +75,21 @@ impl FtHttpClient {
         Ok(Self { client })
     }
 
+    // TODO: Add total if available
     pub async fn download(
         &self,
         url: &Url,
         mut headers: HeaderMap,
-        range: DownloadRange,
+        start: u64,
+        total_len: Option<u64>,
     ) -> eyre::Result<FileDownloadResponse> {
+        if start == 0 {
+            return self.full_request(url, headers, total_len).await;
+        }
+
         headers.insert(
             reqwest::header::RANGE,
-            HeaderValue::from_str(&format!("bytes={}-", range.start))
+            HeaderValue::from_str(&format!("bytes={}-", start))
                 .wrap_err("invalid range header value")?,
         );
 
@@ -150,40 +101,33 @@ impl FtHttpClient {
             .await
             .wrap_err("get range request error")?;
 
-        let check_res = Self::check_response(&response, range.clone());
-
-        let (response, actual_range) = match check_res {
-            Ok(range) => (response, range),
-            Err(FileTransferError::UnexpectedRange { exp, got }) => {
-                if got > exp {
-                    (response, got)
-                } else {
-                    bail!("expected range '{exp}' received smaller range '{got}'");
-                }
-            }
-            Err(FileTransferError::RangeNotSatisfiable(complete_len)) => {
-                error!(
-                    ?complete_len,
-                    "the requested range can't be satisfied by the server, retrying full request"
-                );
-
-                if complete_len.is_some_and(|tot| tot != range.total_len()) {
-                    bail!(
-                        "the server states a different length ({complete_len:?}) than the one requested ({})",
-                        range.total_len()
-                    );
+        match Self::check_response(&response)? {
+            FileTransferRange::Content {
+                range_start,
+                range_total,
+            } => {
+                if range_start < start {
+                    warn!(exp = start, got = range_start, "range before current size");
+                } else if range_start > start {
+                    return Err(eyre!(
+                        "invalid range start exp ({start}), but got ({range_start})"
+                    ));
                 }
 
-                let response = self.retry_full_request(url, headers).await?;
+                let total_length = Self::check_total(total_len, range_total)?;
 
-                Self::check_full_response(&response, range.total_len())?;
-
-                (response, range.reset_start())
+                Ok(FileDownloadResponse {
+                    response,
+                    start: range_start,
+                    total_length,
+                })
             }
-            Err(FileTransferError::Other(e)) => return Err(e),
-        };
+            FileTransferRange::RangeNotSatisfiable { range_total } => {
+                let total_length = Self::check_total(total_len, range_total)?;
 
-        Ok(FileDownloadResponse::new(response, actual_range))
+                self.full_request(url, headers, total_length).await
+            }
+        }
     }
 
     pub async fn upload<S>(
@@ -210,117 +154,121 @@ impl FtHttpClient {
         Ok(FileUploadResponse)
     }
 
-    async fn retry_full_request(
+    async fn full_request(
         &self,
         url: &Url,
         mut headers: HeaderMap,
-    ) -> eyre::Result<reqwest::Response> {
+        total_len: Option<u64>,
+    ) -> eyre::Result<FileDownloadResponse> {
         headers.remove(reqwest::header::RANGE);
 
-        self.client
+        let response = self
+            .client
             .get(url.as_str())
             .headers(headers)
             .send()
             .await
-            .wrap_err("get request error")
+            .wrap_err("get request error")?
+            .error_for_status()?;
+
+        let content_length = Self::content_length(&response)?;
+
+        let total_length = Self::check_total(total_len, content_length)?;
+
+        Ok(FileDownloadResponse {
+            response,
+            start: 0,
+            total_length,
+        })
     }
 
-    fn check_full_response(response: &reqwest::Response, total_len: u64) -> eyre::Result<()> {
+    fn check_total(total_len: Option<u64>, range_total: Option<u64>) -> eyre::Result<Option<u64>> {
+        if let (Some(tot), Some(range)) = (total_len, range_total)
+            && tot != range
+        {
+            return Err(eyre!("content length and total length mismatch"));
+        }
+
+        Ok(total_len.or(range_total))
+    }
+
+    fn content_length(response: &reqwest::Response) -> eyre::Result<Option<u64>> {
         let length = Self::expect_one(response.headers().get_all(reqwest::header::CONTENT_LENGTH));
 
         match length {
             Ok(l) => {
-                let server_len = Self::parse_content_length(l)
-                    .ok_or_eyre("could not parse content length header")?;
+                let server_len = Self::parse_content_length(l)?;
 
-                if server_len != total_len {
-                    bail!("expected total length {total_len} got {server_len}");
-                }
+                Ok(Some(server_len))
             }
             Err(err) => {
                 warn!(%err, "content length not provided by the server");
+
+                Ok(None)
             }
         }
-
-        Ok(())
     }
 
     #[instrument(err)]
-    fn check_response(
-        response: &reqwest::Response,
-        exp: DownloadRange,
-    ) -> Result<DownloadRange, FileTransferError> {
+    fn check_response(response: &reqwest::Response) -> eyre::Result<FileTransferRange> {
         match response.status() {
-            StatusCode::PARTIAL_CONTENT => trace!("received partial content status"),
+            StatusCode::PARTIAL_CONTENT => {
+                trace!("received partial content status");
+
+                let (content_range, total) =
+                    Self::expect_one(response.headers().get_all(reqwest::header::CONTENT_RANGE))
+                        .and_then(Self::parse_content_range)?;
+
+                let resp_start = content_range.start();
+                // byte range end + 1
+                let range_end = content_range
+                    .end()
+                    .checked_add(1)
+                    .ok_or_eyre("range end overflow")?;
+
+                if let Some(total) = total
+                    && total != range_end
+                {
+                    return Err(eyre!(
+                        "range end ({range_end}) is not the total length ({total})"
+                    ));
+                }
+
+                Ok(FileTransferRange::Content {
+                    range_start: *resp_start,
+                    range_total: total,
+                })
+            }
             StatusCode::OK => {
                 debug!("status ok, the response is not partial");
 
-                Self::check_full_response(response, exp.total_len())?;
+                let content_length = Self::content_length(response)?;
 
-                // return the download range with a 0 start
-                let exp = exp.reset_start();
-
-                return Ok(exp);
+                Ok(FileTransferRange::Content {
+                    range_start: 0,
+                    range_total: content_length,
+                })
             }
             StatusCode::RANGE_NOT_SATISFIABLE => {
-                let content_range =
+                let total =
                     Self::expect_one(response.headers().get_all(reqwest::header::CONTENT_RANGE))
-                        .ok()
-                        .map(|value| {
-                            Self::parse_unsatisfiable_content_range(value)
-                                .wrap_err("can't parse unsatisfiable range value")
-                        })
-                        .transpose()?;
+                        .and_then(Self::parse_unsatisfiable_content_range)
+                        .inspect_err(|error| error!(%error, "couldn't get content range"))
+                        .ok();
 
-                return Err(FileTransferError::RangeNotSatisfiable(content_range));
+                Ok(FileTransferRange::RangeNotSatisfiable { range_total: total })
             }
-            s => {
-                return Err(FileTransferError::Other(eyre!(
-                    "unexpected status code {s}"
-                )));
-            }
+            status => Err(eyre!("unexpected status code {status}")),
         }
-
-        let value = Self::expect_one(response.headers().get_all(reqwest::header::CONTENT_RANGE))?;
-        let (response_range, response_total) =
-            Self::parse_content_range(value).wrap_err("can't parse range value")?;
-
-        let got = DownloadRange::create(
-            *response_range.start(),
-            response_range.end().saturating_add(1),
-        )
-        .ok_or_eyre("range received is malformed")?;
-
-        if exp != got {
-            return Err(FileTransferError::UnexpectedRange { exp, got });
-        }
-
-        if response_total.is_some_and(|response_total| response_total != exp.total_len) {
-            warn!(
-                response_total,
-                expected = exp.total_len,
-                "wrong response complete length but correct range"
-            );
-        }
-
-        Ok(exp)
     }
 
     fn expect_one(values: GetAll<'_, HeaderValue>) -> eyre::Result<&HeaderValue> {
-        if values
-            .iter()
-            .skip(1)
-            .inspect(|v| error!(value = ?v, "unexpected header value"))
-            .count()
-            != 0
-        {
-            bail!("expected one value received more");
-        }
+        let mut iter = values.iter();
+        let first = iter.next().ok_or_eyre("missing header")?;
 
-        values
-            .iter()
-            .next()
-            .ok_or_eyre("expected one value received none")
+        eyre::ensure!(iter.next().is_none(), "multiple headers");
+
+        Ok(first)
     }
 
     #[instrument(ret)]
@@ -362,32 +310,21 @@ impl FtHttpClient {
     }
 
     #[instrument(ret)]
-    fn parse_content_length(value: &HeaderValue) -> Option<u64> {
-        let value = value
+    fn parse_content_length(value: &HeaderValue) -> eyre::Result<u64> {
+        value
             .to_str()
-            .inspect_err(|_| error!(value = value.as_bytes(), "invalid string"))
-            .ok()?;
-
-        let length = value.parse::<u64>().ok()?;
-
-        Some(length)
+            .wrap_err("content length header is not UTF-8")
+            .and_then(|str| str.parse().wrap_err("invalid content length value"))
     }
 }
 
-pub struct FileDownloadResponse {
+pub(crate) struct FileDownloadResponse {
     response: reqwest::Response,
-    range: DownloadRange,
+    start: u64,
+    total_length: Option<u64>,
 }
 
 impl FileDownloadResponse {
-    fn new(response: reqwest::Response, range: DownloadRange) -> Self {
-        Self { response, range }
-    }
-
-    pub(super) fn range(&self) -> &DownloadRange {
-        &self.range
-    }
-
     async fn chunk(&mut self) -> eyre::Result<Option<Bytes>> {
         self.response.chunk().await.wrap_err("failed to read chunk")
     }
@@ -413,6 +350,18 @@ impl FileDownloadResponse {
 
         Ok(())
     }
+
+    pub(crate) fn start(&self) -> u64 {
+        self.start
+    }
+
+    pub(crate) fn total_length(&self) -> Option<u64> {
+        self.total_length
+    }
+
+    pub(crate) fn rem_len(&self) -> Option<u64> {
+        self.total_length.map(|tot| tot.saturating_sub(self.start))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -420,7 +369,7 @@ pub struct FileUploadResponse;
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Cursor, iter};
+    use std::{io::Cursor, iter, ops::RangeInclusive};
 
     use httpmock::{
         Method::{GET, PUT},
@@ -432,7 +381,7 @@ mod tests {
     use tokio_stream::once;
     use url::Url;
 
-    use crate::http::{DownloadRange, FileDownloadResponse, FtHttpClient};
+    use crate::http::{FileDownloadResponse, FtHttpClient};
 
     async fn write_chunks<T>(mut response: FileDownloadResponse, mut buf: T)
     where
@@ -456,9 +405,10 @@ mod tests {
             .mock_async(|when, then| {
                 when.method(GET)
                     .path("/test-file")
-                    .header_includes("range", "bytes=0-");
-                then.status(reqwest::StatusCode::PARTIAL_CONTENT)
-                    .header("Content-Range", "bytes 0-8/9")
+                    // The full request doesn't need the range
+                    .header_missing("range");
+                then.status(reqwest::StatusCode::OK)
+                    .header("Content-Length", "9")
                     .body(binary_content);
             })
             .await;
@@ -468,7 +418,8 @@ mod tests {
             .download(
                 &file_url,
                 HeaderMap::new(),
-                DownloadRange::create(0, binary_size.try_into().unwrap()).unwrap(),
+                0,
+                Some(binary_size.try_into().unwrap()),
             )
             .await
             .unwrap();
@@ -482,39 +433,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ranged_download() {
+    async fn ranged_download() {
         let server = MockServer::start_async().await;
         let file_url = Url::parse(&server.url("/test-file")).unwrap();
 
         let binary_content = [2u8; 8192];
         let binary_size = u64::try_from(binary_content.len()).unwrap();
-
-        let complete_mock = server
-            .mock_async(|when, then| {
-                when.method(GET)
-                    .path("/test-file")
-                    .header_includes("range", "bytes=0-");
-
-                then.status(reqwest::StatusCode::PARTIAL_CONTENT)
-                    .header("Content-Range", "bytes 0-8191/8192")
-                    .body(binary_content);
-            })
-            .await;
-
-        let client = FtHttpClient::create().unwrap();
-        let response = client
-            .download(
-                &file_url,
-                HeaderMap::new(),
-                DownloadRange::create(0, binary_size).unwrap(),
-            )
-            .await
-            .unwrap();
-        // try download complete
-        let mut output_buf = Vec::with_capacity(8192);
-        write_chunks(response, Cursor::new(&mut output_buf)).await;
-        assert_eq!(binary_content.as_slice(), output_buf.as_slice());
-        complete_mock.assert_async().await;
 
         let client = FtHttpClient::create().unwrap();
         // Mocking a different range
@@ -525,6 +449,7 @@ mod tests {
                     .header_includes("range", "bytes=4096-");
                 then.status(reqwest::StatusCode::PARTIAL_CONTENT)
                     .header("Content-Range", "bytes 4096-8191/8192")
+                    .header("Content-Length", "4096")
                     .body(&binary_content[4096..]);
             })
             .await;
@@ -532,11 +457,7 @@ mod tests {
         // try download partial
         let mut output_buf = Vec::with_capacity(4096);
         let response = client
-            .download(
-                &file_url,
-                HeaderMap::new(),
-                DownloadRange::create(4096, binary_size).unwrap(),
-            )
+            .download(&file_url, HeaderMap::new(), 4096, Some(binary_size))
             .await
             .unwrap();
         write_chunks(response, Cursor::new(&mut output_buf)).await;
@@ -546,7 +467,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_large_download() {
+    async fn large_download() {
         let server = MockServer::start_async().await;
         let file_url = Url::parse(&server.url("/test-file")).unwrap();
 
@@ -555,23 +476,17 @@ mod tests {
 
         let complete_mock = server
             .mock_async(|when, then| {
-                when.method(GET)
-                    .path("/test-file")
-                    .header_includes("range", "bytes=0-");
+                when.method(GET).path("/test-file").header_missing("range");
 
                 then.status(reqwest::StatusCode::PARTIAL_CONTENT)
-                    .header("Content-Range", "bytes 0-59999999/60000000")
+                    .header("Content-Length", "60000000")
                     .body(&binary_content);
             })
             .await;
 
         let client = FtHttpClient::create().unwrap();
         let response = client
-            .download(
-                &file_url,
-                HeaderMap::new(),
-                DownloadRange::create(0, binary_size).unwrap(),
-            )
+            .download(&file_url, HeaderMap::new(), 0, Some(binary_size))
             .await
             .unwrap();
         // try download complete
@@ -584,30 +499,43 @@ mod tests {
     }
 
     #[rstest]
-    #[case("bytes 42-1233/1234")]
-    #[case("bytes 42-1233/*")]
-    #[should_panic]
-    #[case::panic("none")]
-    #[should_panic]
-    #[case::panic("bytes */47022")]
-    fn test_parse_content_range(#[case] value: &str) {
+    #[case("bytes 42-1233/1234", (42..=1233, Some(1234)))]
+    #[case("bytes 42-1233/*", (42..=1233, None))]
+    fn parse_content_range(#[case] value: &str, #[case] cr: (RangeInclusive<u64>, Option<u64>)) {
         let value = HeaderValue::from_str(value).unwrap();
 
-        let _ = FtHttpClient::parse_content_range(&value).unwrap();
+        let res = FtHttpClient::parse_content_range(&value).unwrap();
+
+        assert_eq!(res, cr)
     }
 
     #[rstest]
-    #[should_panic]
-    #[case::panic("bytes 42-1233/1234")]
-    #[should_panic]
-    #[case::panic("bytes 42-1233/*")]
-    #[should_panic]
     #[case::panic("none")]
-    #[case("bytes */47022")]
-    fn test_parse_unsatisfiable_content_range(#[case] value: &str) {
+    #[case::panic("bytes */47022")]
+    fn parse_content_range_invalid(#[case] value: &str) {
         let value = HeaderValue::from_str(value).unwrap();
 
-        let _ = FtHttpClient::parse_unsatisfiable_content_range(&value).unwrap();
+        let _ = FtHttpClient::parse_content_range(&value).unwrap_err();
+    }
+
+    #[rstest]
+    #[case("bytes */47022", 47022)]
+    fn parse_unsatisfiable_content_range(#[case] value: &str, #[case] exp: u64) {
+        let value = HeaderValue::from_str(value).unwrap();
+
+        let res = FtHttpClient::parse_unsatisfiable_content_range(&value).unwrap();
+
+        assert_eq!(res, exp);
+    }
+
+    #[rstest]
+    #[case::panic("bytes 42-1233/1234")]
+    #[case::panic("bytes 42-1233/*")]
+    #[case::panic("none")]
+    fn parse_unsatisfiable_content_range_invalid(#[case] value: &str) {
+        let value = HeaderValue::from_str(value).unwrap();
+
+        let _ = FtHttpClient::parse_unsatisfiable_content_range(&value).unwrap_err();
     }
 
     #[tokio::test]

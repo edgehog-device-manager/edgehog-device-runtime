@@ -42,7 +42,9 @@ pub(crate) struct Upload {
     #[n(3)]
     pub(crate) compression: Option<Compression>,
     #[n(4)]
-    pub(crate) source: Target,
+    pub(crate) source_type: Target,
+    #[n(5)]
+    pub(crate) source: String,
 }
 
 impl Upload {
@@ -60,6 +62,7 @@ impl TryFrom<&DeviceToServer> for Upload {
             http_header_value,
             compression,
             progress,
+            source_type,
             source,
         } = value;
 
@@ -88,7 +91,8 @@ impl TryFrom<&DeviceToServer> for Upload {
             headers,
             compression,
             progress: *progress,
-            source: source.parse()?,
+            source_type: source_type.parse()?,
+            source: source.clone(),
         })
     }
 }
@@ -156,7 +160,8 @@ pub(crate) mod tests {
             )]),
             compression: Some(Compression::TarGz),
             progress: true,
-            source: Target::Storage,
+            source_type: Target::Storage,
+            source: String::new(),
         }
     }
 

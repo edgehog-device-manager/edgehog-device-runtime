@@ -22,7 +22,7 @@ use std::time::Duration;
 use astarte_device_sdk::IntoAstarteObject;
 use astarte_device_sdk::chrono::Utc;
 use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, RefreshKind, System};
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::Client;
 use crate::data::send_object_with_timestamp;
@@ -73,7 +73,7 @@ impl SystemStatus {
             .values()
             .map(|procs| {
                 procs.tasks().map(HashSet::len).unwrap_or_else(|| {
-                    error!("missing tasks for process");
+                    debug!("missing tasks for process");
 
                     // Count at least the process
                     1

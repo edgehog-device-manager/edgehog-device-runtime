@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use edgehog_store::models::job::job_type::JobType;
 use eyre::{Context, OptionExt};
+use futures::StreamExt;
 use tokio::io::AsyncSeekExt;
 use tokio::sync::Notify;
 use tokio_util::io::ReaderStream;
@@ -32,9 +33,10 @@ use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
 use crate::file_transfer::file_system::store::Limit;
-use crate::http::{DownloadRange, FtHttpClient};
+use crate::http::FtHttpClient;
 use crate::jobs::Queue;
 
+use self::compression::tar_gz::TarGzWriter;
 use self::file_system::FileOptions;
 use self::file_system::store::{FileStorage, Fs, Space};
 use self::file_system::stream::{Pipe, Streaming, SysPipe};
@@ -43,6 +45,7 @@ use self::request::download::Download;
 use self::request::upload::Upload;
 use self::request::{Request, Target};
 
+mod compression;
 mod file_system;
 pub(crate) mod interface;
 mod request;
@@ -140,6 +143,8 @@ impl<F, S> FileTransfer<F, S> {
         F: Space,
         S: Pipe,
     {
+        self.storage.init().await?;
+
         // TODO cancel
         loop {
             self.jobs().await?;
@@ -164,7 +169,7 @@ impl<F, S> FileTransfer<F, S> {
             .wrap_err("couldn't get next job")?
         {
             if let Err(error) = self.handle(job).await {
-                error!(%error, "couldn't handle job");
+                error!(error = format!("{error:#}"), "couldn't handle job");
             }
         }
 
@@ -177,10 +182,20 @@ impl<F, S> FileTransfer<F, S> {
         F: Space,
         S: Pipe,
     {
+        let id = *job.id();
+
         match job {
-            Request::Download(download) => self.download(download).await,
-            Request::Upload(upload) => self.upload(upload).await,
+            Request::Download(download) => {
+                self.download(download).await?;
+            }
+            Request::Upload(upload) => {
+                self.upload(upload).await?;
+            }
         }
+
+        self.job_done(&id).await?;
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -189,7 +204,7 @@ impl<F, S> FileTransfer<F, S> {
         F: Space,
         S: Pipe,
     {
-        match req.destination {
+        match req.destination_type {
             Target::Storage => self.store(req).await,
             Target::Stream => self.stream(req).await,
         }
@@ -200,16 +215,48 @@ impl<F, S> FileTransfer<F, S> {
     where
         S: Pipe,
     {
-        match req.source {
+        match req.source_type {
             Target::Storage => {
-                let file = self.storage.open_read(&req.id).await?;
+                if let Some(compression) = req.compression {
+                    let (rx, tx) = tokio::io::simplex(8 * 1024);
 
-                let body_stream = ReaderStream::new(file);
+                    let (mut walk, base_path) = self
+                        .storage
+                        .walk(&req.id)
+                        .await
+                        .ok_or_eyre("file doesn't exists")?;
 
-                let _ = self
-                    .client
-                    .upload(&req.url, req.headers, body_stream)
-                    .await?;
+                    match compression {
+                        request::Compression::TarGz => {
+                            tokio::task::spawn(async move {
+                                let mut writer = TarGzWriter::new(tx);
+
+                                while let Some(item) = walk.next().await {
+                                    let item = item?;
+
+                                    writer.append(&base_path, item.path()).await?;
+                                }
+
+                                writer.finalize().await?;
+
+                                Ok::<_, eyre::Report>(())
+                            });
+
+                            let reader = tokio_util::io::ReaderStream::new(rx);
+
+                            let _ = self.client.upload(&req.url, req.headers, reader).await?;
+                        }
+                    }
+                } else {
+                    let file = self.storage.open_read(&req.id).await?;
+
+                    let body_stream = ReaderStream::new(file);
+
+                    let _ = self
+                        .client
+                        .upload(&req.url, req.headers, body_stream)
+                        .await?;
+                }
 
                 Ok(())
             }
@@ -242,26 +289,30 @@ impl<F, S> FileTransfer<F, S> {
 
         let (mut file, mut digest) = self.storage.create_write_handle(&opt).await?;
 
-        let download_range = DownloadRange::create(file.current_size(), opt.file_size)
-            .ok_or_eyre("invalid download range")?;
+        let total_len = download.compression.is_none().then_some(download.file_size);
 
         let mut file_resp = self
             .client
-            .download(&download.url, download.headers, download_range)
+            .download(
+                &download.url,
+                download.headers,
+                file.current_size(),
+                total_len,
+            )
             .await
             .wrap_err("download request error")?;
 
-        if file_resp.range().start() != file.current_size() {
-            file.seek(SeekFrom::Start(file_resp.range().start()))
-                .await?;
+        if file_resp.start() != file.current_size() {
+            file.seek(SeekFrom::Start(file_resp.start())).await?;
         }
 
-        let mut limit = Limit::new(file_resp.range().len(), &mut file);
+        // limit to maximum uncompressed file size
+        let limit = file_resp.total_length().unwrap_or(download.file_size);
+
+        let mut limit = Limit::new(limit, &mut file);
         file_resp.write_chunks(&mut limit, &mut digest).await?;
 
         self.storage.finalize_write(file, &opt).await?;
-
-        self.job_done(&download.id).await?;
 
         Ok(())
     }
@@ -275,20 +326,21 @@ impl<F, S> FileTransfer<F, S> {
 
         let (mut file, mut digest) = self.stream.open_writer(&opt).await?;
 
-        let range = DownloadRange::with_size(opt.file_size);
+        let total_len = download.compression.is_none().then_some(download.file_size);
 
         let mut file_resp = self
             .client
-            .download(&download.url, download.headers, range)
+            .download(&download.url, download.headers, 0, total_len)
             .await
             .wrap_err("download request error")?;
 
-        let mut limit = Limit::new(file_resp.range().len(), &mut file);
+        // limit to maximum uncompressed file size
+        let limit = file_resp.rem_len().unwrap_or(download.file_size);
+
+        let mut limit = Limit::new(limit, &mut file);
         file_resp.write_chunks(&mut limit, &mut digest).await?;
 
         // TODO: finalize the digest
-
-        self.job_done(&download.id).await?;
 
         Ok(())
     }
@@ -357,7 +409,8 @@ mod tests {
             compression: None,
             file_size: content.len().try_into().unwrap(),
             permission: FilePermissions::default(),
-            destination: Target::Storage,
+            destination_type: Target::Storage,
+            destination: String::new(),
         })
     }
 
@@ -415,14 +468,15 @@ mod tests {
                 when = when
                     .method(GET)
                     .path("/file")
-                    .header_includes("range", "bytes=0-");
+                    // full
+                    .header_missing("range");
 
                 headers.iter().fold(when, |when, (n, s)| {
                     when.header_includes(n.as_str(), s.to_str().unwrap())
                 });
 
                 then.status(reqwest::StatusCode::PARTIAL_CONTENT)
-                    .header("Content-Range", "bytes 0-1023/1024")
+                    .header("Content-Length", "1024")
                     .body(&content);
             })
             .await;
@@ -454,6 +508,7 @@ mod tests {
 
                 then.status(reqwest::StatusCode::PARTIAL_CONTENT)
                     .header("Content-Range", "bytes 512-1023/1024")
+                    .header("Content-Length", "512")
                     .body(&partial_content);
             })
             .await;
@@ -513,7 +568,8 @@ mod tests {
             headers,
             progress: true,
             compression: None,
-            source: Target::Storage,
+            source_type: Target::Storage,
+            source: String::new(),
         })
     }
 
