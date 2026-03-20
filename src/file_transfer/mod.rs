@@ -22,16 +22,17 @@ use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use aws_lc_rs::digest;
 use edgehog_store::models::job::job_type::JobType;
 use eyre::{Context, OptionExt};
-use tokio::io::{AsyncSeekExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::AsyncSeekExt;
 use tokio::sync::Notify;
+use tokio_util::io::ReaderStream;
 use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
-use crate::http::{DownloadRange, FileDownloadResponse, FileTransferHttpClient};
+use crate::file_transfer::file_system::store::Limit;
+use crate::http::{DownloadRange, FtHttpClient};
 use crate::jobs::Queue;
 
 use self::file_system::FileOptions;
@@ -115,13 +116,12 @@ pub(crate) struct FileTransfer<F, S> {
     queue: Queue,
     storage: FileStorage<F>,
     stream: Streaming<S>,
-    client: FileTransferHttpClient,
+    client: FtHttpClient,
 }
 
 impl FileTransfer<Fs, SysPipe> {
     pub fn create(queue: Queue, dir: PathBuf) -> eyre::Result<Self> {
-        let client =
-            FileTransferHttpClient::create().wrap_err("can't construct file transfer client")?;
+        let client = FtHttpClient::create().wrap_err("can't construct file transfer client")?;
 
         Ok(Self {
             queue,
@@ -202,38 +202,30 @@ impl<F, S> FileTransfer<F, S> {
     {
         match req.source {
             Target::Storage => {
-                let _file = self.storage.open_read(&req.id).await?;
+                let file = self.storage.open_read(&req.id).await?;
 
-                unimplemented!("file upload")
+                let body_stream = ReaderStream::new(file);
+
+                let _ = self
+                    .client
+                    .upload(&req.url, req.headers, body_stream)
+                    .await?;
+
+                Ok(())
             }
             Target::Stream => {
-                let _pipe = self.stream.create_reader(&req.id).await?;
+                let file = self.stream.create_reader(&req.id).await?;
 
-                unimplemented!("file upload")
+                let body_stream = ReaderStream::new(file);
+
+                let _ = self
+                    .client
+                    .upload(&req.url, req.headers, body_stream)
+                    .await?;
+
+                Ok(())
             }
         }
-    }
-
-    async fn write_chunks<W>(
-        sink: &mut W,
-        digest: &mut digest::Context,
-        mut download_resp: FileDownloadResponse,
-    ) -> eyre::Result<()>
-    where
-        W: AsyncWrite + Unpin,
-    {
-        while let Some(bytes) = download_resp
-            .chunk()
-            .await
-            .wrap_err("error while getting response chunk")?
-        {
-            sink.write_all(&bytes).await?;
-            sink.flush().await?;
-
-            digest.update(&bytes);
-        }
-
-        Ok(())
     }
 
     async fn store(&mut self, download: Download) -> eyre::Result<()>
@@ -253,7 +245,7 @@ impl<F, S> FileTransfer<F, S> {
         let download_range = DownloadRange::create(file.current_size(), opt.file_size)
             .ok_or_eyre("invalid download range")?;
 
-        let file_resp = self
+        let mut file_resp = self
             .client
             .download(&download.url, download.headers, download_range)
             .await
@@ -264,7 +256,8 @@ impl<F, S> FileTransfer<F, S> {
                 .await?;
         }
 
-        Self::write_chunks(&mut file, &mut digest, file_resp).await?;
+        let mut limit = Limit::new(file_resp.range().len(), &mut file);
+        file_resp.write_chunks(&mut limit, &mut digest).await?;
 
         self.storage.finalize_write(file, &opt).await?;
 
@@ -284,13 +277,14 @@ impl<F, S> FileTransfer<F, S> {
 
         let range = DownloadRange::with_size(opt.file_size);
 
-        let file_resp = self
+        let mut file_resp = self
             .client
             .download(&download.url, download.headers, range)
             .await
             .wrap_err("download request error")?;
 
-        Self::write_chunks(&mut file, &mut digest, file_resp).await?;
+        let mut limit = Limit::new(file_resp.range().len(), &mut file);
+        file_resp.write_chunks(&mut limit, &mut digest).await?;
 
         // TODO: finalize the digest
 
@@ -317,9 +311,12 @@ impl<F, S> FileTransfer<F, S> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::time::Duration;
 
+    use aws_lc_rs::digest;
     use edgehog_store::db::Handle;
+    use httpmock::Method::PUT;
     use httpmock::Mock;
     use httpmock::{Method::GET, MockServer};
     use minicbor::bytes::ByteVec;
@@ -327,8 +324,6 @@ mod tests {
     use rstest::rstest;
     use tempdir::TempDir;
     use uuid::Uuid;
-
-    use crate::file_transfer::request::upload::tests::upload_req;
 
     use super::request::{FileDigest, FilePermissions};
     use super::*;
@@ -375,39 +370,39 @@ mod tests {
         )])
     }
 
-    struct MockedFsCall<'a> {
-        call_get: Mock<'a>,
-        call_full_get: Option<Mock<'a>>,
+    struct MockedFtCall<'a> {
+        first_call: Mock<'a>,
+        second_call: Option<Mock<'a>>,
         req: Request,
         content: Vec<u8>,
     }
 
-    impl<'a> MockedFsCall<'a> {
+    impl<'a> MockedFtCall<'a> {
         fn new(call_get: Mock<'a>, event: Request, content: Vec<u8>) -> Self {
             Self {
-                call_get,
+                first_call: call_get,
                 req: event,
                 content,
-                call_full_get: None,
+                second_call: None,
             }
         }
 
-        fn with_get_full(
+        fn with_second_call(
             call_get: Mock<'a>,
             call_full_get: Mock<'a>,
             event: Request,
             content: Vec<u8>,
         ) -> Self {
             Self {
-                call_get,
+                first_call: call_get,
                 req: event,
                 content,
-                call_full_get: Some(call_full_get),
+                second_call: Some(call_full_get),
             }
         }
     }
 
-    async fn mk_download<'a>(server: &'a MockServer) -> MockedFsCall<'a> {
+    async fn mk_download<'a>(server: &'a MockServer) -> MockedFtCall<'a> {
         let url = server.url("/file");
 
         let size = 1024usize;
@@ -434,10 +429,10 @@ mod tests {
 
         let req = mk_download_req(&url, headers, &content);
 
-        MockedFsCall::new(call_get, req, content)
+        MockedFtCall::new(call_get, req, content)
     }
 
-    async fn mk_download_part<'a>(server: &'a MockServer) -> MockedFsCall<'a> {
+    async fn mk_download_part<'a>(server: &'a MockServer) -> MockedFtCall<'a> {
         let url = server.url("/file-part");
         let size = 1024usize;
 
@@ -465,10 +460,10 @@ mod tests {
 
         let req = mk_download_req(&url, headers, &content);
 
-        MockedFsCall::new(call_get, req, content)
+        MockedFtCall::new(call_get, req, content)
     }
 
-    async fn mock_fs_download_part_not_satisfied<'a>(server: &'a MockServer) -> MockedFsCall<'a> {
+    async fn mk_download_not_satisfied<'a>(server: &'a MockServer) -> MockedFtCall<'a> {
         let url = server.url("/file-part-not-206");
         let size = 1024usize;
         let content = vec![4u8; size];
@@ -508,7 +503,42 @@ mod tests {
 
         let req = mk_download_req(&url, headers, &content);
 
-        MockedFsCall::with_get_full(call_get, call_get_full, req, content)
+        MockedFtCall::with_second_call(call_get, call_get_full, req, content)
+    }
+
+    fn mk_upload_req(url: &str, headers: HeaderMap) -> Request {
+        Request::Upload(Upload {
+            id: Uuid::new_v4(),
+            url: url.parse().unwrap(),
+            headers,
+            progress: true,
+            compression: None,
+            source: Target::Storage,
+        })
+    }
+
+    async fn mk_upload<'a>(mock_fs: &'a MockServer) -> MockedFtCall<'a> {
+        let url = mock_fs.url("/file_upload");
+        let size = 1024usize;
+        let content: String = iter::repeat_n("ciao", size / 4).collect();
+
+        let headers = mk_headers();
+
+        let call_put = mock_fs
+            .mock_async(|mut when, then| {
+                when = when.method(PUT).path("/file_upload").body(&content);
+
+                headers.iter().fold(when, |when, (n, s)| {
+                    when.header_includes(n.as_str(), s.to_str().unwrap())
+                });
+
+                then.status(reqwest::StatusCode::OK);
+            })
+            .await;
+
+        let req = mk_upload_req(&url, headers);
+
+        MockedFtCall::new(call_put, req, content.into_bytes())
     }
 
     #[rstest]
@@ -522,7 +552,7 @@ mod tests {
 
         transfer.handle(mock_download_event.req).await.unwrap();
 
-        mock_download_event.call_get.assert_async().await;
+        mock_download_event.first_call.assert_async().await;
 
         let content = tokio::fs::read(complete_file).await.unwrap();
 
@@ -548,7 +578,7 @@ mod tests {
 
         transfer.handle(mock_download_event.req).await.unwrap();
 
-        mock_download_event.call_get.assert_async().await;
+        mock_download_event.first_call.assert_async().await;
 
         let content = tokio::fs::read(complete_file).await.unwrap();
 
@@ -559,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn should_download_full_when_unsatisfiable() {
         let server = MockServer::start_async().await;
-        let mock_download_event = mock_fs_download_part_not_satisfied(&server).await;
+        let mock_download_event = mk_download_not_satisfied(&server).await;
 
         let (mut transfer, dir) = mk_transfer("download_full_unsatisfiable").await;
         let partial_file = dir
@@ -574,9 +604,9 @@ mod tests {
 
         transfer.handle(mock_download_event.req).await.unwrap();
 
-        mock_download_event.call_get.assert_async().await;
+        mock_download_event.first_call.assert_async().await;
         mock_download_event
-            .call_full_get
+            .second_call
             .unwrap()
             .assert_async()
             .await;
@@ -588,15 +618,22 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    #[should_panic(expected = "not implemented: file upload")]
-    async fn should_upload(upload_req: Upload) {
+    async fn should_upload() {
+        let server = MockServer::start_async().await;
+        let mock_upload_event = mk_upload(&server).await;
+
         let (mut transfer, dir) = mk_transfer("upload").await;
 
-        tokio::fs::write(dir.path().join(upload_req.id.to_string()), "Hello world!")
-            .await
-            .unwrap();
+        tokio::fs::write(
+            dir.path().join(mock_upload_event.req.id().to_string()),
+            mock_upload_event.content,
+        )
+        .await
+        .unwrap();
 
-        transfer.handle(Request::Upload(upload_req)).await.unwrap();
+        transfer.handle(mock_upload_event.req).await.unwrap();
+
+        mock_upload_event.first_call.assert_async().await;
     }
 
     #[rstest]
@@ -616,7 +653,7 @@ mod tests {
 
         transfer.jobs().await.unwrap();
 
-        mock_download_event.call_get.assert_async().await;
+        mock_download_event.first_call.assert_async().await;
 
         let content = tokio::fs::read(complete_file).await.unwrap();
 

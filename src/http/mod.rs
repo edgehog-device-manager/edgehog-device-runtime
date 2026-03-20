@@ -20,13 +20,16 @@
 
 use std::{fmt::Debug, ops::RangeInclusive};
 
+use aws_lc_rs::digest;
 use bytes::Bytes;
 use eyre::{Context, OptionExt, Report, bail, eyre};
+use futures::TryStream;
 use reqwest::{
     StatusCode,
     header::{GetAll, HeaderMap, HeaderValue},
     redirect::Policy,
 };
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
@@ -85,6 +88,10 @@ impl DownloadRange {
         self.total_len
     }
 
+    pub fn len(&self) -> u64 {
+        self.total_len - self.start
+    }
+
     fn reset_start(mut self) -> Self {
         self.start = 0;
 
@@ -109,12 +116,12 @@ impl std::fmt::Display for DownloadRange {
 
 /// Create the http client
 #[derive(Debug)]
-pub struct FileTransferHttpClient {
+pub struct FtHttpClient {
     client: reqwest::Client,
 }
 
-impl FileTransferHttpClient {
-    pub fn create() -> Result<Self, FileTransferError> {
+impl FtHttpClient {
+    pub fn create() -> eyre::Result<Self> {
         let client = default_http_client_builder()
             .wrap_err("failed to build TLS config")?
             .build()
@@ -177,6 +184,30 @@ impl FileTransferHttpClient {
         };
 
         Ok(FileDownloadResponse::new(response, actual_range))
+    }
+
+    pub async fn upload<S>(
+        &self,
+        url: &Url,
+        headers: HeaderMap,
+        body_stream: S,
+    ) -> eyre::Result<FileUploadResponse>
+    where
+        S: TryStream + Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+        Bytes: From<S::Ok>,
+    {
+        self.client
+            .put(url.as_str())
+            .headers(headers)
+            .body(reqwest::Body::wrap_stream(body_stream))
+            .send()
+            .await
+            .wrap_err("error while sending put upload request")?
+            .error_for_status()
+            .wrap_err("error in response status of put request")?;
+
+        Ok(FileUploadResponse)
     }
 
     async fn retry_full_request(
@@ -353,30 +384,55 @@ impl FileDownloadResponse {
         Self { response, range }
     }
 
-    pub(super) async fn chunk(&mut self) -> Result<Option<Bytes>, FileTransferError> {
-        self.response
-            .chunk()
-            .await
-            .wrap_err("failed to read chunk")
-            .map_err(FileTransferError::Other)
-    }
-
     pub(super) fn range(&self) -> &DownloadRange {
         &self.range
     }
+
+    async fn chunk(&mut self) -> eyre::Result<Option<Bytes>> {
+        self.response.chunk().await.wrap_err("failed to read chunk")
+    }
+
+    pub(super) async fn write_chunks<W>(
+        &mut self,
+        mut writer: W,
+        digest: &mut digest::Context,
+    ) -> eyre::Result<()>
+    where
+        W: AsyncWrite + Unpin,
+    {
+        while let Some(bytes) = self
+            .chunk()
+            .await
+            .wrap_err("error while getting response chunk")?
+        {
+            writer.write_all(&bytes).await?;
+            writer.flush().await?;
+
+            digest.update(&bytes);
+        }
+
+        Ok(())
+    }
 }
+
+#[derive(Debug, Clone)]
+pub struct FileUploadResponse;
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{io::Cursor, iter};
 
-    use httpmock::{Method::GET, MockServer};
+    use httpmock::{
+        Method::{GET, PUT},
+        MockServer,
+    };
     use reqwest::header::{HeaderMap, HeaderValue};
     use rstest::rstest;
     use tokio::io::{AsyncWrite, AsyncWriteExt};
+    use tokio_stream::once;
     use url::Url;
 
-    use crate::http::{DownloadRange, FileDownloadResponse, FileTransferHttpClient};
+    use crate::http::{DownloadRange, FileDownloadResponse, FtHttpClient};
 
     async fn write_chunks<T>(mut response: FileDownloadResponse, mut buf: T)
     where
@@ -407,7 +463,7 @@ mod tests {
             })
             .await;
 
-        let client = FileTransferHttpClient::create().unwrap();
+        let client = FtHttpClient::create().unwrap();
         let response = client
             .download(
                 &file_url,
@@ -445,7 +501,7 @@ mod tests {
             })
             .await;
 
-        let client = FileTransferHttpClient::create().unwrap();
+        let client = FtHttpClient::create().unwrap();
         let response = client
             .download(
                 &file_url,
@@ -460,7 +516,7 @@ mod tests {
         assert_eq!(binary_content.as_slice(), output_buf.as_slice());
         complete_mock.assert_async().await;
 
-        let client = FileTransferHttpClient::create().unwrap();
+        let client = FtHttpClient::create().unwrap();
         // Mocking a different range
         let range_mock = server
             .mock_async(|when, then| {
@@ -509,7 +565,7 @@ mod tests {
             })
             .await;
 
-        let client = FileTransferHttpClient::create().unwrap();
+        let client = FtHttpClient::create().unwrap();
         let response = client
             .download(
                 &file_url,
@@ -537,7 +593,7 @@ mod tests {
     fn test_parse_content_range(#[case] value: &str) {
         let value = HeaderValue::from_str(value).unwrap();
 
-        let _ = FileTransferHttpClient::parse_content_range(&value).unwrap();
+        let _ = FtHttpClient::parse_content_range(&value).unwrap();
     }
 
     #[rstest]
@@ -551,6 +607,63 @@ mod tests {
     fn test_parse_unsatisfiable_content_range(#[case] value: &str) {
         let value = HeaderValue::from_str(value).unwrap();
 
-        let _ = FileTransferHttpClient::parse_unsatisfiable_content_range(&value).unwrap();
+        let _ = FtHttpClient::parse_unsatisfiable_content_range(&value).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_file_upload() {
+        let server = MockServer::start_async().await;
+        let file_url = Url::parse(&server.url("/test-upload")).unwrap();
+
+        let binary_content = "test data";
+
+        let mock_get_req = server
+            .mock_async(|when, then| {
+                when.method(PUT).path("/test-upload").body(binary_content);
+
+                then.status(reqwest::StatusCode::OK);
+            })
+            .await;
+
+        let body_stream: tokio_stream::Once<eyre::Result<_>> = once(Ok(binary_content));
+
+        let client = FtHttpClient::create().unwrap();
+        let _ = client
+            .upload(&file_url, HeaderMap::new(), body_stream)
+            .await
+            .unwrap();
+
+        mock_get_req.assert_async().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "slow"]
+    async fn test_large_file_upload() {
+        let server = MockServer::start_async().await;
+        let file_url = Url::parse(&server.url("/test-upload")).unwrap();
+
+        let size: usize = 60 * 1000 * 1000;
+        let content: String = iter::repeat_n("a", size).collect();
+        const CHUNK: &[u8] = &[b'a'; 60 * 1000];
+        let needed_chunks = 1000;
+
+        let mock_get_req = server
+            .mock_async(|when, then| {
+                when.method(PUT).path("/test-upload").body(&content);
+
+                then.status(reqwest::StatusCode::OK);
+            })
+            .await;
+
+        let body_stream: tokio_stream::Iter<_> =
+            tokio_stream::iter(iter::repeat_n(CHUNK, needed_chunks).map(eyre::Ok));
+
+        let client = FtHttpClient::create().unwrap();
+        let _ = client
+            .upload(&file_url, HeaderMap::new(), body_stream)
+            .await
+            .unwrap();
+
+        mock_get_req.assert_async().await;
     }
 }

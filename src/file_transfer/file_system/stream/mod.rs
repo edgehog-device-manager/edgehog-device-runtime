@@ -79,7 +79,7 @@ where
 }
 
 pub(crate) trait Pipe {
-    type Reader: AsyncRead + Unpin + Send;
+    type Reader: AsyncRead + Unpin + Send + 'static;
     type Writer: AsyncWrite + Unpin + Send;
 
     fn new() -> Self;
