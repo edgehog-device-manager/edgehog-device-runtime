@@ -28,6 +28,7 @@ members = [
   "edgehog-device-runtime-service",
   "edgehog-device-runtime-store",
   "edgehog-device-runtime-tls",
+  "edgehogctl",
   "hardware-id-service",
   "led-manager-service",
 ]
