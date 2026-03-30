@@ -7,13 +7,13 @@ AstarteObject {
         (
             "id",
             String(
-                "00000000-0000-0000-0000-000000000128",
+                "3473aac8-42d8-4e4a-942f-609df942d6b4",
             ),
         ),
         (
             "type",
             String(
-                "device_to_server",
+                "server_to_device",
             ),
         ),
         (

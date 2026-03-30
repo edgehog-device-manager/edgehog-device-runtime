@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,10 +18,12 @@
 
 use std::io;
 
+use astarte_device_sdk::AstarteData;
 use astarte_device_sdk::{IntoAstarteObject, aggregate::AstarteObject};
 use tracing::{instrument, warn};
+use uuid::Uuid;
 
-use crate::file_transfer::interface::{FileTransferId, TransferDirection};
+use crate::file_transfer::request::JobTag;
 
 #[derive(Debug, Clone, PartialEq, IntoAstarteObject)]
 pub(crate) struct FileTransferResponse {
@@ -35,31 +37,32 @@ pub(crate) struct FileTransferResponse {
 impl FileTransferResponse {
     const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Response";
 
-    pub(crate) fn success(id: FileTransferId) -> Self {
+    pub(crate) fn success(transfer: FileTransferId) -> Self {
         Self {
-            id: id.uuid().to_string(),
-            ty: id.direction(),
+            id: transfer.id.to_string(),
+            ty: transfer.direction,
             code: 0,
             message: String::new(),
         }
     }
 
     pub(crate) fn validation_error(
-        id: FileTransferId<impl std::fmt::Display>,
+        id: &str,
+        direction: TransferDirection,
         report: eyre::Report,
     ) -> Self {
         Self {
-            id: id.uuid().to_string(),
-            ty: id.direction(),
+            id: id.to_string(),
+            ty: direction,
             code: to_errno(io::ErrorKind::InvalidInput),
-            message: report.to_string(),
+            message: format!("{report:#}"),
         }
     }
 
-    pub(crate) fn busy_error(id: FileTransferId) -> Self {
+    pub(crate) fn busy_error(id: &str, direction: TransferDirection) -> Self {
         Self {
-            id: id.uuid().to_string(),
-            ty: id.direction(),
+            id: id.to_string(),
+            ty: direction,
             code: to_errno(io::ErrorKind::ResourceBusy),
             message: "file transfer request can't be handled currently".to_string(),
         }
@@ -74,6 +77,45 @@ impl FileTransferResponse {
             .send_object(Self::INTERFACE, "/request", AstarteObject::try_from(self)?)
             .await
             .map_err(eyre::Error::from)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FileTransferId {
+    pub(crate) id: Uuid,
+    pub(crate) direction: TransferDirection,
+}
+
+/// Direction of the transfer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransferDirection {
+    /// Server to Device
+    Download,
+    /// Device to Server
+    Upload,
+}
+
+impl std::fmt::Display for TransferDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransferDirection::Download => f.write_str("server_to_device"),
+            TransferDirection::Upload => f.write_str("device_to_server"),
+        }
+    }
+}
+
+impl From<TransferDirection> for AstarteData {
+    fn from(value: TransferDirection) -> Self {
+        AstarteData::String(value.to_string())
+    }
+}
+
+impl From<TransferDirection> for JobTag {
+    fn from(value: TransferDirection) -> Self {
+        match value {
+            TransferDirection::Download => JobTag::Download,
+            TransferDirection::Upload => JobTag::Upload,
+        }
     }
 }
 
@@ -142,27 +184,35 @@ impl FileTransferProgress {
             .unwrap_or(i64::MAX)
     }
 
-    pub(crate) fn start(id: FileTransferId, total_len: Option<u64>) -> Self {
+    pub(crate) fn start(
+        transfer: FileTransferId,
+        progress: bool,
+        total_len: Option<u64>,
+    ) -> Option<Self> {
+        if !progress {
+            return None;
+        }
+
         total_len
-            .map(|total| FileTransferProgress::with_total(id, 0, total))
-            .unwrap_or(FileTransferProgress::create(id, 0))
+            .map(|total| FileTransferProgress::with_total(transfer, 0, total))
+            .or(Some(FileTransferProgress::create(transfer, 0)))
     }
 
     /// Create progress event with undefined total bytes, only positive value are accepted
-    fn create(id: FileTransferId, bytes: u64) -> Self {
+    fn create(transfer: FileTransferId, bytes: u64) -> Self {
         Self {
-            id: id.uuid().to_string(),
-            ty: id.direction(),
+            id: transfer.id.to_string(),
+            ty: transfer.direction,
             bytes: Self::to_i64(bytes),
             total_bytes: -1,
         }
     }
 
     /// Create progress event with total bytes, only positive value are accepted
-    fn with_total(id: FileTransferId, bytes: u64, total_bytes: u64) -> Self {
+    fn with_total(transfer: FileTransferId, bytes: u64, total_bytes: u64) -> Self {
         Self {
-            id: id.uuid().to_string(),
-            ty: id.direction(),
+            id: transfer.id.to_string(),
+            ty: transfer.direction,
             bytes: Self::to_i64(bytes),
             total_bytes: Self::to_i64(total_bytes),
         }
@@ -189,23 +239,29 @@ mod tests {
     use crate::tests::with_insta;
 
     use rstest::{Context, rstest};
-    use uuid::Uuid;
 
     use super::*;
 
     fn mk_resp_busy() -> FileTransferResponse {
-        FileTransferResponse::busy_error(FileTransferId::Upload(Uuid::from_u128(0x00128)))
+        FileTransferResponse::busy_error(
+            "3473aac8-42d8-4e4a-942f-609df942d6b4",
+            TransferDirection::Download,
+        )
     }
 
     fn mk_resp_validation() -> FileTransferResponse {
         FileTransferResponse::validation_error(
-            FileTransferId::Download(Uuid::from_u128(0x00128).to_string()),
+            "3473aac8-42d8-4e4a-942f-609df942d6b4",
+            TransferDirection::Download,
             eyre::eyre!("validation error encountered"),
         )
     }
 
     fn mk_resp_ok() -> FileTransferResponse {
-        FileTransferResponse::success(FileTransferId::Download(Uuid::from_u128(0x00128)))
+        FileTransferResponse::success(FileTransferId {
+            id: "3473aac8-42d8-4e4a-942f-609df942d6b4".parse().unwrap(),
+            direction: TransferDirection::Download,
+        })
     }
 
     #[rstest]
@@ -223,15 +279,21 @@ mod tests {
     }
 
     fn mk_progress_no_tot() -> FileTransferProgress {
-        FileTransferProgress::create(FileTransferId::Upload(Uuid::from_u128(0x00128)), 1 << 10)
+        let id = FileTransferId {
+            id: "3473aac8-42d8-4e4a-942f-609df942d6b4".parse().unwrap(),
+            direction: TransferDirection::Download,
+        };
+
+        FileTransferProgress::create(id, 1 << 10)
     }
 
     fn mk_progress_tot() -> FileTransferProgress {
-        FileTransferProgress::with_total(
-            FileTransferId::Upload(Uuid::from_u128(0x00128)),
-            1 << 10,
-            1 << 12,
-        )
+        let id = FileTransferId {
+            id: "3473aac8-42d8-4e4a-942f-609df942d6b4".parse().unwrap(),
+            direction: TransferDirection::Download,
+        };
+
+        FileTransferProgress::with_total(id, 1 << 10, 1 << 12)
     }
 
     #[rstest]

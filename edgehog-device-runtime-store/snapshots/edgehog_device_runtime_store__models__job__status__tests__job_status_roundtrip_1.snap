@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-store/src/models/job/status.rs
+expression: "format!(\"{value:?} = {i}\")"
+---
+InProgress = 1

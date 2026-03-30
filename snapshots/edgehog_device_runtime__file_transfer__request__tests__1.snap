@@ -1,6 +1,0 @@
----
-source: src/file_transfer/request/mod.rs
-expression: Hexdump(buf)
----
-Length: 1 (0x1) bytes
-0000: | 0000 0001 | (0x01) '.'

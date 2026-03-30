@@ -1,0 +1,8 @@
+---
+source: src/file_transfer/request/download.rs
+expression: Hexdump(buf)
+---
+Length: 3 (0x3) bytes
+0000: | 1000 0010 | (0x82) '.'
+0001: | 0000 0001 | (0x01) '.'
+0002: | 1000 0000 | (0x80) '.'

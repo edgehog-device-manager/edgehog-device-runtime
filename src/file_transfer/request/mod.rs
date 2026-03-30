@@ -22,7 +22,7 @@ use edgehog_store::models::job::Job;
 use eyre::{Context, bail, eyre};
 use uuid::Uuid;
 
-use crate::file_transfer::interface::capabilities::{STORAGE_TARGET, STREAMING_TARGET, TAR_GZ};
+use crate::file_transfer::interface::capabilities::TAR_GZ;
 
 use self::download::Download;
 use self::upload::Upload;
@@ -32,13 +32,13 @@ use super::FileOptions;
 pub(crate) mod download;
 pub(crate) mod upload;
 
-#[derive(Debug)]
-pub(crate) enum Request {
-    Download(Download),
-    Upload(Upload),
+#[derive(Debug, Clone)]
+pub(crate) enum Request<'a> {
+    Download(Download<'a>),
+    Upload(Upload<'a>),
 }
 
-impl Request {
+impl<'a> Request<'a> {
     pub(crate) fn id(&self) -> &Uuid {
         match self {
             Request::Download(download) => &download.id,
@@ -47,10 +47,10 @@ impl Request {
     }
 }
 
-impl TryFrom<&Request> for Job {
+impl TryFrom<Request<'_>> for Job {
     type Error = eyre::Report;
 
-    fn try_from(value: &Request) -> Result<Self, Self::Error> {
+    fn try_from(value: Request) -> Result<Self, Self::Error> {
         match value {
             Request::Download(download_req) => Job::try_from(download_req),
             Request::Upload(upload_req) => Job::try_from(upload_req),
@@ -58,7 +58,7 @@ impl TryFrom<&Request> for Job {
     }
 }
 
-impl TryFrom<Job> for Request {
+impl<'a> TryFrom<Job> for Request<'a> {
     type Error = eyre::Report;
 
     fn try_from(value: Job) -> Result<Self, Self::Error> {
@@ -71,7 +71,7 @@ impl TryFrom<Job> for Request {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
-enum JobTag {
+pub(crate) enum JobTag {
     Download = 0,
     Upload = 1,
 }
@@ -90,34 +90,6 @@ impl TryFrom<i32> for JobTag {
             0 => Ok(JobTag::Download),
             1 => Ok(JobTag::Upload),
             _ => bail!("unrecognize file transfer job tag {value}"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
-#[cbor(index_only)]
-#[repr(u8)]
-pub(crate) enum Target {
-    #[n(0)]
-    Storage = 0,
-    #[n(1)]
-    Stream = 1,
-}
-
-impl From<Target> for u8 {
-    fn from(value: Target) -> Self {
-        value as u8
-    }
-}
-
-impl FromStr for Target {
-    type Err = eyre::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            STORAGE_TARGET => Ok(Target::Storage),
-            STREAMING_TARGET => Ok(Target::Stream),
-            _ => Err(eyre!("unrecognize file transfer target: {s}")),
         }
     }
 }
@@ -223,44 +195,35 @@ where
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use rstest::{Context, rstest};
 
-    use super::*;
     use crate::tests::{Hexdump, with_insta};
 
-    impl Request {
-        pub(crate) fn target(&self) -> &String {
+    use super::*;
+
+    impl<'a> Request<'a> {
+        pub(crate) fn target(&self) -> String {
             match self {
-                Request::Download(download) => &download.destination,
-                Request::Upload(upload) => &upload.source,
+                Request::Download(download) => match &download.destination {
+                    download::Destination::Storage => String::new(),
+                    download::Destination::Stream => String::new(),
+                    download::Destination::FileSystem { path } => {
+                        path.to_string_lossy().to_string()
+                    }
+                },
+                Request::Upload(upload) => match &upload.source {
+                    upload::Source::Storage { id } => id.to_string(),
+                    upload::Source::Stream => String::new(),
+                    upload::Source::FileSystem { path } => path.to_string_lossy().to_string(),
+                },
             }
         }
     }
 
     #[rstest]
-    #[case("storage", Target::Storage)]
-    #[case("streaming", Target::Stream)]
-    fn targets_roundtrip(#[context] ctx: Context, #[case] input: &str, #[case] exp: Target) {
-        let res: Target = input.parse().unwrap();
-
-        assert_eq!(res, exp);
-
-        let buf = minicbor::to_vec(res).unwrap();
-
-        let res: Target = minicbor::decode(&buf).unwrap();
-
-        assert_eq!(res, exp);
-
-        with_insta!({
-            let name = ctx.case.unwrap().to_string();
-
-            insta::assert_snapshot!(name, Hexdump(buf));
-        });
-    }
-
-    #[rstest]
     #[case("tar.gz", Encoding::TarGz)]
-    fn encoding_roundtrip(#[context] ctx: Context, #[case] input: &str, #[case] exp: Encoding) {
+    fn encoding_from_str(#[context] ctx: Context, #[case] input: &str, #[case] exp: Encoding) {
         let res: Encoding = input.parse().unwrap();
 
         assert_eq!(res, exp);
@@ -272,9 +235,26 @@ mod tests {
         assert_eq!(res, exp);
 
         with_insta!({
-            let name = ctx.case.unwrap().to_string();
+            let name = format!("{}_{}", ctx.name, ctx.case.unwrap());
 
             insta::assert_snapshot!(name, Hexdump(buf));
+        });
+    }
+
+    #[rstest]
+    #[case(JobTag::Download)]
+    #[case(JobTag::Upload)]
+    fn job_tag_roundtrip(#[context] ctx: Context, #[case] value: JobTag) {
+        let buf = i32::from(value);
+
+        let res = JobTag::try_from(buf).unwrap();
+
+        assert_eq!(res, value);
+
+        with_insta!({
+            let name = format!("{}_{}", ctx.name, ctx.case.unwrap());
+
+            insta::assert_snapshot!(name, format!("{value:?} = {}", buf));
         });
     }
 }
