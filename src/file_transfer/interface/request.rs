@@ -46,10 +46,10 @@ impl FromEvent for FileTransferRequest {
     #[instrument(fields(interface = event.interface, path = event.path), skip(event))]
     fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
         match event.interface.as_str() {
-            "io.edgehog.devicemanager.fileTransfer.posix.ServerToDevice" => {
+            "io.edgehog.devicemanager.fileTransfer.ServerToDevice" => {
                 ServerToDevice::from_event(event).map(FileTransferRequest::Download)
             }
-            "io.edgehog.devicemanager.fileTransfer.posix.DeviceToServer" => {
+            "io.edgehog.devicemanager.fileTransfer.DeviceToServer" => {
                 DeviceToServer::from_event(event).map(FileTransferRequest::Upload)
             }
             _ => {

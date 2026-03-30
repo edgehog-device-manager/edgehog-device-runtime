@@ -75,7 +75,7 @@ impl FileTransferResponse {
     }
 }
 
-// TODO use error number defined in libc or a wrapper library
+// TODO use error number defined in libc or a wrapper library. Also check the correctness of the errors
 fn to_errno(kind: io::ErrorKind) -> i32 {
     match kind {
         io::ErrorKind::NotFound => 2,                 // ENOENT

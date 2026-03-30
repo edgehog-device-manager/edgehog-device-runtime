@@ -99,7 +99,7 @@ impl From<TransferDirection> for AstarteData {
 
 #[derive(Debug, Clone, PartialEq, FromEvent, IntoAstarteObject)]
 #[from_event(
-    interface = "io.edgehog.devicemanager.fileTransfer.posix.ServerToDevice",
+    interface = "io.edgehog.devicemanager.fileTransfer.ServerToDevice",
     aggregation = "object",
     path = "/request",
     rename_all = "camelCase"
@@ -108,8 +108,8 @@ impl From<TransferDirection> for AstarteData {
 pub(crate) struct ServerToDevice {
     pub(crate) id: String,
     pub(crate) url: String,
-    pub(crate) http_header_key: Vec<String>,
-    pub(crate) http_header_value: Vec<String>,
+    pub(crate) http_header_keys: Vec<String>,
+    pub(crate) http_header_values: Vec<String>,
     pub(crate) compression: String,
     pub(crate) file_size_bytes: i64,
     pub(crate) progress: bool,
@@ -124,7 +124,7 @@ pub(crate) struct ServerToDevice {
 
 #[derive(Debug, Clone, PartialEq, FromEvent, IntoAstarteObject)]
 #[from_event(
-    interface = "io.edgehog.devicemanager.fileTransfer.posix.DeviceToServer",
+    interface = "io.edgehog.devicemanager.fileTransfer.DeviceToServer",
     aggregation = "object",
     path = "/request",
     rename_all = "camelCase"
@@ -133,8 +133,8 @@ pub(crate) struct ServerToDevice {
 pub(crate) struct DeviceToServer {
     pub(crate) id: String,
     pub(crate) url: String,
-    pub(crate) http_header_key: Vec<String>,
-    pub(crate) http_header_value: Vec<String>,
+    pub(crate) http_header_keys: Vec<String>,
+    pub(crate) http_header_values: Vec<String>,
     pub(crate) compression: String,
     pub(crate) progress: bool,
     pub(crate) source_type: String,
@@ -175,8 +175,8 @@ pub(crate) mod tests {
         ServerToDevice {
             id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
             url: "https://s3.example.com".to_string(),
-            http_header_key: vec!["authorization".to_string()],
-            http_header_value: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
+            http_header_keys: vec!["authorization".to_string()],
+            http_header_values: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
             compression: "tar.gz".to_string(),
             file_size_bytes: 4096,
             progress: true,
@@ -195,8 +195,8 @@ pub(crate) mod tests {
         DeviceToServer {
             id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
             url: "https://s3.example.com".to_string(),
-            http_header_key: vec!["authorization".to_string()],
-            http_header_value: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
+            http_header_keys: vec!["authorization".to_string()],
+            http_header_values: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
             compression: "tar.gz".to_string(),
             progress: true,
             source_type: "storage".to_string(),
@@ -209,7 +209,7 @@ pub(crate) mod tests {
         let data = AstarteObject::try_from(fs_server_to_device.clone()).unwrap();
 
         let event = DeviceEvent {
-            interface: "io.edgehog.devicemanager.fileTransfer.posix.ServerToDevice".to_string(),
+            interface: "io.edgehog.devicemanager.fileTransfer.ServerToDevice".to_string(),
             path: "/request".to_string(),
             data: astarte_device_sdk::Value::Object {
                 data: data.clone(),
@@ -233,7 +233,7 @@ pub(crate) mod tests {
         let data = AstarteObject::try_from(fs_device_to_server.clone()).unwrap();
 
         let event = DeviceEvent {
-            interface: "io.edgehog.devicemanager.fileTransfer.posix.DeviceToServer".to_string(),
+            interface: "io.edgehog.devicemanager.fileTransfer.DeviceToServer".to_string(),
             path: "/request".to_string(),
             data: astarte_device_sdk::Value::Object {
                 data: data.clone(),
