@@ -228,6 +228,15 @@ mod tests {
     use super::*;
     use crate::tests::{Hexdump, with_insta};
 
+    impl Request {
+        pub(crate) fn target(&self) -> &String {
+            match self {
+                Request::Download(download) => &download.destination,
+                Request::Upload(upload) => &upload.source,
+            }
+        }
+    }
+
     #[rstest]
     #[case("storage", Target::Storage)]
     #[case("streaming", Target::Stream)]

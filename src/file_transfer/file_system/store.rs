@@ -30,7 +30,8 @@ use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
 
-use crate::file_transfer::compression::tar_gz::TarGzReader;
+use crate::file_transfer::encoding::Paths;
+use crate::file_transfer::encoding::tar_gz::TarGzDecoder;
 use crate::file_transfer::file_system::walk::Walk;
 use crate::file_transfer::request::Encoding;
 
@@ -82,14 +83,21 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn walk(&self, id: &Uuid) -> Option<(Walk, PathBuf)> {
+    pub(crate) async fn find_paths(&self, id: &Uuid) -> io::Result<Paths> {
         let path = self.file_path(id);
 
-        path.exists().then(|| {
-            let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let meta = tokio::fs::metadata(&path).await?;
 
-            (Walk::new(path), parent)
-        })
+        let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+
+        if meta.is_dir() {
+            Ok(Paths::Dir {
+                base,
+                dir: Walk::new(path),
+            })
+        } else {
+            Ok(Paths::File { base, file: path })
+        }
     }
 
     #[instrument(skip(self))]
@@ -209,7 +217,7 @@ impl<F> FileStorage<F> {
 
         match compression {
             Encoding::TarGz => {
-                let mut extract = TarGzReader::create(BufReader::new(handle.file))?;
+                let mut extract = TarGzDecoder::create(BufReader::new(handle.file))?;
 
                 while let Some(item) = extract.next().await {
                     let mut item = item?;
