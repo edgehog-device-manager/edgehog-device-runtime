@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,9 +18,9 @@
 
 use uuid::Uuid;
 
+use super::request::Encoding;
 #[cfg(unix)]
 use super::request::FilePermissions;
-use super::request::{Encoding, FileDigest};
 
 pub(super) mod store;
 pub(super) mod stream;
@@ -30,7 +30,6 @@ pub(crate) mod walk;
 pub(crate) struct FileOptions {
     pub(super) id: Uuid,
     pub(super) file_size: u64,
-    pub(super) file_digest: FileDigest,
     #[cfg(unix)]
     pub(super) perm: FilePermissions,
     pub(super) compression: Option<Encoding>,

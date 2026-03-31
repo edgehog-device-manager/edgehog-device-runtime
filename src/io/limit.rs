@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,18 +24,22 @@ use tracing::instrument;
 
 #[derive(Debug)]
 #[pin_project]
-pub(crate) struct Limit<T> {
+pub(crate) struct Limit<W> {
     remaining: u64,
     #[pin]
-    inner: T,
+    inner: W,
 }
 
-impl<T> Limit<T> {
-    pub(crate) fn new(limit: u64, inner: T) -> Self {
+impl<W> Limit<W> {
+    pub(crate) fn new(inner: W, total: u64) -> Self {
         Self {
-            remaining: limit,
+            remaining: total,
             inner,
         }
+    }
+
+    pub(crate) fn into_inner(self) -> W {
+        self.inner
     }
 }
 
@@ -99,7 +103,7 @@ mod tests {
     #[should_panic]
     async fn test_limit() {
         let mut buf = Vec::<u8>::new();
-        let mut progress = Limit::new(1 << 5, &mut buf);
+        let mut progress = Limit::new(&mut buf, 1 << 5);
 
         let expected = [0xFF; 1 << 6];
 
@@ -109,7 +113,7 @@ mod tests {
     #[tokio::test]
     async fn test_write() {
         let mut buf = Vec::<u8>::new();
-        let mut progress = Limit::new(1 << 5, &mut buf);
+        let mut progress = Limit::new(&mut buf, 1 << 5);
 
         let expected = [0xFF; 1 << 5];
 
@@ -121,7 +125,7 @@ mod tests {
     #[tokio::test]
     async fn test_double_write() {
         let mut buf = Vec::<u8>::new();
-        let mut progress = Limit::new(1 << 5, &mut buf);
+        let mut progress = Limit::new(&mut buf, 1 << 5);
 
         let expected = [0xFF; 1 << 5];
 
