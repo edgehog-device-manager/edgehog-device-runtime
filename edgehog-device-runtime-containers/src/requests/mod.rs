@@ -64,6 +64,8 @@ pub enum BindingError {
         #[source]
         source: ParseIntError,
     },
+    /// couldn't convert index for storage
+    Idx,
 }
 
 /// Create request from Astarte.

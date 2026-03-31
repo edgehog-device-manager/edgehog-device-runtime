@@ -417,6 +417,8 @@ pub struct ContainerPortBind {
     pub container_id: SqlUuid,
     /// Container port and optionally protocol
     pub port: String,
+    /// Index o the array of host ip and port for the container port
+    pub idx: i64,
     /// Host IP to map the port to
     pub host_ip: Option<String>,
     /// Host port to map the port to
