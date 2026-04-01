@@ -73,7 +73,11 @@ pub trait Persisted: Sized {
     ) -> impl Future<Output = eyre::Result<Self::Event>> + Send;
 
     /// Handles the case when a job cannot be queued
-    fn fail_job(&mut self, msg: &Self::Msg) -> impl Future<Output = ()> + Send;
+    fn fail_job(
+        &mut self,
+        msg: &Self::Msg,
+        report: eyre::Report,
+    ) -> impl Future<Output = ()> + Send;
 
     /// Handles the case when a job cannot be queued
     fn handle_backpressure(&mut self, job: &Self::Event) -> impl Future<Output = ()> + Send;
@@ -90,7 +94,7 @@ pub trait Persisted: Sized {
             Err(error) => {
                 error!(%error, "couldn't queue the job");
 
-                self.fail_job(&msg).await;
+                self.fail_job(&msg, error).await;
 
                 return;
             }

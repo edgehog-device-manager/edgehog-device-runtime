@@ -16,49 +16,84 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::Display;
+use astarte_device_sdk::{AstarteData, FromEvent, IntoAstarteObject};
+use uuid::Uuid;
 
-use astarte_device_sdk::event::FromEventError;
-use astarte_device_sdk::{FromEvent, IntoAstarteObject};
-use tracing::{error, instrument};
+use crate::file_transfer::{self, interface::request::FileTransferRequest};
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum FileTransferEvent {
-    Download(ServerToDevice),
-    Upload(DeviceToServer),
+pub(crate) mod request;
+pub(crate) mod status;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FileTransferId<I = Uuid> {
+    Download(I),
+    Upload(I),
 }
 
-impl Display for FileTransferEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<I> FileTransferId<I> {
+    pub(crate) fn uuid(&self) -> &I {
         match self {
-            FileTransferEvent::Download(server_to_device) => {
-                write!(f, "Download(id: {})", server_to_device.id)
-            }
-            FileTransferEvent::Upload(device_to_server) => {
-                write!(f, "Upload(id: {})", device_to_server.id)
-            }
+            FileTransferId::Download(i) => i,
+            FileTransferId::Upload(i) => i,
+        }
+    }
+
+    fn direction(&self) -> TransferDirection {
+        match self {
+            FileTransferId::Download(_) => TransferDirection::ServerToDevice,
+            FileTransferId::Upload(_) => TransferDirection::DeviceToServer,
         }
     }
 }
 
-impl FromEvent for FileTransferEvent {
-    type Err = astarte_device_sdk::event::FromEventError;
-
-    #[instrument(fields(interface = event.interface, path = event.path), skip(event))]
-    fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
-        match event.interface.as_str() {
-            "io.edgehog.devicemanager.fileTransfer.posix.ServerToDevice" => {
-                ServerToDevice::from_event(event).map(FileTransferEvent::Download)
-            }
-            "io.edgehog.devicemanager.fileTransfer.posix.DeviceToServer" => {
-                DeviceToServer::from_event(event).map(FileTransferEvent::Upload)
-            }
-            _ => {
-                error!("unrecognized event interface");
-
-                Err(FromEventError::Interface(event.interface))
-            }
+impl<'a> From<&'a FileTransferRequest> for FileTransferId<&'a str> {
+    fn from(value: &'a FileTransferRequest) -> Self {
+        match value {
+            FileTransferRequest::Download(d) => Self::Download(&d.id),
+            FileTransferRequest::Upload(u) => Self::Upload(&u.id),
         }
+    }
+}
+
+impl From<&file_transfer::request::Request> for FileTransferId {
+    fn from(value: &file_transfer::request::Request) -> Self {
+        match value {
+            file_transfer::request::Request::Download(d) => Self::Download(d.id),
+            file_transfer::request::Request::Upload(u) => Self::Upload(u.id),
+        }
+    }
+}
+
+impl From<&file_transfer::request::upload::Upload> for FileTransferId {
+    fn from(value: &file_transfer::request::upload::Upload) -> Self {
+        Self::Upload(value.id)
+    }
+}
+
+impl From<&file_transfer::request::download::Download> for FileTransferId {
+    fn from(value: &file_transfer::request::download::Download) -> Self {
+        Self::Upload(value.id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransferDirection {
+    ServerToDevice,
+    DeviceToServer,
+}
+
+impl std::fmt::Display for TransferDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransferDirection::ServerToDevice => f.write_str("server_to_device"),
+            TransferDirection::DeviceToServer => f.write_str("device_to_server"),
+        }
+    }
+}
+
+impl From<TransferDirection> for AstarteData {
+    fn from(value: TransferDirection) -> Self {
+        AstarteData::String(value.to_string())
     }
 }
 
@@ -117,7 +152,7 @@ pub(crate) mod tests {
 
     use super::*;
 
-    impl FileTransferEvent {
+    impl FileTransferRequest {
         pub(crate) fn try_into_download(self) -> Option<ServerToDevice> {
             if let Self::Download(v) = self {
                 Some(v)
@@ -182,7 +217,7 @@ pub(crate) mod tests {
             },
         };
 
-        let interface = FileTransferEvent::from_event(event).unwrap();
+        let interface = FileTransferRequest::from_event(event).unwrap();
 
         let download = interface.try_into_download().unwrap();
 
@@ -206,7 +241,7 @@ pub(crate) mod tests {
             },
         };
 
-        let interface = FileTransferEvent::from_event(event).unwrap();
+        let interface = FileTransferRequest::from_event(event).unwrap();
 
         let upload = interface.try_into_upload().unwrap();
 

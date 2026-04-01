@@ -30,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, trace};
 
 use crate::commands::execute_command;
-use crate::file_transfer::interface::FileTransferEvent;
+use crate::file_transfer::interface::request::FileTransferRequest;
 use crate::file_transfer::{self, FileTransfer};
 use crate::jobs::Queue;
 use crate::telemetry::Telemetry;
@@ -54,7 +54,7 @@ const EVENT_BUFFER: usize = 8;
 pub struct Runtime<T> {
     client: T,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
-    file_transfer: mpsc::Sender<FileTransferEvent>,
+    file_transfer: mpsc::Sender<FileTransferRequest>,
     #[cfg(feature = "containers")]
     containers_tx: mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>,
     #[cfg(feature = "forwarder")]
@@ -120,9 +120,13 @@ impl<C> Runtime<C> {
         tasks.spawn(telemetry.run(telemetry_rx));
 
         // TODO: Add configuration
-        let file_transfer =
-            Self::file_transfer(tasks, jobs, opts.store_directory.join("file-store"))
-                .wrap_err("could't initialize file transfer")?;
+        let file_transfer = Self::file_transfer(
+            client.clone(),
+            tasks,
+            jobs,
+            opts.store_directory.join("file-store"),
+        )
+        .wrap_err("could't initialize file transfer")?;
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
@@ -166,15 +170,21 @@ impl<C> Runtime<C> {
     }
 
     fn file_transfer(
+        device: C,
         tasks: &mut JoinSet<eyre::Result<()>>,
         jobs: Queue,
         store_dir: std::path::PathBuf,
-    ) -> eyre::Result<mpsc::Sender<FileTransferEvent>> {
+    ) -> eyre::Result<mpsc::Sender<FileTransferRequest>>
+    where
+        C: Client + Send + Sync + 'static,
+    {
         let (tx, rx) = mpsc::channel(EVENT_BUFFER);
         let notify = Arc::new(Notify::new());
 
-        tasks.spawn(FileTransfer::create(jobs.clone(), store_dir)?.run(Arc::clone(&notify)));
-        tasks.spawn(file_transfer::Receiver::new(jobs, notify).run(rx));
+        tasks.spawn(
+            FileTransfer::create(jobs.clone(), store_dir, device.clone())?.run(Arc::clone(&notify)),
+        );
+        tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(rx));
 
         Ok(tx)
     }
@@ -190,7 +200,7 @@ impl<C> Runtime<C> {
         tasks: &mut JoinSet<eyre::Result<()>>,
     ) -> eyre::Result<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>
     where
-        C: Client + Clone + Send + Sync + 'static,
+        C: Client + Send + Sync + 'static,
     {
         let (container_tx, container_rx) = mpsc::channel(EVENT_BUFFER);
 
