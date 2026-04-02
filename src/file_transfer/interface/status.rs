@@ -19,6 +19,7 @@
 use std::io;
 
 use astarte_device_sdk::{IntoAstarteObject, aggregate::AstarteObject};
+use tracing::{instrument, warn};
 
 use crate::file_transfer::interface::{FileTransferId, TransferDirection};
 
@@ -64,6 +65,7 @@ impl FileTransferResponse {
         }
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn send<C>(self, device: &mut C) -> eyre::Result<()>
     where
         C: astarte_device_sdk::Client + Send + Sync + 'static,
@@ -118,5 +120,130 @@ fn to_errno(kind: io::ErrorKind) -> i32 {
         io::ErrorKind::OutOfMemory => 12,             // ENOMEM
         io::ErrorKind::Other => 22,                   // EINVAL (Generic fallback)
         _ => 22,                                      // EINVAL (Generic fallback)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, IntoAstarteObject)]
+#[astarte_object(rename_all = "camelCase")]
+pub(crate) struct FileTransferProgress {
+    id: String,
+    #[astarte_object(rename = "type")]
+    ty: TransferDirection,
+    bytes: i64,
+    total_bytes: i64,
+}
+
+impl FileTransferProgress {
+    const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Progress";
+
+    fn to_i64(unsigned: u64) -> i64 {
+        i64::try_from(unsigned)
+            .inspect_err(|error| warn!(%error, "progress bytes overflow"))
+            .unwrap_or(i64::MAX)
+    }
+
+    pub(crate) fn start(id: FileTransferId, total_len: Option<u64>) -> Self {
+        total_len
+            .map(|total| FileTransferProgress::with_total(id, 0, total))
+            .unwrap_or(FileTransferProgress::create(id, 0))
+    }
+
+    /// Create progress event with undefined total bytes, only positive value are accepted
+    fn create(id: FileTransferId, bytes: u64) -> Self {
+        Self {
+            id: id.uuid().to_string(),
+            ty: id.direction(),
+            bytes: Self::to_i64(bytes),
+            total_bytes: -1,
+        }
+    }
+
+    /// Create progress event with total bytes, only positive value are accepted
+    fn with_total(id: FileTransferId, bytes: u64, total_bytes: u64) -> Self {
+        Self {
+            id: id.uuid().to_string(),
+            ty: id.direction(),
+            bytes: Self::to_i64(bytes),
+            total_bytes: Self::to_i64(total_bytes),
+        }
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) async fn send<C>(self, device: &mut C) -> eyre::Result<()>
+    where
+        C: astarte_device_sdk::Client + Send + Sync + 'static,
+    {
+        device
+            .send_object(Self::INTERFACE, "/request", AstarteObject::try_from(self)?)
+            .await
+            .map_err(eyre::Error::from)
+    }
+
+    pub(crate) fn set_bytes(&mut self, bytes: u64) {
+        self.bytes = Self::to_i64(bytes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::with_insta;
+
+    use rstest::{Context, rstest};
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn mk_resp_busy() -> FileTransferResponse {
+        FileTransferResponse::busy_error(FileTransferId::Upload(Uuid::from_u128(0x00128)))
+    }
+
+    fn mk_resp_validation() -> FileTransferResponse {
+        FileTransferResponse::validation_error(
+            FileTransferId::Download(Uuid::from_u128(0x00128).to_string()),
+            eyre::eyre!("validation error encountered"),
+        )
+    }
+
+    fn mk_resp_ok() -> FileTransferResponse {
+        FileTransferResponse::success(FileTransferId::Download(Uuid::from_u128(0x00128)))
+    }
+
+    #[rstest]
+    #[case(mk_resp_ok())]
+    #[case(mk_resp_busy())]
+    #[case(mk_resp_validation())]
+    fn serialize_response(#[context] ctx: Context, #[case] resp: FileTransferResponse) {
+        let data = AstarteObject::try_from(resp).unwrap();
+
+        let name = format!("{}_{}", ctx.name, ctx.case.unwrap());
+
+        with_insta!({
+            insta::assert_debug_snapshot!(name, data);
+        });
+    }
+
+    fn mk_progress_no_tot() -> FileTransferProgress {
+        FileTransferProgress::create(FileTransferId::Upload(Uuid::from_u128(0x00128)), 1 << 10)
+    }
+
+    fn mk_progress_tot() -> FileTransferProgress {
+        FileTransferProgress::with_total(
+            FileTransferId::Upload(Uuid::from_u128(0x00128)),
+            1 << 10,
+            1 << 12,
+        )
+    }
+
+    #[rstest]
+    #[case(mk_progress_no_tot())]
+    #[case(mk_progress_tot())]
+    fn serialize_progress(#[context] ctx: Context, #[case] progress: FileTransferProgress) {
+        let data = AstarteObject::try_from(progress).unwrap();
+
+        let name = format!("{}_{}", ctx.name, ctx.case.unwrap());
+
+        with_insta!({
+            insta::assert_debug_snapshot!(name, data);
+        });
     }
 }

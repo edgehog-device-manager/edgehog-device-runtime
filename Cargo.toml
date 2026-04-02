@@ -139,7 +139,7 @@ serde_json.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
-tokio-stream.workspace = true
+tokio-stream = { workspace = true, features = ["sync"] }
 tokio-util = { workspace = true, features = ["rt"] }
 toml.workspace = true
 tracing.workspace = true

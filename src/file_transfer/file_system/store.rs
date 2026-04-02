@@ -255,7 +255,6 @@ impl<F> FileStorage<F> {
 pub(crate) struct WriteHandle {
     id: Uuid,
     current_size: u64,
-    // TODO limit the size of the file
     #[pin]
     file: tokio::fs::File,
 }
@@ -319,73 +318,6 @@ impl AsyncSeek for WriteHandle {
         let this = self.project();
 
         this.file.poll_complete(cx)
-    }
-}
-
-#[derive(Debug)]
-#[pin_project]
-pub(crate) struct Limit<W> {
-    remaining: u64,
-    #[pin]
-    inner: W,
-}
-
-impl<W> Limit<W> {
-    pub(crate) fn new(limit: u64, inner: W) -> Self {
-        Self {
-            remaining: limit,
-            inner,
-        }
-    }
-}
-
-impl<W> AsyncWrite for Limit<W>
-where
-    W: AsyncWrite,
-{
-    #[instrument(skip_all, ret)]
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        let buf_len =
-            u64::try_from(buf.len()).map_err(|e| io::Error::new(io::ErrorKind::FileTooLarge, e))?;
-
-        if self.remaining < buf_len {
-            return std::task::Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::FileTooLarge,
-                "write exceeds file limit",
-            )));
-        }
-
-        let this = self.project();
-
-        let written = std::task::ready!(this.inner.poll_write(cx, buf))?;
-
-        // NOTE it must be guaranteed that `written <= buf.len()`
-        debug_assert!(written <= buf.len());
-        *this.remaining -= written as u64;
-
-        std::task::Poll::Ready(Ok(written))
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let this = self.project();
-
-        this.inner.poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let this = self.project();
-
-        this.inner.poll_shutdown(cx)
     }
 }
 

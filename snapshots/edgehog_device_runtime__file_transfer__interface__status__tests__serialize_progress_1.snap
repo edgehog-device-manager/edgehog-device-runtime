@@ -1,0 +1,32 @@
+---
+source: src/file_transfer/interface/status.rs
+expression: data
+---
+AstarteObject {
+    inner: [
+        (
+            "id",
+            String(
+                "00000000-0000-0000-0000-000000000128",
+            ),
+        ),
+        (
+            "type",
+            String(
+                "device_to_server",
+            ),
+        ),
+        (
+            "bytes",
+            LongInteger(
+                1024,
+            ),
+        ),
+        (
+            "totalBytes",
+            LongInteger(
+                4096,
+            ),
+        ),
+    ],
+}
