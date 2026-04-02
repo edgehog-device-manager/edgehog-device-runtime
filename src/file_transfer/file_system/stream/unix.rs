@@ -165,6 +165,7 @@ mod tests {
                 user_id: None,
                 group_id: None,
             },
+            compression: None,
         };
 
         let rx = mk.create_reader(&opt.id).await.unwrap();

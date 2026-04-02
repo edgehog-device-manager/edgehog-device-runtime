@@ -23,11 +23,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use eyre::WrapErr;
-use pin_project_lite::pin_project;
+use futures::StreamExt;
+use pin_project::pin_project;
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, AsyncSeek, AsyncWrite, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
+
+use crate::file_transfer::compression::tar_gz::TarGzReader;
+use crate::file_transfer::file_system::walk::Walk;
+use crate::file_transfer::request::Compression;
 
 use super::FileOptions;
 
@@ -45,6 +50,15 @@ impl FileStorage<Fs> {
 }
 
 impl<F> FileStorage<F> {
+    #[instrument(skip_all)]
+    pub(crate) async fn init(&self) -> eyre::Result<()> {
+        tokio::fs::create_dir_all(&self.dir)
+            .await
+            .wrap_err("couldn't create file storage directory")?;
+
+        Ok(())
+    }
+
     fn file_path(&self, id: &Uuid) -> PathBuf {
         self.dir.join(id.to_string())
     }
@@ -65,6 +79,17 @@ impl<F> FileStorage<F> {
         tokio::fs::try_exists(&path)
             .await
             .wrap_err_with(|| format!("couldn't access file: {}", path.display()))
+    }
+
+    #[instrument(skip(self))]
+    pub(crate) async fn walk(&self, id: &Uuid) -> Option<(Walk, PathBuf)> {
+        let path = self.file_path(id);
+
+        path.exists().then(|| {
+            let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
+
+            (Walk::new(path), parent)
+        })
     }
 
     #[instrument(skip(self))]
@@ -151,6 +176,18 @@ impl<F> FileStorage<F> {
             .await
             .wrap_err("couldn't fsync the file")?;
 
+        if let Some(comp) = opt.compression {
+            self.extract(handle, comp).await?;
+        } else {
+            self.move_part(handle, opt).await?;
+        }
+
+        self.fs.finalize(opt.id).await?;
+
+        Ok(())
+    }
+
+    async fn move_part(&self, handle: WriteHandle, opt: &FileOptions) -> eyre::Result<()> {
         let from = self.partial_file_path(&handle.id);
         let to = self.file_path(&handle.id);
 
@@ -160,35 +197,67 @@ impl<F> FileStorage<F> {
 
         info!("file stored");
 
-        #[cfg(unix)]
-        {
-            let gid = opt.perm.group_id;
+        cfg_if::cfg_if! {
+            if #[cfg(unix)] {
+                let gid = opt.perm.group_id;
 
-            tokio::task::spawn_blocking(move || {
-                if let Err(error) = std::os::unix::fs::chown(to, None, gid) {
-                    use tracing::error;
+                tokio::task::spawn_blocking(move || {
+                    if let Err(error) = std::os::unix::fs::chown(to, None, gid) {
+                        use tracing::error;
 
-                    error!(%error, "couldn't change file ownership, this could be because the user is unprivileged and doesn't belongs to the target group");
-                }
-            })
-            .await?;
+                        error!(%error, "couldn't change file ownership, this could be because the user is unprivileged and doesn't belongs to the target group");
+                    }
+                })
+                .await?;
+            } else {
+                let _ = opt;
+            }
         }
 
-        self.fs.finalize(opt.id).await?;
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn extract(&self, mut handle: WriteHandle, compression: Compression) -> eyre::Result<()> {
+        handle.seek(io::SeekFrom::Start(0)).await?;
+
+        let out = self.file_path(&handle.id);
+        tokio::fs::create_dir_all(&out)
+            .await
+            .wrap_err("couldn't create output directory")?;
+
+        match compression {
+            Compression::TarGz => {
+                let mut extract = TarGzReader::create(BufReader::new(handle.file))?;
+
+                while let Some(item) = extract.next().await {
+                    let mut item = item?;
+
+                    item.unpack_in(&out)
+                        .await
+                        .wrap_err("couldn't unpack entry")?;
+                }
+            }
+        }
+
+        info!("file extracted");
+
+        tokio::fs::remove_file(self.partial_file_path(&handle.id))
+            .await
+            .wrap_err("couldn't remove the partial file")?;
 
         Ok(())
     }
 }
 
-pin_project! {
-    #[derive(Debug)]
-    pub(crate) struct WriteHandle {
-        id: Uuid,
-        current_size: u64,
-        // TODO limit the size of the file
-        #[pin]
-        file: tokio::fs::File,
-    }
+#[derive(Debug)]
+#[pin_project]
+pub(crate) struct WriteHandle {
+    id: Uuid,
+    current_size: u64,
+    // TODO limit the size of the file
+    #[pin]
+    file: tokio::fs::File,
 }
 
 impl WriteHandle {
@@ -253,13 +322,12 @@ impl AsyncSeek for WriteHandle {
     }
 }
 
-pin_project! {
-    #[derive(Debug)]
-    pub(crate) struct Limit<W> {
-        remaining: u64,
-        #[pin]
-        inner: W,
-    }
+#[derive(Debug)]
+#[pin_project]
+pub(crate) struct Limit<W> {
+    remaining: u64,
+    #[pin]
+    inner: W,
 }
 
 impl<W> Limit<W> {
@@ -419,6 +487,7 @@ mod tests {
                 user_id: None,
                 group_id: Some(100),
             },
+            compression: None,
         };
 
         let mut mock = MockSpace::new();
@@ -492,6 +561,7 @@ mod tests {
                 user_id: None,
                 group_id: Some(100),
             },
+            compression: None,
         };
         let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
 
@@ -545,6 +615,7 @@ mod tests {
                 user_id: None,
                 group_id: None,
             },
+            compression: None,
         };
 
         {

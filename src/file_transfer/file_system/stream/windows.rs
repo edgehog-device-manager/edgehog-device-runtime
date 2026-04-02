@@ -117,6 +117,7 @@ mod tests {
             id: Uuid::new_v4(),
             file_size: exp.len().try_into().unwrap(),
             file_digest: crate::file_transfer::request::FileDigest::Sha256,
+            compression: None,
         };
 
         let read = mk.create_reader(&opt.id);
