@@ -20,14 +20,14 @@ use std::fmt::Display;
 
 use astarte_device_sdk::{DeviceEvent, FromEvent, event::FromEventError};
 
-use crate::file_transfer::interface::FileTransferEvent;
+use crate::file_transfer::interface::request::FileTransferRequest;
 use crate::{commands::Commands, telemetry::event::TelemetryEvent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeEvent {
     Command(Commands),
     Telemetry(TelemetryEvent),
-    FileTransfer(FileTransferEvent),
+    FileTransfer(FileTransferRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     Ota(crate::ota::event::OtaRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -82,7 +82,7 @@ impl FromEvent for RuntimeEvent {
                 TelemetryEvent::from_event(event).map(RuntimeEvent::Telemetry)
             }
             interface if interface.starts_with("io.edgehog.devicemanager.fileTransfer") => {
-                FileTransferEvent::from_event(event).map(RuntimeEvent::FileTransfer)
+                FileTransferRequest::from_event(event).map(RuntimeEvent::FileTransfer)
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             "io.edgehog.devicemanager.LedBehavior" => {

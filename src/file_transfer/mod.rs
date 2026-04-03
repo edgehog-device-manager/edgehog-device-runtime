@@ -29,10 +29,12 @@ use tokio::io::AsyncSeekExt;
 use tokio::sync::Notify;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, error, info, instrument};
-use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
 use crate::file_transfer::file_system::store::Limit;
+use crate::file_transfer::interface::FileTransferId;
+use crate::file_transfer::interface::request::FileTransferRequest;
+use crate::file_transfer::interface::status::FileTransferResponse;
 use crate::http::FtHttpClient;
 use crate::jobs::Queue;
 
@@ -40,7 +42,6 @@ use self::compression::tar_gz::TarGzWriter;
 use self::file_system::FileOptions;
 use self::file_system::store::{FileStorage, Fs, Space};
 use self::file_system::stream::{Pipe, Streaming, SysPipe};
-use self::interface::FileTransferEvent;
 use self::request::download::Download;
 use self::request::upload::Upload;
 use self::request::{Request, Target};
@@ -51,19 +52,27 @@ pub(crate) mod interface;
 mod request;
 
 #[derive(Debug)]
-pub(crate) struct Receiver {
+pub(crate) struct Receiver<C> {
     queue: Queue,
     notify: Arc<Notify>,
+    device: C,
 }
 
-impl Receiver {
-    pub(crate) fn new(queue: Queue, notify: Arc<Notify>) -> Self {
-        Self { notify, queue }
+impl<C> Receiver<C> {
+    pub(crate) fn new(queue: Queue, notify: Arc<Notify>, device: C) -> Self {
+        Self {
+            notify,
+            queue,
+            device,
+        }
     }
 }
 
-impl Persisted for Receiver {
-    type Msg = FileTransferEvent;
+impl<C> Persisted for Receiver<C>
+where
+    C: astarte_device_sdk::Client + Send + Sync + 'static,
+{
+    type Msg = FileTransferRequest;
     type Event = Request;
 
     fn task() -> &'static str {
@@ -86,14 +95,14 @@ impl Persisted for Receiver {
     #[instrument(skip_all)]
     async fn validate_job(&mut self, msg: &Self::Msg) -> eyre::Result<Self::Event> {
         match msg {
-            FileTransferEvent::Download(server_to_device) => {
+            FileTransferRequest::Download(server_to_device) => {
                 let download = Download::try_from(server_to_device)?;
 
                 info!("file download received");
 
                 Ok(Request::Download(download))
             }
-            FileTransferEvent::Upload(device_to_server) => {
+            FileTransferRequest::Upload(device_to_server) => {
                 let upload = Upload::try_from(device_to_server)?;
 
                 info!("file upload received");
@@ -104,26 +113,37 @@ impl Persisted for Receiver {
     }
 
     #[instrument(skip_all)]
-    async fn fail_job(&mut self, _msg: &Self::Msg) {
-        unimplemented!("send error to Astarte")
+    async fn fail_job(&mut self, msg: &Self::Msg, report: eyre::Report) {
+        if let Err(e) = FileTransferResponse::validation_error(FileTransferId::from(msg), report)
+            .send(&mut self.device)
+            .await
+        {
+            error!(%e, "response send error")
+        }
     }
 
     #[instrument(skip_all)]
-    async fn handle_backpressure(&mut self, _job: &Self::Event) {
-        unimplemented!("send error to Astarte")
+    async fn handle_backpressure(&mut self, job: &Self::Event) {
+        if let Err(e) = FileTransferResponse::busy_error(FileTransferId::from(job))
+            .send(&mut self.device)
+            .await
+        {
+            error!(%e, "response send error")
+        }
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct FileTransfer<F, S> {
+pub(crate) struct FileTransfer<F, S, C> {
     queue: Queue,
     storage: FileStorage<F>,
     stream: Streaming<S>,
     client: FtHttpClient,
+    device: C,
 }
 
-impl FileTransfer<Fs, SysPipe> {
-    pub fn create(queue: Queue, dir: PathBuf) -> eyre::Result<Self> {
+impl<C> FileTransfer<Fs, SysPipe, C> {
+    pub fn create(queue: Queue, dir: PathBuf, device: C) -> eyre::Result<Self> {
         let client = FtHttpClient::create().wrap_err("can't construct file transfer client")?;
 
         Ok(Self {
@@ -131,17 +151,19 @@ impl FileTransfer<Fs, SysPipe> {
             storage: FileStorage::new(dir),
             stream: Streaming::new(),
             client,
+            device,
         })
     }
 }
 
-impl<F, S> FileTransfer<F, S> {
+impl<F, S, C> FileTransfer<F, S, C> {
     /// Starts the task to download the  files
     #[instrument(skip_all)]
     pub(crate) async fn run(mut self, notify: Arc<Notify>) -> eyre::Result<()>
     where
         F: Space,
         S: Pipe,
+        C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
         self.storage.init().await?;
 
@@ -161,6 +183,7 @@ impl<F, S> FileTransfer<F, S> {
     where
         F: Space,
         S: Pipe,
+        C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
         while let Some(job) = self
             .queue
@@ -181,8 +204,9 @@ impl<F, S> FileTransfer<F, S> {
     where
         F: Space,
         S: Pipe,
+        C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
-        let id = *job.id();
+        let id = FileTransferId::from(&job);
 
         match job {
             Request::Download(download) => {
@@ -193,7 +217,7 @@ impl<F, S> FileTransfer<F, S> {
             }
         }
 
-        self.job_done(&id).await?;
+        self.job_done(id).await?;
 
         Ok(())
     }
@@ -345,16 +369,25 @@ impl<F, S> FileTransfer<F, S> {
         Ok(())
     }
 
-    async fn job_done(&mut self, id: &Uuid) -> Result<(), eyre::Error> {
+    async fn job_done(&mut self, id: FileTransferId) -> Result<(), eyre::Error>
+    where
+        C: astarte_device_sdk::Client + Send + Sync + 'static,
+    {
         self.queue
-            .update(id, edgehog_store::models::job::status::JobStatus::Done)
+            .update(
+                id.uuid(),
+                edgehog_store::models::job::status::JobStatus::Done,
+            )
             .await
             .wrap_err("couldn't update job status")?;
 
-        // TODO send to astarte
+        FileTransferResponse::success(id)
+            .send(&mut self.device)
+            .await
+            .wrap_err("couldn't send response to astarte")?;
 
         self.queue
-            .delete(id)
+            .delete(id.uuid())
             .await
             .wrap_err("couldn't clean up job")?;
         Ok(())
@@ -366,12 +399,17 @@ mod tests {
     use std::iter;
     use std::time::Duration;
 
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk_mock::MockDeviceClient;
     use aws_lc_rs::digest;
     use edgehog_store::db::Handle;
     use httpmock::Method::PUT;
     use httpmock::Mock;
     use httpmock::{Method::GET, MockServer};
     use minicbor::bytes::ByteVec;
+    use mockall::Sequence;
+    use mockall::predicate::{always, eq};
     use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
     use rstest::rstest;
     use tempdir::TempDir;
@@ -380,7 +418,13 @@ mod tests {
     use super::request::{FileDigest, FilePermissions};
     use super::*;
 
-    async fn mk_transfer(prefix: &str) -> (FileTransfer<Fs, SysPipe>, TempDir) {
+    async fn mk_transfer(
+        prefix: &str,
+        client: MockDeviceClient<Mqtt<SqliteStore>>,
+    ) -> (
+        FileTransfer<Fs, SysPipe, MockDeviceClient<Mqtt<SqliteStore>>>,
+        TempDir,
+    ) {
         let dir = TempDir::new(prefix).unwrap();
 
         let db = Handle::open(dir.path().join("state.db")).await.unwrap();
@@ -388,7 +432,7 @@ mod tests {
         let queue = Queue::new(db);
 
         (
-            FileTransfer::create(queue, dir.path().to_path_buf()).unwrap(),
+            FileTransfer::create(queue, dir.path().to_path_buf(), client).unwrap(),
             dir,
         )
     }
@@ -603,7 +647,20 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_download_event = mk_download(&server).await;
 
-        let (mut transfer, dir) = mk_transfer("should_download").await;
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                always(),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        let (mut transfer, dir) = mk_transfer("should_download", device).await;
+
         let complete_file = dir.path().join(mock_download_event.req.id().to_string());
 
         transfer.handle(mock_download_event.req).await.unwrap();
@@ -621,7 +678,20 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_download_event = mk_download_part(&server).await;
 
-        let (mut transfer, dir) = mk_transfer("download").await;
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                always(),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        let (mut transfer, dir) = mk_transfer("download", device).await;
+
         let partial_file = dir
             .path()
             .join(format!("{}.part", mock_download_event.req.id()));
@@ -647,7 +717,19 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_download_event = mk_download_not_satisfied(&server).await;
 
-        let (mut transfer, dir) = mk_transfer("download_full_unsatisfiable").await;
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                always(),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        let (mut transfer, dir) = mk_transfer("download_full_unsatisfiable", device).await;
         let partial_file = dir
             .path()
             .join(format!("{}.part", mock_download_event.req.id()));
@@ -678,7 +760,19 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_upload_event = mk_upload(&server).await;
 
-        let (mut transfer, dir) = mk_transfer("upload").await;
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                always(),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        let (mut transfer, dir) = mk_transfer("upload", device).await;
 
         tokio::fs::write(
             dir.path().join(mock_upload_event.req.id().to_string()),
@@ -698,7 +792,19 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_download_event = mk_download(&server).await;
 
-        let (mut transfer, dir) = mk_transfer("update_job").await;
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                always(),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        let (mut transfer, dir) = mk_transfer("update_job", device).await;
         let complete_file = dir.path().join(mock_download_event.req.id().to_string());
 
         transfer
