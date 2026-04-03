@@ -58,17 +58,17 @@ impl TryFrom<&DeviceToServer> for Upload {
         let DeviceToServer {
             id,
             url,
-            http_header_key,
-            http_header_value,
+            http_header_keys,
+            http_header_values,
             compression,
             progress,
             source_type,
             source,
         } = value;
 
-        let headers = http_header_key
+        let headers = http_header_keys
             .iter()
-            .zip(http_header_value)
+            .zip(http_header_values)
             .map(|(k, v)| -> eyre::Result<(HeaderName, HeaderValue)> {
                 let k = HeaderName::try_from(k)?;
                 let mut v = HeaderValue::try_from(v)?;
