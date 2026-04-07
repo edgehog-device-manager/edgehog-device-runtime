@@ -20,12 +20,12 @@ use std::{path::Path, time::Duration};
 
 use astarte_device_sdk::{Client, FromEvent};
 use edgehog_containers::{
+    Docker,
     events::RuntimeListener,
     requests::ContainerRequest,
-    service::{events::ServiceHandle, Service},
+    service::{Service, events::ServiceHandle},
     stats::StatsMonitor,
     store::StateStore,
-    Docker,
 };
 use edgehog_store::db::Handle;
 use eyre::bail;

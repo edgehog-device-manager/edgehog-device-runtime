@@ -19,18 +19,18 @@
 use std::env::VarError;
 
 use astarte_device_sdk::{
+    DeviceClient, EventLoop,
     builder::DeviceBuilder,
     rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
     store::SqliteStore,
     transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig},
-    DeviceClient, EventLoop,
 };
 use clap::Parser;
 use cli::AstarteConfig;
-use eyre::{eyre, WrapErr};
+use eyre::{WrapErr, eyre};
 use receive::receive;
 use tokio::task::JoinSet;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use self::cli::Cli;
 use self::send::ApiClient;

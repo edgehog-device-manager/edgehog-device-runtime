@@ -37,7 +37,7 @@ edgehog-proto.workspace = true
 edgehog-store.workspace = true
 eyre.workspace = true
 serde.workspace = true
-tokio = { workspace = true, features = ["net"] }
+tokio = { workspace = true, features = ["net", "fs"] }
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util.workspace = true
 tracing.workspace = true

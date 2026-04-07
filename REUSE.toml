@@ -23,7 +23,13 @@ SPDX-PackageDownloadLocation = "https://github.com/edgehog-device-manager/edgeho
 [[annotations]]
 path = ["e2e-test-containers/assets/*.json"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2024 - 2025 SECO Mind Srl"
+SPDX-FileCopyrightText = "2024 - 2026 SECO Mind Srl"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ["edgehog-device-runtime-store/migrations/**/*.sql"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 - 2026 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]

@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -141,6 +141,12 @@ impl StateStore {
 
         self.handle
             .for_write(move |writer| {
+                if Container::exists(&container_id).get_result(writer)? {
+                    debug!("container already exists");
+
+                    return Ok(());
+                }
+
                 let image_exists: bool = Image::exists(&image_id).get_result(writer)?;
 
                 if !image_exists {
@@ -772,14 +778,33 @@ fn container_port_bindings_try_from_vec(
     container_id: &SqlUuid,
     value: Vec<String>,
 ) -> std::result::Result<Vec<ContainerPortBind>, BindingError> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+
     value
         .iter()
         .map(|s| {
-            parse_port_binding(s).map(|bind| ContainerPortBind {
-                container_id: *container_id,
-                port: bind.id(),
-                host_ip: bind.host.host_ip.map(str::to_string),
-                host_port: bind.host.host_port.map(HostPort),
+            parse_port_binding(s).and_then(|bind| {
+                let port = bind.id();
+
+                let entry = counts.entry(port.clone()).or_default();
+
+                let idx = i64::try_from(*entry).map_err(|error| {
+                    tracing::error!(idx = entry, %error, "couldn't convert the index");
+
+                    BindingError::Idx
+                })?;
+
+                let port = ContainerPortBind {
+                    container_id: *container_id,
+                    idx,
+                    port: bind.id(),
+                    host_ip: bind.host.host_ip.map(str::to_string),
+                    host_port: bind.host.host_port.map(HostPort),
+                };
+
+                *entry += 1;
+
+                Ok(port)
             })
         })
         .try_collect()
@@ -1004,6 +1029,7 @@ mod tests {
         let exp = vec![ContainerPortBind {
             container_id: SqlUuid::new(container_id),
             port: "5432/tcp".to_string(),
+            idx: 0,
             host_ip: None,
             host_port: Some(HostPort(5432)),
         }];

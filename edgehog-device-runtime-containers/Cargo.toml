@@ -61,10 +61,10 @@ uuid = { workspace = true, features = ["v7"] }
 [features]
 # Used for mocking the container connection
 __mock = [
-    "dep:mockall",
-    "dep:hyper",
-    "dep:http-body",
-    "dep:http-body-util",
+  "dep:mockall",
+  "dep:hyper",
+  "dep:http-body",
+  "dep:http-body-util",
 ]
 # Required for libsqlite3 on ubuntu 24.04 seg faulting with multi join queries
 # See: https://bugs.launchpad.net/ubuntu/+source/sqlite3/+bug/2087772
