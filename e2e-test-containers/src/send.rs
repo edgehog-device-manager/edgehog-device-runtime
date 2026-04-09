@@ -20,11 +20,11 @@ use std::fmt::Debug;
 use std::path::Path;
 
 use color_eyre::{
-    eyre::{eyre, WrapErr},
-    owo_colors::OwoColorize,
     Section, SectionExt,
+    eyre::{WrapErr, eyre},
+    owo_colors::OwoColorize,
 };
-use reqwest::{header, Url};
+use reqwest::{Url, header};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 

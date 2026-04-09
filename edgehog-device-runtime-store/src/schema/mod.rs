@@ -18,6 +18,7 @@
 
 //! Database schema definitions
 
+#[allow(missing_docs)]
 #[cfg(feature = "containers")]
 #[expect(missing_docs)]
 pub mod containers;

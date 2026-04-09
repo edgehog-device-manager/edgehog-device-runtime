@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -417,6 +417,8 @@ pub struct ContainerPortBind {
     pub container_id: SqlUuid,
     /// Container port and optionally protocol
     pub port: String,
+    /// Index o the array of host ip and port for the container port
+    pub idx: i64,
     /// Host IP to map the port to
     pub host_ip: Option<String>,
     /// Host port to map the port to
