@@ -25,7 +25,7 @@ use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use url::Url;
 use uuid::Uuid;
 
-use super::{Compression, JobTag, Target};
+use super::{Encoding, JobTag, Target};
 use crate::file_transfer::interface::DeviceToServer;
 use crate::jobs::derive;
 
@@ -40,7 +40,7 @@ pub(crate) struct Upload {
     #[n(2)]
     pub(crate) progress: bool,
     #[n(3)]
-    pub(crate) compression: Option<Compression>,
+    pub(crate) encoding: Option<Encoding>,
     #[n(4)]
     pub(crate) source_type: Target,
     #[n(5)]
@@ -60,7 +60,7 @@ impl TryFrom<&DeviceToServer> for Upload {
             url,
             http_header_keys,
             http_header_values,
-            compression,
+            encoding: compression,
             progress,
             source_type,
             source,
@@ -89,7 +89,7 @@ impl TryFrom<&DeviceToServer> for Upload {
             id: id.parse()?,
             url: url.parse()?,
             headers,
-            compression,
+            encoding: compression,
             progress: *progress,
             source_type: source_type.parse()?,
             source: source.clone(),
@@ -158,7 +158,7 @@ pub(crate) mod tests {
                     "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==",
                 ),
             )]),
-            compression: Some(Compression::TarGz),
+            encoding: Some(Encoding::TarGz),
             progress: true,
             source_type: Target::Storage,
             source: String::new(),

@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 use crate::file_transfer::compression::tar_gz::TarGzReader;
 use crate::file_transfer::file_system::walk::Walk;
-use crate::file_transfer::request::Compression;
+use crate::file_transfer::request::Encoding;
 
 use super::FileOptions;
 
@@ -218,7 +218,7 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip_all)]
-    async fn extract(&self, mut handle: WriteHandle, compression: Compression) -> eyre::Result<()> {
+    async fn extract(&self, mut handle: WriteHandle, compression: Encoding) -> eyre::Result<()> {
         handle.seek(io::SeekFrom::Start(0)).await?;
 
         let out = self.file_path(&handle.id);
@@ -227,7 +227,7 @@ impl<F> FileStorage<F> {
             .wrap_err("couldn't create output directory")?;
 
         match compression {
-            Compression::TarGz => {
+            Encoding::TarGz => {
                 let mut extract = TarGzReader::create(BufReader::new(handle.file))?;
 
                 while let Some(item) = extract.next().await {
