@@ -1,5 +1,5 @@
 ---
-source: src/file_transfer/interface.rs
+source: src/file_transfer/interface/mod.rs
 expression: data
 ---
 AstarteObject {
@@ -33,7 +33,7 @@ AstarteObject {
             ),
         ),
         (
-            "compression",
+            "encoding",
             String(
                 "tar.gz",
             ),

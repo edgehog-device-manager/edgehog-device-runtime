@@ -42,6 +42,7 @@ use self::compression::tar_gz::TarGzWriter;
 use self::file_system::FileOptions;
 use self::file_system::store::{FileStorage, Fs, Space};
 use self::file_system::stream::{Pipe, Streaming, SysPipe};
+use self::interface::capabilities::CAPABILITIES;
 use self::request::download::Download;
 use self::request::upload::Upload;
 use self::request::{Request, Target};
@@ -89,6 +90,8 @@ where
 
     #[instrument(skip_all)]
     async fn init(&mut self) -> eyre::Result<()> {
+        CAPABILITIES.send(&mut self.device).await;
+
         Ok(())
     }
 
@@ -241,7 +244,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     {
         match req.source_type {
             Target::Storage => {
-                if let Some(compression) = req.compression {
+                if let Some(compression) = req.encoding {
                     let (rx, tx) = tokio::io::simplex(8 * 1024);
 
                     let (mut walk, base_path) = self
@@ -251,7 +254,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                         .ok_or_eyre("file doesn't exists")?;
 
                     match compression {
-                        request::Compression::TarGz => {
+                        request::Encoding::TarGz => {
                             tokio::task::spawn(async move {
                                 let mut writer = TarGzWriter::new(tx);
 
@@ -313,7 +316,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let (mut file, mut digest) = self.storage.create_write_handle(&opt).await?;
 
-        let total_len = download.compression.is_none().then_some(download.file_size);
+        let total_len = download.encoding.is_none().then_some(download.file_size);
 
         let mut file_resp = self
             .client
@@ -350,7 +353,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let (mut file, mut digest) = self.stream.open_writer(&opt).await?;
 
-        let total_len = download.compression.is_none().then_some(download.file_size);
+        let total_len = download.encoding.is_none().then_some(download.file_size);
 
         let mut file_resp = self
             .client
@@ -450,7 +453,7 @@ mod tests {
             digest_type: FileDigest::Sha256,
             digest: ByteVec::from(digest.as_ref().to_vec()),
             ttl: Some(Duration::from_secs(60)),
-            compression: None,
+            encoding: None,
             file_size: content.len().try_into().unwrap(),
             permission: FilePermissions::default(),
             destination_type: Target::Storage,
@@ -611,7 +614,7 @@ mod tests {
             url: url.parse().unwrap(),
             headers,
             progress: true,
-            compression: None,
+            encoding: None,
             source_type: Target::Storage,
             source: String::new(),
         })

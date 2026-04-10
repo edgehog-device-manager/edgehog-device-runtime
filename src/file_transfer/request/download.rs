@@ -30,7 +30,7 @@ use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use url::Url;
 use uuid::Uuid;
 
-use super::{Compression, FileDigest, FileOptions, FilePermissions, Target, conv_or_default};
+use super::{Encoding, FileDigest, FileOptions, FilePermissions, Target, conv_or_default};
 use crate::file_transfer::interface::ServerToDevice;
 use crate::file_transfer::request::JobTag;
 use crate::jobs::derive;
@@ -52,7 +52,7 @@ pub(crate) struct Download {
     #[cbor(n(5), with = "derive::as_secs_opt")]
     pub(crate) ttl: Option<Duration>,
     #[n(6)]
-    pub(crate) compression: Option<Compression>,
+    pub(crate) encoding: Option<Encoding>,
     #[n(7)]
     pub(crate) file_size: u64,
     #[n(8)]
@@ -75,7 +75,7 @@ impl From<&Download> for FileOptions {
             file_digest: value.digest_type,
             #[cfg(unix)]
             perm: value.permission,
-            compression: value.compression,
+            compression: value.encoding,
         }
     }
 }
@@ -89,7 +89,7 @@ impl TryFrom<&ServerToDevice> for Download {
             url,
             http_header_keys,
             http_header_values,
-            compression,
+            encoding: compression,
             file_size_bytes,
             progress,
             digest,
@@ -140,7 +140,7 @@ impl TryFrom<&ServerToDevice> for Download {
             id: id.parse()?,
             url: url.parse()?,
             headers,
-            compression,
+            encoding: compression,
             file_size,
             progress: *progress,
             digest_type: digest_type.parse()?,
@@ -218,7 +218,7 @@ mod tests {
                 ),
             )]),
             file_size: 4096,
-            compression: Some(Compression::TarGz),
+            encoding: Some(Encoding::TarGz),
             progress: true,
             digest_type: FileDigest::Sha256,
             digest: hex::decode("28babb1cdf8aea6b62acc1097fdc83482cbf6e11c4fe7dcb39ae1682776baec5")

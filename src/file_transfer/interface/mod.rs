@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 use crate::file_transfer::{self, interface::request::FileTransferRequest};
 
+pub(crate) mod capabilities;
 pub(crate) mod request;
 pub(crate) mod status;
 
@@ -110,7 +111,7 @@ pub(crate) struct ServerToDevice {
     pub(crate) url: String,
     pub(crate) http_header_keys: Vec<String>,
     pub(crate) http_header_values: Vec<String>,
-    pub(crate) compression: String,
+    pub(crate) encoding: String,
     pub(crate) file_size_bytes: i64,
     pub(crate) progress: bool,
     pub(crate) digest: String,
@@ -135,7 +136,7 @@ pub(crate) struct DeviceToServer {
     pub(crate) url: String,
     pub(crate) http_header_keys: Vec<String>,
     pub(crate) http_header_values: Vec<String>,
-    pub(crate) compression: String,
+    pub(crate) encoding: String,
     pub(crate) progress: bool,
     pub(crate) source_type: String,
     pub(crate) source: String,
@@ -177,7 +178,7 @@ pub(crate) mod tests {
             url: "https://s3.example.com".to_string(),
             http_header_keys: vec!["authorization".to_string()],
             http_header_values: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
-            compression: "tar.gz".to_string(),
+            encoding: "tar.gz".to_string(),
             file_size_bytes: 4096,
             progress: true,
             digest: "sha256:28babb1cdf8aea6b62acc1097fdc83482cbf6e11c4fe7dcb39ae1682776baec5".to_string(),
@@ -197,7 +198,7 @@ pub(crate) mod tests {
             url: "https://s3.example.com".to_string(),
             http_header_keys: vec!["authorization".to_string()],
             http_header_values: vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()],
-            compression: "tar.gz".to_string(),
+            encoding: "tar.gz".to_string(),
             progress: true,
             source_type: "storage".to_string(),
             source: String::new(),

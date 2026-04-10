@@ -22,6 +22,8 @@ use edgehog_store::models::job::Job;
 use eyre::{Context, bail, eyre};
 use uuid::Uuid;
 
+use crate::file_transfer::interface::capabilities::{STORAGE_TARGET, STREAMING_TARGET, TAR_GZ};
+
 use self::download::Download;
 use self::upload::Upload;
 
@@ -113,8 +115,8 @@ impl FromStr for Target {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "storage" => Ok(Target::Storage),
-            "stream" => Ok(Target::Stream),
+            STORAGE_TARGET => Ok(Target::Storage),
+            STREAMING_TARGET => Ok(Target::Stream),
             _ => Err(eyre!("unrecognize file transfer target: {s}")),
         }
     }
@@ -123,23 +125,23 @@ impl FromStr for Target {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
 #[cbor(index_only)]
 #[repr(u8)]
-pub(crate) enum Compression {
+pub(crate) enum Encoding {
     #[n(0)]
     TarGz = 0,
 }
 
-impl From<Compression> for u8 {
-    fn from(value: Compression) -> Self {
+impl From<Encoding> for u8 {
+    fn from(value: Encoding) -> Self {
         value as u8
     }
 }
 
-impl FromStr for Compression {
+impl FromStr for Encoding {
     type Err = eyre::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "tar.gz" => Ok(Compression::TarGz),
+            TAR_GZ => Ok(Encoding::TarGz),
             _ => Err(eyre!("unrecognize compression format: {s}")),
         }
     }
@@ -221,16 +223,49 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use rstest::{Context, rstest};
 
     use super::*;
+    use crate::tests::{Hexdump, with_insta};
 
     #[rstest]
     #[case("storage", Target::Storage)]
-    #[case("stream", Target::Stream)]
-    fn targets_from_str(#[case] input: &str, #[case] exp: Target) {
+    #[case("streaming", Target::Stream)]
+    fn targets_roundtrip(#[context] ctx: Context, #[case] input: &str, #[case] exp: Target) {
         let res: Target = input.parse().unwrap();
 
         assert_eq!(res, exp);
+
+        let buf = minicbor::to_vec(res).unwrap();
+
+        let res: Target = minicbor::decode(&buf).unwrap();
+
+        assert_eq!(res, exp);
+
+        with_insta!({
+            let name = ctx.case.unwrap().to_string();
+
+            insta::assert_snapshot!(name, Hexdump(buf));
+        });
+    }
+
+    #[rstest]
+    #[case("tar.gz", Encoding::TarGz)]
+    fn encoding_roundtrip(#[context] ctx: Context, #[case] input: &str, #[case] exp: Encoding) {
+        let res: Encoding = input.parse().unwrap();
+
+        assert_eq!(res, exp);
+
+        let buf = minicbor::to_vec(res).unwrap();
+
+        let res: Encoding = minicbor::decode(&buf).unwrap();
+
+        assert_eq!(res, exp);
+
+        with_insta!({
+            let name = ctx.case.unwrap().to_string();
+
+            insta::assert_snapshot!(name, Hexdump(buf));
+        });
     }
 }

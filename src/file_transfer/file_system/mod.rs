@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 #[cfg(unix)]
 use super::request::FilePermissions;
-use super::request::{Compression, FileDigest};
+use super::request::{Encoding, FileDigest};
 
 pub(super) mod store;
 pub(super) mod stream;
@@ -33,5 +33,5 @@ pub(crate) struct FileOptions {
     pub(super) file_digest: FileDigest,
     #[cfg(unix)]
     pub(super) perm: FilePermissions,
-    pub(super) compression: Option<Compression>,
+    pub(super) compression: Option<Encoding>,
 }
