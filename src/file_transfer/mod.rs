@@ -29,6 +29,7 @@ use tokio::io::AsyncSeekExt;
 use tokio::sync::Notify;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, error, info, instrument};
+use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
 use crate::file_transfer::file_system::store::Limit;
@@ -244,16 +245,18 @@ impl<F, S, C> FileTransfer<F, S, C> {
     {
         match req.source_type {
             Target::Storage => {
-                if let Some(compression) = req.encoding {
+                let id = Uuid::parse_str(&req.source)?;
+
+                if let Some(encoding) = req.encoding {
                     let (rx, tx) = tokio::io::simplex(8 * 1024);
 
                     let (mut walk, base_path) = self
                         .storage
-                        .walk(&req.id)
+                        .walk(&id)
                         .await
                         .ok_or_eyre("file doesn't exists")?;
 
-                    match compression {
+                    match encoding {
                         request::Encoding::TarGz => {
                             tokio::task::spawn(async move {
                                 let mut writer = TarGzWriter::new(tx);
@@ -275,7 +278,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                         }
                     }
                 } else {
-                    let file = self.storage.open_read(&req.id).await?;
+                    let file = self.storage.open_read(&id).await?;
 
                     let body_stream = ReaderStream::new(file);
 
@@ -288,7 +291,9 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 Ok(())
             }
             Target::Stream => {
-                let file = self.stream.create_reader(&req.id).await?;
+                let id = Uuid::parse_str(&req.source)?;
+
+                let file = self.stream.create_reader(&id).await?;
 
                 let body_stream = ReaderStream::new(file);
 
@@ -616,7 +621,7 @@ mod tests {
             progress: true,
             encoding: None,
             source_type: Target::Storage,
-            source: String::new(),
+            source: Uuid::new_v4().to_string(),
         })
     }
 
@@ -777,12 +782,12 @@ mod tests {
             .returning(|_, _, _| Ok(()));
         let (mut transfer, dir) = mk_transfer("upload", device).await;
 
-        tokio::fs::write(
-            dir.path().join(mock_upload_event.req.id().to_string()),
-            mock_upload_event.content,
-        )
-        .await
-        .unwrap();
+        let Request::Upload(Upload { source, .. }) = &mock_upload_event.req else {
+            unreachable!()
+        };
+        tokio::fs::write(dir.path().join(source), mock_upload_event.content)
+            .await
+            .unwrap();
 
         transfer.handle(mock_upload_event.req).await.unwrap();
 
