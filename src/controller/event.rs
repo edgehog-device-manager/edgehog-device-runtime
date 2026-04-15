@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,14 +20,14 @@ use std::fmt::Display;
 
 use astarte_device_sdk::{DeviceEvent, FromEvent, event::FromEventError};
 
-use crate::file_transfer::interface::request::FileTransferRequest;
 use crate::{commands::Commands, telemetry::event::TelemetryEvent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeEvent {
     Command(Commands),
     Telemetry(TelemetryEvent),
-    FileTransfer(FileTransferRequest),
+    #[cfg(feature = "file-transfer")]
+    FileTransfer(crate::file_transfer::interface::request::FileTransferRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     Ota(crate::ota::event::OtaRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -47,6 +47,7 @@ impl Display for RuntimeEvent {
             RuntimeEvent::Telemetry(_telemetry_event) => {
                 write!(f, "Telemetry")
             }
+            #[cfg(feature = "file-transfer")]
             RuntimeEvent::FileTransfer(_file_transfer_event) => {
                 write!(f, "FileTransfer")
             }
@@ -81,8 +82,10 @@ impl FromEvent for RuntimeEvent {
             "io.edgehog.devicemanager.config.Telemetry" => {
                 TelemetryEvent::from_event(event).map(RuntimeEvent::Telemetry)
             }
+            #[cfg(feature = "file-transfer")]
             interface if interface.starts_with("io.edgehog.devicemanager.fileTransfer") => {
-                FileTransferRequest::from_event(event).map(RuntimeEvent::FileTransfer)
+                crate::file_transfer::interface::request::FileTransferRequest::from_event(event)
+                    .map(RuntimeEvent::FileTransfer)
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             "io.edgehog.devicemanager.LedBehavior" => {

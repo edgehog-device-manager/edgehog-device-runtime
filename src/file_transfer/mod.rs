@@ -34,13 +34,13 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
+use crate::file_transfer::http::FtHttpClient;
 use crate::file_transfer::interface::request::FileTransferRequest;
-use crate::file_transfer::interface::status::{FileTransferProgress, FileTransferResponse};
-use crate::http::FtHttpClient;
-use crate::io::digest::Digest;
+use crate::file_transfer::interface::status::FileTransferProgress;
 use crate::io::limit::Limit;
 use crate::io::progress::{Progress, ProgressHandle};
 use crate::jobs::Queue;
+use crate::{file_transfer::interface::status::FileTransferResponse, io::digest::Digest};
 
 use self::encoding::Paths;
 use self::encoding::tar_gz::TarGzBuilder;
@@ -55,6 +55,7 @@ use self::request::{Encoding, JobTag, Request};
 
 mod encoding;
 pub(crate) mod file_system;
+pub(crate) mod http;
 pub(crate) mod interface;
 pub(crate) mod request;
 

@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ pub fn config() -> Result<ClientConfig, Error> {
         } else if #[cfg(feature = "webpki-roots")]{
             webpki(provider)
         } else {
-            _default(provider, roots)
+            _default(provider)
         }
     }
 }

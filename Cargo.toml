@@ -63,16 +63,19 @@ description.workspace = true
 
 [features]
 default = [
+  "file-transfer",
+  "platform-verifier",
   "udev",
   "wifiscanner",
   "zbus",
-  "platform-verifier",
 ]
 # Enable the container management service
 containers = [
   "dep:edgehog-containers",
   "edgehog-service?/containers",
 ]
+# Enable the file transfer feature
+file-transfer = []
 # Enable the forwarder service
 forwarder = ["dep:edgehog-forwarder"]
 # Enable connecting to astarte through the Message Hub
@@ -150,9 +153,6 @@ uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 walkdir.workspace = true
 wifiscanner = { workspace = true, optional = true }
 zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
-
-# C dependencies
-rusqlite = { workspace = true, optional = true }
 
 [dependencies.reqwest]
 workspace = true

@@ -18,12 +18,10 @@
 
 //! Trait to generalize one task on the runtime.
 
-use edgehog_store::models::job::Job;
 use eyre::Context;
-use tokio::sync::{Notify, mpsc};
-use tracing::{debug, error, instrument, trace};
-
-use crate::jobs::Queue;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, instrument, trace};
 
 pub trait Actor: Sized {
     type Msg: Send + 'static;
@@ -35,10 +33,14 @@ pub trait Actor: Sized {
     fn handle(&mut self, msg: Self::Msg) -> impl Future<Output = eyre::Result<()>> + Send;
 
     #[instrument(skip_all, fields(task = Self::task()))]
-    async fn run(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()> {
+    async fn run(
+        mut self,
+        mut channel: mpsc::Receiver<Self::Msg>,
+        cancel: CancellationToken,
+    ) -> eyre::Result<()> {
         self.init().await.wrap_err("init task failed")?;
 
-        while let Some(msg) = channel.recv().await {
+        while let Some(msg) = cancel.run_until_cancelled(channel.recv()).await.flatten() {
             trace!("message received");
 
             self.handle(msg).await.wrap_err("handle failed")?;
@@ -51,6 +53,7 @@ pub trait Actor: Sized {
 }
 
 /// Persisted jobs for an actor
+#[cfg(feature = "file-transfer")]
 pub trait Persisted: Sized {
     type Msg: Send + 'static;
 
@@ -59,13 +62,16 @@ pub trait Persisted: Sized {
     fn init(&mut self) -> impl Future<Output = eyre::Result<()>> + Send;
 
     /// Queue struct
-    fn queue(&self) -> &Queue;
+    fn queue(&self) -> &crate::jobs::Queue;
 
     /// Notify to wake a worker thead
-    fn workers(&self) -> &Notify;
+    fn workers(&self) -> &tokio::sync::Notify;
 
     /// Validate a msg and converts it into a Job.
-    fn validate_job(&mut self, msg: &Self::Msg) -> impl Future<Output = eyre::Result<Job>> + Send;
+    fn validate_job(
+        &mut self,
+        msg: &Self::Msg,
+    ) -> impl Future<Output = eyre::Result<edgehog_store::models::job::Job>> + Send;
 
     /// Handles the case when a job cannot be queued
     fn fail_job(
@@ -84,7 +90,7 @@ pub trait Persisted: Sized {
         let job = match self.validate_job(&msg).await {
             Ok(job) => job,
             Err(error) => {
-                error!(%error, "couldn't queue the job");
+                tracing::error!(%error, "couldn't queue the job");
 
                 self.fail_job(&msg, error).await;
 
@@ -93,7 +99,7 @@ pub trait Persisted: Sized {
         };
 
         if let Err(error) = self.queue().insert_job(job).await {
-            error!(%error, "couldn't queue the job");
+            tracing::error!(%error, "couldn't queue the job");
 
             // TODO: time-out
             self.handle_backpressure(&msg).await;
@@ -107,10 +113,14 @@ pub trait Persisted: Sized {
     }
 
     #[instrument(skip_all, fields(task = Self::task()))]
-    async fn run(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()> {
+    async fn run(
+        mut self,
+        mut channel: mpsc::Receiver<Self::Msg>,
+        cancel: CancellationToken,
+    ) -> eyre::Result<()> {
         self.init().await.wrap_err("init failed")?;
 
-        while let Some(msg) = channel.recv().await {
+        while let Some(msg) = cancel.run_until_cancelled(channel.recv()).await.flatten() {
             trace!("message received");
 
             self.handle(msg).await;

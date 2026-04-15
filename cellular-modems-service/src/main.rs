@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,16 +18,14 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use zbus::{
-    interface,
-    zvariant::{DeserializeDict, SerializeDict, Type},
-};
+use zbus::{interface, zvariant::Type};
 
 pub const SERVICE_NAME: &str = "io.edgehog.CellularModems1";
 
-#[derive(Debug, Default, Clone, DeserializeDict, SerializeDict, Type)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, Type)]
 #[zvariant(signature = "dict")]
 struct ModemProperties {
     apn: String,
