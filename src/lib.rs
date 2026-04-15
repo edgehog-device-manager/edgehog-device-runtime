@@ -37,6 +37,7 @@ pub mod file_transfer;
 #[cfg(feature = "forwarder")]
 mod forwarder;
 mod http;
+pub(crate) mod io;
 mod jobs;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;

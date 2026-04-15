@@ -24,14 +24,14 @@ use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
 use edgehog_store::db::{Handle, HandleError};
 use eyre::{Context, Report};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, trace};
 
 use crate::commands::execute_command;
 use crate::file_transfer::interface::request::FileTransferRequest;
-use crate::file_transfer::{self, FileTransfer};
+use crate::file_transfer::{self, FileTransfer, ProgressTracker};
 use crate::jobs::Queue;
 use crate::telemetry::Telemetry;
 use crate::telemetry::event::TelemetryEvent;
@@ -125,6 +125,7 @@ impl<C> Runtime<C> {
             tasks,
             jobs,
             opts.store_directory.join("file-store"),
+            cancel.child_token(),
         )
         .wrap_err("could't initialize file transfer")?;
 
@@ -174,19 +175,24 @@ impl<C> Runtime<C> {
         tasks: &mut JoinSet<eyre::Result<()>>,
         jobs: Queue,
         store_dir: std::path::PathBuf,
+        cancel: CancellationToken,
     ) -> eyre::Result<mpsc::Sender<FileTransferRequest>>
     where
         C: Client + Send + Sync + 'static,
     {
-        let (tx, rx) = mpsc::channel(EVENT_BUFFER);
+        let (transfer_tx, transfer_rx) = mpsc::channel(EVENT_BUFFER);
         let notify = Arc::new(Notify::new());
 
-        tasks.spawn(
-            FileTransfer::create(jobs.clone(), store_dir, device.clone())?.run(Arc::clone(&notify)),
-        );
-        tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(rx));
+        let (progress_tx, progress_rx) = watch::channel(None);
 
-        Ok(tx)
+        tasks.spawn(ProgressTracker::create(device.clone()).run(progress_rx, cancel.clone()));
+        tasks.spawn(
+            FileTransfer::create(jobs.clone(), store_dir, device.clone(), progress_tx)?
+                .run(Arc::clone(&notify), cancel),
+        );
+        tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(transfer_rx));
+
+        Ok(transfer_tx)
     }
 
     #[cfg(feature = "containers")]

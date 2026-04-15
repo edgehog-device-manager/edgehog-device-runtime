@@ -1,0 +1,32 @@
+---
+source: src/file_transfer/interface/status.rs
+expression: data
+---
+AstarteObject {
+    inner: [
+        (
+            "id",
+            String(
+                "00000000-0000-0000-0000-000000000128",
+            ),
+        ),
+        (
+            "type",
+            String(
+                "server_to_device",
+            ),
+        ),
+        (
+            "code",
+            Integer(
+                22,
+            ),
+        ),
+        (
+            "message",
+            String(
+                "validation error encountered",
+            ),
+        ),
+    ],
+}
