@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +20,6 @@
 
 use std::{fmt::Debug, ops::RangeInclusive};
 
-use aws_lc_rs::digest;
 use bytes::Bytes;
 use eyre::{Context, OptionExt, eyre};
 use futures::TryStream;
@@ -329,11 +328,8 @@ impl FileDownloadResponse {
         self.response.chunk().await.wrap_err("failed to read chunk")
     }
 
-    pub(super) async fn write_chunks<W>(
-        &mut self,
-        mut writer: W,
-        digest: &mut digest::Context,
-    ) -> eyre::Result<()>
+    #[instrument(skip_all)]
+    pub(super) async fn write_chunks<W>(&mut self, mut writer: W) -> eyre::Result<()>
     where
         W: AsyncWrite + Unpin,
     {
@@ -344,8 +340,6 @@ impl FileDownloadResponse {
         {
             writer.write_all(&bytes).await?;
             writer.flush().await?;
-
-            digest.update(&bytes);
         }
 
         Ok(())
@@ -357,10 +351,6 @@ impl FileDownloadResponse {
 
     pub(crate) fn total_length(&self) -> Option<u64> {
         self.total_length
-    }
-
-    pub(crate) fn rem_len(&self) -> Option<u64> {
-        self.total_length.map(|tot| tot.saturating_sub(self.start))
     }
 }
 

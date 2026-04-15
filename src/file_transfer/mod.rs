@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,14 +18,13 @@
 
 //! Transfer files from and to the Device
 
-use std::io::{self, SeekFrom};
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use edgehog_store::models::job::job_type::JobType;
 use eyre::{Context, OptionExt};
 use futures::StreamExt;
-use tokio::io::AsyncSeekExt;
 use tokio::sync::{Notify, watch};
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
@@ -37,6 +36,7 @@ use crate::file_transfer::interface::FileTransferId;
 use crate::file_transfer::interface::request::FileTransferRequest;
 use crate::file_transfer::interface::status::{FileTransferProgress, FileTransferResponse};
 use crate::http::FtHttpClient;
+use crate::io::digest::Digest;
 use crate::io::limit::Limit;
 use crate::io::progress::{Progress, ProgressHandle};
 use crate::jobs::Queue;
@@ -53,7 +53,7 @@ use self::request::{Request, Target};
 mod compression;
 mod file_system;
 pub(crate) mod interface;
-mod request;
+pub(crate) mod request;
 
 #[derive(Debug)]
 pub(crate) struct Receiver<C> {
@@ -301,12 +301,13 @@ impl<F, S, C> FileTransfer<F, S, C> {
                                 Ok::<_, eyre::Report>(())
                             });
 
-                            let reader = if req.progress {
-                                ProgressUpdate::track(id, None, self.tracker.clone())
-                            } else {
-                                ProgressUpdate::no()
-                            }
-                            .wrap(reader);
+                            let reader = ProgressUpdate::track(
+                                reader,
+                                req.progress,
+                                id,
+                                None,
+                                &self.tracker,
+                            );
 
                             self.client
                                 .upload(&req.url, req.headers, ReaderStream::new(reader))
@@ -317,12 +318,13 @@ impl<F, S, C> FileTransfer<F, S, C> {
                     let reader = self.storage.open_read(&source).await?;
                     let file_size = reader.metadata().await?.len();
 
-                    let reader = if req.progress {
-                        ProgressUpdate::track(id, Some(file_size), self.tracker.clone())
-                    } else {
-                        ProgressUpdate::no()
-                    }
-                    .wrap(reader);
+                    let reader = ProgressUpdate::track(
+                        reader,
+                        req.progress,
+                        id,
+                        Some(file_size),
+                        &self.tracker,
+                    );
 
                     self.client
                         .upload(&req.url, req.headers, ReaderStream::new(reader))
@@ -335,12 +337,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 let file = req.id;
                 let reader = self.stream.create_reader(&file).await?;
 
-                let reader = if req.progress {
-                    ProgressUpdate::track(id, None, self.tracker.clone())
-                } else {
-                    ProgressUpdate::no()
-                }
-                .wrap(reader);
+                let reader = ProgressUpdate::track(reader, req.progress, id, None, &self.tracker);
 
                 self.client
                     .upload(&req.url, req.headers, ReaderStream::new(reader))
@@ -365,36 +362,32 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let opt = FileOptions::from(&download);
 
-        let (mut file, mut digest) = self.storage.create_write_handle(&opt).await?;
+        let file = self.storage.create_write_handle(&opt).await?;
 
-        let total_len = download.encoding.is_none().then_some(download.file_size);
+        let current_size = file.current_size();
+        let total_size = download.download_length();
 
         let mut file_resp = self
             .client
-            .download(
-                &download.url,
-                download.headers,
-                file.current_size(),
-                total_len,
-            )
+            .download(&download.url, download.headers, current_size, total_size)
             .await
             .wrap_err("download request error")?;
 
-        if file_resp.start() != file.current_size() {
-            file.seek(SeekFrom::Start(file_resp.start())).await?;
-        }
-
         // limit to maximum uncompressed file size
-        let limit = file_resp.total_length().unwrap_or(download.file_size);
-        let writer = Limit::new(limit, &mut file);
-        let mut writer = if download.progress {
-            ProgressUpdate::track(id, total_len, self.tracker.clone())
-        } else {
-            ProgressUpdate::no()
-        }
-        .wrap(writer);
+        let total = file_resp.total_length().unwrap_or(download.file_size);
 
-        file_resp.write_chunks(&mut writer, &mut digest).await?;
+        // The digest will read till the start position
+        let writer = Digest::from_read(file, download.digest_type, file_resp.start()).await?;
+        let writer = Limit::new(writer, total);
+        let mut writer =
+            ProgressUpdate::track(writer, download.progress, id, Some(total), &self.tracker);
+
+        file_resp.write_chunks(&mut writer).await?;
+
+        let file = writer
+            .into_inner()
+            .into_inner()
+            .into_inner(&download.digest)?;
 
         self.storage.finalize_write(file, &opt).await?;
 
@@ -409,9 +402,9 @@ impl<F, S, C> FileTransfer<F, S, C> {
         let id = FileTransferId::from(&download);
         let opt = FileOptions::from(&download);
 
-        let (mut file, mut digest) = self.stream.open_writer(&opt).await?;
+        let pipe = self.stream.open_writer(&opt).await?;
 
-        let total_len = download.encoding.is_none().then_some(download.file_size);
+        let total_len = download.download_length();
 
         let mut file_resp = self
             .client
@@ -419,19 +412,20 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .await
             .wrap_err("download request error")?;
 
+        let total = file_resp.total_length().unwrap_or(download.file_size);
+
         // limit to maximum uncompressed file size
-        let limit = file_resp.rem_len().unwrap_or(download.file_size);
-        let write = Limit::new(limit, &mut file);
-        let mut write = if download.progress {
-            ProgressUpdate::track(id, total_len, self.tracker.clone())
-        } else {
-            ProgressUpdate::no()
-        }
-        .wrap(write);
+        let writer = Digest::new(pipe, download.digest_type);
+        let writer = Limit::new(writer, total);
+        let mut writer =
+            ProgressUpdate::track(writer, download.progress, id, total_len, &self.tracker);
 
-        file_resp.write_chunks(&mut write, &mut digest).await?;
+        file_resp.write_chunks(&mut writer).await?;
 
-        // TODO: finalize the digest
+        writer
+            .into_inner()
+            .into_inner()
+            .into_inner(&download.digest)?;
 
         Ok(())
     }
@@ -506,47 +500,60 @@ impl<C> ProgressTracker<C> {
     }
 }
 
+type Watch = watch::Sender<Option<FileTransferProgress>>;
+
 #[derive(Debug)]
-struct ProgressUpdate(Option<watch::Sender<Option<FileTransferProgress>>>);
+struct ProgressUpdate {
+    tx: Option<Watch>,
+}
 
 impl ProgressUpdate {
-    fn track(
+    fn track<T>(
+        inner: T,
+        progress: bool,
         id: FileTransferId,
         total_len: Option<u64>,
-        sender: watch::Sender<Option<FileTransferProgress>>,
-    ) -> Self {
-        sender.send_modify(|p| *p = Some(FileTransferProgress::start(id, total_len)));
+        sender: &Watch,
+    ) -> Progress<T, Self> {
+        let this = if progress {
+            let start = FileTransferProgress::start(id, total_len);
 
-        Self(Some(sender))
-    }
+            sender.send_modify(|p| *p = Some(start));
 
-    fn no() -> Self {
-        Self(None)
-    }
+            Self {
+                tx: Some(sender.clone()),
+            }
+        } else {
+            Self { tx: None }
+        };
 
-    fn wrap<T>(self, inner: T) -> Progress<T, Self> {
-        Progress::new(inner, self)
+        Progress::new(inner, this)
     }
 }
 
 impl ProgressHandle for ProgressUpdate {
     fn update(&mut self, bytes: u64) -> io::Result<()> {
-        let Self(Some(sender)) = self else {
+        let Some(sender) = &self.tx else {
             return Ok(());
         };
 
-        let mut res = Ok(());
-
-        sender.send_modify(|old| {
+        let modified = sender.send_if_modified(|old| {
             if let Some(old) = old {
                 old.set_bytes(bytes);
+
+                true
             } else {
                 warn!("file transfer removed from channel");
-                res = Err(io::Error::from(io::ErrorKind::BrokenPipe));
+
+                false
             }
         });
 
-        res
+        if modified {
+            Ok(())
+        } else {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
     }
 }
 

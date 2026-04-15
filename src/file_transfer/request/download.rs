@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -65,6 +65,13 @@ pub(crate) struct Download {
 
 impl Download {
     const SERIALIZED_VERSION: i32 = 0;
+
+    // Returns the download file size.
+    //
+    // This will be none if compression is enabled since the file size is the uncompressed one.
+    pub(crate) fn download_length(&self) -> Option<u64> {
+        self.encoding.is_none().then_some(self.file_size)
+    }
 }
 
 impl From<&Download> for FileOptions {
@@ -72,7 +79,6 @@ impl From<&Download> for FileOptions {
         FileOptions {
             id: value.id,
             file_size: value.file_size,
-            file_digest: value.digest_type,
             #[cfg(unix)]
             perm: value.permission,
             compression: value.encoding,

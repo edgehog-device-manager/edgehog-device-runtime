@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +26,7 @@ use eyre::WrapErr;
 use futures::StreamExt;
 use pin_project::pin_project;
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
 
@@ -105,10 +105,7 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip_all, fields(id = %opt.id))]
-    pub(crate) async fn create_write_handle(
-        &self,
-        opt: &FileOptions,
-    ) -> eyre::Result<(WriteHandle, aws_lc_rs::digest::Context)>
+    pub(crate) async fn create_write_handle(&self, opt: &FileOptions) -> eyre::Result<WriteHandle>
     where
         F: Space,
     {
@@ -134,30 +131,13 @@ impl<F> FileStorage<F> {
 
         trace!(current_size, "reading existing content");
 
-        let mut reader = BufReader::new(file);
-        let mut digest = aws_lc_rs::digest::Context::from(opt.file_digest);
-
-        // Will seek to the end of the file
-        while let buf = reader.fill_buf().await?
-            && !buf.is_empty()
-        {
-            digest.update(buf);
-
-            let len = buf.len();
-
-            reader.consume(len);
-        }
-
         trace!("returning the handle");
 
-        Ok((
-            WriteHandle {
-                id: opt.id,
-                current_size,
-                file: reader.into_inner(),
-            },
-            digest,
-        ))
+        Ok(WriteHandle {
+            id: opt.id,
+            current_size,
+            file,
+        })
     }
 
     // TODO: validate the digest
@@ -187,6 +167,7 @@ impl<F> FileStorage<F> {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn move_part(&self, handle: WriteHandle, opt: &FileOptions) -> eyre::Result<()> {
         let from = self.partial_file_path(&handle.id);
         let to = self.file_path(&handle.id);
@@ -301,6 +282,18 @@ impl AsyncWrite for WriteHandle {
     }
 }
 
+impl AsyncRead for WriteHandle {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let this = self.project();
+
+        this.file.poll_read(cx, buf)
+    }
+}
+
 impl AsyncSeek for WriteHandle {
     fn start_seek(
         self: std::pin::Pin<&mut Self>,
@@ -366,7 +359,6 @@ mod tests {
     use tempdir::TempDir;
     use tokio::io::AsyncWriteExt;
 
-    use crate::file_transfer::request::FileDigest;
     #[cfg(unix)]
     use crate::file_transfer::request::FilePermissions;
 
@@ -406,13 +398,10 @@ mod tests {
         let id = Uuid::new_v4();
 
         let content = "Hello world";
-        let exp_digest =
-            aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, "Hello world".as_bytes());
 
         let opt = FileOptions {
             id,
             file_size: content.len().try_into().unwrap(),
-            file_digest: FileDigest::Sha256,
             #[cfg(unix)]
             perm: FilePermissions {
                 mode: Some(0o600),
@@ -442,12 +431,11 @@ mod tests {
 
         let (store, dir) = mock_fs_storage(mock);
 
-        let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
+        let mut write = store.create_write_handle(&opt).await.unwrap();
 
         assert_eq!(write.current_size(), 0);
 
         write.write_all(content.as_bytes()).await.unwrap();
-        digest.update(content.as_bytes());
 
         assert!(
             tokio::fs::try_exists(store.partial_file_path(&id))
@@ -456,10 +444,6 @@ mod tests {
         );
 
         store.finalize_write(write, &opt).await.unwrap();
-
-        let digest = digest.finish();
-
-        assert_eq!(digest.as_ref(), exp_digest.as_ref());
 
         let path = dir.path().join(id.to_string());
         let res = tokio::fs::read_to_string(&path).await.unwrap();
@@ -480,13 +464,10 @@ mod tests {
         let id = Uuid::new_v4();
 
         let content = "Hello world";
-        let exp_digest =
-            aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, "Hello world".as_bytes());
 
         let opt = FileOptions {
             id,
             file_size: content.len().try_into().unwrap(),
-            file_digest: FileDigest::Sha256,
             #[cfg(unix)]
             perm: FilePermissions {
                 mode: Some(0o600),
@@ -495,12 +476,11 @@ mod tests {
             },
             compression: None,
         };
-        let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
+        let mut write = store.create_write_handle(&opt).await.unwrap();
 
         assert_eq!(write.current_size, 0);
 
         write.write_all(content.as_bytes()).await.unwrap();
-        digest.update(content.as_bytes());
 
         assert!(
             tokio::fs::try_exists(store.partial_file_path(&id))
@@ -509,10 +489,6 @@ mod tests {
         );
 
         store.finalize_write(write, &opt).await.unwrap();
-
-        let digest = digest.finish();
-
-        assert_eq!(digest.as_ref(), exp_digest.as_ref());
 
         let path = dir.path().join(id.to_string());
         let res = tokio::fs::read_to_string(&path).await.unwrap();
@@ -533,14 +509,10 @@ mod tests {
         let id = Uuid::new_v4();
 
         let content = "Hello world";
-        let content_1 = "Hello";
-        let exp_digest =
-            aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, "Hello world".as_bytes());
 
         let opt = FileOptions {
             id,
             file_size: content.len().try_into().unwrap(),
-            file_digest: FileDigest::Sha256,
             #[cfg(unix)]
             perm: FilePermissions {
                 mode: Some(0o600),
@@ -551,20 +523,24 @@ mod tests {
         };
 
         {
-            let (mut write, _digest) = store.create_write_handle(&opt).await.unwrap();
+            let mut write = store.create_write_handle(&opt).await.unwrap();
 
-            write.write_all(content_1.as_bytes()).await.unwrap();
+            write.write_all(&content.as_bytes()[..5]).await.unwrap();
             write.flush().await.unwrap();
         }
 
         // Write rest
-        let (mut write, mut digest) = store.create_write_handle(&opt).await.unwrap();
+        let mut write = store.create_write_handle(&opt).await.unwrap();
 
-        assert_eq!(write.current_size, content_1.len() as u64);
+        assert_eq!(write.current_size, 5);
 
-        let remaining = &content.as_bytes()[(write.current_size as usize)..];
+        write
+            .seek(io::SeekFrom::Start(write.current_size))
+            .await
+            .unwrap();
+
+        let remaining = &content.as_bytes()[5..];
         write.write_all(remaining).await.unwrap();
-        digest.update(remaining);
 
         assert!(
             tokio::fs::try_exists(store.partial_file_path(&id))
@@ -573,10 +549,6 @@ mod tests {
         );
 
         store.finalize_write(write, &opt).await.unwrap();
-
-        let digest = digest.finish();
-
-        assert_eq!(digest.as_ref(), exp_digest.as_ref());
 
         let path = dir.path().join(id.to_string());
         let res = tokio::fs::read_to_string(&path).await.unwrap();
