@@ -39,7 +39,7 @@ use crate::file_transfer::interface::capabilities::{
     FILESYSTEM_TARGET, STORAGE_TARGET, STREAMING_TARGET,
 };
 use crate::file_transfer::interface::status::{FileTransferId, TransferDirection};
-use crate::file_transfer::request::JobTag;
+use crate::file_transfer::request::TransferJobTag;
 use crate::jobs::derive;
 
 #[derive(Debug, Clone, PartialEq, minicbor::Encode, minicbor::Decode)]
@@ -183,8 +183,9 @@ impl TryFrom<Download<'_>> for Job {
             job_type: JobType::FileTransfer,
             status: JobStatus::default(),
             version: Download::SERIALIZED_VERSION,
-            tag: JobTag::Download.into(),
+            tag: TransferJobTag::Download.into(),
             data,
+            schedule_at: None,
         })
     }
 }
@@ -196,15 +197,18 @@ impl TryFrom<Job> for Download<'_> {
         let Job {
             id,
             job_type,
-            status: _,
+            status,
             version,
             tag,
             data,
+            schedule_at,
         } = value;
 
         debug_assert_eq!(job_type, JobType::FileTransfer);
-        debug_assert_eq!(tag, i32::from(JobTag::Download));
+        debug_assert_eq!(status, JobStatus::InProgress);
+        debug_assert_eq!(tag, i32::from(TransferJobTag::Download));
         debug_assert_eq!(version, Download::SERIALIZED_VERSION);
+        debug_assert!(schedule_at.is_none());
 
         let mut this: Self =
             minicbor::decode(&data).wrap_err("couldn't decode download request")?;
@@ -303,7 +307,7 @@ mod tests {
 
     #[rstest]
     fn job_roundtrip(download_req: Download) {
-        let job = Job::try_from(download_req.clone()).unwrap();
+        let mut job = Job::try_from(download_req.clone()).unwrap();
         let Job {
             id,
             job_type,
@@ -311,13 +315,17 @@ mod tests {
             version,
             tag,
             data,
+            schedule_at,
         } = job.clone();
 
         assert_eq!(id, download_req.id.into());
         assert_eq!(job_type, JobType::FileTransfer);
         assert_eq!(status, JobStatus::Pending);
         assert_eq!(version, 0);
-        assert_eq!(tag, i32::from(JobTag::Download));
+        assert_eq!(tag, i32::from(TransferJobTag::Download));
+        assert!(schedule_at.is_none());
+
+        job.status = JobStatus::InProgress;
 
         let res = Download::try_from(job).unwrap();
 

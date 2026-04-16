@@ -6,7 +6,7 @@
 -- you may not use this file except in compliance with the License.
 -- You may obtain a copy of the License at
 --
---    http://www.apache.org/licenses/LICENSE-2.0
+--     http://www.apache.org/licenses/LICENSE-2.0
 --
 -- Unless required by applicable law or agreed to in writing, software
 -- distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,10 +19,11 @@
 CREATE TABLE IF NOT EXISTS job_queue (
     id BLOB NOT NULL,
     job_type INTEGER NOT NULL,
+    tag INTEGER NOT NULL,
     status INTEGER NOT NULL,
     version INTEGER NOT NULL,
-    tag INTEGER NOT NULL,
+    schedule_at UNSIGNED BIG INT,
     data BLOB NOT NULL,
-    created_at INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id, job_type)
+    created_at UNSIGNED BIG INT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id, tag, job_type)
 );

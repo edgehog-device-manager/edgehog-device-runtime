@@ -34,4 +34,5 @@ migrate:
 
 [group("migrations")]
 reset:
-    diesel database reset --config-file "edgehog-device-runtime-store/configs/runtime.toml"
+    diesel database reset --config-file "edgehog-device-runtime-store/diesel.toml"  --migration-dir "edgehog-device-runtime-store/migrations/runtime"
+    diesel database reset --config-file "edgehog-device-runtime-store/diesel.toml"  --migration-dir "edgehog-device-runtime-store/migrations/containers"

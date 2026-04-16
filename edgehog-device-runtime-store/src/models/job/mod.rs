@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -44,6 +44,8 @@ pub struct Job {
     pub version: i32,
     /// Tag to identify the type of data stored
     pub tag: i32,
+    /// When the job should be scheduled
+    pub schedule_at: Option<i64>,
     /// Serialized additional data for the job
     pub data: Vec<u8>,
 }

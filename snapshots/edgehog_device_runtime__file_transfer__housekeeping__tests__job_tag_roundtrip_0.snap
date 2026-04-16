@@ -1,0 +1,5 @@
+---
+source: src/file_transfer/housekeeping.rs
+expression: "format!(\"{value:?} = {}\", buf)"
+---
+CleanUp = 0
