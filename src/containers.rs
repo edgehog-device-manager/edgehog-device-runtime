@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,6 +47,8 @@ pub const MAX_INIT_RETRIES: usize = 10;
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContainersConfig {
+    #[serde(default = "ContainersConfig::default_enabled")]
+    pub(crate) enabled: bool,
     /// Flag to make the container service is required
     #[serde(default)]
     required: bool,
@@ -56,6 +58,9 @@ pub struct ContainersConfig {
 }
 
 impl ContainersConfig {
+    const fn default_enabled() -> bool {
+        true
+    }
     const fn default_max_retries() -> usize {
         MAX_INIT_RETRIES
     }
@@ -64,6 +69,7 @@ impl ContainersConfig {
 impl Default for ContainersConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             required: false,
             max_retries: Self::default_max_retries(),
         }

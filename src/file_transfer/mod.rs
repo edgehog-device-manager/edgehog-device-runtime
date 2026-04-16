@@ -44,6 +44,7 @@ use crate::io::progress::{Progress, ProgressHandle};
 use crate::jobs::Queue;
 use crate::{file_transfer::interface::status::FileTransferResponse, io::digest::Digest};
 
+use self::config::FileTransferArgs;
 use self::encoding::Paths;
 use self::encoding::tar_gz::TarGzBuilder;
 use self::file_system::store::{FileStorage, Fs, Space};
@@ -55,6 +56,7 @@ use self::request::download::{Destination, Download};
 use self::request::upload::{Source, Upload};
 use self::request::{Encoding, JobTag, Request};
 
+pub mod config;
 mod encoding;
 pub(crate) mod file_system;
 pub(crate) mod http;
@@ -163,18 +165,20 @@ pub(crate) struct FileTransfer<F, S, C> {
 impl<C> FileTransfer<Fs, SysPipe, C> {
     pub fn create(
         queue: Queue,
-        dir: PathBuf,
+        args: FileTransferArgs,
         device: C,
         tracker: watch::Sender<Option<FileTransferProgress>>,
     ) -> eyre::Result<Self>
     where
         C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
+        debug_assert!(args.enabled);
+
         let client = FtHttpClient::create().wrap_err("can't construct file transfer client")?;
 
         Ok(Self {
             queue,
-            storage: FileStorage::new(dir),
+            storage: FileStorage::new(args.storage_dir, args.storage_reserved),
             stream: Streaming::new(),
             client,
             device,
@@ -707,6 +711,7 @@ mod tests {
     use tempdir::TempDir;
     use uuid::Uuid;
 
+    use super::config::DEFAULT_MAX_FREE_PERCENTAGE;
     use super::request::{FileDigest, FilePermissions};
     use super::*;
 
@@ -736,8 +741,13 @@ mod tests {
 
         let queue = Queue::new(db);
 
+        let args = FileTransferArgs {
+            enabled: true,
+            storage_dir: dir.path().to_path_buf(),
+            storage_reserved: DEFAULT_MAX_FREE_PERCENTAGE,
+        };
         (
-            FileTransfer::create(queue, dir.path().to_path_buf(), device, tracker).unwrap(),
+            FileTransfer::create(queue, args, device, tracker).unwrap(),
             dir,
         )
     }

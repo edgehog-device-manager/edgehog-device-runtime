@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,6 +43,9 @@ pub struct Config {
 
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     pub ota: Option<edgehog_device_runtime::ota::config::OtaConfig>,
+
+    #[cfg(feature = "file-transfer")]
+    pub file_transfer: Option<edgehog_device_runtime::file_transfer::config::FileTransferConfig>,
 
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
@@ -84,6 +87,13 @@ impl TryFrom<Config> for DeviceManagerOptions {
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let ota = value.ota.unwrap_or_default();
 
+        #[cfg(feature = "file-transfer")]
+        let file_transfer =
+            edgehog_device_runtime::file_transfer::config::FileTransferArgs::with_store_dir(
+                value.file_transfer,
+                &store_directory,
+            );
+
         Ok(Self {
             astarte_library,
             astarte_device_sdk,
@@ -95,6 +105,8 @@ impl TryFrom<Config> for DeviceManagerOptions {
             service: value.service,
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             ota,
+            #[cfg(feature = "file-transfer")]
+            file_transfer,
             interfaces_directory,
             store_directory,
             download_directory,
