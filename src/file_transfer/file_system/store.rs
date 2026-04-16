@@ -110,7 +110,7 @@ impl<F> FileStorage<F> {
     #[instrument(skip_all, fields(id = %opt.id))]
     pub(crate) async fn finalize_write(
         &self,
-        handle: WriteHandle,
+        handle: &mut WriteHandle,
         opt: &FileOptions,
     ) -> io::Result<()>
     where
@@ -261,7 +261,7 @@ mod tests {
                 .unwrap()
         );
 
-        store.finalize_write(write, &opt).await.unwrap();
+        store.finalize_write(&mut write, &opt).await.unwrap();
 
         let path = dir.path().join(id.to_string());
         let res = tokio::fs::read_to_string(&path).await.unwrap();
@@ -306,7 +306,7 @@ mod tests {
                 .unwrap()
         );
 
-        store.finalize_write(write, &opt).await.unwrap();
+        store.finalize_write(&mut write, &opt).await.unwrap();
 
         let path = dir.path().join(id.to_string());
         let res = tokio::fs::read_to_string(&path).await.unwrap();
@@ -366,7 +366,7 @@ mod tests {
                 .unwrap()
         );
 
-        store.finalize_write(write, &opt).await.unwrap();
+        store.finalize_write(&mut write, &opt).await.unwrap();
 
         let path = dir.path().join(id.to_string());
         let res = tokio::fs::read_to_string(&path).await.unwrap();

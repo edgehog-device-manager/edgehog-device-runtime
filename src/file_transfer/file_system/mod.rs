@@ -21,9 +21,9 @@ use std::path::{Path, PathBuf};
 
 use pin_project::pin_project;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_stream::StreamExt;
-use tracing::{error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::encoding::tar_gz::TarGzDecoder;
@@ -94,7 +94,8 @@ impl WriteHandle {
 
         let file = Digest::from_read(file, alg, meta.len()).await?;
 
-        file.into_inner(digest)?;
+        file.check_digest(digest)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "data digest mismatch"))?;
 
         Ok(true)
     }
@@ -135,8 +136,9 @@ impl WriteHandle {
         })
     }
 
-    #[instrument(skip_all)]
-    pub(crate) async fn finalize(self, opt: &FileOptions) -> io::Result<()> {
+    #[instrument(skip_all, fields(self.path))]
+    pub(crate) async fn finalize(&mut self, opt: &FileOptions) -> io::Result<()> {
+        self.file.flush().await?;
         self.file.sync_all().await?;
 
         if let Some(comp) = opt.compression {
@@ -147,17 +149,20 @@ impl WriteHandle {
     }
 
     #[instrument(skip_all)]
-    async fn move_part(self, opt: &FileOptions) -> io::Result<()> {
-        let from = self.partial;
-        let to = self.path;
+    async fn move_part(&mut self, opt: &FileOptions) -> io::Result<()> {
+        let from = &self.partial;
+        let to = &self.path;
 
-        tokio::fs::rename(&from, &to).await?;
+        tokio::fs::rename(from, to)
+            .await
+            .inspect_err(|error| error!(%error, "couldn't rename the file"))?;
 
         info!("file stored");
 
         cfg_if::cfg_if! {
             if #[cfg(unix)] {
                 let gid = opt.perm.group_id;
+                let to = to.clone();
 
                 tokio::task::spawn_blocking(move || {
                     if let Err(error) = std::os::unix::fs::chown(to, None, gid) {
@@ -176,19 +181,19 @@ impl WriteHandle {
     }
 
     #[instrument(skip_all)]
-    async fn extract(mut self, compression: Encoding) -> io::Result<()> {
+    async fn extract(&mut self, compression: Encoding) -> io::Result<()> {
         self.file.seek(io::SeekFrom::Start(0)).await?;
 
         tokio::fs::create_dir_all(&self.path).await?;
 
         match compression {
             Encoding::TarGz => {
-                let mut extract = TarGzDecoder::create(BufReader::new(self.file))?;
+                let mut extract = TarGzDecoder::create(BufReader::new(&mut self.file))?;
 
                 while let Some(item) = extract.next().await {
                     let mut item = item?;
 
-                    item.unpack_in(&self.partial).await?;
+                    item.unpack_in(&self.path).await?;
                 }
             }
         }
@@ -198,6 +203,31 @@ impl WriteHandle {
         tokio::fs::remove_file(&self.partial).await?;
 
         Ok(())
+    }
+
+    #[instrument(skip_all, fields(self.path))]
+    pub(crate) async fn cleanup(self) -> io::Result<()> {
+        debug!("closing file");
+        drop(self.file);
+        Self::cleanup_partial(&self.partial).await
+    }
+
+    async fn cleanup_partial(partial: &Path) -> io::Result<()> {
+        debug!("removing file");
+
+        match tokio::fs::remove_file(partial).await {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                debug!("file already missing");
+
+                Ok(())
+            }
+            Err(error) => {
+                error!(%error, "couldn't delete the file");
+
+                Err(error)
+            }
+        }
     }
 }
 

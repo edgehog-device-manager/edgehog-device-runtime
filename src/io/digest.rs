@@ -72,12 +72,9 @@ impl<S> Digest<S> {
     }
 
     #[instrument(skip_all)]
-    pub(crate) fn into_inner(self, digest: &[u8]) -> io::Result<S> {
+    pub(crate) fn check_digest(self, digest: &[u8]) -> Result<S, S> {
         if self.ctx.finish().as_ref() != digest {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "data digest mismatch",
-            ));
+            return Err(self.inner);
         }
 
         Ok(self.inner)
@@ -185,7 +182,7 @@ mod tests {
 
         let exp = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, content.as_bytes());
 
-        let _ = reader.into_inner(exp.as_ref()).unwrap();
+        let _ = reader.check_digest(exp.as_ref()).unwrap();
     }
 
     #[tokio::test]
@@ -212,7 +209,7 @@ mod tests {
 
         let exp = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, content.as_bytes());
 
-        let _ = writer.into_inner(exp.as_ref()).unwrap();
+        let _ = writer.check_digest(exp.as_ref()).unwrap();
     }
 
     #[tokio::test]
@@ -247,6 +244,6 @@ mod tests {
 
         let exp = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, content.as_bytes());
 
-        let _ = writer.into_inner(exp.as_ref()).unwrap();
+        let _ = writer.check_digest(exp.as_ref()).unwrap();
     }
 }

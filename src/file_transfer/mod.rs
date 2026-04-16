@@ -26,8 +26,10 @@ use astarte_device_sdk::Client;
 use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
-use eyre::Context;
+use eyre::{Context, eyre};
+use futures::StreamExt;
 use tokio::sync::{Notify, watch};
+use tokio_util::codec::{BytesCodec, FramedWrite};
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -280,6 +282,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         }
     }
 
+    #[instrument(skip_all)]
     async fn download_store(&mut self, download: &Download<'_>) -> eyre::Result<()>
     where
         F: Space,
@@ -297,15 +300,24 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let opt = FileOptions::from(download);
 
-        let file = self.storage.create_write_handle(&opt).await?;
+        let mut file = self.storage.create_write_handle(&opt).await?;
 
-        let file = self.download_to_write_handle(download, file).await?;
+        if let Err(error) = self.download_to_write_handle(download, &mut file).await {
+            error!(%error, "error while downloading to write handle, cleaning up file");
+            file.cleanup().await?;
+            return Err(error);
+        }
 
-        self.storage.finalize_write(file, &opt).await?;
+        if let Err(error) = self.storage.finalize_write(&mut file, &opt).await {
+            error!(%error, "error while finalizing write");
+            file.cleanup().await?;
+            return Err(eyre!(error));
+        }
 
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn download_stream(&mut self, download: &Download<'_>) -> eyre::Result<()>
     where
         F: Space,
@@ -317,17 +329,17 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let download_len = download.download_length();
 
-        let mut file_resp = self
+        let response = self
             .client
             .download(&download.url, download.headers.clone(), 0, download_len)
             .await
             .wrap_err("download request error")?;
 
-        let limit_size = file_resp.total_length().unwrap_or(download.file_size);
+        let limit_size = response.total_length().unwrap_or(download.file_size);
         let progress = FileTransferProgress::start(
             download.transfer(),
             download.progress,
-            file_resp.total_length(),
+            response.total_length(),
         );
 
         // limit to maximum uncompressed file size
@@ -335,16 +347,19 @@ impl<F, S, C> FileTransfer<F, S, C> {
         let writer = Limit::new(writer, limit_size);
         let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
 
-        file_resp.write_chunks(&mut writer).await?;
+        let sink = FramedWrite::new(&mut writer, BytesCodec::new());
+        response.into_stream().forward(sink).await?;
 
         writer
             .into_inner()
             .into_inner()
-            .into_inner(&download.digest)?;
+            .check_digest(&download.digest)
+            .map_err(|_| eyre!("digest mismatch, streamed data may be corrupted"))?;
 
         Ok(())
     }
 
+    #[instrument(skip_all, fields(path))]
     async fn download_filesystem(
         &mut self,
         path: PathBuf,
@@ -361,11 +376,19 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let opt = FileOptions::from(download);
 
-        let file = WriteHandle::open(path, &opt).await?;
+        let mut file = WriteHandle::open(path, &opt).await?;
 
-        let file = self.download_to_write_handle(download, file).await?;
+        if let Err(error) = self.download_to_write_handle(download, &mut file).await {
+            error!(%error, "error while downloading to write handle, cleaning up file");
+            file.cleanup().await?;
+            return Err(error);
+        }
 
-        file.finalize(&opt).await?;
+        if let Err(error) = file.finalize(&opt).await {
+            error!(%error, "error while finalizing write");
+            file.cleanup().await?;
+            return Err(eyre!(error));
+        }
 
         Ok(())
     }
@@ -373,12 +396,12 @@ impl<F, S, C> FileTransfer<F, S, C> {
     async fn download_to_write_handle(
         &mut self,
         download: &Download<'_>,
-        file: WriteHandle,
-    ) -> eyre::Result<WriteHandle> {
+        file: &mut WriteHandle,
+    ) -> eyre::Result<()> {
         let current_size = file.current_size();
         let download_length = download.download_length();
 
-        let mut file_resp = self
+        let response = self
             .client
             .download(
                 &download.url,
@@ -386,28 +409,29 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 current_size,
                 download_length,
             )
-            .await
-            .wrap_err("download request error")?;
+            .await?;
 
-        let limit_size = file_resp.total_length().unwrap_or(download.file_size);
+        let limit_size = response.total_length().unwrap_or(download.file_size);
         let progress = FileTransferProgress::start(
             download.transfer(),
             download.progress,
-            file_resp.total_length(),
+            response.total_length(),
         );
 
-        let writer = Digest::from_read(file, download.digest_type, file_resp.start()).await?;
+        let writer = Digest::from_read(file, download.digest_type, response.start()).await?;
         let writer = Limit::new(writer, limit_size);
         let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
 
-        file_resp.write_chunks(&mut writer).await?;
+        let sink = FramedWrite::new(&mut writer, BytesCodec::new());
+        response.into_stream().forward(sink).await?;
 
-        let file = writer
+        writer
             .into_inner()
             .into_inner()
-            .into_inner(&download.digest)?;
+            .check_digest(&download.digest)
+            .map_err(|_| eyre!("error while checking file digest"))?;
 
-        Ok(file)
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -916,6 +940,39 @@ mod tests {
         MockedFtCall::new(call_put, req, content.into_bytes())
     }
 
+    async fn mk_download_wrong_digest<'a>(server: &'a MockServer) -> MockedFtCall<'a> {
+        let url = server.url("/file");
+
+        let size = 1024usize;
+        let mut content = vec![1u8; size];
+
+        let headers = mk_headers();
+
+        let call_get = server
+            .mock_async(|mut when, then| {
+                when = when
+                    .method(GET)
+                    .path("/file")
+                    // full
+                    .header_missing("range");
+
+                headers.iter().fold(when, |when, (n, s)| {
+                    when.header_includes(n.as_str(), s.to_str().unwrap())
+                });
+
+                then.status(reqwest::StatusCode::PARTIAL_CONTENT)
+                    .header("Content-Length", "1024")
+                    .body(&content);
+            })
+            .await;
+
+        // NOTE edit content before calculating digest
+        content[0] = 4;
+        let req = mk_download_req(&url, headers, &content);
+
+        MockedFtCall::new(call_get, req, content)
+    }
+
     #[tokio::test]
     async fn should_download() {
         let server = MockServer::start_async().await;
@@ -1175,6 +1232,54 @@ mod tests {
         handle.await.unwrap().unwrap();
 
         mock_upload_event.first_call.assert_async().await;
+    }
+
+    // TODO add test of limit and digest error during the download
+
+    #[tokio::test]
+    async fn fail_download_digest() {
+        let server = MockServer::start_async().await;
+        let mock_download_event = mk_download_wrong_digest(&server).await;
+
+        // let mut seq = Sequence::new();
+        let device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        // TODO send response in case of error
+        // device
+        //     .expect_send_object()
+        //     .with(
+        //         eq("io.edgehog.devicemanager.fileTransfer.Response"),
+        //         eq("/request"),
+        //         function(|o: &AstarteObject| {
+        //             let code = o.get("code").unwrap();
+
+        //             code != &AstarteData::Integer(0)
+        //         }),
+        //     )
+        //     .once()
+        //     .in_sequence(&mut seq)
+        //     .returning(|_, _, _| Ok(()));
+        let (mut transfer, dir) = mk_def_transfer("digest_error", device).await;
+
+        let complete_file = dir.path().join(mock_download_event.req.id().to_string());
+        let partial_file = {
+            let mut p = complete_file.clone();
+            p.push(".part");
+            p
+        };
+
+        let result = transfer.handle(mock_download_event.req).await;
+
+        info!(?result);
+        assert!(result.is_err());
+
+        mock_download_event.first_call.assert_async().await;
+
+        // the partial file and file should not exist if we hit a digest error
+        let file = tokio::fs::try_exists(complete_file).await;
+        assert!(file.is_err() || file.is_ok_and(|e| !e));
+
+        let file = tokio::fs::try_exists(partial_file).await;
+        assert!(file.is_err() || file.is_ok_and(|e| !e));
     }
 
     #[rstest]
