@@ -16,6 +16,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Compression Reader and Writer
+//! Encoding Reader and Writer
+
+use std::path::PathBuf;
+
+use super::file_system::walk::Walk;
 
 pub(crate) mod tar_gz;
+
+#[derive(Debug)]
+pub(crate) enum Paths {
+    File { base: PathBuf, file: PathBuf },
+    Dir { base: PathBuf, dir: Walk },
+}

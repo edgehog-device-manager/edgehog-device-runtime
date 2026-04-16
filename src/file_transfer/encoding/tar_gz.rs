@@ -27,18 +27,62 @@ use async_tar::{Archive, Builder, Entries};
 use eyre::Context;
 use futures::StreamExt;
 use pin_project::pin_project;
-use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, SimplexStream};
+use tokio::task::JoinHandle;
 use tokio_stream::Stream;
-use tracing::instrument;
+use tracing::{error, instrument};
 
-pub(crate) struct TarGzWriter<W>
+use super::Paths;
+
+/// Maximum buffer size for the stream
+pub const MAX_BUF_SIZE: usize = 8 * 1024;
+
+#[derive(Debug)]
+#[pin_project]
+pub(crate) struct TarGzBuilder {
+    #[pin]
+    rx: ReadHalf<SimplexStream>,
+    handle: JoinHandle<eyre::Result<()>>,
+}
+
+impl TarGzBuilder {
+    pub fn spawn(paths: Paths) -> Self {
+        let (rx, tx) = tokio::io::simplex(MAX_BUF_SIZE);
+        let handle = tokio::task::spawn(async move {
+            let writer = TarGzEncoder::new(tx);
+
+            let res = writer.consume(paths).await;
+            if let Err(error) = &res {
+                error!(%error, "couldn't create archive")
+            }
+
+            res
+        });
+
+        Self { rx, handle }
+    }
+}
+
+impl AsyncRead for TarGzBuilder {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.project();
+
+        this.rx.poll_read(cx, buf)
+    }
+}
+
+pub(crate) struct TarGzEncoder<W>
 where
     W: AsyncWrite + Unpin + Send + Sync,
 {
     archive: Builder<GzipEncoder<W>>,
 }
 
-impl<W> TarGzWriter<W>
+impl<W> TarGzEncoder<W>
 where
     W: AsyncWrite + Unpin + Send + Sync,
 {
@@ -48,7 +92,26 @@ where
         }
     }
 
-    pub(crate) async fn append(&mut self, base_path: &Path, path: &Path) -> eyre::Result<()> {
+    pub(crate) async fn consume(mut self, input: Paths) -> eyre::Result<()> {
+        match input {
+            Paths::File { base, file } => {
+                self.append(&base, &file).await?;
+            }
+            Paths::Dir { base, mut dir } => {
+                while let Some(item) = dir.next().await {
+                    let item = item?;
+
+                    self.append(&base, item.path()).await?;
+                }
+            }
+        }
+
+        self.finalize().await?;
+
+        Ok(())
+    }
+
+    async fn append(&mut self, base_path: &Path, path: &Path) -> eyre::Result<()> {
         let name = path.strip_prefix(base_path)?;
 
         self.archive
@@ -59,7 +122,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn finalize(self) -> eyre::Result<()> {
+    async fn finalize(self) -> eyre::Result<()> {
         self.archive.into_inner().await?.flush().await?;
 
         Ok(())
@@ -67,14 +130,14 @@ where
 }
 
 #[pin_project]
-pub(crate) struct TarGzReader<R>
+pub(crate) struct TarGzDecoder<R>
 where
     R: AsyncBufRead + Unpin,
 {
     archive: Entries<GzipDecoder<R>>,
 }
 
-impl<R> TarGzReader<R>
+impl<R> TarGzDecoder<R>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -87,7 +150,7 @@ where
     }
 }
 
-impl<R> Stream for TarGzReader<R>
+impl<R> Stream for TarGzDecoder<R>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -135,7 +198,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut writer = TarGzWriter::new(file);
+        let mut writer = TarGzEncoder::new(file);
 
         let mut exp = Vec::new();
         while let Some(item) = walk.next().await {
@@ -159,7 +222,7 @@ mod tests {
 
         let file = File::open(&path).await.unwrap();
 
-        let mut reader = TarGzReader::create(BufReader::new(file)).unwrap();
+        let mut reader = TarGzDecoder::create(BufReader::new(file)).unwrap();
 
         while let Some(item) = reader.next().await {
             let mut item = item.unwrap();

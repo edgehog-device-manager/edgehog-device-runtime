@@ -129,12 +129,7 @@ impl FtHttpClient {
         }
     }
 
-    pub async fn upload<S>(
-        &self,
-        url: &Url,
-        headers: HeaderMap,
-        body_stream: S,
-    ) -> eyre::Result<FileUploadResponse>
+    pub async fn upload<S>(&self, url: &Url, headers: HeaderMap, body_stream: S) -> eyre::Result<()>
     where
         S: TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -150,7 +145,7 @@ impl FtHttpClient {
             .error_for_status()
             .wrap_err("error in response status of put request")?;
 
-        Ok(FileUploadResponse)
+        Ok(())
     }
 
     async fn full_request(
@@ -354,9 +349,6 @@ impl FileDownloadResponse {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FileUploadResponse;
-
 #[cfg(test)]
 mod tests {
     use std::{io::Cursor, iter, ops::RangeInclusive};
@@ -546,7 +538,7 @@ mod tests {
         let body_stream: tokio_stream::Once<eyre::Result<_>> = once(Ok(binary_content));
 
         let client = FtHttpClient::create().unwrap();
-        let _ = client
+        client
             .upload(&file_url, HeaderMap::new(), body_stream)
             .await
             .unwrap();
@@ -577,7 +569,7 @@ mod tests {
             tokio_stream::iter(iter::repeat_n(CHUNK, needed_chunks).map(eyre::Ok));
 
         let client = FtHttpClient::create().unwrap();
-        let _ = client
+        client
             .upload(&file_url, HeaderMap::new(), body_stream)
             .await
             .unwrap();
