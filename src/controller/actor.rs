@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -54,8 +54,6 @@ pub trait Actor: Sized {
 pub trait Persisted: Sized {
     type Msg: Send + 'static;
 
-    type Event;
-
     fn task() -> &'static str;
 
     fn init(&mut self) -> impl Future<Output = eyre::Result<()>> + Send;
@@ -67,10 +65,7 @@ pub trait Persisted: Sized {
     fn workers(&self) -> &Notify;
 
     /// Validate a msg and converts it into a Job.
-    fn validate_job(
-        &mut self,
-        msg: &Self::Msg,
-    ) -> impl Future<Output = eyre::Result<Self::Event>> + Send;
+    fn validate_job(&mut self, msg: &Self::Msg) -> impl Future<Output = eyre::Result<Job>> + Send;
 
     /// Handles the case when a job cannot be queued
     fn fail_job(
@@ -80,13 +75,10 @@ pub trait Persisted: Sized {
     ) -> impl Future<Output = ()> + Send;
 
     /// Handles the case when a job cannot be queued
-    fn handle_backpressure(&mut self, job: &Self::Event) -> impl Future<Output = ()> + Send;
+    fn handle_backpressure(&mut self, msg: &Self::Msg) -> impl Future<Output = ()> + Send;
 
     #[instrument(skip_all)]
-    async fn handle(&mut self, msg: Self::Msg)
-    where
-        for<'a> &'a Self::Event: TryInto<Job, Error = eyre::Report>,
-    {
+    async fn handle(&mut self, msg: Self::Msg) {
         trace!("message received");
 
         let job = match self.validate_job(&msg).await {
@@ -100,10 +92,11 @@ pub trait Persisted: Sized {
             }
         };
 
-        if let Err(error) = self.queue().insert(&job).await {
+        if let Err(error) = self.queue().insert_job(job).await {
             error!(%error, "couldn't queue the job");
 
-            self.handle_backpressure(&job).await;
+            // TODO: time-out
+            self.handle_backpressure(&msg).await;
         }
 
         debug!("task queued");
@@ -114,10 +107,7 @@ pub trait Persisted: Sized {
     }
 
     #[instrument(skip_all, fields(task = Self::task()))]
-    async fn run(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()>
-    where
-        for<'a> &'a Self::Event: TryInto<Job, Error = eyre::Report>,
-    {
+    async fn run(mut self, mut channel: mpsc::Receiver<Self::Msg>) -> eyre::Result<()> {
         self.init().await.wrap_err("init failed")?;
 
         while let Some(msg) = channel.recv().await {

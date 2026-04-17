@@ -18,24 +18,17 @@
 
 //! Handles file system operations for the file transfer.
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use eyre::WrapErr;
-use futures::StreamExt;
-use pin_project::pin_project;
-use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
-use tracing::{info, instrument, trace};
+use tracing::{instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::encoding::Paths;
-use crate::file_transfer::encoding::tar_gz::TarGzDecoder;
-use crate::file_transfer::file_system::walk::Walk;
-use crate::file_transfer::request::Encoding;
 
-use super::FileOptions;
+use super::{FileOptions, WriteHandle};
 
 /// Stores files in the storage
 #[derive(Debug)]
@@ -64,15 +57,6 @@ impl<F> FileStorage<F> {
         self.dir.join(id.to_string())
     }
 
-    fn partial_file_path(&self, id: &Uuid) -> PathBuf {
-        self.dir.join(format!("{id}.part"))
-    }
-
-    #[cfg(unix)]
-    fn mask(mode: u32) -> u32 {
-        0o600 | mode
-    }
-
     #[instrument(skip(self), ret)]
     pub(crate) async fn file_exists(&self, id: &Uuid) -> eyre::Result<bool> {
         let path = self.file_path(id);
@@ -86,18 +70,7 @@ impl<F> FileStorage<F> {
     pub(crate) async fn find_paths(&self, id: &Uuid) -> io::Result<Paths> {
         let path = self.file_path(id);
 
-        let meta = tokio::fs::metadata(&path).await?;
-
-        let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
-
-        if meta.is_dir() {
-            Ok(Paths::Dir {
-                base,
-                dir: Walk::new(path),
-            })
-        } else {
-            Ok(Paths::File { base, file: path })
-        }
+        Paths::read(path).await
     }
 
     #[instrument(skip(self))]
@@ -113,11 +86,11 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip_all, fields(id = %opt.id))]
-    pub(crate) async fn create_write_handle(&self, opt: &FileOptions) -> eyre::Result<WriteHandle>
+    pub(crate) async fn create_write_handle(&self, opt: &FileOptions) -> io::Result<WriteHandle>
     where
         F: Space,
     {
-        let file_path = self.partial_file_path(&opt.id);
+        let file_path = self.file_path(&opt.id);
 
         self.fs
             .reserve_space(opt.id, &file_path, opt.file_size)
@@ -125,200 +98,23 @@ impl<F> FileStorage<F> {
 
         trace!(path = %file_path.display(), "opening file for write");
 
-        let mut file_options = File::options();
-
-        file_options.create(true).write(true).read(true);
-
-        #[cfg(unix)]
-        file_options.mode(Self::mask(opt.perm.mode()));
-
-        // TODO: flock the file?
-        let file = file_options.open(&file_path).await?;
-
-        let current_size = file.metadata().await?.len();
-
-        trace!(current_size, "reading existing content");
-
-        trace!("returning the handle");
-
-        Ok(WriteHandle {
-            id: opt.id,
-            current_size,
-            file,
-        })
+        WriteHandle::open(file_path, opt).await
     }
 
-    // TODO: validate the digest
-    #[instrument(skip_all, fields(id = %handle.id))]
+    #[instrument(skip_all, fields(id = %opt.id))]
     pub(crate) async fn finalize_write(
         &self,
         handle: WriteHandle,
         opt: &FileOptions,
-    ) -> eyre::Result<()>
+    ) -> io::Result<()>
     where
         F: Space,
     {
-        handle
-            .file
-            .sync_all()
-            .await
-            .wrap_err("couldn't fsync the file")?;
-
-        if let Some(comp) = opt.compression {
-            self.extract(handle, comp).await?;
-        } else {
-            self.move_part(handle, opt).await?;
-        }
+        handle.finalize(opt).await?;
 
         self.fs.finalize(opt.id).await?;
 
         Ok(())
-    }
-
-    #[instrument(skip_all)]
-    async fn move_part(&self, handle: WriteHandle, opt: &FileOptions) -> eyre::Result<()> {
-        let from = self.partial_file_path(&handle.id);
-        let to = self.file_path(&handle.id);
-
-        tokio::fs::rename(&from, &to)
-            .await
-            .wrap_err("couldn't rename the file")?;
-
-        info!("file stored");
-
-        cfg_if::cfg_if! {
-            if #[cfg(unix)] {
-                let gid = opt.perm.group_id;
-
-                tokio::task::spawn_blocking(move || {
-                    if let Err(error) = std::os::unix::fs::chown(to, None, gid) {
-                        use tracing::error;
-
-                        error!(%error, "couldn't change file ownership, this could be because the user is unprivileged and doesn't belongs to the target group");
-                    }
-                })
-                .await?;
-            } else {
-                let _ = opt;
-            }
-        }
-
-        Ok(())
-    }
-
-    #[instrument(skip_all)]
-    async fn extract(&self, mut handle: WriteHandle, compression: Encoding) -> eyre::Result<()> {
-        handle.seek(io::SeekFrom::Start(0)).await?;
-
-        let out = self.file_path(&handle.id);
-        tokio::fs::create_dir_all(&out)
-            .await
-            .wrap_err("couldn't create output directory")?;
-
-        match compression {
-            Encoding::TarGz => {
-                let mut extract = TarGzDecoder::create(BufReader::new(handle.file))?;
-
-                while let Some(item) = extract.next().await {
-                    let mut item = item?;
-
-                    item.unpack_in(&out)
-                        .await
-                        .wrap_err("couldn't unpack entry")?;
-                }
-            }
-        }
-
-        info!("file extracted");
-
-        tokio::fs::remove_file(self.partial_file_path(&handle.id))
-            .await
-            .wrap_err("couldn't remove the partial file")?;
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-#[pin_project]
-pub(crate) struct WriteHandle {
-    id: Uuid,
-    current_size: u64,
-    #[pin]
-    file: tokio::fs::File,
-}
-
-impl WriteHandle {
-    pub(crate) fn current_size(&self) -> u64 {
-        self.current_size
-    }
-}
-
-impl Display for WriteHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WriteHandle(id={})", self.id)
-    }
-}
-
-impl AsyncWrite for WriteHandle {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        let this = self.project();
-
-        this.file.poll_write(cx, buf)
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let this = self.project();
-
-        this.file.poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let this = self.project();
-
-        this.file.poll_shutdown(cx)
-    }
-}
-
-impl AsyncRead for WriteHandle {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
-        let this = self.project();
-
-        this.file.poll_read(cx, buf)
-    }
-}
-
-impl AsyncSeek for WriteHandle {
-    fn start_seek(
-        self: std::pin::Pin<&mut Self>,
-        position: std::io::SeekFrom,
-    ) -> std::io::Result<()> {
-        let this = self.project();
-
-        this.file.start_seek(position)
-    }
-
-    fn poll_complete(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<u64>> {
-        let this = self.project();
-
-        this.file.poll_complete(cx)
     }
 }
 
@@ -333,10 +129,10 @@ pub(crate) trait Space {
         id: Uuid,
         path: &Path,
         file_size: u64,
-    ) -> impl Future<Output = eyre::Result<()>> + Send;
+    ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Marks the file as saved and refreshes the current quota
-    fn finalize(&self, _id: Uuid) -> impl Future<Output = eyre::Result<()>> + Send;
+    fn finalize(&self, _id: Uuid) -> impl Future<Output = io::Result<()>> + Send;
 }
 
 #[derive(Debug)]
@@ -345,13 +141,13 @@ pub(crate) struct Fs {}
 impl Fs {}
 
 impl Space for Fs {
-    async fn reserve_space(&self, _id: Uuid, _path: &Path, _file_size: u64) -> eyre::Result<()> {
+    async fn reserve_space(&self, _id: Uuid, _path: &Path, _file_size: u64) -> io::Result<()> {
         // TODO: ensure 10% of the free space on disk
 
         Ok(())
     }
 
-    async fn finalize(&self, _id: Uuid) -> eyre::Result<()> {
+    async fn finalize(&self, _id: Uuid) -> io::Result<()> {
         // TODO: refresh the space
 
         Ok(())
@@ -365,7 +161,7 @@ mod tests {
 
     use mockall::{Sequence, predicate};
     use tempdir::TempDir;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
     #[cfg(unix)]
     use crate::file_transfer::request::FilePermissions;
@@ -373,6 +169,14 @@ mod tests {
     use super::*;
 
     use pretty_assertions::assert_eq;
+
+    fn partial_file_path(path: PathBuf) -> PathBuf {
+        let mut path = path.into_os_string();
+
+        path.push(".part");
+
+        PathBuf::from(path)
+    }
 
     fn fs_storage() -> (FileStorage<Fs>, TempDir) {
         let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
@@ -446,7 +250,7 @@ mod tests {
         write.write_all(content.as_bytes()).await.unwrap();
 
         assert!(
-            tokio::fs::try_exists(store.partial_file_path(&id))
+            tokio::fs::try_exists(partial_file_path(store.file_path(&id)))
                 .await
                 .unwrap()
         );
@@ -491,7 +295,7 @@ mod tests {
         write.write_all(content.as_bytes()).await.unwrap();
 
         assert!(
-            tokio::fs::try_exists(store.partial_file_path(&id))
+            tokio::fs::try_exists(partial_file_path(store.file_path(&id)))
                 .await
                 .unwrap()
         );
@@ -551,7 +355,7 @@ mod tests {
         write.write_all(remaining).await.unwrap();
 
         assert!(
-            tokio::fs::try_exists(store.partial_file_path(&id))
+            tokio::fs::try_exists(partial_file_path(store.file_path(&id)))
                 .await
                 .unwrap()
         );

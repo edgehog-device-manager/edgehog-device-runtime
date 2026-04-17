@@ -18,8 +18,9 @@
 
 //! Reader and Writer for a `tar.gz` file
 
+use std::io;
 use std::path::Path;
-use std::task::{Poll, ready};
+use std::task::Poll;
 
 use async_compression::tokio::bufread::GzipDecoder;
 use async_compression::tokio::write::GzipEncoder;
@@ -142,11 +143,10 @@ where
     R: AsyncBufRead + Unpin,
 {
     #[instrument(skip_all)]
-    pub(crate) fn create(reader: R) -> eyre::Result<Self> {
+    pub(crate) fn create(reader: R) -> io::Result<Self> {
         Archive::new(GzipDecoder::new(reader))
             .entries()
             .map(|archive| Self { archive })
-            .wrap_err("couldn't read open entries")
     }
 }
 
@@ -154,7 +154,7 @@ impl<R> Stream for TarGzDecoder<R>
 where
     R: AsyncBufRead + Unpin,
 {
-    type Item = eyre::Result<async_tar::Entry<Archive<GzipDecoder<R>>>>;
+    type Item = io::Result<async_tar::Entry<Archive<GzipDecoder<R>>>>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -162,10 +162,7 @@ where
     ) -> Poll<Option<Self::Item>> {
         let this = self.project();
 
-        let res = ready!(this.archive.poll_next_unpin(cx))
-            .map(|res| res.wrap_err("couldn't get next entry"));
-
-        Poll::Ready(res)
+        this.archive.poll_next_unpin(cx)
     }
 }
 

@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,13 +29,15 @@ pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Capabi
 pub(crate) const TAR_GZ: &str = "tar.gz";
 /// Storage target
 pub(crate) const STORAGE_TARGET: &str = "storage";
-/// STREAMING target
+/// Streaming target
 pub(crate) const STREAMING_TARGET: &str = "streaming";
+/// Filesystem target
+pub(crate) const FILESYSTEM_TARGET: &str = "filesystem";
 /// Capabilities of the device
-pub(crate) const CAPABILITIES: Capabilities<1, 2> = Capabilities {
+pub(crate) const CAPABILITIES: Capabilities<1, 3> = Capabilities {
     encodings: [TAR_GZ],
     unix_permissions: true,
-    targets: [STORAGE_TARGET, STREAMING_TARGET],
+    targets: [STORAGE_TARGET, STREAMING_TARGET, FILESYSTEM_TARGET],
 };
 
 #[derive(Debug)]
@@ -106,7 +108,9 @@ mod tests {
                 predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
                 predicate::eq("/targets"),
                 predicate::eq(AstarteData::StringArray(
-                    ["storage", "streaming"].map(str::to_string).to_vec(),
+                    ["storage", "streaming", "filesystem"]
+                        .map(str::to_string)
+                        .to_vec(),
                 )),
             )
             .returning(|_, _, _| Ok(()));

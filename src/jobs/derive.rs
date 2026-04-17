@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,6 +15,28 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
+
+pub(crate) mod uuid {
+    use minicbor::Encode;
+    use minicbor::decode::{self, Decoder};
+    use minicbor::encode::{self, Encoder, Write};
+    use uuid::Uuid;
+
+    pub(crate) fn decode<'b, Ctx>(
+        d: &mut Decoder<'b>,
+        ctx: &mut Ctx,
+    ) -> Result<Uuid, decode::Error> {
+        d.decode_with(ctx).map(Uuid::from_bytes)
+    }
+
+    pub(crate) fn encode<Ctx, W: Write>(
+        v: &Uuid,
+        e: &mut Encoder<W>,
+        ctx: &mut Ctx,
+    ) -> Result<(), encode::Error<W::Error>> {
+        v.as_bytes().encode(e, ctx)
+    }
+}
 
 pub(crate) mod as_secs_opt {
     use std::time::Duration;
@@ -178,7 +200,8 @@ mod tests {
         assert_eq!(res, value);
 
         with_insta!({
-            let name = ctx.case.unwrap().to_string();
+            let name = format!("{}_{}", ctx.name, ctx.case.unwrap());
+
             insta::assert_snapshot!(name, Hexdump(buf));
         });
     }

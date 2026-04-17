@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,87 +16,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use astarte_device_sdk::{AstarteData, FromEvent, IntoAstarteObject};
-use uuid::Uuid;
-
-use crate::file_transfer::{self, interface::request::FileTransferRequest};
+use astarte_device_sdk::{FromEvent, IntoAstarteObject};
 
 pub(crate) mod capabilities;
 pub(crate) mod request;
 pub(crate) mod status;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum FileTransferId<I = Uuid> {
-    Download(I),
-    Upload(I),
-}
-
-impl<I> FileTransferId<I> {
-    pub(crate) fn uuid(&self) -> &I {
-        match self {
-            FileTransferId::Download(i) => i,
-            FileTransferId::Upload(i) => i,
-        }
-    }
-
-    fn direction(&self) -> TransferDirection {
-        match self {
-            FileTransferId::Download(_) => TransferDirection::ServerToDevice,
-            FileTransferId::Upload(_) => TransferDirection::DeviceToServer,
-        }
-    }
-}
-
-impl<'a> From<&'a FileTransferRequest> for FileTransferId<&'a str> {
-    fn from(value: &'a FileTransferRequest) -> Self {
-        match value {
-            FileTransferRequest::Download(d) => Self::Download(&d.id),
-            FileTransferRequest::Upload(u) => Self::Upload(&u.id),
-        }
-    }
-}
-
-impl From<&file_transfer::request::Request> for FileTransferId {
-    fn from(value: &file_transfer::request::Request) -> Self {
-        match value {
-            file_transfer::request::Request::Download(d) => Self::Download(d.id),
-            file_transfer::request::Request::Upload(u) => Self::Upload(u.id),
-        }
-    }
-}
-
-impl From<&file_transfer::request::upload::Upload> for FileTransferId {
-    fn from(value: &file_transfer::request::upload::Upload) -> Self {
-        Self::Upload(value.id)
-    }
-}
-
-impl From<&file_transfer::request::download::Download> for FileTransferId {
-    fn from(value: &file_transfer::request::download::Download) -> Self {
-        Self::Upload(value.id)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TransferDirection {
-    ServerToDevice,
-    DeviceToServer,
-}
-
-impl std::fmt::Display for TransferDirection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TransferDirection::ServerToDevice => f.write_str("server_to_device"),
-            TransferDirection::DeviceToServer => f.write_str("device_to_server"),
-        }
-    }
-}
-
-impl From<TransferDirection> for AstarteData {
-    fn from(value: TransferDirection) -> Self {
-        AstarteData::String(value.to_string())
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, FromEvent, IntoAstarteObject)]
 #[from_event(
@@ -149,6 +73,7 @@ pub(crate) mod tests {
     use astarte_device_sdk::chrono::Utc;
     use rstest::{fixture, rstest};
 
+    use crate::file_transfer::interface::request::FileTransferRequest;
     use crate::tests::with_insta;
 
     use super::*;
@@ -201,7 +126,7 @@ pub(crate) mod tests {
             encoding: "tar.gz".to_string(),
             progress: true,
             source_type: "storage".to_string(),
-            source: String::new(),
+            source: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
         }
     }
 

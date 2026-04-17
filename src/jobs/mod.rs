@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -60,10 +60,11 @@ impl Queue {
         Ok(())
     }
 
+    #[cfg_attr(not(test), expect(unused))]
     #[instrument(skip_all)]
-    pub async fn insert<'a, J>(&self, job: &'a J) -> eyre::Result<()>
+    pub async fn insert<J>(&self, job: J) -> eyre::Result<()>
     where
-        &'a J: TryInto<Job, Error = eyre::Report>,
+        J: TryInto<Job, Error = eyre::Report>,
     {
         let job = job.try_into()?;
 
@@ -125,13 +126,14 @@ impl Queue {
     }
 
     #[instrument(skip_all)]
-    pub async fn update(&self, id: &Uuid, status: JobStatus) -> eyre::Result<()> {
+    pub async fn update(&self, id: &Uuid, tag: i32, status: JobStatus) -> eyre::Result<()> {
         let id = SqlUuid::new(*id);
 
         self.db
             .for_write(move |write| {
                 let updated_rows = update(job_queue::table)
                     .filter(job_queue::id.eq(id))
+                    .filter(job_queue::tag.eq(tag))
                     .set(job_queue::status.eq(status))
                     .execute(write)?;
 
@@ -144,13 +146,14 @@ impl Queue {
     }
 
     #[instrument(skip_all)]
-    pub async fn delete(&self, id: &Uuid) -> eyre::Result<()> {
+    pub async fn delete(&self, id: &Uuid, tag: i32) -> eyre::Result<()> {
         let id = SqlUuid::new(*id);
 
         self.db
             .for_write(move |write| {
                 let deleted_rows = delete(job_queue::table)
                     .filter(job_queue::id.eq(id))
+                    .filter(job_queue::tag.eq(tag))
                     .execute(write)?;
 
                 debug!(deleted_rows, "job deleted");
@@ -302,7 +305,7 @@ pub(crate) mod tests {
 
         queue.insert_job(exp.clone()).await.unwrap();
 
-        queue.update(&exp.id, JobStatus::Done).await.unwrap();
+        queue.update(&exp.id, 0, JobStatus::Done).await.unwrap();
 
         exp.status = JobStatus::Done;
 
@@ -326,7 +329,7 @@ pub(crate) mod tests {
 
         queue.insert_job(exp.clone()).await.unwrap();
 
-        queue.delete(&exp.id).await.unwrap();
+        queue.delete(&exp.id, 0).await.unwrap();
 
         let job = queue.fetch_job(&exp.id).await;
 

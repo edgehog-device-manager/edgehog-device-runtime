@@ -18,7 +18,10 @@
 
 //! Encoding Reader and Writer
 
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use tracing::instrument;
 
 use super::file_system::walk::Walk;
 
@@ -28,4 +31,21 @@ pub(crate) mod tar_gz;
 pub(crate) enum Paths {
     File { base: PathBuf, file: PathBuf },
     Dir { base: PathBuf, dir: Walk },
+}
+
+impl Paths {
+    #[instrument]
+    pub(crate) async fn read(path: PathBuf) -> io::Result<Self> {
+        let meta = tokio::fs::metadata(&path).await?;
+        let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+
+        if meta.is_dir() {
+            Ok(Paths::Dir {
+                base,
+                dir: Walk::new(path),
+            })
+        } else {
+            Ok(Paths::File { base, file: path })
+        }
+    }
 }

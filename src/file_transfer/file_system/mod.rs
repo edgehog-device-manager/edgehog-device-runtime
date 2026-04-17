@@ -16,7 +16,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::io;
+use std::path::PathBuf;
+
+use pin_project::pin_project;
+use tokio::fs::File;
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
+use tokio_stream::StreamExt;
+use tracing::{info, instrument, trace};
 use uuid::Uuid;
+
+use crate::file_transfer::encoding::tar_gz::TarGzDecoder;
 
 use super::request::Encoding;
 #[cfg(unix)]
@@ -33,4 +43,194 @@ pub(crate) struct FileOptions {
     #[cfg(unix)]
     pub(super) perm: FilePermissions,
     pub(super) compression: Option<Encoding>,
+}
+
+#[derive(Debug)]
+#[pin_project]
+pub(crate) struct WriteHandle {
+    /// Path to the file
+    path: PathBuf,
+    /// Path to the file with `.part` extension.
+    partial: PathBuf,
+    /// Starting size of the file.
+    current_size: u64,
+    /// Opened file.
+    #[pin]
+    file: tokio::fs::File,
+}
+
+impl WriteHandle {
+    const PARTTIAL_EXT: &str = ".part";
+
+    pub(crate) fn current_size(&self) -> u64 {
+        self.current_size
+    }
+
+    #[cfg(unix)]
+    fn mask(mode: u32) -> u32 {
+        0o600 | mode
+    }
+
+    #[instrument(skip(opt))]
+    pub(crate) async fn open(path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
+        // Set partial extension
+        let mut partial = path.clone().into_os_string();
+        partial.push(Self::PARTTIAL_EXT);
+        let partial = PathBuf::from(partial);
+
+        let mut file_options = File::options();
+
+        file_options.create(true).write(true).read(true);
+
+        cfg_if::cfg_if! {
+            if #[cfg(unix)] {
+                file_options.mode(Self::mask(opt.perm.mode()));
+            } else {
+                let _opt = opt;
+            }
+        }
+
+        // TODO: flock the file?
+        let file = file_options.open(&partial).await?;
+
+        let current_size = file.metadata().await?.len();
+
+        trace!(current_size, "reading existing content");
+
+        trace!("returning the handle");
+
+        Ok(WriteHandle {
+            path,
+            partial,
+            current_size,
+            file,
+        })
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) async fn finalize(self, opt: &FileOptions) -> io::Result<()> {
+        self.file.sync_all().await?;
+
+        if let Some(comp) = opt.compression {
+            self.extract(comp).await
+        } else {
+            self.move_part(opt).await
+        }
+    }
+
+    #[instrument(skip_all)]
+    async fn move_part(self, opt: &FileOptions) -> io::Result<()> {
+        let from = self.partial;
+        let to = self.path;
+
+        tokio::fs::rename(&from, &to).await?;
+
+        info!("file stored");
+
+        cfg_if::cfg_if! {
+            if #[cfg(unix)] {
+                let gid = opt.perm.group_id;
+
+                tokio::task::spawn_blocking(move || {
+                    if let Err(error) = std::os::unix::fs::chown(to, None, gid) {
+                        use tracing::error;
+
+                        error!(%error, "couldn't change file ownership, this could be because the user is unprivileged and doesn't belongs to the target group");
+                    }
+                })
+                .await?;
+            } else {
+                let _ = opt;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn extract(mut self, compression: Encoding) -> io::Result<()> {
+        self.file.seek(io::SeekFrom::Start(0)).await?;
+
+        tokio::fs::create_dir_all(&self.path).await?;
+
+        match compression {
+            Encoding::TarGz => {
+                let mut extract = TarGzDecoder::create(BufReader::new(self.file))?;
+
+                while let Some(item) = extract.next().await {
+                    let mut item = item?;
+
+                    item.unpack_in(&self.partial).await?;
+                }
+            }
+        }
+
+        info!("file extracted");
+
+        tokio::fs::remove_file(&self.partial).await?;
+
+        Ok(())
+    }
+}
+
+impl AsyncWrite for WriteHandle {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.project();
+
+        this.file.poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.project();
+
+        this.file.poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.project();
+
+        this.file.poll_shutdown(cx)
+    }
+}
+
+impl AsyncRead for WriteHandle {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let this = self.project();
+
+        this.file.poll_read(cx, buf)
+    }
+}
+
+impl AsyncSeek for WriteHandle {
+    fn start_seek(
+        self: std::pin::Pin<&mut Self>,
+        position: std::io::SeekFrom,
+    ) -> std::io::Result<()> {
+        let this = self.project();
+
+        this.file.start_seek(position)
+    }
+
+    fn poll_complete(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<u64>> {
+        let this = self.project();
+
+        this.file.poll_complete(cx)
+    }
 }
