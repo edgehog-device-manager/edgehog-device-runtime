@@ -27,7 +27,6 @@ use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
 use eyre::Context;
-use tokio::io::BufReader;
 use tokio::sync::{Notify, watch};
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
@@ -427,7 +426,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
             Some(Encoding::TarGz) => {
                 let paths = self.storage.find_paths(id).await?;
 
+                let progress = FileTransferProgress::start(req.transfer(), req.progress, None);
+
                 let reader = TarGzBuilder::spawn(paths);
+                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
                 let reader = ReaderStream::new(reader);
 
                 self.client
@@ -437,6 +439,11 @@ impl<F, S, C> FileTransfer<F, S, C> {
             None => {
                 let reader = self.storage.open_read(id).await?;
 
+                let file_len = reader.metadata().await?.len();
+                let progress =
+                    FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
+
+                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
                 let reader = ReaderStream::new(reader);
 
                 self.client
@@ -453,12 +460,15 @@ impl<F, S, C> FileTransfer<F, S, C> {
     where
         S: Pipe,
     {
-        let file = self.stream.create_reader(&req.id).await?;
+        let reader = self.stream.create_reader(&req.id).await?;
 
-        let body_stream = ReaderStream::new(file);
+        let progress = FileTransferProgress::start(req.transfer(), req.progress, None);
+
+        let reader = ProgressUpdate::track(reader, progress, &self.tracker);
+        let reader = ReaderStream::new(reader);
 
         self.client
-            .upload(&req.url, req.headers.clone(), body_stream)
+            .upload(&req.url, req.headers.clone(), reader)
             .await?;
 
         Ok(())
@@ -470,7 +480,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
             Some(Encoding::TarGz) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
 
+                let progress = FileTransferProgress::start(req.transfer(), req.progress, None);
+
                 let reader = TarGzBuilder::spawn(paths);
+                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
                 let reader = tokio_util::io::ReaderStream::new(reader);
 
                 self.client
@@ -479,8 +492,12 @@ impl<F, S, C> FileTransfer<F, S, C> {
             }
             None => {
                 let reader = tokio::fs::File::open(path).await?;
-                let reader = BufReader::new(reader);
 
+                let file_len = reader.metadata().await?.len();
+                let progress =
+                    FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
+
+                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
                 let reader = ReaderStream::new(reader);
 
                 self.client
@@ -1096,6 +1113,7 @@ mod tests {
         let mut progress_device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         progress_device
             .expect_send_object()
+            .times(1..)
             .with(
                 eq("io.edgehog.devicemanager.fileTransfer.Progress"),
                 eq("/request"),
