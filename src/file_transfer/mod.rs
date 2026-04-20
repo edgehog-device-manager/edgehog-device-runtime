@@ -249,22 +249,24 @@ impl<F, S, C> FileTransfer<F, S, C> {
         S: Pipe,
         C: Client + Send + Sync + 'static,
     {
-        let transfer = match job {
-            Request::Download(download) => {
-                self.download(&download).await?;
+        let id = job.transfer();
 
-                download.transfer()
-            }
-            Request::Upload(upload) => {
-                self.upload(&upload).await?;
-
-                upload.transfer()
-            }
+        let result = match job {
+            Request::Download(download) => self.download(&download).await,
+            Request::Upload(upload) => self.upload(&upload).await,
         };
 
-        self.job_done(transfer).await?;
+        match result {
+            Ok(_) => self.job_done(id).await,
+            Err(error) => {
+                error!(
+                    error = format!("{error:#}"),
+                    "couldn't perform requested file transfer"
+                );
 
-        Ok(())
+                self.job_error(id, error).await
+            }
+        }
     }
 
     #[instrument(skip_all)]
@@ -535,7 +537,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         Ok(())
     }
 
-    async fn job_done(&mut self, transfer: FileTransferId) -> Result<(), eyre::Error>
+    async fn job_done(&mut self, transfer: FileTransferId) -> eyre::Result<()>
     where
         C: Client + Send + Sync + 'static,
     {
@@ -548,6 +550,31 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .wrap_err("couldn't update job status")?;
 
         FileTransferResponse::success(transfer)
+            .send(&mut self.device)
+            .await
+            .wrap_err("couldn't send response to astarte")?;
+
+        self.queue
+            .delete(&id, tag.into())
+            .await
+            .wrap_err("couldn't clean up job")?;
+
+        Ok(())
+    }
+
+    async fn job_error(&mut self, transfer: FileTransferId, error: eyre::Report) -> eyre::Result<()>
+    where
+        C: Client + Send + Sync + 'static,
+    {
+        let FileTransferId { id, direction } = transfer;
+
+        let tag = JobTag::from(direction);
+        self.queue
+            .update(&id, tag.into(), JobStatus::Error)
+            .await
+            .wrap_err("couldn't update job status")?;
+
+        FileTransferResponse::runtime_error(id, direction, error)
             .send(&mut self.device)
             .await
             .wrap_err("couldn't send response to astarte")?;
@@ -662,6 +689,7 @@ impl ProgressHandle for ProgressUpdate {
 mod tests {
     use std::time::Duration;
 
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
@@ -1241,23 +1269,24 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_download_event = mk_download_wrong_digest(&server).await;
 
-        // let mut seq = Sequence::new();
-        let device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-        // TODO send response in case of error
-        // device
-        //     .expect_send_object()
-        //     .with(
-        //         eq("io.edgehog.devicemanager.fileTransfer.Response"),
-        //         eq("/request"),
-        //         function(|o: &AstarteObject| {
-        //             let code = o.get("code").unwrap();
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                function(|o: &AstarteObject| {
+                    info!(?o);
 
-        //             code != &AstarteData::Integer(0)
-        //         }),
-        //     )
-        //     .once()
-        //     .in_sequence(&mut seq)
-        //     .returning(|_, _, _| Ok(()));
+                    let code = o.get("code").unwrap();
+
+                    code != &AstarteData::Integer(0)
+                }),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
         let (mut transfer, dir) = mk_def_transfer("digest_error", device).await;
 
         let complete_file = dir.path().join(mock_download_event.req.id().to_string());
@@ -1270,7 +1299,7 @@ mod tests {
         let result = transfer.handle(mock_download_event.req).await;
 
         info!(?result);
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
         mock_download_event.first_call.assert_async().await;
 
