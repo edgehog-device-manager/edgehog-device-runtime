@@ -17,20 +17,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pin_project::pin_project;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, BufReader};
 use tokio_stream::StreamExt;
-use tracing::{info, instrument, trace};
+use tracing::{error, info, instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::encoding::tar_gz::TarGzDecoder;
+use crate::io::digest::Digest;
 
-use super::request::Encoding;
 #[cfg(unix)]
 use super::request::FilePermissions;
+use super::request::{Encoding, FileDigest};
 
 pub(super) mod store;
 pub(super) mod stream;
@@ -69,6 +70,33 @@ impl WriteHandle {
     #[cfg(unix)]
     fn mask(mode: u32) -> u32 {
         0o600 | mode
+    }
+
+    #[instrument]
+    pub(crate) async fn try_exists(
+        path: &Path,
+        alg: FileDigest,
+        digest: &[u8],
+    ) -> io::Result<bool> {
+        let file = match File::open(path).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                return Ok(false);
+            }
+            Err(error) => {
+                error!(%error, "couldn't check if file existed");
+
+                return Err(error);
+            }
+        };
+
+        let meta = file.metadata().await?;
+
+        let file = Digest::from_read(file, alg, meta.len()).await?;
+
+        file.into_inner(digest)?;
+
+        Ok(true)
     }
 
     #[instrument(skip(opt))]
@@ -232,5 +260,52 @@ impl AsyncSeek for WriteHandle {
         let this = self.project();
 
         this.file.poll_complete(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempdir::TempDir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn try_exists() {
+        let dir = TempDir::new("try_exists").unwrap();
+
+        let content = Uuid::new_v4().to_string();
+
+        let alg = FileDigest::Sha256;
+        let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, content.as_bytes());
+
+        let path = dir.path().join("file.txt");
+
+        tokio::fs::write(&path, &content).await.unwrap();
+
+        let exists = WriteHandle::try_exists(&path, alg, digest.as_ref())
+            .await
+            .unwrap();
+
+        assert!(exists);
+    }
+
+    #[tokio::test]
+    async fn mismatched_digest() {
+        let dir = TempDir::new("try_exists").unwrap();
+
+        let content = Uuid::new_v4().to_string();
+
+        let alg = FileDigest::Sha256;
+        let other_content = Uuid::new_v4().to_string();
+        let digest =
+            aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, other_content.as_bytes());
+
+        let path = dir.path().join("file.txt");
+
+        tokio::fs::write(&path, &content).await.unwrap();
+
+        WriteHandle::try_exists(&path, alg, digest.as_ref())
+            .await
+            .unwrap_err();
     }
 }

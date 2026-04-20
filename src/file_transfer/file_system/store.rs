@@ -27,6 +27,7 @@ use tracing::{instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::encoding::Paths;
+use crate::file_transfer::request::FileDigest;
 
 use super::{FileOptions, WriteHandle};
 
@@ -58,10 +59,15 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip(self), ret)]
-    pub(crate) async fn file_exists(&self, id: &Uuid) -> eyre::Result<bool> {
+    pub(crate) async fn file_exists(
+        &self,
+        id: &Uuid,
+        alg: FileDigest,
+        digest: &[u8],
+    ) -> eyre::Result<bool> {
         let path = self.file_path(id);
 
-        tokio::fs::try_exists(&path)
+        WriteHandle::try_exists(&path, alg, digest)
             .await
             .wrap_err_with(|| format!("couldn't access file: {}", path.display()))
     }

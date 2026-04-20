@@ -283,7 +283,12 @@ impl<F, S, C> FileTransfer<F, S, C> {
     where
         F: Space,
     {
-        if self.storage.file_exists(&download.id).await? {
+        let exists = self
+            .storage
+            .file_exists(&download.id, download.digest_type, &download.digest)
+            .await?;
+
+        if exists {
             info!("file already exists");
 
             return Ok(());
@@ -347,11 +352,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     where
         F: Space,
     {
-        let exists = tokio::fs::try_exists(&path)
-            .await
-            .wrap_err_with(|| format!("couldn't access file: {}", path.display()))?;
-
-        if exists {
+        if WriteHandle::try_exists(&path, download.digest_type, &download.digest).await? {
             info!("file already exists");
 
             return Ok(());

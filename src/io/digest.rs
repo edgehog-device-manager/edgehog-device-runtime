@@ -43,17 +43,17 @@ impl<S> Digest<S> {
     }
 
     #[instrument(skip(inner))]
-    pub(crate) async fn from_read(inner: S, digest: FileDigest, start: u64) -> io::Result<Self>
+    pub(crate) async fn from_read(inner: S, digest: FileDigest, seek: u64) -> io::Result<Self>
     where
         S: AsyncRead + Unpin,
     {
         let mut ctx = aws_lc_rs::digest::Context::from(digest);
 
-        let inner = if start == 0 {
+        let inner = if seek == 0 {
             inner
         } else {
             // Read till start
-            let mut reader = BufReader::new(inner.take(start));
+            let mut reader = BufReader::new(inner.take(seek));
 
             while let buf = reader.fill_buf().await?
                 && !buf.is_empty()
