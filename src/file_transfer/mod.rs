@@ -804,7 +804,7 @@ mod tests {
     use tempdir::TempDir;
     use uuid::Uuid;
 
-    use super::config::DEFAULT_MAX_FREE_PERCENTAGE;
+    use super::file_system::store::tests::TEST_RESERVED_PERCENTAGE;
     use super::request::{FileDigest, FilePermissions};
     use super::*;
 
@@ -837,7 +837,7 @@ mod tests {
         let args = FileTransferArgs {
             enabled: true,
             storage_dir: dir.path().to_path_buf(),
-            storage_reserved: DEFAULT_MAX_FREE_PERCENTAGE,
+            storage_reserved: TEST_RESERVED_PERCENTAGE,
         };
         (
             FileTransfer::create(queue, args, device, tracker, Arc::new(Notify::new())).unwrap(),

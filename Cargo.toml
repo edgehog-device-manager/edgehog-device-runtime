@@ -75,7 +75,7 @@ containers = [
   "edgehog-service?/containers",
 ]
 # Enable the file transfer feature
-file-transfer = []
+file-transfer = ["windows-sys"]
 # Enable the forwarder service
 forwarder = ["dep:edgehog-forwarder"]
 # Enable connecting to astarte through the Message Hub
@@ -172,6 +172,9 @@ procfs.workspace = true
 udev = { workspace = true, optional = true }
 systemd = { workspace = true, optional = true }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, optional = true, features = ["Win32_Storage_FileSystem"] }
+
 [build-dependencies]
 rustc_version.workspace = true
 
@@ -259,4 +262,5 @@ uuid = "1.23.1"
 walkdir = "2.5.0"
 webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
+windows-sys = "0.61.2"
 zbus = { version = "5.14.0", default-features = false }
