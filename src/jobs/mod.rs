@@ -64,6 +64,26 @@ impl Queue {
         Ok(())
     }
 
+    #[instrument(skip_all)]
+    pub async fn exists(&self, id: &Uuid, job_type: JobType, tag: i32) -> eyre::Result<bool> {
+        let id = SqlUuid::new(*id);
+
+        self.db
+            .for_read(move |write| {
+                let exists: bool = select(exists(
+                    job_queue::table
+                        .filter(job_queue::id.eq(id))
+                        .filter(job_queue::job_type.eq(job_type))
+                        .filter(job_queue::tag.eq(tag)),
+                ))
+                .get_result(write)?;
+
+                Ok(exists)
+            })
+            .await
+            .wrap_err("couldn't delete job")
+    }
+
     #[cfg_attr(not(test), expect(unused))]
     #[instrument(skip_all)]
     pub async fn insert<J>(&self, job: J) -> eyre::Result<()>
@@ -306,26 +326,6 @@ pub(crate) mod tests {
                 })
                 .await
                 .unwrap()
-        }
-
-        #[instrument(skip_all)]
-        pub async fn exists(&self, id: &Uuid, job_type: JobType, tag: i32) -> eyre::Result<bool> {
-            let id = SqlUuid::new(*id);
-
-            self.db
-                .for_read(move |write| {
-                    let exists: bool = select(exists(
-                        job_queue::table
-                            .filter(job_queue::id.eq(id))
-                            .filter(job_queue::job_type.eq(job_type))
-                            .filter(job_queue::tag.eq(tag)),
-                    ))
-                    .get_result(write)?;
-
-                    Ok(exists)
-                })
-                .await
-                .wrap_err("couldn't delete job")
         }
     }
 

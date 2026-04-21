@@ -18,20 +18,25 @@
 
 //! Handles file system operations for the file transfer.
 
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use edgehog_store::models::job::job_type::JobType;
 use eyre::WrapErr;
 use futures::{Stream, TryStreamExt};
+use tokio::fs::ReadDir;
 use tokio_stream::wrappers::ReadDirStream;
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 
 use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
 use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::request::FileDigest;
+use crate::file_transfer::request::TransferJobTag;
+use crate::jobs::Queue;
 
 use super::{FileOptions, WriteHandle};
 
@@ -53,12 +58,74 @@ impl FileStorage<Fs> {
 
 impl<F> FileStorage<F> {
     #[instrument(skip_all)]
-    pub(crate) async fn init(&self) -> eyre::Result<()> {
+    pub(crate) async fn init(&self, queue: &Queue) -> eyre::Result<()> {
+        trace!(path = %self.dir.display(), "initializing store dir");
+
         tokio::fs::create_dir_all(&self.dir)
             .await
             .wrap_err("couldn't create file storage directory")?;
 
+        let dir = tokio::fs::read_dir(&self.dir)
+            .await
+            .wrap_err("couldn't read file storage directory")?;
+
+        self.cleanup_partials(queue, dir).await;
+
         Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn cleanup_partials(&self, queue: &Queue, mut dir: ReadDir) {
+        while let Ok(Some(entry)) = dir
+            .next_entry()
+            .await
+            .inspect_err(|error| error!(%error,"couldn't get next dir entry"))
+        {
+            let path = entry.path();
+
+            let Some(id) = Self::get_partial_id(&path) else {
+                trace!(entry = %path.display(), "not a partial file");
+
+                continue;
+            };
+
+            let res = queue
+                .exists(&id, JobType::FileTransfer, TransferJobTag::Download.into())
+                .await;
+
+            let job_exists = match res {
+                Ok(exists) => exists,
+                Err(error) => {
+                    error!(%error, "couldn't check if job exists");
+
+                    continue;
+                }
+            };
+
+            if job_exists {
+                continue;
+            }
+
+            if let Err(error) = tokio::fs::remove_file(&path).await {
+                error!(%error, path = %path.display(), "couldn't remove partial file")
+            }
+        }
+    }
+
+    #[instrument]
+    fn get_partial_id(entry: &Path) -> Option<Uuid> {
+        let file_steam = entry.file_stem()?;
+        let file_ext = entry.extension()?;
+
+        if file_ext != OsStr::new(WriteHandle::PARTIAL) {
+            return None;
+        }
+
+        let file_steam = file_steam.to_str()?;
+
+        Uuid::parse_str(file_steam)
+            .inspect_err(|error| error!(%error, "couldn't parse partial id"))
+            .ok()
     }
 
     pub(crate) fn file_path(&self, id: &Uuid) -> PathBuf {
@@ -144,7 +211,7 @@ impl<F> FileStorage<F> {
             let name = e.file_name();
             let name = name.to_string_lossy();
 
-            if !name.ends_with(WriteHandle::PARTTIAL_EXT) {
+            if !name.ends_with(WriteHandle::PARTIAL_EXT) {
                 let path = e.path();
                 let size = e.metadata().await?.len();
 

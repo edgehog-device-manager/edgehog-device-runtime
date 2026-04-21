@@ -61,7 +61,8 @@ pub(crate) struct WriteHandle {
 }
 
 impl WriteHandle {
-    pub(crate) const PARTTIAL_EXT: &str = ".part";
+    pub(crate) const PARTIAL_EXT: &str = ".part";
+    pub(crate) const PARTIAL: &str = "part";
 
     pub(crate) fn current_size(&self) -> u64 {
         self.current_size
@@ -104,7 +105,7 @@ impl WriteHandle {
     pub(crate) async fn open(path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
         // Set partial extension
         let mut partial = path.clone().into_os_string();
-        partial.push(Self::PARTTIAL_EXT);
+        partial.push(Self::PARTIAL_EXT);
         let partial = PathBuf::from(partial);
 
         let mut file_options = File::options();
