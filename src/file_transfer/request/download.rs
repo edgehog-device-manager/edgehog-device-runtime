@@ -107,7 +107,7 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
             url,
             http_header_keys,
             http_header_values,
-            encoding: compression,
+            encoding,
             file_size_bytes,
             progress,
             digest,
@@ -132,7 +132,8 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
 
                 Ok((k, v))
             })
-            .collect::<eyre::Result<HeaderMap>>()?;
+            .collect::<eyre::Result<HeaderMap>>()
+            .wrap_err("couldn't parse headers")?;
 
         let ttl = conv_or_default(*ttl_seconds, 0)
             .wrap_err("couldn't convert ttl_seconds to duration")?
@@ -150,11 +151,13 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
             .map(ByteVec::from)
             .wrap_err("couldn't decode hex digest")?;
 
-        let compression = (!compression.is_empty())
-            .then(|| compression.parse())
-            .transpose()?;
+        let compression = (!encoding.is_empty())
+            .then(|| encoding.parse())
+            .transpose()
+            .wrap_err("couldn't parse encoding")?;
 
-        let destination = Destination::from_str(destination_type, destination)?;
+        let destination = Destination::from_str(destination_type, destination)
+            .wrap_err("couldn't parse destination")?;
 
         Ok(Self {
             id: id.parse()?,

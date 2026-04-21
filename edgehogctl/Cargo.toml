@@ -29,7 +29,9 @@ description.workspace = true
 aws-lc-rs.workspace = true
 clap = { workspace = true, features = ["derive"] }
 color-eyre.workspace = true
+edgehog-store.workspace = true
 edgehog-tls.workspace = true
+walkdir.workspace = true
 eyre.workspace = true
 hex.workspace = true
 rustls.workspace = true

@@ -1380,6 +1380,7 @@ dependencies = [
  "aws-lc-rs",
  "clap",
  "color-eyre",
+ "edgehog-device-runtime-store",
  "edgehog-device-runtime-tls",
  "eyre",
  "hex",
@@ -1394,6 +1395,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]
