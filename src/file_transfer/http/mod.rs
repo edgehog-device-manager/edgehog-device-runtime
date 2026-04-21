@@ -26,29 +26,15 @@ use futures::TryStream;
 use reqwest::{
     StatusCode,
     header::{GetAll, HeaderMap, HeaderValue},
-    redirect::Policy,
 };
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
-pub fn default_http_client_builder() -> Result<reqwest::ClientBuilder, rustls::Error> {
-    // TODO move tls initialization in the main function to keep a single instance
-    let tls = edgehog_tls::config()?;
-    let client = reqwest::Client::builder()
-        .use_preconfigured_tls(tls)
-        .redirect(Policy::limited(3))
-        .user_agent(concat!(
-            env!("CARGO_PKG_NAME"),
-            "/",
-            env!("CARGO_PKG_VERSION")
-        ));
-
-    Ok(client)
-}
+use crate::http::default_http_client_builder;
 
 #[derive(Debug)]
-pub enum FileTransferRange {
+pub(crate) enum FileTransferRange {
     Content {
         range_start: u64,
         range_total: Option<u64>,
@@ -60,12 +46,12 @@ pub enum FileTransferRange {
 
 /// Create the http client
 #[derive(Debug)]
-pub struct FtHttpClient {
+pub(crate) struct FtHttpClient {
     client: reqwest::Client,
 }
 
 impl FtHttpClient {
-    pub fn create() -> eyre::Result<Self> {
+    pub(crate) fn create() -> eyre::Result<Self> {
         let client = default_http_client_builder()
             .wrap_err("failed to build TLS config")?
             .build()
@@ -74,8 +60,7 @@ impl FtHttpClient {
         Ok(Self { client })
     }
 
-    // TODO: Add total if available
-    pub async fn download(
+    pub(crate) async fn download(
         &self,
         url: &Url,
         mut headers: HeaderMap,
@@ -129,7 +114,12 @@ impl FtHttpClient {
         }
     }
 
-    pub async fn upload<S>(&self, url: &Url, headers: HeaderMap, body_stream: S) -> eyre::Result<()>
+    pub(crate) async fn upload<S>(
+        &self,
+        url: &Url,
+        headers: HeaderMap,
+        body_stream: S,
+    ) -> eyre::Result<()>
     where
         S: TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -363,7 +353,7 @@ mod tests {
     use tokio_stream::once;
     use url::Url;
 
-    use crate::http::{FileDownloadResponse, FtHttpClient};
+    use crate::file_transfer::http::{FileDownloadResponse, FtHttpClient};
 
     async fn write_chunks<T>(mut response: FileDownloadResponse, mut buf: T)
     where

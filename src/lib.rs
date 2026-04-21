@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,12 +33,15 @@ pub mod data;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod device;
 pub mod error;
-pub mod file_transfer;
+#[cfg(feature = "file-transfer")]
+pub(crate) mod file_transfer;
 #[cfg(feature = "forwarder")]
 mod forwarder;
-mod http;
+pub(crate) mod http;
+#[cfg(feature = "file-transfer")]
 pub(crate) mod io;
-mod jobs;
+#[cfg(feature = "file-transfer")]
+pub(crate) mod jobs;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 mod led_behavior;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -79,17 +82,17 @@ pub struct DeviceManagerOptions {
 #[cfg(test)]
 pub(crate) mod tests {
     use insta::assert_snapshot;
-    use std::borrow::Borrow;
-    use std::fmt::Display;
 
+    #[cfg(feature = "file-transfer")]
     #[derive(Debug, Clone, Copy)]
     pub(crate) struct Hexdump<T>(pub(crate) T)
     where
-        T: Borrow<[u8]>;
+        T: std::borrow::Borrow<[u8]>;
 
-    impl<T> Display for Hexdump<T>
+    #[cfg(feature = "file-transfer")]
+    impl<T> std::fmt::Display for Hexdump<T>
     where
-        T: Borrow<[u8]>,
+        T: std::borrow::Borrow<[u8]>,
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let buf = self.0.borrow();

@@ -1174,11 +1174,9 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -1234,7 +1232,6 @@ dependencies = [
  "procfs",
  "reqwest",
  "rstest",
- "rusqlite",
  "rustc_version",
  "rustix",
  "rustls",
@@ -1276,11 +1273,9 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
- "indexmap",
  "itertools 0.14.0",
  "mockall",
  "pretty_assertions",
- "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
@@ -1334,7 +1329,6 @@ dependencies = [
  "cfg-if",
  "edgehog-device-runtime-containers",
  "edgehog-device-runtime-proto",
- "edgehog-device-runtime-store",
  "eyre",
  "mockall",
  "pretty_assertions",
@@ -4517,7 +4511,6 @@ checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
- "rand 0.10.0",
  "serde_core",
  "sha1_smol",
  "wasm-bindgen",

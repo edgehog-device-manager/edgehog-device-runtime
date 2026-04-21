@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,23 +16,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use actor::Actor;
 use astarte_device_sdk::FromEvent;
 use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
-use edgehog_store::db::{Handle, HandleError};
 use eyre::{Context, Report};
-use tokio::sync::{Notify, watch};
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, trace};
 
 use crate::commands::execute_command;
-use crate::file_transfer::interface::request::FileTransferRequest;
-use crate::file_transfer::{self, FileTransfer, ProgressTracker};
-use crate::jobs::Queue;
 use crate::telemetry::Telemetry;
 use crate::telemetry::event::TelemetryEvent;
 use crate::{Client, DeviceManagerOptions};
@@ -42,7 +35,6 @@ use crate::led_behavior::{LedBlink, LedEvent};
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use crate::ota::ota_handler::OtaHandler;
 
-use self::actor::Persisted;
 use self::event::RuntimeEvent;
 
 pub mod actor;
@@ -53,8 +45,10 @@ const EVENT_BUFFER: usize = 8;
 #[derive(Debug)]
 pub struct Runtime<T> {
     client: T,
+    cancel: CancellationToken,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
-    file_transfer: mpsc::Sender<FileTransferRequest>,
+    #[cfg(feature = "file-transfer")]
+    file_transfer: mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>,
     #[cfg(feature = "containers")]
     containers_tx: mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>,
     #[cfg(feature = "forwarder")]
@@ -80,29 +74,34 @@ impl<C> Runtime<C> {
 
         info!("Initializing");
 
-        // needed for warning
-        #[cfg(not(feature = "service"))]
-        let _ = cancel;
-
+        #[cfg(any(feature = "file-transfer", feature = "containers"))]
         let store = Self::store(&opts.store_directory)
             .await
             .wrap_err("couldn't connect to container store")?;
 
-        let jobs = Queue::new(store.clone());
-        jobs.init().await?;
+        #[cfg(feature = "file-transfer")]
+        let jobs = {
+            use crate::jobs::Queue;
+
+            let jobs = Queue::new(store.clone());
+
+            jobs.init().await?;
+
+            jobs
+        };
 
         #[cfg(feature = "containers")]
         let container_handle = std::sync::Arc::new(tokio::sync::OnceCell::new());
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
-        let ota_handler = OtaHandler::start(tasks, client.clone(), &opts)
+        let ota_handler = OtaHandler::start(tasks, cancel.child_token(), client.clone(), &opts)
             .await
             .wrap_err("couldn't initialize ota handler")?;
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let led_tx = {
             let (led_tx, led_rx) = mpsc::channel(EVENT_BUFFER);
-            tasks.spawn(LedBlink.run(led_rx));
+            tasks.spawn(LedBlink.run(led_rx, cancel.child_token()));
             led_tx
         };
 
@@ -117,9 +116,10 @@ impl<C> Runtime<C> {
         )
         .await;
 
-        tasks.spawn(telemetry.run(telemetry_rx));
+        tasks.spawn(telemetry.run(telemetry_rx, cancel.child_token()));
 
         // TODO: Add configuration
+        #[cfg(feature = "file-transfer")]
         let file_transfer = Self::file_transfer(
             client.clone(),
             tasks,
@@ -136,6 +136,7 @@ impl<C> Runtime<C> {
             &store,
             &container_handle,
             tasks,
+            cancel.child_token(),
         )
         .await
         .wrap_err("couldn't setup the container task")?;
@@ -146,7 +147,7 @@ impl<C> Runtime<C> {
             #[cfg(feature = "containers")]
             &container_handle,
             tasks,
-            cancel,
+            cancel.child_token(),
         );
 
         #[cfg(feature = "forwarder")]
@@ -157,7 +158,9 @@ impl<C> Runtime<C> {
 
         Ok(Self {
             client,
+            cancel,
             telemetry_tx,
+            #[cfg(feature = "file-transfer")]
             file_transfer,
             #[cfg(feature = "containers")]
             containers_tx,
@@ -170,27 +173,36 @@ impl<C> Runtime<C> {
         })
     }
 
+    #[cfg(feature = "file-transfer")]
     fn file_transfer(
         device: C,
         tasks: &mut JoinSet<eyre::Result<()>>,
-        jobs: Queue,
+        jobs: crate::jobs::Queue,
         store_dir: std::path::PathBuf,
         cancel: CancellationToken,
-    ) -> eyre::Result<mpsc::Sender<FileTransferRequest>>
+    ) -> eyre::Result<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>
     where
         C: Client + Send + Sync + 'static,
     {
-        let (transfer_tx, transfer_rx) = mpsc::channel(EVENT_BUFFER);
+        use std::sync::Arc;
+
+        use tokio::sync::Notify;
+
+        use crate::file_transfer::{self, FileTransfer, ProgressTracker};
+
+        use self::actor::Persisted;
+
+        let (transfer_tx, transfer_rx) = tokio::sync::mpsc::channel(EVENT_BUFFER);
         let notify = Arc::new(Notify::new());
 
-        let (progress_tx, progress_rx) = watch::channel(None);
+        let (progress_tx, progress_rx) = tokio::sync::watch::channel(None);
 
         tasks.spawn(ProgressTracker::create(device.clone()).run(progress_rx, cancel.clone()));
         tasks.spawn(
             FileTransfer::create(jobs.clone(), store_dir, device.clone(), progress_tx)?
-                .run(Arc::clone(&notify), cancel),
+                .run(Arc::clone(&notify), cancel.clone()),
         );
-        tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(transfer_rx));
+        tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(transfer_rx, cancel));
 
         Ok(transfer_tx)
     }
@@ -199,11 +211,12 @@ impl<C> Runtime<C> {
     async fn setup_containers(
         client: C,
         config: crate::containers::ContainersConfig,
-        store: &Handle,
+        store: &edgehog_store::db::Handle,
         container_handle: &std::sync::Arc<
             tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
         >,
         tasks: &mut JoinSet<eyre::Result<()>>,
+        cancel: CancellationToken,
     ) -> eyre::Result<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>
     where
         C: Client + Send + Sync + 'static,
@@ -220,7 +233,7 @@ impl<C> Runtime<C> {
         .await
         .wrap_err("couldn't create container service")?;
 
-        tasks.spawn(containers.run(container_rx));
+        tasks.spawn(containers.run(container_rx, cancel));
 
         Ok(container_tx)
     }
@@ -280,8 +293,8 @@ impl<C> Runtime<C> {
 
         info!("Running");
 
-        loop {
-            let event = match self.client.recv().await {
+        while let Some(res) = self.cancel.run_until_cancelled(self.client.recv()).await {
+            let event = match res {
                 Ok(event) => RuntimeEvent::from_event(event).wrap_err("couldn't convert event")?,
                 Err(RecvError::Disconnected) => {
                     error!("the Runtime was disconnected");
@@ -297,6 +310,8 @@ impl<C> Runtime<C> {
 
             self.handle_event(event).await;
         }
+
+        Ok(())
     }
 
     #[instrument(skip_all, fields(event = %event))]
@@ -324,6 +339,7 @@ impl<C> Runtime<C> {
                     error!("couldn't send the telemetry event");
                 }
             }
+            #[cfg(feature = "file-transfer")]
             RuntimeEvent::FileTransfer(event) => {
                 if self.file_transfer.send(event).await.is_err() {
                     error!("couldn't send file transfer event");
@@ -357,10 +373,13 @@ impl<C> Runtime<C> {
         }
     }
 
-    async fn store(store_dir: &std::path::Path) -> Result<Handle, HandleError> {
+    #[cfg(any(feature = "file-transfer", feature = "containers"))]
+    async fn store(
+        store_dir: &std::path::Path,
+    ) -> Result<edgehog_store::db::Handle, edgehog_store::db::HandleError> {
         let db_file = store_dir.join("state.db");
 
-        let store = Handle::open(&db_file).await?;
+        let store = edgehog_store::db::Handle::open(&db_file).await?;
 
         Ok(store)
     }
