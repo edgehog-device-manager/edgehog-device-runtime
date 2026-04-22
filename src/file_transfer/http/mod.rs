@@ -18,16 +18,15 @@
 
 //! Handles an http client to download part of or an entire file.
 
-use std::{fmt::Debug, ops::RangeInclusive};
+use std::{fmt::Debug, io, ops::RangeInclusive};
 
 use bytes::Bytes;
 use eyre::{Context, OptionExt, eyre};
-use futures::TryStream;
+use futures::{Stream, TryStream, TryStreamExt};
 use reqwest::{
     StatusCode,
     header::{GetAll, HeaderMap, HeaderValue},
 };
-use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
@@ -309,25 +308,9 @@ pub(crate) struct FileDownloadResponse {
 }
 
 impl FileDownloadResponse {
-    async fn chunk(&mut self) -> eyre::Result<Option<Bytes>> {
-        self.response.chunk().await.wrap_err("failed to read chunk")
-    }
-
     #[instrument(skip_all)]
-    pub(super) async fn write_chunks<W>(&mut self, mut writer: W) -> eyre::Result<()>
-    where
-        W: AsyncWrite + Unpin,
-    {
-        while let Some(bytes) = self
-            .chunk()
-            .await
-            .wrap_err("error while getting response chunk")?
-        {
-            writer.write_all(&bytes).await?;
-            writer.flush().await?;
-        }
-
-        Ok(())
+    pub(super) fn into_stream(self) -> impl Stream<Item = io::Result<Bytes>> {
+        self.response.bytes_stream().map_err(io::Error::other)
     }
 
     pub(crate) fn start(&self) -> u64 {
@@ -343,6 +326,7 @@ impl FileDownloadResponse {
 mod tests {
     use std::{io::Cursor, iter, ops::RangeInclusive};
 
+    use futures::StreamExt;
     use httpmock::{
         Method::{GET, PUT},
         MockServer,
@@ -351,18 +335,17 @@ mod tests {
     use rstest::rstest;
     use tokio::io::{AsyncWrite, AsyncWriteExt};
     use tokio_stream::once;
+    use tokio_util::codec::{BytesCodec, FramedWrite};
     use url::Url;
 
     use crate::file_transfer::http::{FileDownloadResponse, FtHttpClient};
 
-    async fn write_chunks<T>(mut response: FileDownloadResponse, mut buf: T)
+    async fn write_chunks<T>(response: FileDownloadResponse, mut buf: T)
     where
         T: AsyncWrite + AsyncWriteExt + Unpin,
     {
-        while let Some(mut bytes) = response.chunk().await.unwrap() {
-            buf.write_all_buf(&mut bytes).await.unwrap();
-            buf.flush().await.unwrap();
-        }
+        let sink = FramedWrite::new(&mut buf, BytesCodec::new());
+        response.into_stream().forward(sink).await.unwrap();
     }
 
     #[tokio::test]
