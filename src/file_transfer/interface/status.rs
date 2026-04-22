@@ -68,6 +68,19 @@ impl FileTransferResponse {
         }
     }
 
+    pub(crate) fn runtime_error(
+        id: Uuid,
+        direction: TransferDirection,
+        report: eyre::Report,
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            ty: direction,
+            code: to_errno(io::ErrorKind::Other),
+            message: format!("{report:#}"),
+        }
+    }
+
     #[instrument(skip_all)]
     pub(crate) async fn send<C>(self, device: &mut C) -> eyre::Result<()>
     where

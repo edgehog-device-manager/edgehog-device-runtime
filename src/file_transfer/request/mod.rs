@@ -23,6 +23,7 @@ use eyre::{Context, bail, eyre};
 use uuid::Uuid;
 
 use crate::file_transfer::interface::capabilities::TAR_GZ;
+use crate::file_transfer::interface::status::FileTransferId;
 
 use self::download::Download;
 use self::upload::Upload;
@@ -43,6 +44,13 @@ impl<'a> Request<'a> {
         match self {
             Request::Download(download) => &download.id,
             Request::Upload(upload) => &upload.id,
+        }
+    }
+
+    pub(crate) fn transfer(&self) -> FileTransferId {
+        match self {
+            Request::Download(download) => download.transfer(),
+            Request::Upload(upload) => upload.transfer(),
         }
     }
 }
