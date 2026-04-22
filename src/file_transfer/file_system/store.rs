@@ -23,11 +23,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use eyre::WrapErr;
+use futures::{Stream, TryStreamExt};
+use tokio_stream::wrappers::ReadDirStream;
 use tracing::{instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
+use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::request::FileDigest;
 
 use super::{FileOptions, WriteHandle};
@@ -116,7 +119,7 @@ impl<F> FileStorage<F> {
         &self,
         handle: &mut WriteHandle,
         opt: &FileOptions,
-    ) -> io::Result<()>
+    ) -> io::Result<StoredFile<Uuid>>
     where
         F: Space,
     {
@@ -124,7 +127,34 @@ impl<F> FileStorage<F> {
 
         self.fs.finalize(opt.id).await?;
 
-        Ok(())
+        let id = opt.id;
+        let size = opt.file_size;
+        let path = handle.path.clone();
+
+        Ok(StoredFile::create(id, path, size))
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) async fn files(
+        &self,
+    ) -> io::Result<impl Stream<Item = io::Result<StoredFile<String>>>> {
+        let read_dir = tokio::fs::read_dir(&self.dir).await?;
+
+        let stream = ReadDirStream::new(read_dir).try_filter_map(async |e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+
+            if !name.ends_with(WriteHandle::PARTTIAL_EXT) {
+                let path = e.path();
+                let size = e.metadata().await?.len();
+
+                Ok(Some(StoredFile::create(name.into(), path, size)))
+            } else {
+                Ok(None)
+            }
+        });
+
+        Ok(stream)
     }
 }
 

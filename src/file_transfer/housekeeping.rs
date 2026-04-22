@@ -22,6 +22,7 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Arc;
 
+use astarte_device_sdk::Client;
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
@@ -32,21 +33,29 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, instrument};
 use uuid::Uuid;
 
-use crate::jobs::Queue;
+use crate::{file_transfer::interface::file::StoredFile, jobs::Queue};
 
 /// Task that handles scheduled task for the file transfer
-pub struct StorageTask {
+pub struct StorageTask<C> {
     queue: Queue,
     notify: Arc<Notify>,
+    device: C,
 }
 
-impl StorageTask {
-    pub(crate) fn new(queue: Queue, notify: Arc<Notify>) -> Self {
-        Self { queue, notify }
+impl<C> StorageTask<C> {
+    pub(crate) fn new(queue: Queue, notify: Arc<Notify>, device: C) -> Self {
+        Self {
+            queue,
+            notify,
+            device,
+        }
     }
 
     #[instrument(skip_all)]
-    pub(crate) async fn run(self, cancel: CancellationToken) -> eyre::Result<()> {
+    pub(crate) async fn run(mut self, cancel: CancellationToken) -> eyre::Result<()>
+    where
+        C: Client + Send + Sync + 'static,
+    {
         loop {
             self.jobs(&cancel).await?;
 
@@ -95,7 +104,10 @@ impl StorageTask {
     }
 
     #[instrument(skip_all)]
-    async fn jobs(&self, cancel: &CancellationToken) -> eyre::Result<()> {
+    async fn jobs(&mut self, cancel: &CancellationToken) -> eyre::Result<()>
+    where
+        C: Client + Send + Sync + 'static,
+    {
         while !cancel.is_cancelled()
             && let Some(job) = self.queue.next_scheduled_job(JobType::FileStorage).await?
         {
@@ -108,7 +120,10 @@ impl StorageTask {
     }
 
     #[instrument(skip_all, fields(id = %job.id))]
-    async fn handle(&self, job: &Job) -> eyre::Result<()> {
+    async fn handle(&mut self, job: &Job) -> eyre::Result<()>
+    where
+        C: Client + Send + Sync + 'static,
+    {
         let job = CleanUp::try_from(job)?;
 
         if job.file_path.is_dir() {
@@ -120,6 +135,8 @@ impl StorageTask {
                 .await
                 .wrap_err("couldn't remove file")?;
         }
+
+        StoredFile::deleted(job.id, &mut self.device).await;
 
         // Just delete the job since we don't need to do anything for completion
         self.queue

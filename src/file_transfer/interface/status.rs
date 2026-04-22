@@ -20,7 +20,7 @@ use std::io;
 
 use astarte_device_sdk::AstarteData;
 use astarte_device_sdk::{IntoAstarteObject, aggregate::AstarteObject};
-use tracing::{instrument, warn};
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::file_transfer::request::TransferJobTag;
@@ -191,12 +191,6 @@ pub(crate) struct FileTransferProgress {
 impl FileTransferProgress {
     const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Progress";
 
-    fn to_i64(unsigned: u64) -> i64 {
-        i64::try_from(unsigned)
-            .inspect_err(|error| warn!(%error, "progress bytes overflow"))
-            .unwrap_or(i64::MAX)
-    }
-
     pub(crate) fn start(
         transfer: FileTransferId,
         progress: bool,
@@ -216,7 +210,7 @@ impl FileTransferProgress {
         Self {
             id: transfer.id.to_string(),
             ty: transfer.direction,
-            bytes: Self::to_i64(bytes),
+            bytes: super::to_i64(bytes),
             total_bytes: -1,
         }
     }
@@ -226,8 +220,8 @@ impl FileTransferProgress {
         Self {
             id: transfer.id.to_string(),
             ty: transfer.direction,
-            bytes: Self::to_i64(bytes),
-            total_bytes: Self::to_i64(total_bytes),
+            bytes: super::to_i64(bytes),
+            total_bytes: super::to_i64(total_bytes),
         }
     }
 
@@ -243,7 +237,7 @@ impl FileTransferProgress {
     }
 
     pub(crate) fn set_bytes(&mut self, bytes: u64) {
-        self.bytes = Self::to_i64(bytes);
+        self.bytes = super::to_i64(bytes);
     }
 }
 

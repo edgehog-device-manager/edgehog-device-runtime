@@ -17,8 +17,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::{FromEvent, IntoAstarteObject};
+use tracing::warn;
 
 pub(crate) mod capabilities;
+pub(crate) mod file;
 pub(crate) mod request;
 pub(crate) mod status;
 
@@ -64,6 +66,12 @@ pub(crate) struct DeviceToServer {
     pub(crate) progress: bool,
     pub(crate) source_type: String,
     pub(crate) source: String,
+}
+
+fn to_i64(unsigned: u64) -> i64 {
+    i64::try_from(unsigned)
+        .inspect_err(|error| warn!(%error, "progress bytes overflow"))
+        .unwrap_or(i64::MAX)
 }
 
 #[cfg(test)]
