@@ -26,6 +26,7 @@ use eyre::WrapErr;
 use tracing::{instrument, trace};
 use uuid::Uuid;
 
+use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
 use crate::file_transfer::request::FileDigest;
 
@@ -39,8 +40,11 @@ pub(crate) struct FileStorage<F> {
 }
 
 impl FileStorage<Fs> {
-    pub(crate) fn new(dir: PathBuf) -> Self {
-        Self { fs: Fs {}, dir }
+    pub(crate) fn new(dir: PathBuf, reserved: Percentage) -> Self {
+        Self {
+            fs: Fs { reserved },
+            dir,
+        }
     }
 }
 
@@ -142,7 +146,10 @@ pub(crate) trait Space {
 }
 
 #[derive(Debug)]
-pub(crate) struct Fs {}
+pub(crate) struct Fs {
+    #[expect(unused)]
+    reserved: Percentage,
+}
 
 impl Fs {}
 
@@ -169,6 +176,7 @@ mod tests {
     use tempdir::TempDir;
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
+    use crate::file_transfer::config::DEFAULT_MAX_FREE_PERCENTAGE;
     #[cfg(unix)]
     use crate::file_transfer::request::FilePermissions;
 
@@ -187,7 +195,10 @@ mod tests {
     fn fs_storage() -> (FileStorage<Fs>, TempDir) {
         let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
 
-        (FileStorage::new(dir.path().to_path_buf()), dir)
+        (
+            FileStorage::new(dir.path().to_path_buf(), DEFAULT_MAX_FREE_PERCENTAGE),
+            dir,
+        )
     }
 
     fn mock_fs_storage(mock: MockSpace) -> (FileStorage<MockSpace>, TempDir) {

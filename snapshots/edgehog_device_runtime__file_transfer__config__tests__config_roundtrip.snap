@@ -1,0 +1,7 @@
+---
+source: src/file_transfer/config.rs
+expression: toml_str
+---
+enabled = true
+storage_dir = "/foo/bar"
+storage_reserved = 42

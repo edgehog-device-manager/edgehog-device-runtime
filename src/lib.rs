@@ -34,7 +34,7 @@ pub mod data;
 mod device;
 pub mod error;
 #[cfg(feature = "file-transfer")]
-pub(crate) mod file_transfer;
+pub mod file_transfer;
 #[cfg(feature = "forwarder")]
 mod forwarder;
 pub(crate) mod http;
@@ -61,7 +61,7 @@ pub enum AstarteLibrary {
     AstarteMessageHub,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct DeviceManagerOptions {
     pub astarte_library: AstarteLibrary,
     pub astarte_device_sdk: Option<AstarteDeviceSdkConfigOptions>,
@@ -71,6 +71,8 @@ pub struct DeviceManagerOptions {
     pub containers: containers::ContainersConfig,
     #[cfg(feature = "service")]
     pub service: Option<edgehog_service::config::Config>,
+    #[cfg(feature = "file-transfer")]
+    pub file_transfer: self::file_transfer::config::FileTransferArgs,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     pub ota: self::ota::config::OtaConfig,
     pub interfaces_directory: PathBuf,

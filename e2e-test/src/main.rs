@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@
 
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
+use edgehog_device_runtime::file_transfer::config::FileTransferArgs;
 use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
 use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
 use edgehog_device_runtime::telemetry::status::runtime_info::{RUNTIME_INFO, RuntimeInfo};
@@ -154,6 +155,7 @@ async fn main() -> color_eyre::Result<()> {
         service: None,
         #[cfg(target_os = "linux")]
         ota: edgehog_device_runtime::ota::config::OtaConfig::default(),
+        file_transfer: FileTransferArgs::with_store_dir(None, store_path.path()),
     };
 
     let store = connect_store(store_path.path())

@@ -48,9 +48,10 @@ pub struct Runtime<T> {
     cancel: CancellationToken,
     telemetry_tx: mpsc::Sender<TelemetryEvent>,
     #[cfg(feature = "file-transfer")]
-    file_transfer: mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>,
+    file_transfer:
+        Option<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>,
     #[cfg(feature = "containers")]
-    containers_tx: mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>,
+    containers_tx: Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>,
     #[cfg(feature = "forwarder")]
     forwarder: crate::forwarder::Forwarder<T>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -122,9 +123,9 @@ impl<C> Runtime<C> {
         #[cfg(feature = "file-transfer")]
         let file_transfer = Self::file_transfer(
             client.clone(),
+            opts.file_transfer,
             tasks,
             jobs,
-            opts.store_directory.join("file-store"),
             cancel.child_token(),
         )
         .wrap_err("could't initialize file transfer")?;
@@ -176,11 +177,13 @@ impl<C> Runtime<C> {
     #[cfg(feature = "file-transfer")]
     fn file_transfer(
         device: C,
+        config: crate::file_transfer::config::FileTransferArgs,
         tasks: &mut JoinSet<eyre::Result<()>>,
         jobs: crate::jobs::Queue,
-        store_dir: std::path::PathBuf,
         cancel: CancellationToken,
-    ) -> eyre::Result<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>
+    ) -> eyre::Result<
+        Option<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>,
+    >
     where
         C: Client + Send + Sync + 'static,
     {
@@ -192,6 +195,12 @@ impl<C> Runtime<C> {
 
         use self::actor::Persisted;
 
+        if !config.enabled {
+            tracing::info!("file transfer service not enabled");
+
+            return Ok(None);
+        }
+
         let (transfer_tx, transfer_rx) = tokio::sync::mpsc::channel(EVENT_BUFFER);
         let notify = Arc::new(Notify::new());
 
@@ -199,12 +208,12 @@ impl<C> Runtime<C> {
 
         tasks.spawn(ProgressTracker::create(device.clone()).run(progress_rx, cancel.clone()));
         tasks.spawn(
-            FileTransfer::create(jobs.clone(), store_dir, device.clone(), progress_tx)?
+            FileTransfer::create(jobs.clone(), config, device.clone(), progress_tx)?
                 .run(Arc::clone(&notify), cancel.clone()),
         );
         tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(transfer_rx, cancel));
 
-        Ok(transfer_tx)
+        Ok(Some(transfer_tx))
     }
 
     #[cfg(feature = "containers")]
@@ -217,10 +226,16 @@ impl<C> Runtime<C> {
         >,
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
-    ) -> eyre::Result<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>
+    ) -> eyre::Result<Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>>
     where
         C: Client + Send + Sync + 'static,
     {
+        if !config.enabled {
+            tracing::info!("container service not enabled");
+
+            return Ok(None);
+        }
+
         let (container_tx, container_rx) = mpsc::channel(EVENT_BUFFER);
 
         let containers = crate::containers::ContainerService::new(
@@ -235,7 +250,7 @@ impl<C> Runtime<C> {
 
         tasks.spawn(containers.run(container_rx, cancel));
 
-        Ok(container_tx)
+        Ok(Some(container_tx))
     }
 
     #[cfg(feature = "service")]
@@ -250,9 +265,7 @@ impl<C> Runtime<C> {
         C: Client + Clone + Send + Sync + 'static,
     {
         if !config.enabled {
-            use tracing::debug;
-
-            debug!("local service not enabled");
+            tracing::debug!("local service not enabled");
 
             return;
         }
@@ -341,8 +354,12 @@ impl<C> Runtime<C> {
             }
             #[cfg(feature = "file-transfer")]
             RuntimeEvent::FileTransfer(event) => {
-                if self.file_transfer.send(event).await.is_err() {
-                    error!("couldn't send file transfer event");
+                if let Some(file_transfer) = &self.file_transfer {
+                    if file_transfer.send(event).await.is_err() {
+                        error!("couldn't send file transfer event");
+                    }
+                } else {
+                    error!("received event on file-transfer interface, but the service is disable");
                 }
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -362,8 +379,12 @@ impl<C> Runtime<C> {
             }
             #[cfg(feature = "containers")]
             RuntimeEvent::Container(event) => {
-                if self.containers_tx.send(event).await.is_err() {
-                    error!("couldn't handle the container event")
+                if let Some(containers_tx) = &self.containers_tx {
+                    if containers_tx.send(event).await.is_err() {
+                        error!("couldn't handle the container event")
+                    }
+                } else {
+                    error!("received event on container interface, but the service is disable");
                 }
             }
             #[cfg(feature = "forwarder")]
