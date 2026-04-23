@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -49,6 +49,7 @@ pub struct CreateContainer {
     pub(crate) network_ids: VecReqUuid,
     pub(crate) volume_ids: VecReqUuid,
     pub(crate) device_mapping_ids: VecReqUuid,
+    pub(crate) device_request_ids: VecReqUuid,
     pub(crate) hostname: String,
     pub(crate) restart_policy: String,
     pub(crate) env: Vec<String>,
@@ -228,6 +229,7 @@ pub(crate) mod tests {
         image: &str,
         network_ids: &[S],
         device_mapping_ids: &[impl Display],
+        device_request_ids: &[impl Display],
     ) -> DeviceEvent {
         let fields = [
             ("id", AstarteData::String(id.to_string())),
@@ -241,6 +243,12 @@ pub(crate) mod tests {
                 "deviceMappingIds",
                 AstarteData::StringArray(
                     device_mapping_ids.iter().map(|d| d.to_string()).collect(),
+                ),
+            ),
+            (
+                "deviceRequestIds",
+                AstarteData::StringArray(
+                    device_request_ids.iter().map(|d| d.to_string()).collect(),
                 ),
             ),
             ("image", AstarteData::String(image.to_string())),
@@ -310,6 +318,7 @@ pub(crate) mod tests {
         let image_id = ReqUuid(Uuid::new_v4());
         let network_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
         let device_mapping_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
+        let device_request_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
         let event = create_container_request_event(
             id,
             deployment_id,
@@ -317,6 +326,7 @@ pub(crate) mod tests {
             "image",
             &network_ids,
             &device_mapping_ids,
+            &device_request_ids,
         );
 
         let request = CreateContainer::from_event(event).unwrap();
@@ -328,6 +338,7 @@ pub(crate) mod tests {
             network_ids,
             volume_ids: VecReqUuid(vec![]),
             device_mapping_ids,
+            device_request_ids,
             hostname: "hostname".to_string(),
             restart_policy: "no".to_string(),
             env: vec!["env".to_string()],

@@ -37,12 +37,14 @@ use crate::{
     models::{
         ExistsFilterById, QueryModel,
         containers::{
-            device_mapping::DeviceMapping, image::Image, network::Network, volume::Volume,
+            device_mapping::DeviceMapping, device_request::DeviceRequest, image::Image,
+            network::Network, volume::Volume,
         },
     },
     schema::containers::{
-        container_missing_device_mappings, container_missing_images, container_missing_networks,
-        container_missing_volumes, containers,
+        container_missing_device_mappings, container_missing_device_requests,
+        container_missing_images, container_missing_networks, container_missing_volumes,
+        containers,
     },
 };
 
@@ -601,6 +603,68 @@ impl From<ContainerDeviceMapping> for ContainerMissingDeviceMapping {
         Self {
             container_id,
             device_mapping_id,
+        }
+    }
+}
+
+/// device request used by a container
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
+#[diesel(table_name = crate::schema::containers::container_device_requests)]
+#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(DeviceRequest))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDeviceRequest {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// [`DeviceRequest`] id
+    pub device_request_id: SqlUuid,
+}
+
+/// Missing device request for a container
+#[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
+#[diesel(table_name = crate::schema::containers::container_missing_device_requests)]
+#[diesel(belongs_to(Container))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerMissingDeviceRequest {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// [`DeviceRequest`] id
+    pub device_request_id: SqlUuid,
+}
+
+type ContainerMissingDeviceRequestByDeviceRequest<'a> =
+    Eq<container_missing_device_requests::device_request_id, &'a SqlUuid>;
+type ContainerMissingDeviceRequestFilterByDeviceRequest<'a> = Filter<
+    container_missing_device_requests::table,
+    ContainerMissingDeviceRequestByDeviceRequest<'a>,
+>;
+
+impl ContainerMissingDeviceRequest {
+    /// Returns the filter container_missing_device_request table by id.
+    pub fn by_device_request(
+        device_request_id: &SqlUuid,
+    ) -> ContainerMissingDeviceRequestByDeviceRequest<'_> {
+        container_missing_device_requests::device_request_id.eq(device_request_id)
+    }
+
+    /// Returns the filtered container_missing_device_request table by id.
+    pub fn find_by_device_request(
+        device_request_id: &SqlUuid,
+    ) -> ContainerMissingDeviceRequestFilterByDeviceRequest<'_> {
+        container_missing_device_requests::table.filter(Self::by_device_request(device_request_id))
+    }
+}
+
+impl From<ContainerDeviceRequest> for ContainerMissingDeviceRequest {
+    fn from(
+        ContainerDeviceRequest {
+            container_id,
+            device_request_id,
+        }: ContainerDeviceRequest,
+    ) -> Self {
+        Self {
+            container_id,
+            device_request_id,
         }
     }
 }
