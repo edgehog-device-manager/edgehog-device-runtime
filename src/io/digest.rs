@@ -18,7 +18,7 @@
 
 use std::fmt::Debug;
 use std::io::{self};
-use std::task::ready;
+use std::task::{Poll, ready};
 
 use pin_project::pin_project;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
@@ -102,18 +102,20 @@ where
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         let this = self.project();
 
-        this.ctx.update(buf);
+        let written = ready!(this.inner.poll_write(cx, buf))?;
 
-        this.inner.poll_write(cx, buf)
+        this.ctx.update(&buf[..written]);
+
+        Poll::Ready(Ok(written))
     }
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+    ) -> Poll<io::Result<()>> {
         let this = self.project();
 
         this.inner.poll_flush(cx)
@@ -122,7 +124,7 @@ where
     fn poll_shutdown(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+    ) -> Poll<io::Result<()>> {
         let this = self.project();
 
         this.inner.poll_shutdown(cx)
@@ -137,7 +139,7 @@ where
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+    ) -> Poll<io::Result<()>> {
         let this = self.project();
 
         let current = buf.filled().len();
@@ -151,7 +153,7 @@ where
 
         this.ctx.update(read);
 
-        std::task::Poll::Ready(Ok(()))
+        Poll::Ready(Ok(()))
     }
 }
 

@@ -28,9 +28,7 @@ use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
 use eyre::{Context, eyre};
-use futures::StreamExt;
 use tokio::sync::{Notify, watch};
-use tokio_util::codec::{BytesCodec, FramedWrite};
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -350,7 +348,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let download_len = download.download_length();
 
-        let response = self
+        let mut response = self
             .client
             .download(&download.url, download.headers.clone(), 0, download_len)
             .await
@@ -368,8 +366,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         let writer = Limit::new(writer, limit_size);
         let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
 
-        let sink = FramedWrite::new(&mut writer, BytesCodec::new());
-        response.into_stream().forward(sink).await?;
+        response.write_chunks(&mut writer).await?;
 
         writer
             .into_inner()
@@ -430,7 +427,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         let current_size = file.current_size();
         let download_length = download.download_length();
 
-        let response = self
+        let mut response = self
             .client
             .download(
                 &download.url,
@@ -451,8 +448,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         let writer = Limit::new(writer, limit_size);
         let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
 
-        let sink = FramedWrite::new(&mut writer, BytesCodec::new());
-        response.into_stream().forward(sink).await?;
+        response.write_chunks(&mut writer).await?;
 
         writer
             .into_inner()
