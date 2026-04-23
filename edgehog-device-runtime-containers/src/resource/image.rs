@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,7 +24,7 @@ use crate::{
     properties::{AvailableProp, Client, image::AvailableImage},
 };
 
-use super::{Context, Create, Resource, ResourceError, Result, State};
+use super::{Context, Create, Resource, Result, State};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImageResource {
@@ -41,12 +41,14 @@ impl<D> Resource<D> for ImageResource
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn publish(ctx: Context<'_, D>) -> Result<()> {
+    async fn publish(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableImage::new(&ctx.id).send(ctx.device, false).await?;
 
         ctx.store
             .update_image_status(ctx.id, ImageStatus::Published)
             .await?;
+
+        Self::fetch(ctx).await?;
 
         Ok(())
     }
@@ -56,26 +58,27 @@ impl<D> Create<D> for ImageResource
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
-        let mut resource = ctx
-            .store
-            .find_image(ctx.id)
-            .await?
-            .ok_or(ResourceError::Missing {
-                id: ctx.id,
-                resource: "image",
-            })?;
+    const RESOURCE_NAME: &str = "image";
 
-        let exists = resource.image.inspect(ctx.client).await?.is_some();
+    async fn fetch(ctx: &mut Context<'_, D>) -> Result<Option<(State, Self)>> {
+        let Some(mut resource) = ctx.store.find_image(ctx.id).await? else {
+            return Ok(None);
+        };
 
-        if exists {
+        let pulled = resource.image.inspect(ctx.client).await?.is_some();
+
+        AvailableImage::new(&ctx.id)
+            .send(ctx.device, pulled)
+            .await?;
+
+        if pulled {
             ctx.store
                 .update_image_local_id(ctx.id, resource.image.id.clone())
                 .await?;
 
-            Ok((State::Created, resource))
+            Ok(Some((State::Created, resource)))
         } else {
-            Ok((State::Missing, resource))
+            Ok(Some((State::Missing, resource)))
         }
     }
 
@@ -118,22 +121,6 @@ where
         AvailableImage::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_image(ctx.id).await?;
-
-        Ok(())
-    }
-
-    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
-        let Some(mut resource) = ctx.store.find_image(ctx.id).await? else {
-            warn!("couldn't find image");
-
-            return Ok(());
-        };
-
-        let pulled = resource.image.inspect(ctx.client).await?.is_some();
-
-        AvailableImage::new(&ctx.id)
-            .send(ctx.device, pulled)
-            .await?;
 
         Ok(())
     }

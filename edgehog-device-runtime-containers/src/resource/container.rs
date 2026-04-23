@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -95,13 +95,56 @@ impl ContainerResource {
 
         Ok(())
     }
+
+    async fn update_status<D>(&mut self, ctx: &mut Context<'_, D>) -> Result<bool>
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        let Some(inspect) = self.container.inspect(ctx.client).await? else {
+            debug!("container deleted");
+
+            AvailableContainer::new(&ctx.id)
+                .send(ctx.device, PropertyStatus::Received)
+                .await?;
+
+            return Ok(false);
+        };
+
+        let Some(container_state) = inspect.state.and_then(|state| state.status) else {
+            warn!("couldn't find status in inspect container response");
+
+            return Ok(false);
+        };
+
+        let (status, exists) = match container_state {
+            ContainerStateStatusEnum::CREATED => (PropertyStatus::Created, true),
+            ContainerStateStatusEnum::RUNNING | ContainerStateStatusEnum::RESTARTING => {
+                (PropertyStatus::Running, true)
+            }
+            ContainerStateStatusEnum::REMOVING => (PropertyStatus::Received, false),
+            ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD => {
+                (PropertyStatus::Stopped, true)
+            }
+            ContainerStateStatusEnum::PAUSED | ContainerStateStatusEnum::EMPTY => {
+                debug!(%container_state, "weird state");
+
+                (PropertyStatus::Created, true)
+            }
+        };
+
+        AvailableContainer::new(&ctx.id)
+            .send(ctx.device, status)
+            .await?;
+
+        Ok(exists)
+    }
 }
 
 impl<D> Resource<D> for ContainerResource
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn publish(ctx: Context<'_, D>) -> Result<()> {
+    async fn publish(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Received)
             .await?;
@@ -109,6 +152,8 @@ where
         ctx.store
             .update_container_status(ctx.id, ContainerStatus::Published)
             .await?;
+
+        Self::fetch(ctx).await?;
 
         Ok(())
     }
@@ -118,27 +163,25 @@ impl<D> Create<D> for ContainerResource
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
-        let mut container =
-            ctx.store
-                .find_container(ctx.id)
-                .await?
-                .ok_or(ResourceError::Missing {
-                    id: ctx.id,
-                    resource: "container",
-                })?;
+    const RESOURCE_NAME: &str = "container";
 
-        let exists = container.inspect(ctx.client).await?.is_some();
+    async fn fetch(ctx: &mut Context<'_, D>) -> Result<Option<(State, Self)>> {
+        let Some(container) = ctx.store.find_container(ctx.id).await? else {
+            return Ok(None);
+        };
 
-        let resource = ContainerResource::new(container);
+        let mut resource = ContainerResource::new(container);
+
+        let exists = resource.update_status(ctx).await?;
+
         if exists {
             ctx.store
                 .update_container_local_id(ctx.id, resource.container.id.id.clone())
                 .await?;
 
-            Ok((State::Created, resource))
+            Ok(Some((State::Created, resource)))
         } else {
-            Ok((State::Missing, resource))
+            Ok(Some((State::Missing, resource)))
         }
     }
 
@@ -172,52 +215,6 @@ where
         AvailableContainer::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_container(ctx.id).await?;
-
-        Ok(())
-    }
-
-    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
-        let Some(mut container) = ctx.store.find_container(ctx.id).await? else {
-            warn!("couldn't find container");
-
-            return Ok(());
-        };
-
-        let Some(inspect) = container.inspect(ctx.client).await? else {
-            debug!("container deleted");
-
-            AvailableContainer::new(&ctx.id)
-                .send(ctx.device, PropertyStatus::Received)
-                .await?;
-
-            return Ok(());
-        };
-
-        let Some(container_state) = inspect.state.and_then(|state| state.status) else {
-            warn!("couldn't find status in inspect container response");
-
-            return Ok(());
-        };
-
-        let status = match container_state {
-            ContainerStateStatusEnum::CREATED => PropertyStatus::Created,
-            ContainerStateStatusEnum::RUNNING | ContainerStateStatusEnum::RESTARTING => {
-                PropertyStatus::Running
-            }
-            ContainerStateStatusEnum::REMOVING => PropertyStatus::Received,
-            ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD => {
-                PropertyStatus::Stopped
-            }
-            ContainerStateStatusEnum::PAUSED | ContainerStateStatusEnum::EMPTY => {
-                debug!(%container_state, "ignoring state");
-
-                return Ok(());
-            }
-        };
-
-        AvailableContainer::new(&ctx.id)
-            .send(ctx.device, status)
-            .await?;
 
         Ok(())
     }

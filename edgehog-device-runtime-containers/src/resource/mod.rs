@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,7 +22,7 @@
 
 use std::future::Future;
 
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -90,14 +90,19 @@ pub(crate) trait Resource<D>: Sized
 where
     D: Client + Sync + 'static,
 {
-    fn publish(ctx: Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+    fn publish(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub(crate) trait Create<D>: Resource<D>
 where
     D: Client + Send + Sync + 'static,
 {
-    fn fetch(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<(State, Self)>> + Send;
+    const RESOURCE_NAME: &str;
+
+    /// Fetches and updates the state of the resource
+    fn fetch(
+        ctx: &mut Context<'_, D>,
+    ) -> impl Future<Output = Result<Option<(State, Self)>>> + Send;
 
     fn create(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
@@ -105,10 +110,21 @@ where
 
     fn unset(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
-    fn refresh(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
+        if Self::fetch(ctx).await?.is_none() {
+            warn!("couldn't find {}", Self::RESOURCE_NAME);
+        }
+
+        Ok(())
+    }
 
     async fn up(mut ctx: Context<'_, D>) -> Result<Self> {
-        let (state, mut resource) = Self::fetch(&mut ctx).await?;
+        let (state, mut resource) = Self::fetch(&mut ctx).await.and_then(|opt| {
+            opt.ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: Self::RESOURCE_NAME,
+            })
+        })?;
 
         match state {
             State::Missing => {
@@ -125,7 +141,12 @@ where
     }
 
     async fn down(mut ctx: Context<'_, D>) -> Result<()> {
-        let (state, mut resource) = Self::fetch(&mut ctx).await?;
+        let (state, mut resource) = Self::fetch(&mut ctx).await.and_then(|opt| {
+            opt.ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: Self::RESOURCE_NAME,
+            })
+        })?;
 
         match state {
             State::Missing => {

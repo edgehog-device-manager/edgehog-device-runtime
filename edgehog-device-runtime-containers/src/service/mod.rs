@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -141,23 +141,33 @@ impl<D> Service<D> {
         D: Client + Send + Sync + 'static,
     {
         for id in self.store.load_images_to_publish().await? {
-            ImageResource::publish(self.context(id)).await?;
+            let mut context = self.context(id);
+
+            ImageResource::publish(&mut context).await?;
         }
 
         for id in self.store.load_volumes_to_publish().await? {
-            VolumeResource::publish(self.context(id)).await?;
+            let mut context = self.context(id);
+
+            VolumeResource::publish(&mut context).await?;
         }
 
         for id in self.store.load_networks_to_publish().await? {
-            NetworkResource::publish(self.context(id)).await?;
+            let mut context = self.context(id);
+
+            NetworkResource::publish(&mut context).await?;
         }
 
         for id in self.store.load_device_mappings_to_publish().await? {
-            DeviceMappingResource::publish(self.context(id)).await?;
+            let mut context = self.context(id);
+
+            DeviceMappingResource::publish(&mut context).await?;
         }
 
         for id in self.store.load_containers_to_publish().await? {
-            ContainerResource::publish(self.context(id)).await?;
+            let mut context = self.context(id);
+
+            ContainerResource::publish(&mut context).await?;
         }
 
         for id in self
@@ -165,7 +175,7 @@ impl<D> Service<D> {
             .load_deployments_in(DeploymentStatus::Received)
             .await?
         {
-            Deployment::publish(self.context(id)).await?;
+            Deployment::publish(&mut self.context(id)).await?;
         }
 
         Ok(())
@@ -277,14 +287,16 @@ impl<D> Service<D> {
         D: Client + Send + Sync + 'static,
     {
         let res = match id.resource_type() {
-            ResourceType::Image => ImageResource::publish(self.context(*id.uuid())).await,
-            ResourceType::Volume => VolumeResource::publish(self.context(*id.uuid())).await,
-            ResourceType::Network => NetworkResource::publish(self.context(*id.uuid())).await,
+            ResourceType::Image => ImageResource::publish(&mut self.context(*id.uuid())).await,
+            ResourceType::Volume => VolumeResource::publish(&mut self.context(*id.uuid())).await,
+            ResourceType::Network => NetworkResource::publish(&mut self.context(*id.uuid())).await,
             ResourceType::DeviceMapping => {
-                DeviceMappingResource::publish(self.context(*id.uuid())).await
+                DeviceMappingResource::publish(&mut self.context(*id.uuid())).await
             }
-            ResourceType::Container => ContainerResource::publish(self.context(*id.uuid())).await,
-            ResourceType::Deployment => Deployment::publish(self.context(*id.uuid())).await,
+            ResourceType::Container => {
+                ContainerResource::publish(&mut self.context(*id.uuid())).await
+            }
+            ResourceType::Deployment => Deployment::publish(&mut self.context(*id.uuid())).await,
         };
 
         if let Err(err) = res {
@@ -449,7 +461,13 @@ impl<D> Service<D> {
             debug!(%id, "stopping container");
 
             let mut ctx = self.context(id);
-            let (state, mut container) = ContainerResource::fetch(&mut ctx).await?;
+            let (state, mut container) =
+                ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
+                    opt.ok_or(ResourceError::Missing {
+                        id: ctx.id,
+                        resource: "container",
+                    })
+                })?;
 
             match state {
                 State::Missing => {
@@ -775,6 +793,7 @@ mod tests {
     use crate::requests::image::tests::create_image_request_event;
     use crate::requests::network::tests::create_network_request_event;
     use crate::requests::volume::tests::create_volume_request_event;
+    use crate::tests::not_found_response;
     use crate::volume::{Volume, VolumeId};
     use crate::{docker, docker_mock};
 
@@ -803,14 +822,175 @@ mod tests {
         (service, handle)
     }
 
+    fn expect_image(
+        id: Uuid,
+        reference: &str,
+        seq: &mut Sequence,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        client: &mut Docker,
+    ) {
+        let image_path = format!("/{id}/pulled");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path.clone()),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(seq)
+            .with(predicate::eq(reference.to_string()))
+            .returning(|_| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+    }
+
+    fn expect_volume(
+        id: Uuid,
+        seq: &mut Sequence,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        client: &mut Docker,
+    ) {
+        let endpoint = format!("/{id}/created");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint.clone()),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_inspect_volume()
+            .once()
+            .in_sequence(seq)
+            .with(predicate::eq(id.to_string()))
+            .returning(|_| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+    }
+
+    fn expect_network(
+        id: Uuid,
+        seq: &mut Sequence,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        client: &mut Docker,
+    ) {
+        let endpoint = format!("/{id}/created");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(endpoint.clone()),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_inspect_network()
+            .once()
+            .in_sequence(seq)
+            .with(predicate::eq(id.to_string()), predicate::always())
+            .returning(|_, _| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+    }
+
+    fn expect_container(
+        id: Uuid,
+        device_mapping_id: Uuid,
+        seq: &mut Sequence,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        client: &mut Docker,
+    ) {
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceMappings"),
+                predicate::eq(format!("/{device_mapping_id}/present")),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{id}/status");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint.clone()),
+                predicate::eq(AstarteData::from("Received")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_inspect_container()
+            .once()
+            .in_sequence(seq)
+            .with(predicate::eq(id.to_string()), predicate::always())
+            .returning(|_, _| Err(not_found_response()));
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::from("Received")),
+            )
+            .returning(|_, _, _| Ok(()));
+    }
+
     #[tokio::test]
     async fn should_add_an_image() {
         let tmpdir = TempDir::new().unwrap();
 
         let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
+        let reference = "docker.io/nginx:stable-alpine-slim";
 
-        let client = Docker::connect().await.unwrap();
+        let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
@@ -820,21 +1000,10 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
-        let image_path = format!("/{id}/pulled");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_image(id, reference, &mut seq, &mut device, &mut client);
 
         let (mut service, mut handle) = mock_service(&tmpdir, client, device).await;
 
-        let reference = "docker.io/nginx:stable-alpine-slim";
         let create_image_req = create_image_request_event(id, deployment_id, reference, "");
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
@@ -858,7 +1027,7 @@ mod tests {
         let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
 
-        let client = Docker::connect().await.unwrap();
+        let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
@@ -868,17 +1037,7 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
-        let endpoint = format!("/{id}/created");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_volume(id, &mut seq, &mut device, &mut client);
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
@@ -912,7 +1071,7 @@ mod tests {
         let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
 
-        let client = Docker::connect().await.unwrap();
+        let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
@@ -922,17 +1081,7 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
-        let endpoint = format!("/{id}/created");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_network(id, &mut seq, &mut device, &mut client);
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
@@ -968,7 +1117,9 @@ mod tests {
         let device_mapping_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
 
-        let client = Docker::connect().await.unwrap();
+        let reference = "docker.io/nginx:stable-alpine-slim";
+
+        let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
         let mut seq = Sequence::new();
 
@@ -978,57 +1129,13 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
 
-        let image_path = format!("/{image_id}/pulled");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        let endpoint = format!("/{network_id}/created");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceMappings"),
-                predicate::eq(format!("/{device_mapping_id}/present")),
-                predicate::eq(AstarteData::Boolean(true)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        let endpoint = format!("/{id}/status");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_image(image_id, reference, &mut seq, &mut device, &mut client);
+        expect_network(network_id, &mut seq, &mut device, &mut client);
+        expect_container(id, device_mapping_id, &mut seq, &mut device, &mut client);
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
-        // Image
-        let reference = "docker.io/nginx:stable-alpine-slim";
+        // image
         let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
@@ -1139,6 +1246,19 @@ mod tests {
                 .in_sequence(&mut seq)
                 .returning(|_| Err(not_found_response()));
 
+            let container_name = container_id.to_string();
+            mock.expect_inspect_container()
+                .times(1)
+                .in_sequence(&mut seq)
+                .with(predicate::eq(container_name.clone()), predicate::always())
+                .returning(|_, _| Err(docker::tests::not_found_response()));
+
+            mock.expect_inspect_image()
+                .withf(move |name| name == reference)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| Err(not_found_response()));
+
             mock.expect_create_image()
                 .with(
                     predicate::eq(Some(CreateImageOptions {
@@ -1165,11 +1285,10 @@ mod tests {
                 })
                 });
 
-            let container_name = container_id.to_string();
             mock.expect_inspect_container()
-                .withf(move |name, _option| name == container_name)
-                .once()
+                .times(1)
                 .in_sequence(&mut seq)
+                .with(predicate::eq(container_name), predicate::always())
                 .returning(|_, _| Err(docker::tests::not_found_response()));
 
             let name_exp = container_id.to_string();
@@ -1213,7 +1332,7 @@ mod tests {
         let image_path = format!("/{image_id}/pulled");
         device
             .expect_set_property()
-            .once()
+            .times(2)
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
@@ -1225,7 +1344,7 @@ mod tests {
         let endpoint = format!("/{container_id}/status");
         device
             .expect_set_property()
-            .once()
+            .times(2)
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
@@ -1270,11 +1389,23 @@ mod tests {
             .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableImages"
-                    && path == (image_path)
-                    && *value == AstarteData::Boolean(true)
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{container_id}/status");
@@ -1282,11 +1413,22 @@ mod tests {
             .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == endpoint
-                    && *value == ContainerStatus::Created.to_string()
-            })
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint.clone()),
+                predicate::eq(AstarteData::from("Received")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint.clone()),
+                predicate::eq(AstarteData::String(ContainerStatus::Created.to_string())),
+            )
             .returning(|_, _, _| Ok(()));
 
         let endpoint = format!("/{container_id}/status");
@@ -1392,10 +1534,16 @@ mod tests {
             let mut mock = docker::Client::new();
             let mut seq = mockall::Sequence::new();
 
+            mock.expect_inspect_image()
+                .withf(move |name| name == reference)
+                .once()
+                .in_sequence(&mut seq)
+                .returning(|_| Err(not_found_response()));
+
             let container_name = container_id.to_string();
             mock.expect_inspect_container()
                 .withf(move |name, _option| name == container_name)
-                .once()
+                .times(2)
                 .in_sequence(&mut seq)
                 .returning(|_, _| Err(docker::tests::not_found_response()));
 
@@ -1419,7 +1567,7 @@ mod tests {
         let image_path = format!("/{image_id}/pulled");
         device
             .expect_set_property()
-            .once()
+            .times(2)
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
@@ -1431,7 +1579,7 @@ mod tests {
         let endpoint = format!("/{container_id}/status");
         device
             .expect_set_property()
-            .once()
+            .times(2)
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
@@ -1473,6 +1621,18 @@ mod tests {
 
         let endpoint = format!("/{container_id}/status");
         device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
+                predicate::eq(endpoint),
+                predicate::eq(AstarteData::from("Received")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let endpoint = format!("/{container_id}/status");
+        device
             .expect_unset_property()
             .once()
             .in_sequence(&mut seq)
@@ -1481,6 +1641,18 @@ mod tests {
                 predicate::eq(endpoint),
             )
             .returning(|_, _| Ok(()));
+
+        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(image_path),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
 
         let image_path = format!("/{image_id}/pulled");
         device
