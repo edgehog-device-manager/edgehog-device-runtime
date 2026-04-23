@@ -17,6 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fmt::Display;
+use std::io::{Write, stdout};
 use std::path::PathBuf;
 
 use color_eyre::Section;
@@ -39,7 +40,7 @@ impl Display for Target {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Target::Storage => write!(f, "storage"),
-            Target::Stream => write!(f, "stream"),
+            Target::Stream => write!(f, "streaming"),
             Target::Filesystem => write!(f, "filesystem"),
         }
     }
@@ -53,7 +54,6 @@ struct ServerToDevice {
     http_header_keys: Vec<String>,
     http_header_values: Vec<String>,
     encoding: String,
-    file_name: String,
     ttl_seconds: i64,
     file_mode: i64,
     user_id: i64,
@@ -82,6 +82,10 @@ struct DeviceToServer {
 pub(crate) enum FileTransfer {
     Download(Download),
     Upload(Upload),
+    Storage {
+        /// Storage path
+        storage: PathBuf,
+    },
 }
 
 impl FileTransfer {
@@ -90,6 +94,39 @@ impl FileTransfer {
         match self {
             FileTransfer::Download(download) => download.transfer().await,
             FileTransfer::Upload(upload) => upload.transfer().await,
+            FileTransfer::Storage { storage } => {
+                let storage = storage.canonicalize()?;
+
+                let start = storage.iter().count();
+
+                let iter = walkdir::WalkDir::new(storage.join("file-store"));
+
+                let mut stdout = stdout().lock();
+
+                for entry in iter {
+                    let entry = entry?;
+                    let path = entry.path().canonicalize()?;
+
+                    let dirs = path.iter().count().saturating_sub(start).saturating_sub(1);
+
+                    let name = entry
+                        .file_name()
+                        .to_str()
+                        .ok_or_eyre("couldn't get file name")?;
+
+                    for _ in 0..dirs {
+                        write!(stdout, "\t")?;
+                    }
+
+                    if entry.file_type().is_dir() {
+                        writeln!(stdout, "{name}/")?;
+                    } else {
+                        writeln!(stdout, "{name}")?;
+                    }
+                }
+
+                Ok(())
+            }
         }
     }
 }
@@ -127,13 +164,6 @@ impl Download {
             Default::default()
         }
         .to_string();
-        let file_name = self
-            .path
-            .file_name()
-            .ok_or_eyre("non utf8 file name")?
-            .to_str()
-            .ok_or_eyre("non utf8 file name")?
-            .to_string();
 
         let file_size_bytes = self.file_size.unwrap_or(u64::try_from(content.len())?);
 
@@ -143,7 +173,6 @@ impl Download {
             http_header_keys: Vec::new(),
             http_header_values: Vec::new(),
             encoding,
-            file_name,
             ttl_seconds: 0,
             file_mode: 0,
             user_id: -1,

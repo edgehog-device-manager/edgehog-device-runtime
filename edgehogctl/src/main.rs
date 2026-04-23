@@ -17,6 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 use clap::Parser;
 use eyre::eyre;
@@ -24,9 +25,11 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use self::file_transfer::FileTransfer;
+use self::jobs::Jobs;
 
 mod client;
 mod file_transfer;
+mod jobs;
 
 #[derive(Debug, clap::Parser)]
 struct Cli {
@@ -40,7 +43,17 @@ enum Command {
     FileTransfer {
         /// Direction of the transfer
         #[clap(subcommand)]
-        command: FileTransfer,
+        command: Box<FileTransfer>,
+    },
+    #[clap(alias = "j")]
+    Jobs {
+        /// Storage directory for the database
+        #[clap(long)]
+        storage_dir: PathBuf,
+
+        /// Jobs commands
+        #[clap(subcommand)]
+        command: Jobs,
     },
 }
 
@@ -72,6 +85,10 @@ async fn main() -> eyre::Result<()> {
         Command::FileTransfer { command } => {
             command.transfer().await?;
         }
+        Command::Jobs {
+            storage_dir,
+            command,
+        } => command.run(&storage_dir).await?,
     }
 
     Ok(())

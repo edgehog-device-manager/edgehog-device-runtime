@@ -17,7 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::{FromEvent, event::FromEventError};
-use tracing::{error, instrument};
+use tracing::{error, instrument, trace};
 
 use crate::file_transfer::interface::{DeviceToServer, ServerToDevice};
 
@@ -56,6 +56,8 @@ impl FromEvent for FileTransferRequest {
 
     #[instrument(fields(interface = event.interface, path = event.path), skip(event))]
     fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
+        trace!("parsing transfer event");
+
         match event.interface.as_str() {
             "io.edgehog.devicemanager.fileTransfer.ServerToDevice" => {
                 ServerToDevice::from_event(event).map(FileTransferRequest::Download)
