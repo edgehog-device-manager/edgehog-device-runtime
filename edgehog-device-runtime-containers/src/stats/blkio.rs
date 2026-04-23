@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 //! Container and volume storage stats.
 
 use astarte_device_sdk::IntoAstarteObject;
-use bollard::secret::{ContainerBlkioStatEntry, ContainerBlkioStats};
+use bollard::models::{ContainerBlkioStatEntry, ContainerBlkioStats};
 
 use super::{IntoAstarteExt, Metric};
 
@@ -96,7 +96,7 @@ mod tests {
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
-    use bollard::secret::{ContainerBlkioStatEntry, ContainerBlkioStats};
+    use bollard::models::{ContainerBlkioStatEntry, ContainerBlkioStats};
     use mockall::predicate;
     use pretty_assertions::assert_eq;
     use uuid::Uuid;

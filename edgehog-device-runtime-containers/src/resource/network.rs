@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,14 +17,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use edgehog_store::models::containers::network::NetworkStatus;
-use tracing::warn;
 
 use crate::{
     network::Network,
     properties::{AvailableProp, Client, network::AvailableNetwork},
 };
 
-use super::{Context, Create, Resource, ResourceError, Result, State};
+use super::{Context, Create, Resource, Result, State};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NetworkResource {
@@ -41,7 +40,7 @@ impl<D> Resource<D> for NetworkResource
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn publish(ctx: Context<'_, D>) -> Result<()> {
+    async fn publish(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableNetwork::new(&ctx.id)
             .send(ctx.device, false)
             .await?;
@@ -49,6 +48,8 @@ where
         ctx.store
             .update_network_status(ctx.id, NetworkStatus::Published)
             .await?;
+
+        Self::fetch(ctx).await?;
 
         Ok(())
     }
@@ -58,26 +59,27 @@ impl<D> Create<D> for NetworkResource
 where
     D: Client + Send + Sync + 'static,
 {
-    async fn fetch(ctx: &mut Context<'_, D>) -> Result<(State, Self)> {
-        let mut resource = ctx
-            .store
-            .find_network(ctx.id)
-            .await?
-            .ok_or(ResourceError::Missing {
-                id: ctx.id,
-                resource: "network",
-            })?;
+    const RESOURCE_NAME: &str = "network";
 
-        let exists = resource.network.inspect(ctx.client).await?.is_some();
+    async fn fetch(ctx: &mut Context<'_, D>) -> Result<Option<(State, Self)>> {
+        let Some(mut resource) = ctx.store.find_network(ctx.id).await? else {
+            return Ok(None);
+        };
 
-        if exists {
+        let created = resource.network.inspect(ctx.client).await?.is_some();
+
+        AvailableNetwork::new(&ctx.id)
+            .send(ctx.device, created)
+            .await?;
+
+        if created {
             ctx.store
                 .update_network_local_id(ctx.id, resource.network.id.id.clone())
                 .await?;
 
-            Ok((State::Created, resource))
+            Ok(Some((State::Created, resource)))
         } else {
-            Ok((State::Missing, resource))
+            Ok(Some((State::Missing, resource)))
         }
     }
 
@@ -109,22 +111,6 @@ where
         AvailableNetwork::new(&ctx.id).unset(ctx.device).await?;
 
         ctx.store.delete_network(ctx.id).await?;
-
-        Ok(())
-    }
-
-    async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
-        let Some(mut resource) = ctx.store.find_network(ctx.id).await? else {
-            warn!("couldn't find network");
-
-            return Ok(());
-        };
-
-        let created = resource.network.inspect(ctx.client).await?.is_some();
-
-        AvailableNetwork::new(&ctx.id)
-            .send(ctx.device, created)
-            .await?;
 
         Ok(())
     }
