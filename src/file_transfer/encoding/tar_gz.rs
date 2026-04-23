@@ -33,6 +33,8 @@ use tokio::task::JoinHandle;
 use tokio_stream::Stream;
 use tracing::{error, instrument};
 
+use crate::file_transfer::file_system::walk::Walk;
+
 use super::Paths;
 
 /// Maximum buffer size for the stream
@@ -53,6 +55,7 @@ impl TarGzBuilder {
             let writer = TarGzEncoder::new(tx);
 
             let res = writer.consume(paths).await;
+
             if let Err(error) = &res {
                 error!(%error, "couldn't create archive")
             }
@@ -93,12 +96,15 @@ where
         }
     }
 
+    #[instrument(skip(self))]
     pub(crate) async fn consume(mut self, input: Paths) -> eyre::Result<()> {
         match input {
             Paths::File { base, file } => {
                 self.append(&base, &file).await?;
             }
-            Paths::Dir { base, mut dir } => {
+            Paths::Dir { base, dir } => {
+                let mut dir = Walk::new(dir);
+
                 while let Some(item) = dir.next().await {
                     let item = item?;
 
@@ -112,6 +118,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip(self, base_path))]
     async fn append(&mut self, base_path: &Path, path: &Path) -> eyre::Result<()> {
         let name = path.strip_prefix(base_path)?;
 
@@ -123,8 +130,9 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn finalize(self) -> eyre::Result<()> {
-        self.archive.into_inner().await?.flush().await?;
+        self.archive.into_inner().await?.shutdown().await?;
 
         Ok(())
     }

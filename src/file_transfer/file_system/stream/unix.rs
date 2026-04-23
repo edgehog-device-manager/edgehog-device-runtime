@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use eyre::Context;
 use rustix::fs::Mode;
-use tracing::{info, instrument, trace};
+use tracing::{debug, info, instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::FileOptions;
@@ -47,11 +47,14 @@ impl Pipe for MakeFifo {
     type Writer = tokio::net::unix::pipe::Sender;
     type Reader = tokio::net::unix::pipe::Receiver;
 
+    #[instrument]
     fn new() -> Self {
         let mut dir = dirs::runtime_dir().unwrap_or_else(std::env::temp_dir);
 
         dir.push("edgehog-device-runtime");
         dir.push("streams");
+
+        debug!(dir=%dir.display());
 
         Self { dir }
     }
@@ -101,6 +104,15 @@ impl Pipe for MakeFifo {
         info!("fifo opened");
 
         Ok(rx)
+    }
+
+    #[instrument(skip_all)]
+    async fn remove_reader(&self, id: &Uuid) -> eyre::Result<()> {
+        let path = self.pipe_path(id).await?;
+
+        tokio::fs::remove_file(path).await?;
+
+        Ok(())
     }
 }
 

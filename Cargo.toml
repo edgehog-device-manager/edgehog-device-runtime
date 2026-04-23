@@ -71,6 +71,7 @@ diesel = "2.3.9"
 diesel_migrations = "2.3.1"
 dirs = "6.0.0"
 displaydoc = "0.2.5"
+edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.10.5" }
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.10.5" }
 edgehog-device-forwarder-proto = "0.1.0"
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.10.5" }
@@ -90,6 +91,7 @@ indexmap = "2.14.0"
 insta = "1.47.2"
 itertools = "0.14.0"
 minicbor = "2.2.1"
+minicbor-io = "0.23.0"
 mockall = "0.14.0"
 pin-project = "1.1.11"
 pretty_assertions = "1.4.1"
@@ -152,6 +154,7 @@ eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["derive", "std"] }
+minicbor-io = { workspace = true, features = ["async-io"] }
 pin-project.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 rustls.workspace = true
@@ -161,7 +164,7 @@ sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = { workspace = true, features = ["rt"] }
+tokio-util = { workspace = true, features = ["rt", "compat"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true

@@ -28,14 +28,14 @@ use crate::file_transfer::request::FileDigest;
 
 /// Wrapper to a [`AsyncRead`] or [`AsyncWrite`] that calculates the digest.
 #[pin_project]
-pub(crate) struct Digest<S> {
+pub struct Digest<S> {
     ctx: aws_lc_rs::digest::Context,
     #[pin]
     inner: S,
 }
 
 impl<S> Digest<S> {
-    pub(crate) fn new(inner: S, digest: FileDigest) -> Self {
+    pub fn new(inner: S, digest: FileDigest) -> Self {
         Self {
             ctx: digest.into(),
             inner,
@@ -43,7 +43,7 @@ impl<S> Digest<S> {
     }
 
     #[instrument(skip(inner))]
-    pub(crate) async fn from_read(inner: S, digest: FileDigest, seek: u64) -> io::Result<Self>
+    pub async fn from_read(inner: S, digest: FileDigest, seek: u64) -> io::Result<Self>
     where
         S: AsyncRead + Unpin,
     {
@@ -72,7 +72,7 @@ impl<S> Digest<S> {
     }
 
     #[instrument(skip_all)]
-    pub(crate) fn check_digest(self, digest: &[u8]) -> Result<S, S> {
+    pub fn check_digest(self, digest: &[u8]) -> Result<S, S> {
         if self.ctx.finish().as_ref() != digest {
             return Err(self.inner);
         }

@@ -45,6 +45,10 @@ impl<T, F> Progress<T, F> {
     pub(crate) fn into_inner(self) -> T {
         self.inner
     }
+
+    pub(crate) fn into_total(self) -> u64 {
+        self.total
+    }
 }
 
 impl<W, F> AsyncWrite for Progress<W, F>
@@ -130,6 +134,14 @@ pub(crate) trait ProgressHandle {
     ///
     /// This is the total number of bytes read or written.
     fn update(&mut self, bytes: u64) -> io::Result<()>;
+}
+
+/// If you just wish to use the progress to track the total of bytes written you can use the unit tuple
+impl ProgressHandle for () {
+    fn update(&mut self, _bytes: u64) -> io::Result<()> {
+        // do nothing
+        Ok(())
+    }
 }
 
 #[cfg(test)]

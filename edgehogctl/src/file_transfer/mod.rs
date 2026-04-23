@@ -20,8 +20,14 @@ use std::fmt::Display;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 
+use bytes::BytesMut;
 use color_eyre::Section;
+use edgehog::file_transfer::request::FileDigest;
+use edgehog::file_transfer::stream::PipeStreamWriter;
+use edgehog::io::digest::Digest;
 use eyre::{OptionExt, ensure};
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{info, instrument};
 use url::Url;
 use uuid::Uuid;
@@ -86,6 +92,14 @@ pub(crate) enum FileTransfer {
         /// Storage path
         storage: PathBuf,
     },
+    /// Write to stdout the content of the passed file formatted as a valid
+    /// stream. A valid file transfer stream
+    /// contains a footer and a header as described in [`edgehog_device_runtime::file_transfer::stream`].
+    FormatStream {
+        /// Path of the file that will be converted to valid
+        /// file transfer stream.
+        file: PathBuf,
+    },
 }
 
 impl FileTransfer {
@@ -127,6 +141,38 @@ impl FileTransfer {
 
                 Ok(())
             }
+            FileTransfer::FormatStream { file } => {
+                let mut buf = BytesMut::with_capacity(8 * 1024);
+
+                let file_digest = FileDigest::Sha256;
+                // NOTE we keep an external digest to ensure that the it matches with the internal one
+                let mut context = aws_lc_rs::digest::Context::from(file_digest);
+                let mut reader = File::open(file).await?;
+                let file_size = reader.metadata().await?.len();
+                let writer = PipeStreamWriter::new(tokio::io::stdout(), file_size)
+                    .write_header()
+                    .await?;
+                let mut writer = Digest::new(writer, file_digest);
+
+                loop {
+                    if reader.read_buf(&mut buf).await? == 0 {
+                        break;
+                    }
+
+                    context.update(&buf);
+                    writer.write_all_buf(&mut buf).await?;
+                    buf.clear();
+                }
+
+                let (writer, status) = match writer.check_digest(context.finish().as_ref()) {
+                    Ok(w) => (w, 0),
+                    Err(w) => (w, 22),
+                };
+
+                writer.write_footer(status).await?;
+
+                Ok(())
+            }
         }
     }
 }
@@ -135,7 +181,7 @@ impl FileTransfer {
 pub(crate) struct Download {
     #[arg(long, default_value = "http://api.astarte.localhost")]
     astarte_url: Url,
-    #[arg(long, default_value = "WQQ81So7Q9-DpUZ9I_IAQg")]
+    #[arg(long)]
     device_id: String,
     #[arg(long)]
     encoding: bool,
@@ -226,14 +272,16 @@ impl Download {
 pub(crate) struct Upload {
     #[arg(long, default_value = "http://api.astarte.localhost")]
     astarte_url: Url,
-    #[arg(long, default_value = "WQQ81So7Q9-DpUZ9I_IAQg")]
+    #[arg(long)]
     device_id: String,
     #[arg(long)]
     encoding: bool,
+    #[arg(long)]
+    progress: bool,
     #[arg(long, default_value_t)]
     source_type: Target,
     #[arg(long)]
-    source: String,
+    source: Option<String>,
     /// Url to download the file from
     url: Url,
 }
@@ -248,15 +296,17 @@ impl Upload {
         }
         .to_string();
 
+        let id = Uuid::new_v4();
+
         let data = DeviceToServer {
-            id: Uuid::new_v4(),
+            id,
             url: self.url,
             http_header_keys: Vec::new(),
             http_header_values: Vec::new(),
             encoding,
-            progress: false,
+            progress: self.progress,
             source_type: self.source_type.to_string(),
-            source: self.source,
+            source: self.source.unwrap_or_default(),
         };
 
         let client = reqwest::Client::builder()
@@ -291,7 +341,7 @@ impl Upload {
             return Err(err).with_note(|| body);
         }
 
-        info!("request sent to device");
+        info!(%id, "request sent to device");
 
         Ok(())
     }
