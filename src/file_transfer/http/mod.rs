@@ -112,17 +112,20 @@ impl FtHttpClient {
         }
     }
 
-    pub(crate) async fn upload<S>(
+    pub(crate) async fn upload_sized<S>(
         &self,
         url: &Url,
-        headers: HeaderMap,
+        mut headers: HeaderMap,
         body_stream: S,
+        bytes: u64,
     ) -> eyre::Result<()>
     where
         S: TryStream + Send + 'static,
         S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
         Bytes: From<S::Ok>,
     {
+        headers.insert(reqwest::header::CONTENT_LENGTH, bytes.into());
+
         self.client
             .put(url.as_str())
             .headers(headers)
@@ -506,7 +509,10 @@ mod tests {
 
         let mock_get_req = server
             .mock_async(|when, then| {
-                when.method(PUT).path("/test-upload").body(binary_content);
+                when.method(PUT)
+                    .path("/test-upload")
+                    .header_exists(reqwest::header::CONTENT_LENGTH.as_str())
+                    .body(binary_content);
 
                 then.status(reqwest::StatusCode::OK);
             })
@@ -516,7 +522,12 @@ mod tests {
 
         let client = FtHttpClient::create().unwrap();
         client
-            .upload(&file_url, HeaderMap::new(), body_stream)
+            .upload_sized(
+                &file_url,
+                HeaderMap::new(),
+                body_stream,
+                u64::try_from(binary_content.len()).unwrap(),
+            )
             .await
             .unwrap();
 
@@ -536,7 +547,10 @@ mod tests {
 
         let mock_get_req = server
             .mock_async(|when, then| {
-                when.method(PUT).path("/test-upload").body(&content);
+                when.method(PUT)
+                    .path("/test-upload")
+                    .header_exists(reqwest::header::CONTENT_LENGTH.as_str())
+                    .body(&content);
 
                 then.status(reqwest::StatusCode::OK);
             })
@@ -547,7 +561,12 @@ mod tests {
 
         let client = FtHttpClient::create().unwrap();
         client
-            .upload(&file_url, HeaderMap::new(), body_stream)
+            .upload_sized(
+                &file_url,
+                HeaderMap::new(),
+                body_stream,
+                u64::try_from(size).unwrap(),
+            )
             .await
             .unwrap();
 

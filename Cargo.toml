@@ -55,6 +55,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 astarte-device-sdk = "0.13.0"
 astarte-device-sdk-mock = "0.13.0"
+async-channel = "2.5.0"
 async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
@@ -90,6 +91,7 @@ indexmap = "2.14.0"
 insta = "1.47.2"
 itertools = "0.14.0"
 minicbor = "2.2.1"
+minicbor-io = "0.23.0"
 mockall = "0.14.0"
 pin-project = "1.1.11"
 pretty_assertions = "1.4.1"
@@ -130,6 +132,7 @@ zbus = { version = "5.15.0", default-features = false }
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
+async-channel.workspace = true
 async-compression = { workspace = true, features = ["gzip", "tokio"] }
 async-tar = { workspace = true, default-features = false, features = [
   "runtime-tokio",
@@ -152,6 +155,7 @@ eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["derive", "std"] }
+minicbor-io = { workspace = true, features = ["async-io"] }
 pin-project.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 rustls.workspace = true
@@ -161,7 +165,7 @@ sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = { workspace = true, features = ["rt"] }
+tokio-util = { workspace = true, features = ["rt", "compat"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
