@@ -70,33 +70,33 @@ impl<'a> TryFrom<Job> for Request<'a> {
     type Error = eyre::Report;
 
     fn try_from(value: Job) -> Result<Self, Self::Error> {
-        match JobTag::try_from(value.tag)? {
-            JobTag::Download => Download::try_from(value).map(Request::Download),
-            JobTag::Upload => Upload::try_from(value).map(Request::Upload),
+        match TransferJobTag::try_from(value.tag)? {
+            TransferJobTag::Download => Download::try_from(value).map(Request::Download),
+            TransferJobTag::Upload => Upload::try_from(value).map(Request::Upload),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
-pub(crate) enum JobTag {
+pub(crate) enum TransferJobTag {
     Download = 0,
     Upload = 1,
 }
 
-impl From<JobTag> for i32 {
-    fn from(value: JobTag) -> Self {
+impl From<TransferJobTag> for i32 {
+    fn from(value: TransferJobTag) -> Self {
         value as i32
     }
 }
 
-impl TryFrom<i32> for JobTag {
+impl TryFrom<i32> for TransferJobTag {
     type Error = eyre::Report;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(JobTag::Download),
-            1 => Ok(JobTag::Upload),
+            0 => Ok(TransferJobTag::Download),
+            1 => Ok(TransferJobTag::Upload),
             _ => bail!("unrecognize file transfer job tag {value}"),
         }
     }
@@ -250,12 +250,12 @@ mod tests {
     }
 
     #[rstest]
-    #[case(JobTag::Download)]
-    #[case(JobTag::Upload)]
-    fn job_tag_roundtrip(#[context] ctx: Context, #[case] value: JobTag) {
+    #[case(TransferJobTag::Download)]
+    #[case(TransferJobTag::Upload)]
+    fn job_tag_roundtrip(#[context] ctx: Context, #[case] value: TransferJobTag) {
         let buf = i32::from(value);
 
-        let res = JobTag::try_from(buf).unwrap();
+        let res = TransferJobTag::try_from(buf).unwrap();
 
         assert_eq!(res, value);
 

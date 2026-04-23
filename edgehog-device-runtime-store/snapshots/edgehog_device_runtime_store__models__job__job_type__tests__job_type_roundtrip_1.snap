@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-store/src/models/job/job_type.rs
+expression: "format!(\"{value:?} = {i}\")"
+---
+FileStorage = 1

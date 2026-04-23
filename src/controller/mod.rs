@@ -202,16 +202,28 @@ impl<C> Runtime<C> {
         }
 
         let (transfer_tx, transfer_rx) = tokio::sync::mpsc::channel(EVENT_BUFFER);
-        let notify = Arc::new(Notify::new());
+        let job_notify = Arc::new(Notify::new());
+        let sched_notify = Arc::new(Notify::new());
 
         let (progress_tx, progress_rx) = tokio::sync::watch::channel(None);
 
         tasks.spawn(ProgressTracker::create(device.clone()).run(progress_rx, cancel.clone()));
         tasks.spawn(
-            FileTransfer::create(jobs.clone(), config, device.clone(), progress_tx)?
-                .run(Arc::clone(&notify), cancel.clone()),
+            FileTransfer::create(
+                jobs.clone(),
+                config,
+                device.clone(),
+                progress_tx,
+                Arc::clone(&sched_notify),
+            )?
+            .run(Arc::clone(&job_notify), cancel.clone()),
         );
-        tasks.spawn(file_transfer::Receiver::new(jobs, notify, device).run(transfer_rx, cancel));
+        tasks.spawn(
+            file_transfer::housekeeping::StorageTask::new(jobs.clone(), sched_notify)
+                .run(cancel.clone()),
+        );
+        tasks
+            .spawn(file_transfer::Receiver::new(jobs, job_notify, device).run(transfer_rx, cancel));
 
         Ok(Some(transfer_tx))
     }

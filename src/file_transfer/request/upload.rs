@@ -29,7 +29,7 @@ use tracing::{instrument, warn};
 use url::Url;
 use uuid::Uuid;
 
-use super::{Encoding, JobTag};
+use super::{Encoding, TransferJobTag};
 use crate::file_transfer::interface::DeviceToServer;
 use crate::file_transfer::interface::capabilities::{
     FILESYSTEM_TARGET, STORAGE_TARGET, STREAMING_TARGET,
@@ -122,7 +122,8 @@ impl TryFrom<Upload<'_>> for Job {
             job_type: JobType::FileTransfer,
             status: JobStatus::default(),
             version: Upload::SERIALIZED_VERSION,
-            tag: JobTag::Upload.into(),
+            tag: TransferJobTag::Upload.into(),
+            schedule_at: None,
             data,
         })
     }
@@ -139,11 +140,13 @@ impl TryFrom<Job> for Upload<'_> {
             version,
             tag,
             data,
+            schedule_at,
         } = value;
 
         debug_assert_eq!(job_type, JobType::FileTransfer);
-        debug_assert_eq!(tag, i32::from(JobTag::Upload));
+        debug_assert_eq!(tag, i32::from(TransferJobTag::Upload));
         debug_assert_eq!(version, Upload::SERIALIZED_VERSION);
+        debug_assert!(schedule_at.is_none());
 
         let mut this: Self = minicbor::decode(&data).wrap_err("couldn't decode upload request")?;
         this.id = id.into();
@@ -236,13 +239,16 @@ pub(crate) mod tests {
             version,
             tag,
             data,
+            schedule_at,
         } = job.clone();
 
         assert_eq!(id, upload_req.id.into());
         assert_eq!(job_type, JobType::FileTransfer);
         assert_eq!(status, JobStatus::Pending);
         assert_eq!(version, 0);
-        assert_eq!(tag, i32::from(JobTag::Upload));
+        assert_eq!(tag, i32::from(TransferJobTag::Upload));
+        assert_eq!(tag, i32::from(TransferJobTag::Upload));
+        assert!(schedule_at.is_none());
 
         let res = Upload::try_from(job).unwrap();
 

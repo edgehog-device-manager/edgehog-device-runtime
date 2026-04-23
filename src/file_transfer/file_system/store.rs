@@ -58,7 +58,7 @@ impl<F> FileStorage<F> {
         Ok(())
     }
 
-    fn file_path(&self, id: &Uuid) -> PathBuf {
+    pub(crate) fn file_path(&self, id: &Uuid) -> PathBuf {
         self.dir.join(id.to_string())
     }
 

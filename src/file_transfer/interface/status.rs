@@ -23,7 +23,7 @@ use astarte_device_sdk::{IntoAstarteObject, aggregate::AstarteObject};
 use tracing::{instrument, warn};
 use uuid::Uuid;
 
-use crate::file_transfer::request::JobTag;
+use crate::file_transfer::request::TransferJobTag;
 
 #[derive(Debug, Clone, PartialEq, IntoAstarteObject)]
 pub(crate) struct FileTransferResponse {
@@ -123,11 +123,11 @@ impl From<TransferDirection> for AstarteData {
     }
 }
 
-impl From<TransferDirection> for JobTag {
+impl From<TransferDirection> for TransferJobTag {
     fn from(value: TransferDirection) -> Self {
         match value {
-            TransferDirection::Download => JobTag::Download,
-            TransferDirection::Upload => JobTag::Upload,
+            TransferDirection::Download => TransferJobTag::Download,
+            TransferDirection::Upload => TransferJobTag::Upload,
         }
     }
 }

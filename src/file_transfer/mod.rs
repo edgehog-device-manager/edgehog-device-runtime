@@ -21,6 +21,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use astarte_device_sdk::Client;
 use edgehog_store::models::job::Job;
@@ -42,6 +43,7 @@ use crate::file_transfer::interface::status::FileTransferProgress;
 use crate::io::limit::Limit;
 use crate::io::progress::{Progress, ProgressHandle};
 use crate::jobs::Queue;
+use crate::jobs::timestamp::Unix;
 use crate::{file_transfer::interface::status::FileTransferResponse, io::digest::Digest};
 
 use self::config::FileTransferArgs;
@@ -50,15 +52,17 @@ use self::encoding::tar_gz::TarGzBuilder;
 use self::file_system::store::{FileStorage, Fs, Space};
 use self::file_system::stream::{Pipe, Streaming, SysPipe};
 use self::file_system::{FileOptions, WriteHandle};
+use self::housekeeping::CleanUp;
 use self::interface::capabilities::CAPABILITIES;
 use self::interface::status::FileTransferId;
 use self::request::download::{Destination, Download};
 use self::request::upload::{Source, Upload};
-use self::request::{Encoding, JobTag, Request};
+use self::request::{Encoding, Request, TransferJobTag};
 
 pub mod config;
 mod encoding;
 pub(crate) mod file_system;
+pub(crate) mod housekeeping;
 pub(crate) mod http;
 pub(crate) mod interface;
 pub(crate) mod request;
@@ -155,6 +159,7 @@ where
 #[derive(Debug)]
 pub(crate) struct FileTransfer<F, S, C> {
     queue: Queue,
+    cleanup: Arc<Notify>,
     storage: FileStorage<F>,
     stream: Streaming<S>,
     client: FtHttpClient,
@@ -168,6 +173,7 @@ impl<C> FileTransfer<Fs, SysPipe, C> {
         args: FileTransferArgs,
         device: C,
         tracker: watch::Sender<Option<FileTransferProgress>>,
+        cleanup: Arc<Notify>,
     ) -> eyre::Result<Self>
     where
         C: astarte_device_sdk::Client + Send + Sync + 'static,
@@ -183,6 +189,7 @@ impl<C> FileTransfer<Fs, SysPipe, C> {
             client,
             device,
             tracker,
+            cleanup,
         })
     }
 }
@@ -301,6 +308,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
         if exists {
             info!("file already exists");
 
+            if let Some(ttl) = download.ttl {
+                self.queue_cleanup(download, ttl).await?;
+            }
+
             return Ok(());
         }
 
@@ -318,6 +329,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
             error!(%error, "error while finalizing write");
             file.cleanup().await?;
             return Err(eyre!(error));
+        }
+
+        if let Some(ttl) = download.ttl {
+            self.queue_cleanup(download, ttl).await?;
         }
 
         Ok(())
@@ -377,6 +392,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
         if WriteHandle::try_exists(&path, download.digest_type, &download.digest).await? {
             info!("file already exists");
 
+            if let Some(ttl) = download.ttl {
+                self.queue_cleanup(download, ttl).await?;
+            }
+
             return Ok(());
         }
 
@@ -394,6 +413,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
             error!(%error, "error while finalizing write");
             file.cleanup().await?;
             return Err(eyre!(error));
+        }
+
+        if let Some(ttl) = download.ttl {
+            self.queue_cleanup(download, ttl).await?;
         }
 
         Ok(())
@@ -436,6 +459,30 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .into_inner()
             .check_digest(&download.digest)
             .map_err(|_| eyre!("error while checking file digest"))?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn queue_cleanup(
+        &mut self,
+        download: &Download<'_>,
+        ttl: Duration,
+    ) -> Result<(), eyre::Error> {
+        let ts = Unix::with_duration(ttl)?;
+        let job = Job::try_from(CleanUp {
+            id: download.id,
+            schedule_at: ts.as_i64(),
+            file_path: self.storage.file_path(&download.id).into(),
+        })?;
+
+        if self.queue.insert_if_missing(job).await? {
+            trace!("task notified");
+
+            self.cleanup.notify_one();
+        } else {
+            trace!("not notifying since task was not inserted");
+        }
 
         Ok(())
     }
@@ -547,9 +594,9 @@ impl<F, S, C> FileTransfer<F, S, C> {
     {
         let FileTransferId { id, direction } = transfer;
 
-        let tag = JobTag::from(direction);
+        let tag = TransferJobTag::from(direction);
         self.queue
-            .update(&id, tag.into(), JobStatus::Done)
+            .update(&id, JobType::FileTransfer, tag.into(), JobStatus::Done)
             .await
             .wrap_err("couldn't update job status")?;
 
@@ -559,7 +606,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .wrap_err("couldn't send response to astarte")?;
 
         self.queue
-            .delete(&id, tag.into())
+            .delete(&id, JobType::FileTransfer, tag.into())
             .await
             .wrap_err("couldn't clean up job")?;
 
@@ -572,9 +619,9 @@ impl<F, S, C> FileTransfer<F, S, C> {
     {
         let FileTransferId { id, direction } = transfer;
 
-        let tag = JobTag::from(direction);
+        let tag = TransferJobTag::from(direction);
         self.queue
-            .update(&id, tag.into(), JobStatus::Error)
+            .update(&id, JobType::FileTransfer, tag.into(), JobStatus::Error)
             .await
             .wrap_err("couldn't update job status")?;
 
@@ -584,7 +631,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .wrap_err("couldn't send response to astarte")?;
 
         self.queue
-            .delete(&id, tag.into())
+            .delete(&id, JobType::FileTransfer, tag.into())
             .await
             .wrap_err("couldn't clean up job")?;
 
@@ -747,7 +794,7 @@ mod tests {
             storage_reserved: DEFAULT_MAX_FREE_PERCENTAGE,
         };
         (
-            FileTransfer::create(queue, args, device, tracker).unwrap(),
+            FileTransfer::create(queue, args, device, tracker, Arc::new(Notify::new())).unwrap(),
             dir,
         )
     }
@@ -1185,7 +1232,10 @@ mod tests {
 
         assert_eq!(content, mock_download_event.content);
 
-        let job = transfer.queue.fetch_job(mock_download_event.req.id()).await;
+        let job = transfer
+            .queue
+            .fetch_file_transfer(mock_download_event.req.id(), TransferJobTag::Download)
+            .await;
 
         assert!(job.is_none());
     }
@@ -1358,7 +1408,10 @@ mod tests {
 
         mock_upload_event.first_call.assert_async().await;
 
-        let job = transfer.queue.fetch_job(mock_upload_event.req.id()).await;
+        let job = transfer
+            .queue
+            .fetch_file_transfer(mock_upload_event.req.id(), TransferJobTag::Upload)
+            .await;
 
         assert!(job.is_none());
     }

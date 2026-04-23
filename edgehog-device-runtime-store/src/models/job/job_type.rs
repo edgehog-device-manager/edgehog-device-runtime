@@ -35,6 +35,8 @@ pub enum JobType {
     /// File transfer request between the Server and Device
     #[default]
     FileTransfer = 0,
+    /// File storage task
+    FileStorage = 1,
 }
 
 impl From<JobType> for i32 {
@@ -49,6 +51,7 @@ impl TryFrom<i32> for JobType {
     fn try_from(value: i32) -> Result<Self, String> {
         match value {
             0 => Ok(JobType::FileTransfer),
+            1 => Ok(JobType::FileStorage),
             _ => Err(format!("unrecognized status value {value}")),
         }
     }
@@ -89,6 +92,7 @@ mod tests {
 
     #[rstest]
     #[case(JobType::FileTransfer)]
+    #[case(JobType::FileStorage)]
     fn job_type_roundtrip(#[context] ctx: Context, #[case] value: JobType) {
         let i = i32::from(value);
 
