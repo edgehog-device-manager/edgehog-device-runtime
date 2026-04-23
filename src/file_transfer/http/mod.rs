@@ -18,15 +18,14 @@
 
 //! Handles an http client to download part of or an entire file.
 
-use std::{fmt::Debug, io, ops::RangeInclusive};
+use std::{fmt::Debug, ops::RangeInclusive};
 
 use bytes::Bytes;
 use eyre::{Context, OptionExt, eyre};
-use futures::{Stream, TryStream, TryStreamExt};
-use reqwest::{
-    StatusCode,
-    header::{GetAll, HeaderMap, HeaderValue},
-};
+use futures::TryStream;
+use reqwest::StatusCode;
+use reqwest::header::{GetAll, HeaderMap, HeaderValue};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
@@ -308,11 +307,6 @@ pub(crate) struct FileDownloadResponse {
 }
 
 impl FileDownloadResponse {
-    #[instrument(skip_all)]
-    pub(super) fn into_stream(self) -> impl Stream<Item = io::Result<Bytes>> {
-        self.response.bytes_stream().map_err(io::Error::other)
-    }
-
     pub(crate) fn start(&self) -> u64 {
         self.start
     }
@@ -320,33 +314,34 @@ impl FileDownloadResponse {
     pub(crate) fn total_length(&self) -> Option<u64> {
         self.total_length
     }
+
+    pub(crate) async fn write_chunks<W>(&mut self, writer: &mut W) -> eyre::Result<()>
+    where
+        W: AsyncWrite + Unpin,
+    {
+        while let Some(chunk) = self.response.chunk().await? {
+            writer.write_all(&chunk).await?;
+            writer.flush().await?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::{io::Cursor, iter, ops::RangeInclusive};
 
-    use futures::StreamExt;
     use httpmock::{
         Method::{GET, PUT},
         MockServer,
     };
     use reqwest::header::{HeaderMap, HeaderValue};
     use rstest::rstest;
-    use tokio::io::{AsyncWrite, AsyncWriteExt};
     use tokio_stream::once;
-    use tokio_util::codec::{BytesCodec, FramedWrite};
     use url::Url;
 
-    use crate::file_transfer::http::{FileDownloadResponse, FtHttpClient};
-
-    async fn write_chunks<T>(response: FileDownloadResponse, mut buf: T)
-    where
-        T: AsyncWrite + AsyncWriteExt + Unpin,
-    {
-        let sink = FramedWrite::new(&mut buf, BytesCodec::new());
-        response.into_stream().forward(sink).await.unwrap();
-    }
+    use crate::file_transfer::http::FtHttpClient;
 
     #[tokio::test]
     async fn test_file_download() {
@@ -369,7 +364,7 @@ mod tests {
             .await;
 
         let client = FtHttpClient::create().unwrap();
-        let response = client
+        let mut response = client
             .download(
                 &file_url,
                 HeaderMap::new(),
@@ -380,7 +375,10 @@ mod tests {
             .unwrap();
 
         let mut output_buf = Vec::with_capacity(binary_size);
-        write_chunks(response, Cursor::new(&mut output_buf)).await;
+        response
+            .write_chunks(&mut Cursor::new(&mut output_buf))
+            .await
+            .unwrap();
 
         assert_eq!(binary_content.as_slice(), output_buf.as_slice());
 
@@ -411,11 +409,14 @@ mod tests {
 
         // try download partial
         let mut output_buf = Vec::with_capacity(4096);
-        let response = client
+        let mut response = client
             .download(&file_url, HeaderMap::new(), 4096, Some(binary_size))
             .await
             .unwrap();
-        write_chunks(response, Cursor::new(&mut output_buf)).await;
+        response
+            .write_chunks(&mut Cursor::new(&mut output_buf))
+            .await
+            .unwrap();
         assert_eq!(&binary_content[4096..], &output_buf);
 
         range_mock.assert_async().await;
@@ -440,13 +441,16 @@ mod tests {
             .await;
 
         let client = FtHttpClient::create().unwrap();
-        let response = client
+        let mut response = client
             .download(&file_url, HeaderMap::new(), 0, Some(binary_size))
             .await
             .unwrap();
         // try download complete
         let mut output_buf = Vec::with_capacity(binary_size.try_into().unwrap());
-        write_chunks(response, Cursor::new(&mut output_buf)).await;
+        response
+            .write_chunks(&mut Cursor::new(&mut output_buf))
+            .await
+            .unwrap();
         // NOTE do not compare content, we are happy with the length being the same
         // assert_eq!(binary_content.as_slice(), output_buf.as_slice());
         assert_eq!(binary_content.len(), output_buf.len());

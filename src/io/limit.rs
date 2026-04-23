@@ -69,7 +69,14 @@ where
 
         // NOTE it must be guaranteed that `written <= buf.len()`
         debug_assert!(written <= buf.len());
-        *this.remaining -= written as u64;
+        let written_u64 = u64::try_from(written).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "written length is greater than u64",
+            )
+        })?;
+
+        *this.remaining -= written_u64;
 
         std::task::Poll::Ready(Ok(written))
     }

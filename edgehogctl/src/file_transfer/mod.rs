@@ -135,7 +135,7 @@ impl Download {
             .ok_or_eyre("non utf8 file name")?
             .to_string();
 
-        let file_size_bytes = self.file_size.unwrap_or(content.len() as u64);
+        let file_size_bytes = self.file_size.unwrap_or(u64::try_from(content.len())?);
 
         let data = ServerToDevice {
             id: Uuid::new_v4(),
