@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023, 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,10 +25,9 @@ use std::{
     sync::OnceLock,
 };
 
-use bollard::{
-    errors::Error as BollardError, models::Volume as DockerVolume,
-    query_parameters::RemoveVolumeOptions, secret::VolumeCreateRequest,
-};
+use bollard::errors::Error as BollardError;
+use bollard::models::{Volume as DockerVolume, VolumeCreateRequest};
+use bollard::query_parameters::RemoveVolumeOptions;
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
 

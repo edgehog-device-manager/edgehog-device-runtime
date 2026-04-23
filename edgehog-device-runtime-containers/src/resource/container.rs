@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use bollard::secret::ContainerStateStatusEnum;
+use bollard::models::ContainerStateStatusEnum;
 use edgehog_store::models::containers::container::ContainerStatus;
 use tracing::{debug, warn};
 
