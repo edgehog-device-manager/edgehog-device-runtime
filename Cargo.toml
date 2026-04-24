@@ -189,7 +189,7 @@ tokio-stream = { workspace = true, features = ["net"] }
 [workspace.dependencies]
 astarte-device-sdk = "0.13.0"
 astarte-device-sdk-mock = "0.13.0"
-async-compression = "0.4.41"
+async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
 aws-lc-rs = "1.16.2"
