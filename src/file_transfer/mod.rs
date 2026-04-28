@@ -209,7 +209,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         S: Pipe,
         C: Client + PropAccess + Send + Sync + 'static,
     {
-        self.storage.init().await?;
+        self.storage.init(&self.queue).await?;
 
         self.update_stored_files(&cancel).await?;
 
