@@ -20,14 +20,17 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use astarte_device_sdk::Client;
+use astarte_device_sdk::prelude::PropAccess;
 use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
 use eyre::{Context, eyre};
+use futures::StreamExt;
 use tokio::sync::{Notify, watch};
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
@@ -36,6 +39,7 @@ use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
 use crate::file_transfer::http::FtHttpClient;
+use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::interface::request::FileTransferRequest;
 use crate::file_transfer::interface::status::FileTransferProgress;
 use crate::io::limit::Limit;
@@ -203,9 +207,11 @@ impl<F, S, C> FileTransfer<F, S, C> {
     where
         F: Space,
         S: Pipe,
-        C: Client + Send + Sync + 'static,
+        C: Client + PropAccess + Send + Sync + 'static,
     {
         self.storage.init().await?;
+
+        self.update_stored_files(&cancel).await?;
 
         self.jobs(&cancel).await?;
 
@@ -281,6 +287,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all)]
     async fn download(&mut self, req: &Download<'_>) -> eyre::Result<()>
     where
+        C: Client + Send + Sync + 'static,
         F: Space,
         S: Pipe,
     {
@@ -296,6 +303,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all)]
     async fn download_store(&mut self, download: &Download<'_>) -> eyre::Result<()>
     where
+        C: Client + Send + Sync + 'static,
         F: Space,
     {
         let exists = self
@@ -323,10 +331,17 @@ impl<F, S, C> FileTransfer<F, S, C> {
             return Err(error);
         }
 
-        if let Err(error) = self.storage.finalize_write(&mut file, &opt).await {
-            error!(%error, "error while finalizing write");
-            file.cleanup().await?;
-            return Err(eyre!(error));
+        let stored = match self.storage.finalize_write(&mut file, &opt).await {
+            Ok(f) => f,
+            Err(error) => {
+                error!(%error, "error while finalizing write");
+                file.cleanup().await?;
+                return Err(eyre!(error));
+            }
+        };
+
+        if let Err(error) = stored.send(&mut self.device).await {
+            error!(%error, "can't send stored file to astarte");
         }
 
         if let Some(ttl) = download.ttl {
@@ -630,6 +645,41 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .delete(&id, JobType::FileTransfer, tag.into())
             .await
             .wrap_err("couldn't clean up job")?;
+
+        Ok(())
+    }
+
+    async fn update_stored_files(&mut self, cancel: &CancellationToken) -> eyre::Result<()>
+    where
+        C: Client + PropAccess + Send + Sync + 'static,
+    {
+        let mut cleanup = StoredFile::fetch_paths(&self.device).await?;
+        let mut files = pin!(self.storage.files().await?);
+
+        while let Some(stored) = files.next().await
+            && !cancel.is_cancelled()
+        {
+            let stored = match stored {
+                Ok(f) => f,
+                Err(error) => {
+                    error!(%error, "error while reading files from stream");
+                    continue;
+                }
+            };
+
+            let present = cleanup.remove(stored.id());
+
+            if !present {
+                stored
+                    .send(&mut self.device)
+                    .await
+                    .wrap_err("couldn't send stored file to astarte")?;
+            }
+        }
+
+        for uuid in cleanup {
+            StoredFile::deleted(uuid, &mut self.device).await;
+        }
 
         Ok(())
     }
@@ -1054,13 +1104,31 @@ mod tests {
         MockedFtCall::new(call_get, req, content)
     }
 
-    #[tokio::test]
-    async fn should_download() {
-        let server = MockServer::start_async().await;
-        let mock_download_event = mk_download(&server).await;
-
-        let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+    fn add_download_ok_expect(
+        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        seq: &mut Sequence,
+        id: Uuid,
+    ) {
+        device
+            .expect_set_property()
+            .with(
+                eq(<StoredFile>::INTERFACE),
+                eq(format!("/{}/pathOnDevice", id)),
+                always(),
+            )
+            .once()
+            .in_sequence(seq)
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_set_property()
+            .with(
+                eq(<StoredFile>::INTERFACE),
+                eq(format!("/{}/sizeBytes", id)),
+                always(),
+            )
+            .once()
+            .in_sequence(seq)
+            .returning(|_, _, _| Ok(()));
         device
             .expect_send_object()
             .with(
@@ -1069,8 +1137,19 @@ mod tests {
                 always(),
             )
             .once()
-            .in_sequence(&mut seq)
+            .in_sequence(seq)
             .returning(|_, _, _| Ok(()));
+    }
+
+    #[tokio::test]
+    async fn should_download() {
+        let server = MockServer::start_async().await;
+        let mock_download_event = mk_download(&server).await;
+
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
+
         let (mut transfer, dir) = mk_def_transfer("should_download", device).await;
 
         let complete_file = dir.path().join(mock_download_event.req.id().to_string());
@@ -1091,16 +1170,8 @@ mod tests {
 
         let mut seq = Sequence::new();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-        device
-            .expect_send_object()
-            .with(
-                eq("io.edgehog.devicemanager.fileTransfer.Response"),
-                eq("/request"),
-                always(),
-            )
-            .once()
-            .in_sequence(&mut seq)
-            .returning(|_, _, _| Ok(()));
+        add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
+
         let (mut transfer, dir) = mk_def_transfer("download", device).await;
 
         let partial_file = dir
@@ -1129,16 +1200,8 @@ mod tests {
 
         let mut seq = Sequence::new();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-        device
-            .expect_send_object()
-            .with(
-                eq("io.edgehog.devicemanager.fileTransfer.Response"),
-                eq("/request"),
-                always(),
-            )
-            .once()
-            .in_sequence(&mut seq)
-            .returning(|_, _, _| Ok(()));
+        add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
+
         let (mut transfer, dir) = mk_def_transfer("download_full_unsatisfiable", device).await;
         let partial_file = dir
             .path()
@@ -1193,47 +1256,6 @@ mod tests {
         transfer.handle(mock_upload_event.req).await.unwrap();
 
         mock_upload_event.first_call.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn update_job_download() {
-        let server = MockServer::start_async().await;
-        let mock_download_event = mk_download(&server).await;
-
-        let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-        device
-            .expect_send_object()
-            .with(
-                eq("io.edgehog.devicemanager.fileTransfer.Response"),
-                eq("/request"),
-                always(),
-            )
-            .once()
-            .in_sequence(&mut seq)
-            .returning(|_, _, _| Ok(()));
-        let (mut transfer, dir) = mk_def_transfer("update_job", device).await;
-        let complete_file = dir.path().join(mock_download_event.req.id().to_string());
-
-        let Request::Download(download) = mock_download_event.req.clone() else {
-            unreachable!()
-        };
-        transfer.queue.insert(download).await.unwrap();
-
-        transfer.jobs(&CancellationToken::new()).await.unwrap();
-
-        mock_download_event.first_call.assert_async().await;
-
-        let content = tokio::fs::read(complete_file).await.unwrap();
-
-        assert_eq!(content, mock_download_event.content);
-
-        let job = transfer
-            .queue
-            .fetch_file_transfer(mock_download_event.req.id(), TransferJobTag::Download)
-            .await;
-
-        assert!(job.is_none());
     }
 
     #[tokio::test]
@@ -1318,8 +1340,6 @@ mod tests {
         mock_upload_event.first_call.assert_async().await;
     }
 
-    // TODO add test of limit and digest error during the download
-
     #[tokio::test]
     async fn fail_download_digest() {
         let server = MockServer::start_async().await;
@@ -1365,6 +1385,39 @@ mod tests {
 
         let file = tokio::fs::try_exists(partial_file).await;
         assert!(file.is_err() || file.is_ok_and(|e| !e));
+    }
+
+    #[tokio::test]
+    async fn update_job_download() {
+        let server = MockServer::start_async().await;
+        let mock_download_event = mk_download(&server).await;
+
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
+
+        let (mut transfer, dir) = mk_def_transfer("update_job", device).await;
+        let complete_file = dir.path().join(mock_download_event.req.id().to_string());
+
+        let Request::Download(download) = mock_download_event.req.clone() else {
+            unreachable!()
+        };
+        transfer.queue.insert(download).await.unwrap();
+
+        transfer.jobs(&CancellationToken::new()).await.unwrap();
+
+        mock_download_event.first_call.assert_async().await;
+
+        let content = tokio::fs::read(complete_file).await.unwrap();
+
+        assert_eq!(content, mock_download_event.content);
+
+        let job = transfer
+            .queue
+            .fetch_file_transfer(mock_download_event.req.id(), TransferJobTag::Download)
+            .await;
+
+        assert!(job.is_none());
     }
 
     #[rstest]

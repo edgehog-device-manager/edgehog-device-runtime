@@ -61,7 +61,7 @@ pub(crate) struct WriteHandle {
 }
 
 impl WriteHandle {
-    const PARTTIAL_EXT: &str = ".part";
+    pub(crate) const PARTTIAL_EXT: &str = ".part";
 
     pub(crate) fn current_size(&self) -> u64 {
         self.current_size

@@ -185,7 +185,7 @@ impl<C> Runtime<C> {
         Option<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>,
     >
     where
-        C: Client + Send + Sync + 'static,
+        C: Client + PropAccess + Send + Sync + 'static,
     {
         use std::sync::Arc;
 
@@ -219,8 +219,12 @@ impl<C> Runtime<C> {
             .run(Arc::clone(&job_notify), cancel.clone()),
         );
         tasks.spawn(
-            file_transfer::housekeeping::StorageTask::new(jobs.clone(), sched_notify)
-                .run(cancel.clone()),
+            file_transfer::housekeeping::StorageTask::new(
+                jobs.clone(),
+                sched_notify,
+                device.clone(),
+            )
+            .run(cancel.clone()),
         );
         tasks
             .spawn(file_transfer::Receiver::new(jobs, job_notify, device).run(transfer_rx, cancel));
