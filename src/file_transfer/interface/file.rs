@@ -29,13 +29,25 @@ use eyre::Context;
 use tracing::{error, instrument, warn};
 
 #[derive(Debug, Clone)]
-pub(crate) struct StoredFile<S = String> {
-    id: S,
+pub(crate) struct StoredFile {
+    id: String,
     path: PathBuf,
     size: i64,
 }
 
-impl StoredFile<String> {
+impl StoredFile {
+    pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.storage.File";
+    const PATH_ENDPOINT: &str = "/pathOnDevice";
+    const SIZE_ENDPOINT: &str = "/sizeBytes";
+
+    pub(crate) fn create(id: String, path: PathBuf, size: u64) -> Self {
+        Self {
+            id,
+            path,
+            size: super::to_i64(size),
+        }
+    }
+
     pub(crate) async fn fetch_paths<C>(device: &C) -> eyre::Result<HashSet<String>>
     where
         C: PropAccess + Send + Sync + 'static,
@@ -62,25 +74,10 @@ impl StoredFile<String> {
 
         Ok(set)
     }
-}
-
-impl<S> StoredFile<S> {
-    pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.storage.File";
-    const PATH_ENDPOINT: &str = "/pathOnDevice";
-    const SIZE_ENDPOINT: &str = "/sizeBytes";
-
-    pub(crate) fn create(id: S, path: PathBuf, size: u64) -> Self {
-        Self {
-            id,
-            path,
-            size: super::to_i64(size),
-        }
-    }
 
     #[instrument(skip_all)]
     pub(crate) async fn send<C>(self, device: &mut C) -> eyre::Result<()>
     where
-        S: std::fmt::Display,
         C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
         let path = self.path.to_string_lossy().to_string();
@@ -103,11 +100,11 @@ impl<S> StoredFile<S> {
             .map_err(eyre::Error::from)
     }
 
-    pub(crate) fn id(&self) -> &S {
+    pub(crate) fn id(&self) -> &str {
         &self.id
     }
 
-    pub(crate) async fn deleted<C>(id: S, device: &mut C)
+    pub(crate) async fn deleted<C, S>(id: S, device: &mut C)
     where
         S: std::fmt::Display,
         C: astarte_device_sdk::Client + Send + Sync + 'static,
@@ -157,7 +154,7 @@ mod tests {
         path.push("./");
         path.push(uuid.to_string());
 
-        let stored = StoredFile::create(uuid, path.clone(), size);
+        let stored = StoredFile::create(uuid.to_string(), path.clone(), size);
 
         let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
 

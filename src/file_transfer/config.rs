@@ -39,6 +39,11 @@ impl Percentage {
             None
         }
     }
+
+    /// Calculate the percentage.
+    pub fn calculate(&self, value: u64) -> u64 {
+        value.saturating_mul(self.0.into()).div_ceil(100)
+    }
 }
 
 impl Deref for Percentage {
