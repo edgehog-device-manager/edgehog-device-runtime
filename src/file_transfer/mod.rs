@@ -266,13 +266,15 @@ impl<F, S, C> FileTransfer<F, S, C> {
     {
         let id = job.transfer();
 
+        info!("starting file transfer");
+
         let result = match job {
             Request::Download(download) => self.download(&download).await,
             Request::Upload(upload) => self.upload(&upload).await,
         };
 
         match result {
-            Ok(_) => self.job_done(id).await,
+            Ok(()) => self.job_done(id).await,
             Err(error) => {
                 error!(
                     error = format!("{error:#}"),
@@ -599,6 +601,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn job_done(&mut self, transfer: FileTransferId) -> eyre::Result<()>
     where
         C: Client + Send + Sync + 'static,
@@ -610,6 +613,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .update(&id, JobType::FileTransfer, tag.into(), JobStatus::Done)
             .await
             .wrap_err("couldn't update job status")?;
+
+        info!("job success");
 
         FileTransferResponse::success(transfer)
             .send(&mut self.device)
@@ -635,6 +640,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .update(&id, JobType::FileTransfer, tag.into(), JobStatus::Error)
             .await
             .wrap_err("couldn't update job status")?;
+
+        error!("job error");
 
         FileTransferResponse::runtime_error(id, direction, error)
             .send(&mut self.device)
@@ -804,7 +811,7 @@ mod tests {
     use tempdir::TempDir;
     use uuid::Uuid;
 
-    use super::config::DEFAULT_MAX_FREE_PERCENTAGE;
+    use super::file_system::store::tests::TEST_RESERVED_PERCENTAGE;
     use super::request::{FileDigest, FilePermissions};
     use super::*;
 
@@ -837,7 +844,7 @@ mod tests {
         let args = FileTransferArgs {
             enabled: true,
             storage_dir: dir.path().to_path_buf(),
-            storage_reserved: DEFAULT_MAX_FREE_PERCENTAGE,
+            storage_reserved: TEST_RESERVED_PERCENTAGE,
         };
         (
             FileTransfer::create(queue, args, device, tracker, Arc::new(Notify::new())).unwrap(),

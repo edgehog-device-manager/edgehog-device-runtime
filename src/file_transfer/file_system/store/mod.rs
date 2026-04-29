@@ -23,6 +23,7 @@ use std::fmt::Debug;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use cfg_if::cfg_if;
 use edgehog_store::models::job::job_type::JobType;
 use eyre::WrapErr;
 use futures::{Stream, TryStreamExt};
@@ -34,11 +35,15 @@ use uuid::Uuid;
 use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
 use crate::file_transfer::interface::file::StoredFile;
-use crate::file_transfer::request::FileDigest;
-use crate::file_transfer::request::TransferJobTag;
+use crate::file_transfer::request::{FileDigest, TransferJobTag};
 use crate::jobs::Queue;
 
 use super::{FileOptions, WriteHandle};
+
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+mod windows;
 
 /// Stores files in the storage
 #[derive(Debug)]
@@ -59,7 +64,7 @@ impl FileStorage<Fs> {
 impl<F> FileStorage<F> {
     #[instrument(skip_all)]
     pub(crate) async fn init(&self, queue: &Queue) -> eyre::Result<()> {
-        trace!(path = %self.dir.display(), "initializing store dir");
+        trace!(path = %self.dir.display(), "initialazing store dir");
 
         tokio::fs::create_dir_all(&self.dir)
             .await
@@ -166,45 +171,45 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip_all, fields(id = %opt.id))]
-    pub(crate) async fn create_write_handle(&self, opt: &FileOptions) -> io::Result<WriteHandle>
+    pub(crate) async fn create_write_handle(&mut self, opt: &FileOptions) -> io::Result<WriteHandle>
     where
         F: Space,
     {
         let file_path = self.file_path(&opt.id);
 
-        self.fs
-            .reserve_space(opt.id, &file_path, opt.file_size)
-            .await?;
-
         trace!(path = %file_path.display(), "opening file for write");
 
-        WriteHandle::open(file_path, opt).await
+        let handle = WriteHandle::open(file_path, opt).await?;
+
+        self.fs
+            .reserve_space(opt.id, &handle.partial, opt.file_size)
+            .await?;
+
+        Ok(handle)
     }
 
     #[instrument(skip_all, fields(id = %opt.id))]
     pub(crate) async fn finalize_write(
-        &self,
+        &mut self,
         handle: &mut WriteHandle,
         opt: &FileOptions,
-    ) -> io::Result<StoredFile<Uuid>>
+    ) -> io::Result<StoredFile>
     where
         F: Space,
     {
         handle.finalize(opt).await?;
 
-        self.fs.finalize(opt.id).await?;
+        self.fs.finalize(opt.id, &handle.path).await?;
 
         let id = opt.id;
         let size = opt.file_size;
         let path = handle.path.clone();
 
-        Ok(StoredFile::create(id, path, size))
+        Ok(StoredFile::create(id.to_string(), path, size))
     }
 
     #[instrument(skip_all)]
-    pub(crate) async fn files(
-        &self,
-    ) -> io::Result<impl Stream<Item = io::Result<StoredFile<String>>>> {
+    pub(crate) async fn files(&self) -> io::Result<impl Stream<Item = io::Result<StoredFile>>> {
         let read_dir = tokio::fs::read_dir(&self.dir).await?;
 
         let stream = ReadDirStream::new(read_dir).try_filter_map(async |e| {
@@ -232,40 +237,105 @@ pub(crate) trait Space {
     /// It will make sure that at least the 10% of free space is available on the device the files
     /// are stored on.
     fn reserve_space(
-        &self,
+        &mut self,
         id: Uuid,
         path: &Path,
         file_size: u64,
     ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// Marks the file as saved and refreshes the current quota
-    fn finalize(&self, _id: Uuid) -> impl Future<Output = io::Result<()>> + Send;
+    fn finalize(&mut self, id: Uuid, path: &Path) -> impl Future<Output = io::Result<()>> + Send;
 }
 
 #[derive(Debug)]
 pub(crate) struct Fs {
-    #[expect(unused)]
     reserved: Percentage,
 }
 
-impl Fs {}
+impl Fs {
+    fn has_avail(&self, mut file_size: u64, stat: &FsStat) -> bool {
+        // Use next multiple of allocation_granularity
+        let rem = file_size % stat.fragment_size;
+        file_size = file_size.saturating_add(stat.fragment_size.saturating_sub(rem));
 
+        let reserved = self.reserved.calculate(stat.fs_total);
+
+        reserved < stat.user_avail.saturating_sub(file_size)
+    }
+
+    fn has_total_free(&self, stat: &FsStat) -> bool {
+        let reserved = self.reserved.calculate(stat.fs_total);
+
+        reserved < stat.user_avail
+    }
+}
+
+// TODO: should use tokio here
 impl Space for Fs {
-    async fn reserve_space(&self, _id: Uuid, _path: &Path, _file_size: u64) -> io::Result<()> {
-        // TODO: ensure 10% of the free space on disk
+    // TODO: we could pre-allocate the file size?
+    #[instrument(skip(self, path))]
+    async fn reserve_space(&mut self, id: Uuid, path: &Path, file_size: u64) -> io::Result<()> {
+        let stat = FsStat::read(path)?;
+
+        if !self.has_avail(file_size, &stat) {
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "file size exceeds the required reserved free space",
+            ));
+        }
 
         Ok(())
     }
 
-    async fn finalize(&self, _id: Uuid) -> io::Result<()> {
-        // TODO: refresh the space
+    // TODO: we should cleanup the file
+    #[instrument(skip(self, path))]
+    async fn finalize(&mut self, id: Uuid, path: &Path) -> io::Result<()> {
+        let stat = FsStat::read(path)?;
+
+        if !self.has_total_free(&stat) {
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "file size exceeds the required reserved free space",
+            ));
+        }
 
         Ok(())
+    }
+}
+
+/// Information of a mounted filesystem.
+///
+/// We use bytes to overcome cross system compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FsStat {
+    /// Fragment size
+    ///
+    /// Size of a single contiguous fragment of data that can be stored.
+    fragment_size: u64,
+    /// Filesystem user space.
+    ///
+    /// Space on fs to store data for an unprivileged user, calculated as multiple of fragment size.
+    user_avail: u64,
+    /// Total filesystem space.
+    ///
+    /// Total filesystem space calculated as a multiple of fragment size.
+    fs_total: u64,
+}
+
+impl FsStat {
+    fn read(path: &Path) -> io::Result<Self> {
+        cfg_if! {
+            if #[cfg(windows)] {
+                self::windows::get_disk_free_space(path)
+            } else {
+                self::unix::read_statvfs(path)
+            }
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
 
@@ -273,13 +343,16 @@ mod tests {
     use tempdir::TempDir;
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
-    use crate::file_transfer::config::DEFAULT_MAX_FREE_PERCENTAGE;
     #[cfg(unix)]
     use crate::file_transfer::request::FilePermissions;
 
     use super::*;
 
     use pretty_assertions::assert_eq;
+
+    // NOTE: GitHub windows runner have a little less than 20% of free space available. So to not
+    // have the CI failing, we stay well under that limit with a 10% reserved space
+    pub(crate) const TEST_RESERVED_PERCENTAGE: Percentage = Percentage::new(10).unwrap();
 
     fn partial_file_path(path: PathBuf) -> PathBuf {
         let mut path = path.into_os_string();
@@ -293,7 +366,7 @@ mod tests {
         let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
 
         (
-            FileStorage::new(dir.path().to_path_buf(), DEFAULT_MAX_FREE_PERCENTAGE),
+            FileStorage::new(dir.path().to_path_buf(), TEST_RESERVED_PERCENTAGE),
             dir,
         )
     }
@@ -350,12 +423,15 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(|_, _, _| Box::pin(std::future::ready(Ok(()))));
         mock.expect_finalize()
-            .with(predicate::eq(opt.id))
+            .with(
+                predicate::eq(opt.id),
+                predicate::function(move |p: &Path| p.to_str().unwrap().contains(&id.to_string())),
+            )
             .once()
             .in_sequence(&mut seq)
-            .returning(|_| Box::pin(std::future::ready(Ok(()))));
+            .returning(|_, _| Box::pin(std::future::ready(Ok(()))));
 
-        let (store, dir) = mock_fs_storage(mock);
+        let (mut store, dir) = mock_fs_storage(mock);
 
         let mut write = store.create_write_handle(&opt).await.unwrap();
 
@@ -385,7 +461,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_handle_new() {
-        let (store, dir) = fs_storage();
+        let (mut store, dir) = fs_storage();
 
         let id = Uuid::new_v4();
 
@@ -430,7 +506,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_handle_existing() {
-        let (store, dir) = fs_storage();
+        let (mut store, dir) = fs_storage();
 
         let id = Uuid::new_v4();
 
