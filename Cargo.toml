@@ -259,4 +259,4 @@ uuid = "1.23.1"
 walkdir = "2.5.0"
 webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
-zbus = { version = "5.14.0", default-features = false }
+zbus = { version = "5.15.0", default-features = false }
