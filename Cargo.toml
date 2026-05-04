@@ -192,7 +192,7 @@ astarte-device-sdk-mock = "0.13.0"
 async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
-aws-lc-rs = "1.16.2"
+aws-lc-rs = "1.16.3"
 backoff = "0.4.0"
 base64 = "0.22.1"
 bollard = "0.20.0"
