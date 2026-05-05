@@ -27,7 +27,7 @@ use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
 use edgehog_store::schema::runtime::job_queue;
 use eyre::Context;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 use uuid::Uuid;
 
 use self::timestamp::Unix;
@@ -158,19 +158,26 @@ impl Queue {
         let job = self
             .db
             .for_write(move |write| {
-                let Some(mut job) = Job::query()
+                let optional = Job::query()
                     .filter(job_queue::job_type.eq(job_type))
                     .filter(job_queue::status.eq(JobStatus::Pending))
                     .order_by(job_queue::created_at.asc())
                     .first(write)
-                    .optional()?
-                else {
+                    .optional()?;
+
+                let Some(mut job) = optional else {
                     return Ok(None);
                 };
 
                 job.status = JobStatus::InProgress;
 
-                update(job_queue::table).set(&job).execute(write)?;
+                let row_changed = update(&job)
+                    .set(job_queue::status.eq(JobStatus::InProgress))
+                    .execute(write)?;
+
+                debug_assert_eq!(row_changed, 1);
+
+                trace!(row_changed, id = %job.id, "updated job to in progress");
 
                 Ok(Some(job))
             })
@@ -224,7 +231,11 @@ impl Queue {
 
                 job.status = JobStatus::InProgress;
 
-                update(job_queue::table).set(&job).execute(write)?;
+                let row_changed = update(&job)
+                    .set(job_queue::status.eq(JobStatus::InProgress))
+                    .execute(write)?;
+
+                debug_assert_eq!(row_changed, 1);
 
                 Ok(Some(job))
             })
