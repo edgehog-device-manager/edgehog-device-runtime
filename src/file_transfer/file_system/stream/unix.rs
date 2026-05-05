@@ -177,7 +177,7 @@ mod tests {
 
         let mut take = rx.take(opt.file_size);
 
-        dbg!(take.read(&mut buf).await.unwrap());
+        take.read_exact(&mut buf).await.unwrap();
 
         assert_eq!(buf, exp);
     }
