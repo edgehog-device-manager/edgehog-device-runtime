@@ -33,6 +33,8 @@ use tokio::task::JoinHandle;
 use tokio_stream::Stream;
 use tracing::{error, instrument};
 
+use crate::file_transfer::file_system::walk::Walk;
+
 use super::Paths;
 
 /// Maximum buffer size for the stream
@@ -98,7 +100,9 @@ where
             Paths::File { base, file } => {
                 self.append(&base, &file).await?;
             }
-            Paths::Dir { base, mut dir } => {
+            Paths::Dir { base, dir } => {
+                let mut dir = Walk::new(dir);
+
                 while let Some(item) = dir.next().await {
                     let item = item?;
 

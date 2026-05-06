@@ -42,6 +42,7 @@ use crate::file_transfer::http::FtHttpClient;
 use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::interface::request::FileTransferRequest;
 use crate::file_transfer::interface::status::FileTransferProgress;
+use crate::file_transfer::stream::{PipeStreamReader, PipeStreamWriter, SharedReaderStream};
 use crate::io::limit::Limit;
 use crate::io::progress::{Progress, ProgressHandle};
 use crate::jobs::Queue;
@@ -63,11 +64,13 @@ use self::request::{Encoding, Request, TransferJobTag};
 
 pub mod config;
 mod encoding;
+mod errno;
 pub(crate) mod file_system;
 pub(crate) mod housekeeping;
 pub(crate) mod http;
 pub(crate) mod interface;
 pub(crate) mod request;
+mod stream;
 
 #[derive(Debug)]
 pub(crate) struct Receiver<C> {
@@ -376,18 +379,20 @@ impl<F, S, C> FileTransfer<F, S, C> {
             response.total_length(),
         );
 
-        // limit to maximum uncompressed file size
-        let writer = Digest::new(pipe, download.digest_type);
-        let writer = Limit::new(writer, limit_size);
+        let writer = PipeStreamWriter::new(pipe, limit_size)
+            .write_header()
+            .await
+            .wrap_err("error while writing header")?;
+        let writer = Digest::new(writer, download.digest_type);
         let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
 
         response.write_chunks(&mut writer).await?;
 
         writer
             .into_inner()
-            .into_inner()
-            .check_digest(&download.digest)
-            .map_err(|_| eyre!("digest mismatch, streamed data may be corrupted"))?;
+            .write_footer(&download.digest)
+            .await
+            .wrap_err("error while writing footer")?;
 
         Ok(())
     }
@@ -516,6 +521,11 @@ impl<F, S, C> FileTransfer<F, S, C> {
             Some(Encoding::TarGz) => {
                 let paths = self.storage.find_paths(id).await?;
 
+                // NOTE construct the progress to get the total length (this means compressing two times)
+                let mut reader = Progress::new(TarGzBuilder::spawn(paths.clone()), ());
+                tokio::io::copy(&mut reader, &mut tokio::io::sink()).await?;
+                let file_len = reader.into_total();
+
                 let progress = FileTransferProgress::start(req.transfer(), req.progress, None);
 
                 let reader = TarGzBuilder::spawn(paths);
@@ -523,7 +533,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 let reader = ReaderStream::new(reader);
 
                 self.client
-                    .upload(&req.url, req.headers.clone(), reader)
+                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
                     .await?;
             }
             None => {
@@ -537,7 +547,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 let reader = ReaderStream::new(reader);
 
                 self.client
-                    .upload(&req.url, req.headers.clone(), reader)
+                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
                     .await?;
             }
         }
@@ -551,15 +561,29 @@ impl<F, S, C> FileTransfer<F, S, C> {
         S: Pipe,
     {
         let reader = self.stream.create_reader(&req.id).await?;
+        let reader = PipeStreamReader::new(reader)
+            .read_header()
+            .await
+            .wrap_err("expecting header while reading upload pipe streams")?;
 
-        let progress = FileTransferProgress::start(req.transfer(), req.progress, None);
+        let file_len = reader.body_len();
+
+        let progress = FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
 
         let reader = ProgressUpdate::track(reader, progress, &self.tracker);
-        let reader = ReaderStream::new(reader);
+        let (reader, stream) = SharedReaderStream::spawn(reader);
 
         self.client
-            .upload(&req.url, req.headers.clone(), reader)
+            .upload_sized(&req.url, req.headers.clone(), stream, file_len)
             .await?;
+
+        reader
+            .join_reader()
+            .await?
+            .into_inner()
+            .expect_footer()
+            .await?
+            .check_status()?;
 
         Ok(())
     }
@@ -570,6 +594,11 @@ impl<F, S, C> FileTransfer<F, S, C> {
             Some(Encoding::TarGz) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
 
+                // NOTE construct the progress to get the total length (this means compressing two times)
+                let mut reader = Progress::new(TarGzBuilder::spawn(paths.clone()), ());
+                tokio::io::copy(&mut reader, &mut tokio::io::sink()).await?;
+                let file_len = reader.into_total();
+
                 let progress = FileTransferProgress::start(req.transfer(), req.progress, None);
 
                 let reader = TarGzBuilder::spawn(paths);
@@ -577,7 +606,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 let reader = tokio_util::io::ReaderStream::new(reader);
 
                 self.client
-                    .upload(&req.url, req.headers.clone(), reader)
+                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
                     .await?;
             }
             None => {
@@ -591,7 +620,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 let reader = ReaderStream::new(reader);
 
                 self.client
-                    .upload(&req.url, req.headers.clone(), reader)
+                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
                     .await?;
             }
         }

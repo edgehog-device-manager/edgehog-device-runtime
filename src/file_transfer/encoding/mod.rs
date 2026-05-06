@@ -23,14 +23,12 @@ use std::path::{Path, PathBuf};
 
 use tracing::instrument;
 
-use super::file_system::walk::Walk;
-
 pub(crate) mod tar_gz;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Paths {
     File { base: PathBuf, file: PathBuf },
-    Dir { base: PathBuf, dir: Walk },
+    Dir { base: PathBuf, dir: PathBuf },
 }
 
 impl Paths {
@@ -40,10 +38,7 @@ impl Paths {
         let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
 
         if meta.is_dir() {
-            Ok(Paths::Dir {
-                base,
-                dir: Walk::new(path),
-            })
+            Ok(Paths::Dir { base, dir: path })
         } else {
             Ok(Paths::File { base, file: path })
         }
