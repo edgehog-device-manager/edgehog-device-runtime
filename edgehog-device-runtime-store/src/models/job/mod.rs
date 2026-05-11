@@ -29,21 +29,21 @@ pub mod job_type;
 pub mod status;
 
 /// A job in the queue
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Insertable, Identifiable, AsChangeset, HasQuery)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, HasQuery, Insertable, Identifiable, AsChangeset)]
 #[diesel(table_name = crate::schema::runtime::job_queue)]
-#[diesel(primary_key(id, job_type))]
+#[diesel(primary_key(id, job_type, tag))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Job {
     /// Unique id for the Job Type
     pub id: SqlUuid,
     /// Job type in the queue
     pub job_type: JobType,
+    /// Tag to identify the type of data stored
+    pub tag: i32,
     /// Status of the job
     pub status: JobStatus,
     /// Version of the serialized data
     pub version: i32,
-    /// Tag to identify the type of data stored
-    pub tag: i32,
     /// When the job should be scheduled
     pub schedule_at: Option<i64>,
     /// Serialized additional data for the job

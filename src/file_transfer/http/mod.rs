@@ -58,6 +58,7 @@ impl FtHttpClient {
         Ok(Self { client })
     }
 
+    #[instrument(skip(self, headers, start, total_len))]
     pub(crate) async fn download(
         &self,
         url: &Url,
@@ -66,8 +67,12 @@ impl FtHttpClient {
         total_len: Option<u64>,
     ) -> eyre::Result<FileDownloadResponse> {
         if start == 0 {
+            trace!("making full request");
+
             return self.full_request(url, headers, total_len).await;
         }
+
+        trace!(start, "making range request");
 
         headers.insert(
             reqwest::header::RANGE,
