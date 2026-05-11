@@ -24,6 +24,7 @@ defaults:
   run:
     shell: bash
 env:
+  CI: "true"
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
@@ -33,49 +34,33 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
       - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.16.0
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@cargo-nextest
+      - uses: taiki-e/install-action@v2.77.1
+        with:
+          tool: cargo-nextest
       - run: cargo nextest run --locked --all-features --workspace
       # https://github.com/rust-lang/cargo/issues/6669
-      - name: run doc test
-        run: cargo test --locked --doc --all-features --workspace
-      # Upload the test results if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
-      - name: Upload to codecov.io
-        if: ${{ github.event_name == 'push' }}
-        uses: codecov/codecov-action@v6
-        with:
-          token: ${{secrets.CODECOV_TOKEN}}
-          fail_ci_if_error: true
-          report_type: test_results
-          files: junit.xml
-      # Save data to use in workflow_run
-      - name: Save PR number
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          PR_NUMBER: ${{ github.event.number }}
-        run: |
-          echo "$PR_NUMBER" > ./pr_number
-      - name: Upload coverage artifact
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: test_results
-          path: |
-            pr_number
-            junit.xml
+      - name: cargo test doc
+        run: cargo test --locked --all-features --doc --workspace
   coverage:
     runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
       - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.16.0
         with:
           toolchain: nightly
           components: llvm-tools
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@v2.49.43
+      - uses: taiki-e/install-action@v2.77.1
         with:
           tool: rustfilt,cargo-llvm-cov
       - name: Generate coverage
@@ -83,23 +68,7 @@ jobs:
           EXPORT_FOR_CI=1 ./scripts/ci/coverage.sh
       # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
-        if: ${{ github.event_name == 'push' }}
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v6.0.0
         with:
-          token: ${{secrets.CODECOV_TOKEN}}
-          fail_ci_if_error: true
-      # Save data to use in workflow_run
-      - name: Save PR number
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          PR_NUMBER: ${{ github.event.number }}
-        run: |
-          echo "$PR_NUMBER" > ./pr_number
-      - name: Upload coverage artifact
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: |
-            pr_number
-            coverage-*.info
+          use_oidc: true
+          fail_ci_if_error: false

@@ -26,7 +26,7 @@ set -exEuo pipefail
 #
 # TOOLS
 #
-# lcov:     used to merge coverages for many crates
+# cargo-llvm-cov:     used to merge coverages for many crates
 # genhtml:  better branch and function coverage
 
 # Output directories for the profile files and coverage
@@ -41,81 +41,59 @@ CARGO_TARGET_DIR=$(
 export CARGO_TARGET_DIR
 export CARGO_INCREMENTAL=0
 
-filter_lcov() {
-    local src
-    if [[ $1 == "$src_crate" ]]; then
-        src="$SRC_DIR"
-    else
-        src="$SRC_DIR/$1"
-    fi
-
-    obj_args=$(object_files -p "$1")
-
-    mkdir -p "$COVERAGE_OUT_DIR/$1/lcov-show"
-    $LLVM_COV show \
-        -Xdemangler=rustfilt \
-        -format=html \
-        -show-directory-coverage \
-        -show-mcdc \
-        -show-line-counts-or-regions \
-        -instr-profile="$PROFS_DIR/coverage.profdata" \
-        -output-dir="$COVERAGE_OUT_DIR/$1/lcov-show" \
-        -sources "$src" "${obj_args[@]}"
+gethtml_wrapper() {
 
     # Better branch coverage information
-    if command -v genhtml; then
-        mkdir -p "$COVERAGE_OUT_DIR/$1/genhtml"
-
-        arg_diff=()
-
-        if [[ -z "${EXPORT_BASE_COMMIT:-}" && -f "$COVERAGE_OUT_DIR/baseline-commit.txt" ]]; then
-            commit=$(cat "$COVERAGE_OUT_DIR/baseline-commit.txt")
-            current=$(git rev-parse HEAD)
-
-            if [[ $commit != "$current" ]]; then
-                git diff "$commit.." -p --src-prefix= --dst-prefix= >"$COVERAGE_OUT_DIR/patch.diff"
-
-                arg_diff+=(
-                    "--baseline-file=$COVERAGE_OUT_DIR/baseline-$commit-$p.info"
-                    "--diff-file=$COVERAGE_OUT_DIR/patch.diff"
-                )
-            fi
-        fi
-
-        genhtml \
-            --show-details \
-            --legend \
-            --branch-coverage \
-            --dark-mode \
-            --missed \
-            --demangle-cpp rustfilt \
-            --output-directory "$COVERAGE_OUT_DIR/$1/genhtml" \
-            "${arg_diff[@]}" \
-            "$COVERAGE_OUT_DIR/$1/lcov.info"
+    if ! command -v genhtml; then
+        echo 'Command genhtml not found'
+        return
     fi
+
+    mkdir -p "$COVERAGE_OUT_DIR/genhtml"
+    genhtml \
+        --show-details \
+        --legend \
+        --branch-coverage \
+        --dark-mode \
+        --missed \
+        --demangle-cpp rustfilt \
+        --output-directory "$COVERAGE_OUT_DIR/$1/genhtml" \
+        "$COVERAGE_OUT_DIR/$1/lcov.info"
+
 }
 
+crate="@MAIN_CRATE@"
+
 if [[ -n "${EXPORT_FOR_CI:-}" ]]; then
-    out_path="$PWD/coverage-@MAIN_CRATE@.info"
+    out_path="$PWD/coverage-$crate.info"
 else
     mkdir -p "$CARGO_TARGET_DIR/lcov"
-    out_path="$CARGO_TARGET_DIR/lcov/coverage-@MAIN_CRATE@.info"
+    out_path="$CARGO_TARGET_DIR/lcov/coverage-$crate.info"
 fi
 
 # Currently branch coverage can be broken on nightly
 cargo +nightly llvm-cov \
-    --all-features -p "@MAIN_CRATE@" \
+    --all-features -p "$crate" \
     --lcov \
     --output-path "$out_path"
 
 cargo llvm-cov report
 
 if [[ -z "${EXPORT_FOR_CI:-}" ]]; then
+    cargo llvm-cov report
     cargo llvm-cov report --html
+else
+    {
+        echo '# Code Coverage'
+        echo ''
+        echo '```'
+        cargo llvm-cov report
+        echo '```'
+    } >>"$GITHUB_STEP_SUMMARY"
 fi
 
 if [[ -n "${EXPORT_BASE_COMMIT:-}" ]]; then
     commit=$(git rev-parse HEAD)
-    cp -v "$COVERAGE_OUT_DIR/$p/lcov.info" "$COVERAGE_OUT_DIR/baseline-$commit-$p.info"
+    cp -v "$out_path" "$COVERAGE_OUT_DIR/baseline-$commit.info"
     echo "$commit" >"$COVERAGE_OUT_DIR/baseline-commit.txt"
 fi

@@ -14,13 +14,37 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-name: "Install deps"
+name: "Install system deps"
 description: "Install dependencies needed to run the jobs"
+inputs:
+  for-image:
+    description: Image the job is running on
+    default: "ubuntu-24.04"
 runs:
   using: "composite"
   steps:
-    - name: Install system dependencies
+    - name: Install Linux (Ubuntu) system dependencies
+      if: ${{ startsWith(inputs.for-image, 'ubuntu-') }}
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get -y install libsqlite3-dev
+        echo "nothing to install"
+    - name: Install MacOS system dependencies
+      if: ${{ startsWith(inputs.for-image, 'macos-') }}
+      shell: bash
+      run: |
+        echo "nothing to install"
+      # Setup vcpkg binary cache
+      # https://learn.microsoft.com/en-us/vcpkg/users/binarycaching#gha-quickstart
+    - uses: actions/github-script@v9
+      if: ${{ startsWith(inputs.for-image, 'windows-') }}
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+    - name: Install Windows system dependencies
+      if: ${{ startsWith(inputs.for-image, 'windows-') }}
+      shell: bash
+      run: |
+        echo 'VCPKG_BINARY_SOURCES="clear;x-gha,readwrite"' >>"$GITHUB_ENV"
+        echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >>"$GITHUB_ENV"
+        echo "nothing to install"
