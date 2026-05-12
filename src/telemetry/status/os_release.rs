@@ -20,7 +20,7 @@ use std::{collections::HashMap, io};
 
 use futures::TryFutureExt;
 use serde::Deserialize;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use crate::data::set_property;
 use crate::Client;
@@ -67,7 +67,27 @@ impl OsRelease {
             .ok()
             .flatten()?;
 
-        Some(Self::from(content.as_str()))
+        let image_id = std::env::var("EDGEHOG_IMAGE_ID")
+            .ok()
+            .inspect(|_| trace!("IMAGE_ID read from env variable"));
+        let image_version = std::env::var("EDGEHOG_IMAGE_VERSION")
+            .ok()
+            .inspect(|_| trace!("IMAGE_VERSION read from env variable"));
+
+        Some(Self::with_env(
+            content.as_str(),
+            image_id,
+            image_version.as_deref(),
+        ))
+    }
+
+    fn with_env(s: &str, image_id: Option<String>, image_version: Option<&str>) -> Self {
+        let lines: HashMap<&str, &str> = s.lines().filter_map(split_key_value).collect();
+
+        Self {
+            os_info: OsInfo::from(&lines),
+            base_image: BaseImage::read(&lines, image_id, image_version),
+        }
     }
 
     pub async fn send<C>(self, client: &mut C)
@@ -76,17 +96,6 @@ impl OsRelease {
     {
         self.os_info.send(client).await;
         self.base_image.send(client).await;
-    }
-}
-
-impl From<&str> for OsRelease {
-    fn from(s: &str) -> Self {
-        let lines: HashMap<&str, &str> = s.lines().filter_map(split_key_value).collect();
-
-        Self {
-            os_info: OsInfo::from(&lines),
-            base_image: BaseImage::from(&lines),
-        }
     }
 }
 
@@ -147,6 +156,36 @@ pub struct BaseImage {
 }
 
 impl BaseImage {
+    pub fn new(image_id: Option<String>, image_version: Option<&str>) -> Self {
+        let (version, build_id) = image_version
+            .map(|version| match version.split_once('+') {
+                Some((version, build_id)) => {
+                    (Some(version.to_string()), Some(build_id.to_string()))
+                }
+                None => (Some(version.to_string()), None),
+            })
+            .unwrap_or_default();
+
+        Self {
+            name: image_id,
+            version,
+            build_id,
+        }
+    }
+
+    /// Read the values from the ENV or file.
+    fn read(
+        value: &HashMap<&str, &str>,
+        image_id: Option<String>,
+        image_version: Option<&str>,
+    ) -> Self {
+        let image_id = image_id.or_else(|| value.get("IMAGE_ID").map(|name| name.to_string()));
+
+        let image_version = image_version.or_else(|| value.get("IMAGE_VERSION").copied());
+
+        Self::new(image_id, image_version)
+    }
+
     pub async fn send<C>(self, client: &mut C)
     where
         C: Client,
@@ -180,29 +219,6 @@ impl BaseImage {
     }
 }
 
-impl From<&HashMap<&str, &str>> for BaseImage {
-    fn from(value: &HashMap<&str, &str>) -> Self {
-        let name = value.get("IMAGE_ID").map(|name| name.to_string());
-
-        let (version, build_id) = value
-            .get("IMAGE_VERSION")
-            // cursed some mapping
-            .map(|version| match version.split_once('+') {
-                Some((version, build_id)) => {
-                    (Some(version.to_string()), Some(build_id.to_string()))
-                }
-                None => (Some(version.to_string()), None),
-            })
-            .unwrap_or_default();
-
-        Self {
-            name,
-            version,
-            build_id,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::store::SqliteStore;
@@ -227,7 +243,7 @@ BUG_REPORT_URL="https://bugs.archlinux.org/"
 LOGO=archlinux-logo
 "#;
 
-        let data = OsRelease::from(file).os_info;
+        let data = OsRelease::with_env(file, None, None).os_info;
         assert_eq!(data.os_name.unwrap(), "Arch Linux");
         assert_eq!(data.os_version.unwrap(), "rolling");
 
@@ -241,7 +257,7 @@ HOME_URL="https://www.debian.org/"
 SUPPORT_URL="https://www.debian.org/support"
 BUG_REPORT_URL="https://bugs.debian.org/""#;
 
-        let data = OsRelease::from(file).os_info;
+        let data = OsRelease::with_env(file, None, None).os_info;
         assert_eq!(data.os_name.unwrap(), "Debian GNU/Linux");
         assert_eq!(data.os_version.unwrap(), "11");
     }
@@ -252,7 +268,7 @@ BUG_REPORT_URL="https://bugs.debian.org/""#;
 
 VERSION_ID="11""#;
 
-        let data = OsRelease::from(file).os_info;
+        let data = OsRelease::with_env(file, None, None).os_info;
         assert_eq!(data.os_name.unwrap(), "Debian GNU/Linux");
         assert_eq!(data.os_version.unwrap(), "11");
     }
@@ -261,7 +277,7 @@ VERSION_ID="11""#;
     fn os_release_with_only_name() {
         let file = r#"NAME="Arch Linux"#;
 
-        let data = OsRelease::from(file).os_info;
+        let data = OsRelease::with_env(file, None, None).os_info;
         assert_eq!(data.os_name.unwrap(), "Arch Linux");
         assert!(data.os_version.is_none());
     }
@@ -270,7 +286,7 @@ VERSION_ID="11""#;
     fn os_release_malformed() {
         let file = r#"NAME["Arch Linux"@@"#;
 
-        let data = OsRelease::from(file).os_info;
+        let data = OsRelease::with_env(file, None, None).os_info;
         assert!(data.os_name.is_none());
         assert!(data.os_version.is_none());
     }
@@ -353,7 +369,7 @@ PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-poli
 VERSION_CODENAME=bionic
 UBUNTU_CODENAME=bionic"#;
 
-        let base_image = OsRelease::from(OS_RELEASE).base_image;
+        let base_image = OsRelease::with_env(OS_RELEASE, None, None).base_image;
         assert!(base_image.name.is_none());
         assert!(base_image.version.is_none());
         assert!(base_image.build_id.is_none());
@@ -377,7 +393,18 @@ UBUNTU_CODENAME=bionic
 IMAGE_ID="testOs"
 IMAGE_VERSION="1.0.0+20220922""#;
 
-        let base_image = OsRelease::from(OS_RELEASE).base_image;
+        let base_image = OsRelease::with_env(OS_RELEASE, None, None).base_image;
+        assert_eq!(base_image.name.unwrap(), "testOs");
+        assert_eq!(base_image.version.unwrap(), "1.0.0");
+        assert_eq!(base_image.build_id.unwrap(), "20220922");
+    }
+    #[test]
+    fn base_image_from_env() {
+        let base_image = BaseImage::read(
+            &HashMap::new(),
+            Some("testOs".to_string()),
+            Some("1.0.0+20220922"),
+        );
         assert_eq!(base_image.name.unwrap(), "testOs");
         assert_eq!(base_image.version.unwrap(), "1.0.0");
         assert_eq!(base_image.build_id.unwrap(), "20220922");
