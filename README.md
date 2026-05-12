@@ -134,6 +134,11 @@ IMAGE_ID="..."
 IMAGE_VERSION="..."
 ```
 
+Or with the environment variables:
+
+- `EDGEHOG_IMAGE_ID`
+- `EDGEHOG_IMAGE_VERSION`
+
 ### Serial and Part Number
 
 Set the model and part number as environment variables:
