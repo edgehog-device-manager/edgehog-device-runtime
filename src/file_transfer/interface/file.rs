@@ -61,9 +61,7 @@ impl StoredFile {
             .into_iter()
             .filter(|p| p.path.ends_with(Self::PATH_ENDPOINT))
             .filter_map(|p| match p.value {
-                AstarteData::String(path) => {
-                    Self::file_name_from_path(&path).map(|s| s.to_string())
-                }
+                AstarteData::String(path) => Self::file_name_from_path(&path).map(|s| s.into()),
                 d => {
                     warn!("expecting string in '{}' got {:?}", p.path, d);
 

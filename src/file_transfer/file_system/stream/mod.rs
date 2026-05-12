@@ -61,14 +61,20 @@ where
         self.sys.open_writer(opt).await
     }
 
-    #[instrument(skip(self))]
-    pub(crate) async fn create_reader(&self, id: &Uuid) -> eyre::Result<S::Reader>
+    #[instrument(skip(self, fut))]
+    pub(crate) async fn with_reader<F, Fut, T>(&self, id: &Uuid, fut: F) -> eyre::Result<T>
     where
+        Fut: Future<Output = eyre::Result<T>>,
+        F: FnOnce(S::Reader) -> Fut,
         S: Pipe,
     {
         let reader = self.sys.create_reader(id).await?;
 
-        Ok(reader)
+        let result = fut(reader).await;
+
+        self.sys.remove_reader(id).await?;
+
+        result
     }
 }
 
@@ -84,6 +90,8 @@ pub(crate) trait Pipe {
     ) -> impl Future<Output = eyre::Result<Self::Writer>> + Send;
 
     fn create_reader(&self, id: &Uuid) -> impl Future<Output = eyre::Result<Self::Reader>> + Send;
+
+    fn remove_reader(&self, id: &Uuid) -> impl Future<Output = eyre::Result<()>> + Send;
 }
 
 #[cfg(test)]

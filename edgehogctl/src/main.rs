@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::IsTerminal;
+use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -64,7 +64,8 @@ async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
     let fmt = tracing_subscriber::fmt::layer()
-        .with_ansi(cfg!(not(windows)) && std::io::stdout().is_terminal());
+        .with_ansi(cfg!(not(windows)) && std::io::stderr().is_terminal())
+        .with_writer(io::stderr);
 
     tracing_subscriber::registry()
         .with(fmt)

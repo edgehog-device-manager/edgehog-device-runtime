@@ -78,6 +78,12 @@ impl Pipe for MakeNamedPipe {
 
         Ok(rx)
     }
+
+    #[instrument(skip_all)]
+    async fn remove_reader(&self, _id: &Uuid) -> eyre::Result<()> {
+        // NOTE in windows dropping the pipe is sufficient
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -24,21 +24,21 @@ use tracing::instrument;
 
 #[derive(Debug)]
 #[pin_project]
-pub(crate) struct Limit<W> {
+pub struct Limit<W> {
     remaining: u64,
     #[pin]
     inner: W,
 }
 
 impl<W> Limit<W> {
-    pub(crate) fn new(inner: W, total: u64) -> Self {
+    pub fn new(inner: W, total: u64) -> Self {
         Self {
             remaining: total,
             inner,
         }
     }
 
-    pub(crate) fn into_inner(self) -> W {
+    pub fn into_inner(self) -> W {
         self.inner
     }
 }

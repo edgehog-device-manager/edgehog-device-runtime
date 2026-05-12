@@ -39,7 +39,7 @@ pub mod file_transfer;
 mod forwarder;
 pub(crate) mod http;
 #[cfg(feature = "file-transfer")]
-pub(crate) mod io;
+pub mod io;
 #[cfg(feature = "file-transfer")]
 pub(crate) mod jobs;
 #[cfg(all(feature = "zbus", target_os = "linux"))]

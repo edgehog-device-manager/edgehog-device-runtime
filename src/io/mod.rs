@@ -16,6 +16,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub(crate) mod digest;
-pub(crate) mod limit;
-pub(crate) mod progress;
+pub mod digest;
+pub mod limit;
+pub mod progress;

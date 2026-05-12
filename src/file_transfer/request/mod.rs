@@ -159,7 +159,7 @@ impl FilePermissions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
 #[cbor(index_only)]
 #[repr(u8)]
-pub(crate) enum FileDigest {
+pub enum FileDigest {
     #[n(0)]
     Sha256 = 0,
 }
