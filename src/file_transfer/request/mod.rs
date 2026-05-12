@@ -22,7 +22,7 @@ use edgehog_store::models::job::Job;
 use eyre::{Context, bail, eyre};
 use uuid::Uuid;
 
-use crate::file_transfer::interface::capabilities::TAR_GZ;
+use crate::file_transfer::interface::capabilities::{GZ, TAR_GZ};
 use crate::file_transfer::interface::status::FileTransferId;
 
 use self::download::Download;
@@ -108,6 +108,8 @@ impl TryFrom<i32> for TransferJobTag {
 pub(crate) enum Encoding {
     #[n(0)]
     TarGz = 0,
+    #[n(1)]
+    Gz = 1,
 }
 
 impl From<Encoding> for u8 {
@@ -122,7 +124,8 @@ impl FromStr for Encoding {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             TAR_GZ => Ok(Encoding::TarGz),
-            _ => Err(eyre!("unrecognize compression format: {s}")),
+            GZ => Ok(Encoding::Gz),
+            _ => Err(eyre!("unrecognized compression format: {s}")),
         }
     }
 }

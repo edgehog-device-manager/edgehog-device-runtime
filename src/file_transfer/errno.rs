@@ -65,3 +65,10 @@ pub(crate) fn to_errno(kind: io::ErrorKind) -> i32 {
         _ => 22,                                      // EINVAL (Generic fallback)
     }
 }
+
+pub(crate) fn check_result<T>(result: Result<T, T>) -> (T, i32) {
+    match result {
+        Ok(t) => (t, OK),
+        Err(t) => (t, to_errno(io::ErrorKind::InvalidData)),
+    }
+}

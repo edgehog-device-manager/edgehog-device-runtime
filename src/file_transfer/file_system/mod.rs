@@ -19,8 +19,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use async_compression::tokio::bufread::GzipDecoder;
 use pin_project::pin_project;
-use tokio::fs::File;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, instrument, trace};
@@ -101,13 +102,7 @@ impl WriteHandle {
         Ok(true)
     }
 
-    #[instrument(skip(opt))]
-    pub(crate) async fn open(path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
-        // Set partial extension
-        let mut partial = path.clone().into_os_string();
-        partial.push(Self::PARTIAL_EXT);
-        let partial = PathBuf::from(partial);
-
+    fn open_options(opt: &FileOptions) -> OpenOptions {
         let mut file_options = File::options();
 
         file_options.create(true).write(true).read(true);
@@ -120,8 +115,18 @@ impl WriteHandle {
             }
         }
 
+        file_options
+    }
+
+    #[instrument(skip(opt))]
+    pub(crate) async fn open(path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
+        // Set partial extension
+        let mut partial = path.clone().into_os_string();
+        partial.push(Self::PARTIAL_EXT);
+        let partial = PathBuf::from(partial);
+
         // TODO: flock the file?
-        let file = file_options.open(&partial).await?;
+        let file = Self::open_options(opt).open(&partial).await?;
 
         let current_size = file.metadata().await?.len();
 
@@ -143,7 +148,7 @@ impl WriteHandle {
         self.file.sync_all().await?;
 
         if let Some(comp) = opt.compression {
-            self.extract(comp).await
+            self.extract(opt, comp).await
         } else {
             self.move_part(opt).await
         }
@@ -182,13 +187,13 @@ impl WriteHandle {
     }
 
     #[instrument(skip_all)]
-    async fn extract(&mut self, compression: Encoding) -> io::Result<()> {
+    async fn extract(&mut self, opt: &FileOptions, compression: Encoding) -> io::Result<()> {
         self.file.seek(io::SeekFrom::Start(0)).await?;
-
-        tokio::fs::create_dir_all(&self.path).await?;
 
         match compression {
             Encoding::TarGz => {
+                tokio::fs::create_dir_all(&self.path).await?;
+
                 let mut extract = TarGzDecoder::create(BufReader::new(&mut self.file))?;
 
                 while let Some(item) = extract.next().await {
@@ -196,6 +201,16 @@ impl WriteHandle {
 
                     item.unpack_in(&self.path).await?;
                 }
+            }
+            Encoding::Gz => {
+                if let Some(parent) = self.path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+
+                let mut decoder = GzipDecoder::new(BufReader::new(&mut self.file));
+                let mut writer = Self::open_options(opt).open(&self.path).await?;
+
+                tokio::io::copy(&mut decoder, &mut writer).await?;
             }
         }
 

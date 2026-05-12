@@ -27,6 +27,8 @@ use crate::data::set_property;
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Capabilities";
 /// Encoding for tar.gz
 pub(crate) const TAR_GZ: &str = "tar.gz";
+/// Encoding for gz
+pub(crate) const GZ: &str = "gz";
 /// Storage target
 pub(crate) const STORAGE_TARGET: &str = "storage";
 /// Streaming target

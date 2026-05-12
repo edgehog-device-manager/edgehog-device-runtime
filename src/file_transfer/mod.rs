@@ -26,11 +26,15 @@ use std::time::Duration;
 
 use astarte_device_sdk::Client;
 use astarte_device_sdk::prelude::PropAccess;
+use async_compression::tokio::bufread::GzipEncoder;
+use async_compression::tokio::write::GzipDecoder;
 use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
-use eyre::{Context, eyre};
+use eyre::{Context, bail, eyre};
 use futures::StreamExt;
+use tokio::fs::File;
+use tokio::io::{AsyncSeekExt, BufReader};
 use tokio::sync::{Notify, watch};
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
@@ -363,36 +367,52 @@ impl<F, S, C> FileTransfer<F, S, C> {
         S: Pipe,
     {
         let opt = FileOptions::from(download);
-
         let pipe = self.stream.open_writer(&opt).await?;
-
-        let download_len = download.download_length();
 
         let mut response = self
             .client
-            .download(&download.url, download.headers.clone(), 0, download_len)
+            .download(
+                &download.url,
+                download.headers.clone(),
+                0,
+                download.download_length(),
+            )
             .await
             .wrap_err("download request error")?;
 
-        let limit_size = response.total_length().unwrap_or(download.file_size);
+        let limit_size = download.file_size;
         let progress = FileTransferProgress::start(
             download.transfer(),
             download.progress,
             response.total_length(),
         );
-
         let writer = PipeStreamWriter::new(pipe, limit_size)
             .write_header()
             .await
             .wrap_err("error while writing header")?;
-        let writer = Digest::new(writer, download.digest_type);
-        let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
 
-        response.write_chunks(&mut writer).await?;
+        let (writer, status) = match download.encoding {
+            Some(Encoding::TarGz) => {
+                bail!("{:?} is not supported for download stream", Encoding::TarGz)
+            }
+            Some(Encoding::Gz) => {
+                let decoder = GzipDecoder::new(writer);
+                let writer = Digest::new(decoder, download.digest_type);
+                let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
+                response.write_chunks(&mut writer).await?;
 
-        let (writer, status) = match writer.into_inner().check_digest(&download.digest) {
-            Ok(w) => (w, errno::OK),
-            Err(w) => (w, errno::to_errno(io::ErrorKind::InvalidData)),
+                let (decoder, status) =
+                    errno::check_result(writer.into_inner().check_digest(&download.digest));
+
+                (decoder.into_inner(), status)
+            }
+            None => {
+                let writer = Digest::new(writer, download.digest_type);
+                let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
+                response.write_chunks(&mut writer).await?;
+
+                errno::check_result(writer.into_inner().check_digest(&download.digest))
+            }
         };
 
         writer
@@ -524,40 +544,90 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all, fields(%id))]
     async fn upload_store(&mut self, id: &Uuid, req: &Upload<'_>) -> eyre::Result<()> {
         match req.encoding {
+            Some(Encoding::Gz) => {
+                let reader = self.storage.open_read(id).await?;
+                self.upload_gz(req, reader).await
+            }
             Some(Encoding::TarGz) => {
                 let paths = self.storage.find_paths(id).await?;
-
-                // NOTE construct the progress to get the total length (this means compressing two times)
-                let mut reader = Progress::new(TarGzBuilder::spawn(paths.clone()), ());
-                tokio::io::copy(&mut reader, &mut tokio::io::sink()).await?;
-                let file_len = reader.into_total();
-
-                let progress =
-                    FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
-
-                let reader = TarGzBuilder::spawn(paths);
-                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
-                let reader = ReaderStream::new(reader);
-
-                self.client
-                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
-                    .await?;
+                self.upload_tar_gz(req, paths).await
             }
             None => {
                 let reader = self.storage.open_read(id).await?;
-
-                let file_len = reader.metadata().await?.len();
-                let progress =
-                    FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
-
-                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
-                let reader = ReaderStream::new(reader);
-
-                self.client
-                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
-                    .await?;
+                self.upload_file(req, reader).await
             }
         }
+    }
+
+    #[instrument(skip_all, fields(path = %path.display()))]
+    async fn upload_filesystem(&mut self, path: &Path, req: &Upload<'_>) -> eyre::Result<()> {
+        match req.encoding {
+            Some(Encoding::Gz) => {
+                let reader = tokio::fs::File::open(path).await?;
+                self.upload_gz(req, reader).await
+            }
+            Some(Encoding::TarGz) => {
+                let paths = Paths::read(path.to_path_buf()).await?;
+                self.upload_tar_gz(req, paths).await
+            }
+            None => {
+                let reader = tokio::fs::File::open(path).await?;
+                self.upload_file(req, reader).await
+            }
+        }
+    }
+
+    #[instrument(skip_all)]
+    async fn upload_gz(&self, req: &Upload<'_>, file: tokio::fs::File) -> eyre::Result<()> {
+        let mut reader = BufReader::new(file);
+        // NOTE get the total length by compressing once to a sink (this means compressing two times)
+        let mut encoder = GzipEncoder::new(&mut reader);
+        let file_len = tokio::io::copy(&mut encoder, &mut tokio::io::sink()).await?;
+        reader.seek(io::SeekFrom::Start(0)).await?;
+
+        let progress = FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
+
+        let encoder = GzipEncoder::new(reader);
+        let reader = ProgressUpdate::track(encoder, progress, &self.tracker);
+        let reader = ReaderStream::new(reader);
+
+        self.client
+            .upload_sized(&req.url, req.headers.clone(), reader, file_len)
+            .await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn upload_tar_gz(&self, req: &Upload<'_>, paths: Paths) -> eyre::Result<()> {
+        // NOTE get the total length by compressing once to a sink (this means compressing two times)
+        let mut reader = TarGzBuilder::spawn(paths.clone());
+        let file_len = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await?;
+
+        let progress = FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
+
+        let reader = TarGzBuilder::spawn(paths);
+        let reader = ProgressUpdate::track(reader, progress, &self.tracker);
+        let reader = ReaderStream::new(reader);
+
+        self.client
+            .upload_sized(&req.url, req.headers.clone(), reader, file_len)
+            .await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    async fn upload_file(&self, req: &Upload<'_>, reader: File) -> eyre::Result<()> {
+        let file_len = reader.metadata().await?.len();
+        let progress = FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
+
+        let reader = ProgressUpdate::track(reader, progress, &self.tracker);
+        let reader = ReaderStream::new(reader);
+
+        self.client
+            .upload_sized(&req.url, req.headers.clone(), reader, file_len)
+            .await?;
 
         Ok(())
     }
@@ -597,45 +667,6 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 Ok(())
             })
             .await
-    }
-
-    #[instrument(skip_all, fields(path = %path.display()))]
-    async fn upload_filesystem(&mut self, path: &Path, req: &Upload<'_>) -> eyre::Result<()> {
-        match req.encoding {
-            Some(Encoding::TarGz) => {
-                let paths = Paths::read(path.to_path_buf()).await?;
-
-                let mut reader = TarGzBuilder::spawn(paths.clone());
-                let file_len = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await?;
-
-                let progress =
-                    FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
-
-                let reader = TarGzBuilder::spawn(paths);
-                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
-                let reader = tokio_util::io::ReaderStream::new(reader);
-
-                self.client
-                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
-                    .await?;
-            }
-            None => {
-                let reader = tokio::fs::File::open(path).await?;
-
-                let file_len = reader.metadata().await?.len();
-                let progress =
-                    FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
-
-                let reader = ProgressUpdate::track(reader, progress, &self.tracker);
-                let reader = ReaderStream::new(reader);
-
-                self.client
-                    .upload_sized(&req.url, req.headers.clone(), reader, file_len)
-                    .await?;
-            }
-        }
-
-        Ok(())
     }
 
     #[instrument(skip(self))]
