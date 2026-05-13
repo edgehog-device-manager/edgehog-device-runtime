@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,7 +21,7 @@ use std::{collections::HashMap, io};
 use futures::TryFutureExt;
 use serde::Deserialize;
 use sysinfo::System;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use crate::Client;
 use crate::data::set_property;
@@ -73,11 +73,22 @@ impl OsRelease {
             .flatten()
             .unwrap_or_default();
 
-        let values = parse_file(&content);
+        let image_id = std::env::var("EDGEHOG_IMAGE_ID")
+            .ok()
+            .inspect(|_| trace!("IMAGE_ID read from env variable"));
+        let image_version = std::env::var("EDGEHOG_IMAGE_VERSION")
+            .ok()
+            .inspect(|_| trace!("IMAGE_VERSION read from env variable"));
+
+        Self::with_env(content.as_str(), image_id, image_version.as_deref())
+    }
+
+    fn with_env(content: &str, image_id: Option<String>, image_version: Option<&str>) -> Self {
+        let values = parse_file(content);
 
         Self {
             os_info: OsInfo::read(&values),
-            base_image: BaseImage::read(&values),
+            base_image: BaseImage::read(&values, image_id, image_version),
         }
     }
 
@@ -147,12 +158,8 @@ pub struct BaseImage {
 }
 
 impl BaseImage {
-    fn read(value: &HashMap<&str, &str>) -> Self {
-        let name = value.get("IMAGE_ID").map(|name| name.to_string());
-
-        let (version, build_id) = value
-            .get("IMAGE_VERSION")
-            // cursed some mapping
+    pub fn new(image_id: Option<String>, image_version: Option<&str>) -> Self {
+        let (version, build_id) = image_version
             .map(|version| match version.split_once('+') {
                 Some((version, build_id)) => {
                     (Some(version.to_string()), Some(build_id.to_string()))
@@ -162,10 +169,23 @@ impl BaseImage {
             .unwrap_or_default();
 
         Self {
-            name,
+            name: image_id,
             version,
             build_id,
         }
+    }
+
+    /// Read the values from the ENV or file.
+    fn read(
+        values: &HashMap<&str, &str>,
+        image_id: Option<String>,
+        image_version: Option<&str>,
+    ) -> Self {
+        let image_id = image_id.or_else(|| values.get("IMAGE_ID").map(|name| name.to_string()));
+
+        let image_version = image_version.or_else(|| values.get("IMAGE_VERSION").copied());
+
+        Self::new(image_id, image_version)
     }
 
     pub async fn send<C>(self, client: &mut C)
@@ -349,7 +369,7 @@ PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-poli
 VERSION_CODENAME=bionic
 UBUNTU_CODENAME=bionic"#;
 
-        let base_image = BaseImage::read(&parse_file(OS_RELEASE));
+        let base_image = BaseImage::read(&parse_file(OS_RELEASE), None, None);
         assert!(base_image.name.is_none());
         assert!(base_image.version.is_none());
         assert!(base_image.build_id.is_none());
@@ -373,7 +393,19 @@ UBUNTU_CODENAME=bionic
 IMAGE_ID="testOs"
 IMAGE_VERSION="1.0.0+20220922""#;
 
-        let base_image = BaseImage::read(&parse_file(OS_RELEASE));
+        let base_image = BaseImage::read(&parse_file(OS_RELEASE), None, None);
+        assert_eq!(base_image.name.unwrap(), "testOs");
+        assert_eq!(base_image.version.unwrap(), "1.0.0");
+        assert_eq!(base_image.build_id.unwrap(), "20220922");
+    }
+
+    #[test]
+    fn base_image_from_env() {
+        let base_image = BaseImage::read(
+            &HashMap::new(),
+            Some("testOs".to_string()),
+            Some("1.0.0+20220922"),
+        );
         assert_eq!(base_image.name.unwrap(), "testOs");
         assert_eq!(base_image.version.unwrap(), "1.0.0");
         assert_eq!(base_image.build_id.unwrap(), "20220922");
