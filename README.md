@@ -1,13 +1,13 @@
 <!--
 This file is part of Edgehog.
 
-Copyright 2022 - 2025 SECO Mind Srl
+Copyright 2022-2026 SECO Mind Srl
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -133,6 +133,11 @@ The device runtime extracts the image name and version from the `/etc/os-release
 IMAGE_ID="..."
 IMAGE_VERSION="..."
 ```
+
+Or with the environment variables:
+
+- `EDGEHOG_IMAGE_ID`
+- `EDGEHOG_IMAGE_VERSION`
 
 ### Serial and Part Number
 

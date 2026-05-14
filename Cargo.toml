@@ -43,7 +43,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.5"
+version = "0.10.6"
 edition = "2024"
 rust-version = "1.88"
 description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
@@ -71,14 +71,14 @@ diesel = "2.3.9"
 diesel_migrations = "2.3.1"
 dirs = "6.0.0"
 displaydoc = "0.2.5"
-edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.10.5" }
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.10.5" }
+edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.10.6" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.10.6" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.10.5" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.10.6" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
-edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.10.5" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.10.5" }
-edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.10.5" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.10.6" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.10.6" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.10.6" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
