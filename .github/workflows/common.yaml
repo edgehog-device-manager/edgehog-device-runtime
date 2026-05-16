@@ -37,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          submodules: true
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v8.1.0
       - run: |
@@ -46,11 +47,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
       - uses: crate-ci/typos@v1.46.0
   conventional-commit:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
+          submodules: true
           fetch-depth: 0
       - uses: crate-ci/committed@v1.1.11
