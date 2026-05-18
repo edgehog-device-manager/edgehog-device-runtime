@@ -1,0 +1,5 @@
+---
+source: src/storage/mod.rs
+expression: "format!(\"{value:?} = {}\", buf)"
+---
+Delete = 1

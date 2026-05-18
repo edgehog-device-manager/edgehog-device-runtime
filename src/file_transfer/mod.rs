@@ -51,6 +51,7 @@ use crate::io::limit::Limit;
 use crate::io::progress::{Progress, ProgressHandle};
 use crate::jobs::Queue;
 use crate::jobs::timestamp::Unix;
+use crate::storage::request::CleanUp;
 use crate::{file_transfer::interface::status::FileTransferResponse, io::digest::Digest};
 
 use self::config::FileTransferArgs;
@@ -59,7 +60,6 @@ use self::encoding::tar_gz::TarGzBuilder;
 use self::file_system::store::{FileStorage, Fs, Space};
 use self::file_system::stream::{Pipe, Streaming, SysPipe};
 use self::file_system::{FileOptions, WriteHandle};
-use self::housekeeping::CleanUp;
 use self::interface::capabilities::CAPABILITIES;
 use self::interface::status::FileTransferId;
 use self::request::download::{Destination, Download};
@@ -68,9 +68,8 @@ use self::request::{Encoding, Request, TransferJobTag};
 
 pub mod config;
 mod encoding;
-mod errno;
+pub(crate) mod errno;
 pub(crate) mod file_system;
-pub(crate) mod housekeeping;
 pub(crate) mod http;
 pub(crate) mod interface;
 pub mod request;
@@ -193,7 +192,7 @@ impl<C> FileTransfer<Fs, SysPipe, C> {
 
         Ok(Self {
             queue,
-            storage: FileStorage::new(args.storage_dir, args.storage_reserved),
+            storage: FileStorage::with_reserved(args.storage_dir, args.storage_reserved),
             stream: Streaming::new(),
             client,
             device,
