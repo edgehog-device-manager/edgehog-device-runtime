@@ -45,7 +45,10 @@ pub(crate) struct Walk {
 impl Walk {
     pub(crate) fn new(base_dir: PathBuf) -> Self {
         let iter = Arc::new(Mutex::new(
-            WalkDir::new(base_dir).follow_links(false).into_iter(),
+            WalkDir::new(base_dir)
+                .follow_links(false)
+                .sort_by_file_name()
+                .into_iter(),
         ));
 
         Self { iter, handle: None }

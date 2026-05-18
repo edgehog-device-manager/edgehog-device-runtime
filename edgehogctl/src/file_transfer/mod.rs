@@ -34,6 +34,21 @@ use uuid::Uuid;
 
 use crate::client::ApiData;
 
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum Encoding {
+    TarGz,
+    Gz,
+}
+
+impl Encoding {
+    fn to_endpoint_value(&self) -> &'static str {
+        match self {
+            Encoding::TarGz => "tar.gz",
+            Encoding::Gz => "gz",
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, clap::ValueEnum)]
 enum Target {
     #[default]
@@ -184,7 +199,9 @@ pub(crate) struct Download {
     #[arg(long)]
     device_id: String,
     #[arg(long)]
-    encoding: bool,
+    encoding: Option<Encoding>,
+    #[arg(long)]
+    progress: bool,
     #[arg(long)]
     file_size: Option<u64>,
     #[arg(long, default_value_t = Target::Storage)]
@@ -204,12 +221,11 @@ impl Download {
 
         let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, &content);
 
-        let encoding = if self.encoding {
-            "tar.gz"
-        } else {
-            Default::default()
-        }
-        .to_string();
+        let encoding = self
+            .encoding
+            .map(|e| e.to_endpoint_value())
+            .unwrap_or("")
+            .to_string();
 
         let file_size_bytes = self.file_size.unwrap_or(u64::try_from(content.len())?);
 
@@ -223,7 +239,7 @@ impl Download {
             file_mode: 0,
             user_id: -1,
             group_id: -1,
-            progress: false,
+            progress: self.progress,
             digest: format!("sha256:{}", hex::encode(digest.as_ref())),
             file_size_bytes,
             destination_type: self.destination_type.to_string(),
@@ -275,7 +291,7 @@ pub(crate) struct Upload {
     #[arg(long)]
     device_id: String,
     #[arg(long)]
-    encoding: bool,
+    encoding: Option<Encoding>,
     #[arg(long)]
     progress: bool,
     #[arg(long, default_value_t)]
@@ -289,12 +305,11 @@ pub(crate) struct Upload {
 impl Upload {
     #[instrument(skip_all)]
     pub(crate) async fn transfer(self) -> eyre::Result<()> {
-        let encoding = if self.encoding {
-            "tar.gz"
-        } else {
-            Default::default()
-        }
-        .to_string();
+        let encoding = self
+            .encoding
+            .map(|e| e.to_endpoint_value())
+            .unwrap_or("")
+            .to_string();
 
         let id = Uuid::new_v4();
 

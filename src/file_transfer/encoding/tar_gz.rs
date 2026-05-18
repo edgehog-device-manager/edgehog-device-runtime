@@ -28,9 +28,10 @@ use async_tar::{Archive, Builder, Entries};
 use eyre::Context;
 use futures::StreamExt;
 use pin_project::pin_project;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt, ReadHalf, SimplexStream};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tokio_stream::Stream;
+use tokio_util::io::simplex;
 use tracing::{error, instrument};
 
 use crate::file_transfer::file_system::walk::Walk;
@@ -44,26 +45,36 @@ pub const MAX_BUF_SIZE: usize = 8 * 1024;
 #[pin_project]
 pub(crate) struct TarGzBuilder {
     #[pin]
-    rx: ReadHalf<SimplexStream>,
+    rx: simplex::Receiver,
+    #[pin]
     handle: JoinHandle<eyre::Result<()>>,
+    joined: bool,
 }
 
 impl TarGzBuilder {
     pub fn spawn(paths: Paths) -> Self {
-        let (rx, tx) = tokio::io::simplex(MAX_BUF_SIZE);
+        let (tx, rx) = simplex::new(MAX_BUF_SIZE);
         let handle = tokio::task::spawn(async move {
-            let writer = TarGzEncoder::new(tx);
+            let mut writer = TarGzEncoder::new(tx);
 
-            let res = writer.consume(paths).await;
+            let res_encode = writer
+                .encode(paths)
+                .await
+                .inspect_err(|error| error!(%error, "couldn't create archive"));
 
-            if let Err(error) = &res {
-                error!(%error, "couldn't create archive")
-            }
+            let res_finalize = writer
+                .finalize()
+                .await
+                .inspect_err(|error| error!(%error, "couldn't finalize archive"));
 
-            res
+            res_encode.and(res_finalize)
         });
 
-        Self { rx, handle }
+        Self {
+            rx,
+            handle,
+            joined: false,
+        }
     }
 }
 
@@ -74,6 +85,20 @@ impl AsyncRead for TarGzBuilder {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let this = self.project();
+
+        if !*this.joined {
+            match this.handle.poll(cx) {
+                Poll::Ready(Ok(Err(_)) | Err(_)) => {
+                    *this.joined = true;
+
+                    return Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)));
+                }
+                Poll::Ready(Ok(Ok(()))) => {
+                    *this.joined = true;
+                }
+                Poll::Pending => {}
+            }
+        }
 
         this.rx.poll_read(cx, buf)
     }
@@ -91,13 +116,15 @@ where
     W: AsyncWrite + Unpin + Send + Sync,
 {
     pub(crate) fn new(writer: W) -> Self {
-        Self {
-            archive: Builder::new(GzipEncoder::new(writer)),
-        }
+        let mut builder = Builder::new(GzipEncoder::new(writer));
+        builder.follow_symlinks(false);
+        builder.mode(async_tar::HeaderMode::Deterministic);
+
+        Self { archive: builder }
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn consume(mut self, input: Paths) -> eyre::Result<()> {
+    pub(crate) async fn encode(&mut self, input: Paths) -> eyre::Result<()> {
         match input {
             Paths::File { base, file } => {
                 self.append(&base, &file).await?;
@@ -112,8 +139,6 @@ where
                 }
             }
         }
-
-        self.finalize().await?;
 
         Ok(())
     }

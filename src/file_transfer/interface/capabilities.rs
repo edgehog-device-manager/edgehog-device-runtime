@@ -18,7 +18,7 @@
 
 //! Capabilities for the Device.
 
-use astarte_device_sdk::{AstarteData, Client};
+use astarte_device_sdk::Client;
 use tracing::{info, instrument};
 
 use crate::data::set_property;
@@ -27,6 +27,8 @@ use crate::data::set_property;
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Capabilities";
 /// Encoding for tar.gz
 pub(crate) const TAR_GZ: &str = "tar.gz";
+/// Encoding for gz
+pub(crate) const GZ: &str = "gz";
 /// Storage target
 pub(crate) const STORAGE_TARGET: &str = "storage";
 /// Streaming target
@@ -34,79 +36,130 @@ pub(crate) const STREAMING_TARGET: &str = "streaming";
 /// Filesystem target
 pub(crate) const FILESYSTEM_TARGET: &str = "filesystem";
 /// Capabilities of the device
-pub(crate) const CAPABILITIES: Capabilities<1, 3> = Capabilities {
-    encodings: [TAR_GZ],
+pub(crate) const CAPABILITIES: Capabilities<3> = Capabilities {
     unix_permissions: true,
-    targets: [STORAGE_TARGET, STREAMING_TARGET, FILESYSTEM_TARGET],
+    upload: [
+        TargetCapability {
+            target: STORAGE_TARGET,
+            encodings: &[TAR_GZ, GZ],
+        },
+        TargetCapability {
+            target: STREAMING_TARGET,
+            encodings: &[],
+        },
+        TargetCapability {
+            target: FILESYSTEM_TARGET,
+            encodings: &[TAR_GZ, GZ],
+        },
+    ],
+    download: [
+        TargetCapability {
+            target: STORAGE_TARGET,
+            encodings: &[TAR_GZ, GZ],
+        },
+        TargetCapability {
+            target: STREAMING_TARGET,
+            encodings: &[GZ],
+        },
+        TargetCapability {
+            target: FILESYSTEM_TARGET,
+            encodings: &[TAR_GZ, GZ],
+        },
+    ],
 };
 
-#[derive(Debug)]
-pub(crate) struct Capabilities<const E: usize, const T: usize> {
-    encodings: [&'static str; E],
+#[derive(Debug, Clone)]
+pub(crate) struct Capabilities<const T: usize> {
     unix_permissions: bool,
-    targets: [&'static str; T],
+    upload: [TargetCapability; T],
+    download: [TargetCapability; T],
 }
 
-impl<const E: usize, const T: usize> Capabilities<E, T> {
+#[derive(Debug, Clone)]
+pub(crate) struct TargetCapability {
+    target: &'static str,
+    encodings: &'static [&'static str],
+}
+
+impl<const T: usize> Capabilities<T> {
+    const DEVICE_TO_SERVER: &str = "deviceToServer";
+    const SERVER_TO_DEVICE: &str = "serverToDevice";
+
     #[instrument(skip(device))]
     pub(crate) async fn send<D>(&self, device: &mut D)
     where
         D: Client,
     {
-        let encodings = AstarteData::StringArray(self.encodings.map(str::to_string).to_vec());
-        let targets = AstarteData::StringArray(self.targets.map(str::to_string).to_vec());
+        set_property(
+            device,
+            INTERFACE,
+            "/transfer/unixPermissions",
+            self.unix_permissions,
+        )
+        .await;
 
-        set_property(device, INTERFACE, "/encodings", encodings).await;
-        set_property(device, INTERFACE, "/unixPermissions", self.unix_permissions).await;
-        set_property(device, INTERFACE, "/targets", targets).await;
+        Self::send_type_capabilities(Self::DEVICE_TO_SERVER, &self.upload, device).await;
+        Self::send_type_capabilities(Self::SERVER_TO_DEVICE, &self.download, device).await;
 
         info!("device capabilities set");
+    }
+
+    async fn send_type_capabilities<D>(
+        transfer_type: &str,
+        target_capabilities: &[TargetCapability; T],
+        device: &mut D,
+    ) where
+        D: Client,
+    {
+        let targets = target_capabilities
+            .iter()
+            .map(|c| c.target.to_string())
+            .collect::<Vec<String>>();
+
+        set_property(
+            device,
+            INTERFACE,
+            &format!("/transfer/{transfer_type}/targets"),
+            targets,
+        )
+        .await;
+
+        for target_capab in target_capabilities {
+            let target = target_capab.target;
+            let encodings: Vec<String> = target_capab
+                .encodings
+                .iter()
+                .map(|e| e.to_string())
+                .collect();
+
+            set_property(
+                device,
+                INTERFACE,
+                &format!("/{transfer_type}/{target}/encodings"),
+                encodings,
+            )
+            .await
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk::{store::SqliteStore, transport::Connection};
     use astarte_device_sdk_mock::MockDeviceClient;
-    use mockall::{Sequence, predicate};
+    use mockall::predicate;
 
     use super::*;
 
-    #[tokio::test]
-    async fn set_capabilities() {
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-        let mut seq = Sequence::new();
-
+    fn expect_target<C: Connection>(device: &mut MockDeviceClient<C>, direction: &str) {
         device
             .expect_set_property()
             .once()
-            .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
-                predicate::eq("/encodings"),
-                predicate::eq(AstarteData::StringArray(
-                    ["tar.gz"].map(str::to_string).to_vec(),
-                )),
-            )
-            .returning(|_, _, _| Ok(()));
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
-                predicate::eq("/unixPermissions"),
-                predicate::eq(AstarteData::Boolean(true)),
-            )
-            .returning(|_, _, _| Ok(()));
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
-                predicate::eq("/targets"),
+                predicate::eq(format!("/transfer/{direction}/targets")),
                 predicate::eq(AstarteData::StringArray(
                     ["storage", "streaming", "filesystem"]
                         .map(str::to_string)
@@ -114,6 +167,89 @@ mod tests {
                 )),
             )
             .returning(|_, _, _| Ok(()));
+    }
+
+    fn expect_encoding<C: Connection>(
+        device: &mut MockDeviceClient<C>,
+        direction: &str,
+        target: &str,
+        mut encodings: Vec<String>,
+    ) {
+        encodings.sort_unstable();
+
+        device
+            .expect_set_property()
+            .once()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
+                predicate::eq(format!("/{direction}/{target}/encodings")),
+                predicate::function(move |d| {
+                    let mut cloned = match d {
+                        AstarteData::StringArray(items) => items.clone(),
+                        _ => panic!("unexpected type"),
+                    };
+
+                    cloned.sort_unstable();
+
+                    cloned == encodings
+                }),
+            )
+            .returning(|_, _, _| Ok(()));
+    }
+
+    #[tokio::test]
+    async fn set_capabilities() {
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+
+        device
+            .expect_set_property()
+            .once()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
+                predicate::eq("/transfer/unixPermissions"),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        expect_target(&mut device, "serverToDevice");
+        expect_encoding(
+            &mut device,
+            "serverToDevice",
+            "filesystem",
+            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+        );
+        expect_encoding(
+            &mut device,
+            "serverToDevice",
+            "streaming",
+            ["gz"].map(str::to_string).to_vec(),
+        );
+        expect_encoding(
+            &mut device,
+            "serverToDevice",
+            "storage",
+            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+        );
+
+        expect_target(&mut device, "deviceToServer");
+        expect_encoding(
+            &mut device,
+            "deviceToServer",
+            "filesystem",
+            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+        );
+        expect_encoding(
+            &mut device,
+            "deviceToServer",
+            "streaming",
+            [].map(str::to_string).to_vec(),
+        );
+        expect_encoding(
+            &mut device,
+            "deviceToServer",
+            "storage",
+            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+        );
 
         CAPABILITIES.send(&mut device).await;
     }
