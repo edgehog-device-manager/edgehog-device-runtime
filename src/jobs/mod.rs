@@ -69,19 +69,36 @@ impl Queue {
         let id = SqlUuid::new(*id);
 
         self.db
-            .for_read(move |write| {
+            .for_read(move |read| {
                 let exists: bool = select(exists(
                     job_queue::table
                         .filter(job_queue::id.eq(id))
                         .filter(job_queue::job_type.eq(job_type))
                         .filter(job_queue::tag.eq(tag)),
                 ))
-                .get_result(write)?;
+                .get_result(read)?;
 
                 Ok(exists)
             })
             .await
-            .wrap_err("couldn't delete job")
+            .wrap_err("couldn't check for job existance")
+    }
+
+    #[instrument(skip_all)]
+    pub async fn contains(&self, job_type: JobType, tag: i32) -> eyre::Result<bool> {
+        self.db
+            .for_read(move |read| {
+                let exists: bool = select(exists(
+                    job_queue::table
+                        .filter(job_queue::job_type.eq(job_type))
+                        .filter(job_queue::tag.eq(tag)),
+                ))
+                .get_result(read)?;
+
+                Ok(exists)
+            })
+            .await
+            .wrap_err("couldn't check if the job type and tag are contained in the directory")
     }
 
     #[cfg_attr(not(test), expect(unused))]
@@ -153,6 +170,46 @@ impl Queue {
         Ok(was_inserted)
     }
 
+    fn in_progress(write: &mut SqliteConnection, job: &mut Job) -> QueryResult<()> {
+        job.status = JobStatus::InProgress;
+
+        let row_changed = update(&*job)
+            .set(job_queue::status.eq(JobStatus::InProgress))
+            .execute(write)?;
+
+        debug_assert_eq!(row_changed, 1);
+
+        trace!(row_changed, id = %job.id, "updated job to in progress");
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    pub async fn next_job_tag(&self, job_type: JobType, tag: i32) -> eyre::Result<Option<Job>> {
+        let job = self
+            .db
+            .for_write(move |write| {
+                let optional = Job::query()
+                    .filter(job_queue::job_type.eq(job_type))
+                    .filter(job_queue::tag.eq(tag))
+                    .filter(job_queue::status.eq(JobStatus::Pending))
+                    .order_by(job_queue::created_at.asc())
+                    .first(write)
+                    .optional()?;
+
+                let Some(mut job) = optional else {
+                    return Ok(None);
+                };
+
+                Self::in_progress(write, &mut job)?;
+
+                Ok(Some(job))
+            })
+            .await?;
+
+        Ok(job)
+    }
+
     #[instrument(skip(self))]
     pub async fn next_job(&self, job_type: JobType) -> eyre::Result<Option<Job>> {
         let job = self
@@ -169,15 +226,7 @@ impl Queue {
                     return Ok(None);
                 };
 
-                job.status = JobStatus::InProgress;
-
-                let row_changed = update(&job)
-                    .set(job_queue::status.eq(JobStatus::InProgress))
-                    .execute(write)?;
-
-                debug_assert_eq!(row_changed, 1);
-
-                trace!(row_changed, id = %job.id, "updated job to in progress");
+                Self::in_progress(write, &mut job)?;
 
                 Ok(Some(job))
             })
@@ -229,13 +278,7 @@ impl Queue {
                     return Ok(None);
                 };
 
-                job.status = JobStatus::InProgress;
-
-                let row_changed = update(&job)
-                    .set(job_queue::status.eq(JobStatus::InProgress))
-                    .execute(write)?;
-
-                debug_assert_eq!(row_changed, 1);
+                Self::in_progress(write, &mut job)?;
 
                 Ok(Some(job))
             })

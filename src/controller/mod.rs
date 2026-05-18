@@ -50,6 +50,8 @@ pub struct Runtime<T> {
     #[cfg(feature = "file-transfer")]
     file_transfer:
         Option<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>,
+    #[cfg(feature = "file-transfer")]
+    storage_manager: Option<mpsc::Sender<crate::storage::interface::DeleteFile>>,
     #[cfg(feature = "containers")]
     containers_tx: Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>,
     #[cfg(feature = "forwarder")]
@@ -121,14 +123,30 @@ impl<C> Runtime<C> {
 
         // TODO: Add configuration
         #[cfg(feature = "file-transfer")]
-        let file_transfer = Self::file_transfer(
-            client.clone(),
-            opts.file_transfer,
-            tasks,
-            jobs,
-            cancel.child_token(),
-        )
-        .wrap_err("could't initialize file transfer")?;
+        let (storage_manager, file_transfer) = {
+            let notify_cleanup = std::sync::Arc::new(tokio::sync::Notify::new());
+
+            let storage_manager = Self::storage_manager(
+                client.clone(),
+                opts.file_transfer.clone(),
+                tasks,
+                jobs.clone(),
+                std::sync::Arc::clone(&notify_cleanup),
+                cancel.child_token(),
+            )
+            .wrap_err("couldn't initialize storage manager")?;
+            let file_transfer = Self::file_transfer(
+                client.clone(),
+                opts.file_transfer,
+                tasks,
+                jobs,
+                notify_cleanup,
+                cancel.child_token(),
+            )
+            .wrap_err("could't initialize file transfer")?;
+
+            (storage_manager, file_transfer)
+        };
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
@@ -163,6 +181,8 @@ impl<C> Runtime<C> {
             telemetry_tx,
             #[cfg(feature = "file-transfer")]
             file_transfer,
+            #[cfg(feature = "file-transfer")]
+            storage_manager,
             #[cfg(feature = "containers")]
             containers_tx,
             #[cfg(feature = "forwarder")]
@@ -175,11 +195,50 @@ impl<C> Runtime<C> {
     }
 
     #[cfg(feature = "file-transfer")]
+    fn storage_manager(
+        device: C,
+        config: crate::file_transfer::config::FileTransferArgs,
+        tasks: &mut JoinSet<eyre::Result<()>>,
+        jobs: crate::jobs::Queue,
+        notify_cleanup: std::sync::Arc<tokio::sync::Notify>,
+        cancel: CancellationToken,
+    ) -> eyre::Result<Option<mpsc::Sender<crate::storage::interface::DeleteFile>>>
+    where
+        C: Client + PropAccess + Send + Sync + 'static,
+    {
+        use self::actor::Persisted;
+
+        if !config.enabled {
+            tracing::info!("file transfer service not enabled, storage management not available");
+
+            return Ok(None);
+        }
+
+        let (storage_tx, storage_rx) = tokio::sync::mpsc::channel(EVENT_BUFFER);
+
+        tasks.spawn(
+            crate::storage::StorageTask::new(
+                config,
+                jobs.clone(),
+                std::sync::Arc::clone(&notify_cleanup),
+                device.clone(),
+            )
+            .run(cancel.clone()),
+        );
+        tasks.spawn(
+            crate::storage::Receiver::new(jobs, notify_cleanup, device).run(storage_rx, cancel),
+        );
+
+        Ok(Some(storage_tx))
+    }
+
+    #[cfg(feature = "file-transfer")]
     fn file_transfer(
         device: C,
         config: crate::file_transfer::config::FileTransferArgs,
         tasks: &mut JoinSet<eyre::Result<()>>,
         jobs: crate::jobs::Queue,
+        notify_cleanup: std::sync::Arc<tokio::sync::Notify>,
         cancel: CancellationToken,
     ) -> eyre::Result<
         Option<mpsc::Sender<crate::file_transfer::interface::request::FileTransferRequest>>,
@@ -203,7 +262,6 @@ impl<C> Runtime<C> {
 
         let (transfer_tx, transfer_rx) = tokio::sync::mpsc::channel(EVENT_BUFFER);
         let job_notify = Arc::new(Notify::new());
-        let sched_notify = Arc::new(Notify::new());
 
         let (progress_tx, progress_rx) = tokio::sync::watch::channel(None);
 
@@ -214,17 +272,9 @@ impl<C> Runtime<C> {
                 config,
                 device.clone(),
                 progress_tx,
-                Arc::clone(&sched_notify),
+                notify_cleanup,
             )?
             .run(Arc::clone(&job_notify), cancel.clone()),
-        );
-        tasks.spawn(
-            file_transfer::housekeeping::StorageTask::new(
-                jobs.clone(),
-                sched_notify,
-                device.clone(),
-            )
-            .run(cancel.clone()),
         );
         tasks
             .spawn(file_transfer::Receiver::new(jobs, job_notify, device).run(transfer_rx, cancel));
@@ -375,7 +425,19 @@ impl<C> Runtime<C> {
                         error!("couldn't send file transfer event");
                     }
                 } else {
-                    error!("received event on file-transfer interface, but the service is disable");
+                    error!(
+                        "received event on file-transfer interface, but the service is disabled"
+                    );
+                }
+            }
+            #[cfg(feature = "file-transfer")]
+            RuntimeEvent::Storage(delete_file) => {
+                if let Some(storage) = &self.storage_manager {
+                    if storage.send(delete_file).await.is_err() {
+                        error!("couldn't send storage event");
+                    }
+                } else {
+                    error!("received event on storage interface, but the service is disabled");
                 }
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -400,7 +462,7 @@ impl<C> Runtime<C> {
                         error!("couldn't handle the container event")
                     }
                 } else {
-                    error!("received event on container interface, but the service is disable");
+                    error!("received event on container interface, but the service is disabled");
                 }
             }
             #[cfg(feature = "forwarder")]
