@@ -48,6 +48,8 @@ mod led_behavior;
 pub mod ota;
 mod power_management;
 pub mod repository;
+#[cfg(feature = "file-transfer")]
+pub mod storage;
 #[cfg(all(feature = "systemd", target_os = "linux"))]
 pub mod systemd_wrapper;
 pub mod telemetry;

@@ -52,8 +52,14 @@ pub(crate) struct FileStorage<F> {
     fs: F,
 }
 
+impl FileStorage<()> {
+    pub(crate) fn new(dir: PathBuf) -> Self {
+        Self { fs: (), dir }
+    }
+}
+
 impl FileStorage<Fs> {
-    pub(crate) fn new(dir: PathBuf, reserved: Percentage) -> Self {
+    pub(crate) fn with_reserved(dir: PathBuf, reserved: Percentage) -> Self {
         Self {
             fs: Fs { reserved },
             dir,
@@ -366,7 +372,7 @@ pub(crate) mod tests {
         let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
 
         (
-            FileStorage::new(dir.path().to_path_buf(), TEST_RESERVED_PERCENTAGE),
+            FileStorage::with_reserved(dir.path().to_path_buf(), TEST_RESERVED_PERCENTAGE),
             dir,
         )
     }
