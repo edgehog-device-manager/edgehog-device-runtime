@@ -360,8 +360,10 @@ pub(crate) struct Container {
     pub(crate) cap_add: Vec<String>,
     /// A list of kernel capabilities to drop from the container.
     pub(crate) cap_drop: Vec<String>,
-    /// A list of deice to mount inside the container.
+    /// A list of device to mount inside the container.
     pub(crate) device_mappings: Vec<DeviceMapping>,
+    /// A list of device to request for the container.
+    pub(crate) device_requests: Vec<DeviceRequest>,
     /// The length of a CPU period in microseconds.
     pub(crate) cpu_period: Option<i64>,
     /// Microseconds of CPU time that the container can get in a CPU period.
@@ -492,6 +494,7 @@ impl From<&Container> for ContainerCreateBody {
             cap_add,
             cap_drop,
             device_mappings,
+            device_requests,
             privileged,
             cpu_period,
             cpu_quota,
@@ -516,6 +519,11 @@ impl From<&Container> for ContainerCreateBody {
             .cloned()
             .map(bollard::models::DeviceMapping::from)
             .collect();
+        let device_requests = device_requests
+            .iter()
+            .cloned()
+            .map(bollard::models::DeviceRequest::from)
+            .collect();
 
         let restart_policy = BollardRestartPolicy {
             name: Some(RestartPolicyNameEnum::from(*restart_policy)),
@@ -535,6 +543,7 @@ impl From<&Container> for ContainerCreateBody {
             cap_drop: Some(cap_drop.clone()),
             privileged: Some(*privileged),
             devices: Some(device_mappings),
+            device_requests: Some(device_requests),
             cpu_period: *cpu_period,
             cpu_quota: *cpu_quota,
             cpu_realtime_period: *cpu_realtime_period,
@@ -720,6 +729,35 @@ impl From<DeviceMapping> for bollard::models::DeviceMapping {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeviceRequest {
+    pub driver: Option<String>,
+    pub count: i64,
+    pub device_ids: Vec<String>,
+    pub capabilities: Vec<Vec<String>>,
+    pub options: HashMap<String, String>,
+}
+
+impl From<DeviceRequest> for bollard::config::DeviceRequest {
+    fn from(value: DeviceRequest) -> Self {
+        let DeviceRequest {
+            driver,
+            count,
+            device_ids,
+            capabilities,
+            options,
+        } = value;
+
+        Self {
+            driver,
+            count: Some(count),
+            device_ids: Some(device_ids),
+            capabilities: Some(capabilities),
+            options: Some(options),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mockall::predicate;
@@ -744,6 +782,7 @@ mod tests {
                 cap_add: Vec::new(),
                 cap_drop: Vec::new(),
                 device_mappings: Vec::new(),
+                device_requests: Vec::new(),
                 privileged: false,
                 cpu_period: None,
                 cpu_quota: None,

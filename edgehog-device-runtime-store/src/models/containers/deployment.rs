@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,8 +38,9 @@ use crate::{
     conversions::SqlUuid,
     models::{ExistsFilterById, QueryModel},
     schema::containers::{
-        container_device_mappings, container_networks, container_volumes, containers,
-        deployment_containers, deployment_missing_containers, deployments,
+        container_device_mappings, container_device_requests, container_networks,
+        container_volumes, containers, deployment_containers, deployment_missing_containers,
+        deployments,
     },
 };
 
@@ -55,8 +56,11 @@ pub struct Deployment {
 }
 
 type ContainerResources = LeftJoin<
-    LeftJoin<LeftJoin<containers::table, container_networks::table>, container_volumes::table>,
-    container_device_mappings::table,
+    LeftJoin<
+        LeftJoin<LeftJoin<containers::table, container_networks::table>, container_volumes::table>,
+        container_device_mappings::table,
+    >,
+    container_device_requests::table,
 >;
 type DeploymentResources = InnerJoin<deployment_containers::table, ContainerResources>;
 type FilteredDeploymentJoin = Filter<DeploymentResources, IsNotNull<containers::image_id>>;
@@ -71,7 +75,8 @@ impl Deployment {
                 containers::table
                     .left_join(container_networks::table)
                     .left_join(container_volumes::table)
-                    .left_join(container_device_mappings::table),
+                    .left_join(container_device_mappings::table)
+                    .left_join(container_device_requests::table),
             )
             .filter(containers::image_id.is_not_null())
     }
