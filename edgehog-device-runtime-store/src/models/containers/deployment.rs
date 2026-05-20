@@ -170,6 +170,8 @@ pub struct DeploymentContainer {
     pub deployment_id: SqlUuid,
     /// [`Container`] id
     pub container_id: SqlUuid,
+    /// Order of the container.
+    pub idx: i64,
 }
 
 /// Missing image for a container
@@ -182,6 +184,8 @@ pub struct DeploymentMissingContainer {
     pub deployment_id: SqlUuid,
     /// [`Container`] id
     pub container_id: SqlUuid,
+    /// Order of the container.
+    pub idx: i64,
 }
 
 type DeploymentMissingContainerByContainer<'a> =

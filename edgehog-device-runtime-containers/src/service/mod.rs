@@ -368,7 +368,7 @@ impl<D> Service<D> {
             NetworkResource::up(self.context(id)).await?;
         }
 
-        for id in deployment.containers {
+        for id in deployment.containers.values().copied() {
             let mut container = ContainerResource::up(self.context(id)).await?;
 
             container.start(self.context(id)).await?;
@@ -421,7 +421,7 @@ impl<D> Service<D> {
             .send(&id, &mut self.device)
             .await;
 
-        if let Err(err) = self.stop_deployment(id, containers).await {
+        if let Err(err) = self.stop_deployment(id, &containers).await {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't stop deployment");
@@ -441,14 +441,14 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip(self, containers))]
-    async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<SqlUuid>) -> Result<()>
+    async fn stop_deployment(&mut self, deployment: Uuid, containers: &[SqlUuid]) -> Result<()>
     where
         D: Client + Send + Sync + 'static,
     {
         for id in containers {
             debug!(%id, "stopping container");
 
-            let mut ctx = self.context(id);
+            let mut ctx = self.context(*id);
             let (state, mut container) = ContainerResource::fetch(&mut ctx).await?;
 
             match state {
@@ -529,7 +529,8 @@ impl<D> Service<D> {
     where
         D: Client + Send + Sync + 'static,
     {
-        for id in deployment.containers {
+        // Delete the deployments in reverse order
+        for id in deployment.containers.values().rev().copied() {
             ContainerResource::down(self.context(id)).await?;
         }
 
@@ -625,9 +626,9 @@ impl<D> Service<D> {
             .send(&bundle.from, &mut self.device)
             .await;
 
-        // TODO: consider if it's necessary re-start the `from` containers or a retry logic
+        // TODO: consider if it's necessary a retry logic
         if let Err(err) = self
-            .update_deployment(bundle, from_deployment, to_deployment)
+            .update_deployment(bundle, &from_deployment, to_deployment)
             .await
         {
             let err = format!("{:#}", eyre::Report::new(err));
@@ -638,6 +639,11 @@ impl<D> Service<D> {
                 .send(&bundle.from, &mut self.device)
                 .await;
 
+            // Start the old deployment on error
+            if let Err(error) = self.restart_failed(bundle.from, &from_deployment).await {
+                error!(%error, "couldn't restart deployment after failed update")
+            }
+
             return;
         }
 
@@ -647,7 +653,7 @@ impl<D> Service<D> {
     async fn update_deployment(
         &mut self,
         bundle: DeploymentUpdate,
-        to_stop: Vec<SqlUuid>,
+        to_stop: &[SqlUuid],
         to_start: Deployment,
     ) -> Result<()>
     where
@@ -684,6 +690,40 @@ impl<D> Service<D> {
                 "couldn't refresh resource status"
             );
         }
+    }
+
+    #[instrument(skip_all)]
+    async fn restart_failed(&mut self, deployment: Uuid, to_restart: &[SqlUuid]) -> Result<()>
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        for id in to_restart {
+            debug!(%id, "restarting container");
+
+            let mut ctx = self.context(*id);
+            let (state, mut container) = ContainerResource::fetch(&mut ctx).await?;
+
+            match state {
+                State::Missing => {
+                    warn!(%id, "container missing, cannot restart");
+
+                    continue;
+                }
+                State::Created => {}
+            }
+
+            container.start(ctx).await?;
+        }
+
+        AvailableDeployment::new(&deployment)
+            .send(
+                &mut self.device,
+                crate::properties::deployment::DeploymentStatus::Started,
+            )
+            .await
+            .map_err(ResourceError::from)?;
+
+        Ok(())
     }
 }
 
