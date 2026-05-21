@@ -329,6 +329,8 @@ impl<D> Service<D> {
 
         info!("starting deployment");
 
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
+
         DeploymentEvent::new(EventStatus::Starting, "")
             .send(&id, &mut self.device)
             .await;
@@ -338,12 +340,16 @@ impl<D> Service<D> {
 
             error!(error = err, "couldn't start deployment");
 
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
+
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
 
         DeploymentEvent::new(EventStatus::Started, "")
             .send(&id, &mut self.device)
@@ -405,7 +411,7 @@ impl<D> Service<D> {
             Err(err) => {
                 let err = format!("{:#}", eyre::Report::new(err));
 
-                error!(error = err, "couldn't start deployment");
+                error!(error = err, "couldn't stop deployment");
 
                 DeploymentEvent::new(EventStatus::Error, err)
                     .send(&id, &mut self.device)
@@ -417,6 +423,8 @@ impl<D> Service<D> {
 
         info!("stopping deployment");
 
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentInit);
+
         DeploymentEvent::new(EventStatus::Stopping, "")
             .send(&id, &mut self.device)
             .await;
@@ -426,12 +434,16 @@ impl<D> Service<D> {
 
             error!(error = err, "couldn't stop deployment");
 
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
+
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentOk);
 
         DeploymentEvent::new(EventStatus::Stopped, "")
             .send(&id, &mut self.device)
