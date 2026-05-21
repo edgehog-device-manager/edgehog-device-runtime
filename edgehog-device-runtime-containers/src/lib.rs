@@ -41,6 +41,8 @@ pub mod resource;
 pub mod service;
 pub mod stats;
 pub mod store;
+#[cfg(feature = "security-events")]
+pub mod tracing;
 
 #[cfg(feature = "__mock")]
 mod mock;

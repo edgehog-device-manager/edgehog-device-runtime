@@ -28,6 +28,8 @@ description.workspace = true
 [features]
 # Enable the local management of containers
 containers = ["dep:edgehog-containers"]
+# Enable security events logging
+security-events = ["edgehog-containers/security-events"]
 
 [dependencies]
 async-trait.workspace = true

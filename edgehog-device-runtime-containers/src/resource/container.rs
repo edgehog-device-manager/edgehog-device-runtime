@@ -41,31 +41,52 @@ impl ContainerResource {
         Self { container }
     }
 
-    async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> Result<()>
+    async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> ResourceError
     where
         D: Client + Send + Sync + 'static,
     {
-        AvailableContainer::new(&ctx.id)
+        if let Err(e) = AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Received)
-            .await?;
+            .await
+        {
+            return e.into();
+        }
 
-        ctx.store
+        if let Err(e) = ctx
+            .store
             .update_container_status(ctx.id, ContainerStatus::Published)
-            .await?;
+            .await
+        {
+            return e.into();
+        }
 
-        Err(ResourceError::Missing {
+        ResourceError::Missing {
             id: ctx.id,
             resource: "container",
-        })
+        }
     }
 
     pub(crate) async fn start<D>(&mut self, ctx: Context<'_, D>) -> Result<()>
     where
         D: Client + Send + Sync + 'static,
     {
-        if self.container.start(ctx.client).await?.is_none() {
-            return self.mark_missing(ctx).await;
-        };
+        #[cfg(feature = "security-events")]
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartInit);
+
+        let container = self.container.start(ctx.client).await.inspect_err(|_| {
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
+        })?;
+
+        if container.is_none() {
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
+
+            return Err(self.mark_missing(ctx).await);
+        }
+
+        #[cfg(feature = "security-events")]
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartOk);
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Running)
@@ -82,9 +103,23 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        if self.container.stop(ctx.client).await?.is_none() {
-            return self.mark_missing(ctx).await;
-        };
+        #[cfg(feature = "security-events")]
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopInit);
+
+        let container = self.container.stop(ctx.client).await.inspect_err(|_| {
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
+        })?;
+
+        if container.is_none() {
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
+
+            return Err(self.mark_missing(ctx).await);
+        }
+
+        #[cfg(feature = "security-events")]
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopOk);
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Stopped)

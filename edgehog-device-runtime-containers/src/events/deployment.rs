@@ -49,6 +49,9 @@ impl DeploymentEvent {
     where
         D: Client + Sync + 'static,
     {
+        #[cfg(feature = "security-events")]
+        crate::tracing::notify(&self);
+
         let data: AstarteObject = match self.clone().try_into() {
             Ok(data) => data,
             Err(err) => {
@@ -112,6 +115,21 @@ impl Display for EventStatus {
 impl From<EventStatus> for AstarteData {
     fn from(value: EventStatus) -> Self {
         AstarteData::String(value.to_string())
+    }
+}
+
+#[cfg(feature = "security-events")]
+impl crate::tracing::IntoSecurityEvent for &DeploymentEvent {
+    fn into_event(self) -> Option<crate::tracing::SecurityEvent> {
+        let event = match self.status {
+            EventStatus::Starting => crate::tracing::SecurityEvent::ContainerDeploymentInit,
+            EventStatus::Started => crate::tracing::SecurityEvent::ContainerDeploymentOk,
+            EventStatus::Stopping => crate::tracing::SecurityEvent::ContainerUndeploymentInit,
+            EventStatus::Stopped => crate::tracing::SecurityEvent::ContainerUndeploymentOk,
+            _ => return None,
+        };
+
+        Some(event)
     }
 }
 
