@@ -291,6 +291,9 @@ impl<D> Service<D> {
             let error = format!("{:#}", eyre::Report::new(err));
             error!(error, "failed to create resource");
 
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
+
             DeploymentEvent::new(EventStatus::Error, error)
                 .send(&deployment_id, &mut self.device)
                 .await;
@@ -319,6 +322,9 @@ impl<D> Service<D> {
 
                 error!(error = err, "couldn't start deployment");
 
+                #[cfg(feature = "security-events")]
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
+
                 DeploymentEvent::new(EventStatus::Error, err)
                     .send(&id, &mut self.device)
                     .await;
@@ -337,6 +343,9 @@ impl<D> Service<D> {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't start deployment");
+
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &mut self.device)
@@ -407,6 +416,9 @@ impl<D> Service<D> {
 
                 error!(error = err, "couldn't start deployment");
 
+                #[cfg(feature = "security-events")]
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
+
                 DeploymentEvent::new(EventStatus::Error, err)
                     .send(&id, &mut self.device)
                     .await;
@@ -425,6 +437,9 @@ impl<D> Service<D> {
             let err = format!("{:#}", eyre::Report::new(err));
 
             error!(error = err, "couldn't stop deployment");
+
+            #[cfg(feature = "security-events")]
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
             DeploymentEvent::new(EventStatus::Error, err)
                 .send(&id, &mut self.device)

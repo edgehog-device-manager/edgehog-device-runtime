@@ -158,15 +158,35 @@ impl ContainersService for EdgehogService {
         let inner = request.into_inner();
         let id = parse_id(&inner.id)?;
 
+        #[cfg(feature = "security-events")]
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStartInit,
+        );
+
         let started = self.container_handle()?.start(id).await.map_err(|err| {
             error!(error = format!("{err:#}"), "couldn't start the container");
+
+            #[cfg(feature = "security-events")]
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStartFail,
+            );
 
             Status::internal("couldn't start the container")
         })?;
 
         if started.is_none() {
+            #[cfg(feature = "security-events")]
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStartFail,
+            );
+
             return Err(Status::not_found("container doesn't exist"));
         }
+
+        #[cfg(feature = "security-events")]
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStartOk,
+        );
 
         Ok(Response::new(()))
     }
@@ -178,15 +198,35 @@ impl ContainersService for EdgehogService {
         let inner = request.into_inner();
         let id = parse_id(&inner.id)?;
 
+        #[cfg(feature = "security-events")]
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStopInit,
+        );
+
         let started = self.container_handle()?.stop(id).await.map_err(|err| {
             error!(error = format!("{err:#}"), "couldn't stop the container");
+
+            #[cfg(feature = "security-events")]
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStopFail,
+            );
 
             Status::internal("couldn't stop the container")
         })?;
 
         if started.is_none() {
+            #[cfg(feature = "security-events")]
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStopFail,
+            );
+
             return Err(Status::not_found("container doesn't exist"));
         }
+
+        #[cfg(feature = "security-events")]
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStopOk,
+        );
 
         Ok(Response::new(()))
     }
