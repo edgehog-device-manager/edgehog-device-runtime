@@ -41,6 +41,7 @@ pub mod resource;
 pub mod service;
 pub mod stats;
 pub mod store;
+pub mod tracing;
 
 #[cfg(feature = "__mock")]
 mod mock;
