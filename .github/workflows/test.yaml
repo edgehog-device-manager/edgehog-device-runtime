@@ -39,7 +39,7 @@ jobs:
       - uses: ./.github/actions/install-deps
       - uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@v2.79.0
+      - uses: taiki-e/install-action@v2.79.3
         with:
           tool: cargo-nextest
       - run: cargo nextest run --locked --all-features --workspace
@@ -60,7 +60,7 @@ jobs:
           toolchain: nightly
           components: llvm-tools
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@v2.79.0
+      - uses: taiki-e/install-action@v2.79.3
         with:
           tool: rustfilt,cargo-llvm-cov
       - name: Generate coverage
@@ -68,7 +68,7 @@ jobs:
           EXPORT_FOR_CI=1 ./scripts/ci/coverage.sh
       # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v6.0.0
+        uses: codecov/codecov-action@v6.0.1
         with:
           use_oidc: true
           fail_ci_if_error: false
