@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "cellular-modems-service"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "serde",
  "stable-eyre",
@@ -1328,7 +1328,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "e2e-test"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "astarte-device-sdk",
  "clap",
@@ -1347,7 +1347,7 @@ dependencies = [
 
 [[package]]
 name = "e2e-test-containers"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "astarte-device-sdk",
  "clap",
@@ -1366,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "e2e-test-forwarder"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "clap",
  "edgehog-device-runtime-forwarder",
@@ -1386,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-containers"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-forwarder"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "astarte-device-sdk",
  "async-trait",
@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-service"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-store"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "deadpool",
  "diesel",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-tls"
-version = "0.10.6"
+version = "0.11.0"
 dependencies = [
  "cfg-if",
  "rustls",
