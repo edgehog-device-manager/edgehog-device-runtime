@@ -40,7 +40,7 @@ impl ContainerResource {
         Self { container }
     }
 
-    async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> Result<()>
+    async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> Result<std::convert::Infallible>
     where
         D: Client + Send + Sync + 'static,
     {
@@ -62,9 +62,11 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        if self.container.start(ctx.client).await?.is_none() {
-            return self.mark_missing(ctx).await;
-        };
+        let container = self.container.start(ctx.client).await?;
+
+        if container.is_none() {
+            return self.mark_missing(ctx).await.map(|_| ());
+        }
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Running)
@@ -81,9 +83,11 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        if self.container.stop(ctx.client).await?.is_none() {
-            return self.mark_missing(ctx).await;
-        };
+        let container = self.container.stop(ctx.client).await?;
+
+        if container.is_none() {
+            return self.mark_missing(ctx).await.map(|_| ());
+        }
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Stopped)

@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use edgehog_store::{
     conversions::SqlUuid,
@@ -39,6 +39,7 @@ use super::{Context, Resource, Result};
 /// It's made of the columns: container_id, image_id, network_id, volume_id
 pub(crate) type DeploymentRow = (
     SqlUuid,
+    i64,
     SqlUuid,
     Option<ContainerNetwork>,
     Option<ContainerVolume>,
@@ -47,7 +48,7 @@ pub(crate) type DeploymentRow = (
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Deployment {
-    pub(crate) containers: HashSet<Uuid>,
+    pub(crate) containers: BTreeMap<i64, Uuid>,
     pub(crate) images: HashSet<Uuid>,
     pub(crate) volumes: HashSet<Uuid>,
     pub(crate) networks: HashSet<Uuid>,
@@ -58,8 +59,8 @@ impl From<Vec<DeploymentRow>> for Deployment {
     fn from(value: Vec<DeploymentRow>) -> Self {
         value.into_iter().fold(
             Self::default(),
-            |mut acc, (container_id, image_id, c_network, c_volume, c_device_mapping)| {
-                acc.containers.insert(*container_id);
+            |mut acc, (container_id, idx, image_id, c_network, c_volume, c_device_mapping)| {
+                acc.containers.insert(idx, *container_id);
                 acc.images.insert(*image_id);
 
                 if let Some(c_network) = c_network {

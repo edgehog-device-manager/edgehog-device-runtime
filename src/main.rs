@@ -16,14 +16,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::io::IsTerminal;
+
 use clap::Parser;
 use eyre::{OptionExt, WrapErr, eyre};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use tracing::level_filters::LevelFilter;
 use tracing::{debug, error, info, warn};
-use tracing_subscriber::EnvFilter;
+use tracing_error::ErrorLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use edgehog_device_runtime::AstarteLibrary;
 use edgehog_device_runtime::data::connect_store;
@@ -38,23 +42,7 @@ pub mod config;
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
-    let fmt = tracing_subscriber::fmt::layer();
-    #[cfg(not(windows))]
-    let fmt = {
-        use std::io::IsTerminal;
-
-        fmt.with_ansi(std::io::stdout().is_terminal())
-    };
-
-    tracing_subscriber::registry()
-        .with(fmt)
-        .with(
-            EnvFilter::builder()
-                .with_default_directive("edgehog_device_runtime=info".parse()?)
-                .from_env_lossy(),
-        )
-        .with(tracing_error::ErrorLayer::default())
-        .try_init()?;
+    init_tracing()?;
 
     // Set default crypto provider
     rustls::crypto::aws_lc_rs::default_provider()
@@ -170,6 +158,35 @@ async fn main() -> eyre::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn init_tracing() -> eyre::Result<()> {
+    let layer = tracing_subscriber::fmt::layer()
+        .with_ansi(!cfg!(windows) && std::io::stdout().is_terminal())
+        .with_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        );
+
+    let subscribers = tracing_subscriber::registry()
+        .with(layer)
+        .with(ErrorLayer::default());
+
+    #[cfg(feature = "security-events")]
+    let subscribers = subscribers.with(
+        tracing_journald::layer()?
+            .with_syslog_identifier("edgehog_runtime_security_events".to_string())
+            .with_filter(
+                tracing_subscriber::filter::Targets::new()
+                    .with_target("edgehog-security-event", tracing::Level::TRACE)
+                    .with_target("security-event", tracing::Level::TRACE),
+            ),
+    );
+
+    subscribers.try_init()?;
 
     Ok(())
 }

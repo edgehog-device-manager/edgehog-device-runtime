@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -158,15 +158,31 @@ impl ContainersService for EdgehogService {
         let inner = request.into_inner();
         let id = parse_id(&inner.id)?;
 
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStartInit,
+        );
+
         let started = self.container_handle()?.start(id).await.map_err(|err| {
             error!(error = format!("{err:#}"), "couldn't start the container");
+
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStartFail,
+            );
 
             Status::internal("couldn't start the container")
         })?;
 
         if started.is_none() {
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStartFail,
+            );
+
             return Err(Status::not_found("container doesn't exist"));
         }
+
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStartOk,
+        );
 
         Ok(Response::new(()))
     }
@@ -178,15 +194,31 @@ impl ContainersService for EdgehogService {
         let inner = request.into_inner();
         let id = parse_id(&inner.id)?;
 
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStopInit,
+        );
+
         let started = self.container_handle()?.stop(id).await.map_err(|err| {
             error!(error = format!("{err:#}"), "couldn't stop the container");
+
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStopFail,
+            );
 
             Status::internal("couldn't stop the container")
         })?;
 
         if started.is_none() {
+            edgehog_containers::tracing::notify(
+                edgehog_containers::tracing::SecurityEvent::ContainerStopFail,
+            );
+
             return Err(Status::not_found("container doesn't exist"));
         }
+
+        edgehog_containers::tracing::notify(
+            edgehog_containers::tracing::SecurityEvent::ContainerStopOk,
+        );
 
         Ok(Response::new(()))
     }
