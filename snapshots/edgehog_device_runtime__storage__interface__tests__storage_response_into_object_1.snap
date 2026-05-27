@@ -1,0 +1,35 @@
+---
+source: src/storage/interface.rs
+expression: obj
+---
+AstarteObject {
+    inner: [
+        (
+            "id",
+            String(
+                "00000000-0000-0000-0000-000000000000",
+            ),
+        ),
+        (
+            "type",
+            String(
+                "delete",
+            ),
+        ),
+        (
+            "code",
+            Integer(
+                22,
+            ),
+        ),
+        (
+            "messages",
+            StringArray(
+                [
+                    "test error",
+                    "test error",
+                ],
+            ),
+        ),
+    ],
+}

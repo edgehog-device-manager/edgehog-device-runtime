@@ -28,6 +28,8 @@ pub enum RuntimeEvent {
     Telemetry(TelemetryEvent),
     #[cfg(feature = "file-transfer")]
     FileTransfer(crate::file_transfer::interface::request::FileTransferRequest),
+    #[cfg(feature = "file-transfer")]
+    Storage(crate::storage::interface::DeleteFile),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     Ota(crate::ota::event::OtaRequest),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -50,6 +52,10 @@ impl Display for RuntimeEvent {
             #[cfg(feature = "file-transfer")]
             RuntimeEvent::FileTransfer(_file_transfer_event) => {
                 write!(f, "FileTransfer")
+            }
+            #[cfg(feature = "file-transfer")]
+            RuntimeEvent::Storage(_storage_event) => {
+                write!(f, "Storage")
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             RuntimeEvent::Ota(_ota_request) => {
@@ -86,6 +92,10 @@ impl FromEvent for RuntimeEvent {
             interface if interface.starts_with("io.edgehog.devicemanager.fileTransfer") => {
                 crate::file_transfer::interface::request::FileTransferRequest::from_event(event)
                     .map(RuntimeEvent::FileTransfer)
+            }
+            #[cfg(feature = "file-transfer")]
+            interface if interface.starts_with("io.edgehog.devicemanager.storage") => {
+                crate::storage::interface::DeleteFile::from_event(event).map(RuntimeEvent::Storage)
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             "io.edgehog.devicemanager.LedBehavior" => {

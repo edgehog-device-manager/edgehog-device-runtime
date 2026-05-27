@@ -34,7 +34,7 @@ use crate::io::digest::Digest;
 use super::request::FilePermissions;
 use super::request::{Encoding, FileDigest};
 
-pub(super) mod store;
+pub(crate) mod store;
 pub(super) mod stream;
 pub(crate) mod walk;
 
