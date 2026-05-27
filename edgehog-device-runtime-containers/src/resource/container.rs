@@ -63,19 +63,11 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartInit);
-
-        let container = self.container.start(ctx.client).await.inspect_err(|_| {
-            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
-        })?;
+        let container = self.container.start(ctx.client).await?;
 
         if container.is_none() {
-            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
-
             return self.mark_missing(ctx).await.map(|_| ());
         }
-
-        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartOk);
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Running)
@@ -92,19 +84,11 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopInit);
-
-        let container = self.container.stop(ctx.client).await.inspect_err(|_| {
-            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
-        })?;
+        let container = self.container.stop(ctx.client).await?;
 
         if container.is_none() {
-            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
-
             return self.mark_missing(ctx).await.map(|_| ());
         }
-
-        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopOk);
 
         AvailableContainer::new(&ctx.id)
             .send(ctx.device, PropertyStatus::Stopped)
