@@ -179,8 +179,7 @@ fn init_tracing() -> eyre::Result<()> {
             .with_syslog_identifier("edgehog_runtime_security_events".to_string())
             .with_filter(
                 tracing_subscriber::filter::Targets::new()
-                    .with_target("edgehog-security-event", tracing::Level::TRACE)
-                    .with_target("security-event", tracing::Level::TRACE),
+                    .with_target("edgehog-security-event", tracing::Level::TRACE),
             ),
     );
 

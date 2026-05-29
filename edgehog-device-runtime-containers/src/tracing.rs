@@ -21,11 +21,12 @@
 //! This module provides structured auditing and logging for system container lifecycle
 
 use tracing::Level;
+use uuid::Uuid;
 
 /// Represents a security device event.
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecurityEvent {
+pub enum DeploymentSecurityEvent {
     /// Indicates that a container deployment process has been initialized.
     ContainerDeploymentInit = 0,
     /// Indicates that a container deployment process completed successfully.
@@ -38,6 +39,33 @@ pub enum SecurityEvent {
     ContainerUndeploymentOk = 4,
     /// Indicates that a container undeployment (removal) process failed to complete.
     ContainerUndeploymentFail = 5,
+}
+
+impl DeploymentSecurityEvent {
+    /// Returns the original string description for the device event.
+    fn description(&self) -> &'static str {
+        match self {
+            Self::ContainerDeploymentInit => "Container deployment started",
+            Self::ContainerDeploymentOk => "Container deployment success",
+            Self::ContainerDeploymentFail => "Container deployment failure",
+            Self::ContainerUndeploymentInit => "Container undeployment started",
+            Self::ContainerUndeploymentOk => "Container undeployment success",
+            Self::ContainerUndeploymentFail => "Container undeployment failure",
+        }
+    }
+
+    fn level(&self) -> Level {
+        match self {
+            Self::ContainerDeploymentFail | Self::ContainerUndeploymentFail => Level::ERROR,
+            _ => Level::INFO,
+        }
+    }
+}
+
+/// Represents a security device event.
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerSecurityEvent {
     /// Indicates that an offline or idle container is currently starting up.
     ContainerStartInit = 6,
     /// Indicates that a container successfully transitioned to a running state.
@@ -52,16 +80,10 @@ pub enum SecurityEvent {
     ContainerStopFail = 11,
 }
 
-impl SecurityEvent {
+impl ContainerSecurityEvent {
     /// Returns the original string description for the device event.
     fn description(&self) -> &'static str {
         match self {
-            Self::ContainerDeploymentInit => "Container deployment started",
-            Self::ContainerDeploymentOk => "Container deployment success",
-            Self::ContainerDeploymentFail => "Container deployment failure",
-            Self::ContainerUndeploymentInit => "Container undeployment started",
-            Self::ContainerUndeploymentOk => "Container undeployment success",
-            Self::ContainerUndeploymentFail => "Container undeployment failure",
             Self::ContainerStartInit => "Container starting",
             Self::ContainerStartOk => "Container started successfully",
             Self::ContainerStartFail => "Container failed to start",
@@ -73,11 +95,43 @@ impl SecurityEvent {
 
     fn level(&self) -> Level {
         match self {
-            Self::ContainerDeploymentFail
-            | Self::ContainerUndeploymentFail
-            | Self::ContainerStartFail
-            | Self::ContainerStopFail => Level::ERROR,
+            Self::ContainerStartFail | Self::ContainerStopFail => Level::ERROR,
             _ => Level::INFO,
+        }
+    }
+}
+
+/// This function returns a span guard that should be used to instrument container events.
+pub fn deployment_span(deployment_id: Uuid) -> tracing::Span {
+    tracing::span!(target:"edgehog-security-event", Level::INFO, "deployment_event", %deployment_id)
+}
+
+/// Logs a structured security event to the specialized `"edgehog-security-event"` target.
+///
+/// # Structured Fields
+/// Logs emitted by this function include the following key-value pairs for structured log collectors:
+/// * `target`: Always explicitly set to `"edgehog-security-event"`.
+/// * `id`: The `u16` numeric discriminant representing the specific security event type.
+/// * `message`: The human-readable static string description of the event.
+pub fn deployment_event(event: DeploymentSecurityEvent, deployment_id: Uuid) {
+    let id = event as u16;
+    let message = event.description();
+
+    match event.level() {
+        Level::ERROR => {
+            tracing::error!(target:"edgehog-security-event", %deployment_id, id, "{message}")
+        }
+        Level::WARN => {
+            tracing::warn!(target:"edgehog-security-event", %deployment_id, id, "{message}")
+        }
+        Level::INFO => {
+            tracing::info!(target:"edgehog-security-event", %deployment_id, id, "{message}")
+        }
+        Level::DEBUG => {
+            tracing::debug!(target:"edgehog-security-event", %deployment_id, id, "{message}")
+        }
+        Level::TRACE => {
+            tracing::trace!(target:"edgehog-security-event", %deployment_id, id, "{message}")
         }
     }
 }
@@ -89,15 +143,26 @@ impl SecurityEvent {
 /// * `target`: Always explicitly set to `"edgehog-security-event"`.
 /// * `id`: The `u16` numeric discriminant representing the specific security event type.
 /// * `message`: The human-readable static string description of the event.
-pub fn notify(event: SecurityEvent) {
+/// * `container_name`: The name of the container that relates to the event logged
+pub fn container_event(event: ContainerSecurityEvent, container_name: &str) {
     let id = event as u16;
     let message = event.description();
 
     match event.level() {
-        Level::ERROR => tracing::error!(target:"edgehog-security-event", id, "{message}"),
-        Level::WARN => tracing::warn!(target:"edgehog-security-event", id, "{message}"),
-        Level::INFO => tracing::info!(target:"edgehog-security-event", id, "{message}"),
-        Level::DEBUG => tracing::debug!(target:"edgehog-security-event", id, "{message}"),
-        Level::TRACE => tracing::trace!(target:"edgehog-security-event", id, "{message}"),
+        Level::ERROR => {
+            tracing::error!(target:"edgehog-security-event", id, container_name, "{message}")
+        }
+        Level::WARN => {
+            tracing::warn!(target:"edgehog-security-event", id, container_name, "{message}")
+        }
+        Level::INFO => {
+            tracing::info!(target:"edgehog-security-event", id, container_name, "{message}")
+        }
+        Level::DEBUG => {
+            tracing::debug!(target:"edgehog-security-event", id, container_name, "{message}")
+        }
+        Level::TRACE => {
+            tracing::trace!(target:"edgehog-security-event", id, container_name, "{message}")
+        }
     }
 }
