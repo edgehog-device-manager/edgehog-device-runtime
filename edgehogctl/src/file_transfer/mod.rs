@@ -37,6 +37,7 @@ use crate::client::ApiData;
 #[derive(Debug, Clone, clap::ValueEnum)]
 enum Encoding {
     TarGz,
+    Tar,
     Gz,
 }
 
@@ -44,6 +45,7 @@ impl Encoding {
     fn to_endpoint_value(&self) -> &'static str {
         match self {
             Encoding::TarGz => "tar.gz",
+            Encoding::Tar => "tar",
             Encoding::Gz => "gz",
         }
     }

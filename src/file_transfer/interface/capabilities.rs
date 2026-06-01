@@ -27,6 +27,8 @@ use crate::data::set_property;
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.fileTransfer.Capabilities";
 /// Encoding for tar.gz
 pub(crate) const TAR_GZ: &str = "tar.gz";
+/// Encoding for tar
+pub(crate) const TAR: &str = "tar";
 /// Encoding for gz
 pub(crate) const GZ: &str = "gz";
 /// Storage target
@@ -41,7 +43,7 @@ pub(crate) const CAPABILITIES: Capabilities<3> = Capabilities {
     upload: [
         TargetCapability {
             target: STORAGE_TARGET,
-            encodings: &[TAR_GZ, GZ],
+            encodings: &[TAR_GZ, TAR, GZ],
         },
         TargetCapability {
             target: STREAMING_TARGET,
@@ -49,13 +51,13 @@ pub(crate) const CAPABILITIES: Capabilities<3> = Capabilities {
         },
         TargetCapability {
             target: FILESYSTEM_TARGET,
-            encodings: &[TAR_GZ, GZ],
+            encodings: &[TAR_GZ, TAR, GZ],
         },
     ],
     download: [
         TargetCapability {
             target: STORAGE_TARGET,
-            encodings: &[TAR_GZ, GZ],
+            encodings: &[TAR_GZ, TAR, GZ],
         },
         TargetCapability {
             target: STREAMING_TARGET,
@@ -63,7 +65,7 @@ pub(crate) const CAPABILITIES: Capabilities<3> = Capabilities {
         },
         TargetCapability {
             target: FILESYSTEM_TARGET,
-            encodings: &[TAR_GZ, GZ],
+            encodings: &[TAR_GZ, TAR, GZ],
         },
     ],
 };
@@ -216,7 +218,7 @@ mod tests {
             &mut device,
             "serverToDevice",
             "filesystem",
-            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+            ["tar.gz", "tar", "gz"].map(str::to_string).to_vec(),
         );
         expect_encoding(
             &mut device,
@@ -228,7 +230,7 @@ mod tests {
             &mut device,
             "serverToDevice",
             "storage",
-            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+            ["tar.gz", "tar", "gz"].map(str::to_string).to_vec(),
         );
 
         expect_target(&mut device, "deviceToServer");
@@ -236,7 +238,7 @@ mod tests {
             &mut device,
             "deviceToServer",
             "filesystem",
-            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+            ["tar.gz", "tar", "gz"].map(str::to_string).to_vec(),
         );
         expect_encoding(
             &mut device,
@@ -248,7 +250,7 @@ mod tests {
             &mut device,
             "deviceToServer",
             "storage",
-            ["tar.gz", "gz"].map(str::to_string).to_vec(),
+            ["tar.gz", "tar", "gz"].map(str::to_string).to_vec(),
         );
 
         CAPABILITIES.send(&mut device).await;
