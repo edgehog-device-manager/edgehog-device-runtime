@@ -42,6 +42,8 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::Uuid;
 
 use crate::controller::actor::Persisted;
+use crate::file_transfer::encoding::tar_gz::TarGzEncoding;
+use crate::file_transfer::encoding::{EncoderBuilder, TarEncoding};
 use crate::file_transfer::http::FtHttpClient;
 use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::interface::request::FileTransferRequest;
@@ -55,8 +57,8 @@ use crate::storage::request::CleanUp;
 use crate::{file_transfer::interface::status::FileTransferResponse, io::digest::Digest};
 
 use self::config::FileTransferArgs;
+use self::encoding::EncodedReader;
 use self::encoding::Paths;
-use self::encoding::tar_gz::TarGzBuilder;
 use self::file_system::store::{FileStorage, Fs, Space};
 use self::file_system::stream::{Pipe, Streaming, SysPipe};
 use self::file_system::{FileOptions, WriteHandle};
@@ -391,8 +393,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .wrap_err("error while writing header")?;
 
         let (writer, status) = match download.encoding {
-            Some(Encoding::TarGz) => {
-                bail!("{:?} is not supported for download stream", Encoding::TarGz)
+            encoding @ Some(Encoding::TarGz | Encoding::Tar) => {
+                bail!("{:?} is not supported for download stream", encoding)
             }
             Some(Encoding::Gz) => {
                 let decoder = GzipDecoder::new(writer);
@@ -549,7 +551,11 @@ impl<F, S, C> FileTransfer<F, S, C> {
             }
             Some(Encoding::TarGz) => {
                 let paths = self.storage.find_paths(id).await?;
-                self.upload_tar_gz(req, paths).await
+                self.upload_tar(req, paths, TarGzEncoding).await
+            }
+            Some(Encoding::Tar) => {
+                let paths = self.storage.find_paths(id).await?;
+                self.upload_tar(req, paths, TarEncoding).await
             }
             None => {
                 let reader = self.storage.open_read(id).await?;
@@ -567,7 +573,11 @@ impl<F, S, C> FileTransfer<F, S, C> {
             }
             Some(Encoding::TarGz) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
-                self.upload_tar_gz(req, paths).await
+                self.upload_tar(req, paths, TarGzEncoding).await
+            }
+            Some(Encoding::Tar) => {
+                let paths = Paths::read(path.to_path_buf()).await?;
+                self.upload_tar(req, paths, TarEncoding).await
             }
             None => {
                 let reader = tokio::fs::File::open(path).await?;
@@ -598,14 +608,17 @@ impl<F, S, C> FileTransfer<F, S, C> {
     }
 
     #[instrument(skip_all)]
-    async fn upload_tar_gz(&self, req: &Upload<'_>, paths: Paths) -> eyre::Result<()> {
+    async fn upload_tar<E>(&self, req: &Upload<'_>, paths: Paths, encoding: E) -> eyre::Result<()>
+    where
+        E: EncoderBuilder + Clone,
+    {
         // NOTE get the total length by compressing once to a sink (this means compressing two times)
-        let mut reader = TarGzBuilder::spawn(paths.clone());
+        let mut reader = EncodedReader::spawn(paths.clone(), encoding.clone());
         let file_len = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await?;
 
         let progress = FileTransferProgress::start(req.transfer(), req.progress, Some(file_len));
 
-        let reader = TarGzBuilder::spawn(paths);
+        let reader = EncodedReader::spawn(paths, encoding);
         let reader = ProgressUpdate::track(reader, progress, &self.tracker);
         let reader = ReaderStream::new(reader);
 

@@ -20,6 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use async_compression::tokio::bufread::GzipDecoder;
+use async_tar::Archive;
 use pin_project::pin_project;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -211,6 +212,17 @@ impl WriteHandle {
                 let mut writer = Self::open_options(opt).open(&self.path).await?;
 
                 tokio::io::copy(&mut decoder, &mut writer).await?;
+            }
+            Encoding::Tar => {
+                tokio::fs::create_dir_all(&self.path).await?;
+
+                let mut entries = Archive::new(&mut self.file).entries()?;
+
+                while let Some(item) = entries.next().await {
+                    let mut item = item?;
+
+                    item.unpack_in(&self.path).await?;
+                }
             }
         }
 
