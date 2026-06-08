@@ -128,7 +128,7 @@ walkdir = "2.5.0"
 webpki-roots = "1.0.4"
 wifiscanner = "0.5.1"
 windows-sys = "0.61.2"
-zbus = { version = "5.15.0", default-features = false }
+zbus = { version = "5.16.0", default-features = false }
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
