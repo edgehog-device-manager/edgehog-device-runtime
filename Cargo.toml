@@ -96,7 +96,7 @@ mockall = "0.14.0"
 pin-project = "1.1.13"
 pretty_assertions = "1.4.1"
 procfs = "0.18.0"
-reqwest = { version = "0.13.1", default-features = false }
+reqwest = { version = "0.13.4", default-features = false }
 rstest = "0.26.1"
 # Version required by diesel
 rusqlite = "0.39.0"
