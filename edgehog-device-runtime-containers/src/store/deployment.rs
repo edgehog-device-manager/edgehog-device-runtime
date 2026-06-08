@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -40,7 +40,7 @@ use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::requests::deployment::{CreateDeployment, DeploymentUpdate};
-use crate::resource::deployment::Deployment as DeploymentResource;
+use crate::resource::deployment::{Deployment as DeploymentResource, DeploymentRow};
 
 use super::{Result, StateStore};
 
@@ -57,7 +57,13 @@ impl StateStore {
                     .values(&deployment)
                     .execute(writer)?;
 
-                for container_id in containers {
+                for (idx, container_id) in containers.into_iter().enumerate() {
+                    let idx = i64::try_from(idx).map_err(|error|{
+                        tracing::error!(%error, %container_id, "couldn't convert index for deployment's container");
+
+                        HandleError::Application(error.into())
+                    })?;
+
                     let exists: bool = Container::exists(&container_id).get_result(writer)?;
 
                     if !exists {
@@ -65,18 +71,19 @@ impl StateStore {
                             .values(DeploymentMissingContainer {
                                 deployment_id: deployment.id,
                                 container_id,
+                                idx,
                             })
                             .execute(writer)?;
 
-                        continue;
+                    } else {
+                        insert_or_ignore_into(deployment_containers::table)
+                            .values(DeploymentContainer {
+                                deployment_id: deployment.id,
+                                container_id,
+                                idx,
+                            })
+                            .execute(writer)?;
                     }
-
-                    insert_or_ignore_into(deployment_containers::table)
-                        .values(DeploymentContainer {
-                            deployment_id: deployment.id,
-                            container_id,
-                        })
-                        .execute(writer)?;
                 }
 
                 Ok(())
@@ -200,6 +207,7 @@ impl StateStore {
                 let containers = deployment_containers::table
                     .select(deployment_containers::container_id)
                     .filter(deployment_containers::deployment_id.eq(id))
+                    .order_by(deployment_containers::idx)
                     .load::<SqlUuid>(reader)?;
 
                 Ok(Some(containers))
@@ -230,18 +238,13 @@ impl StateStore {
                     .filter(deployment_containers::deployment_id.eq(id))
                     .select((
                         deployment_containers::container_id,
+                        deployment_containers::idx,
                         containers::image_id.assume_not_null(),
                         Option::<ContainerNetwork>::as_select(),
                         Option::<ContainerVolume>::as_select(),
                         Option::<ContainerDeviceMapping>::as_select(),
                     ))
-                    .load::<(
-                        SqlUuid,
-                        SqlUuid,
-                        Option<ContainerNetwork>,
-                        Option<ContainerVolume>,
-                        Option<ContainerDeviceMapping>,
-                    )>(reader)?;
+                    .load::<DeploymentRow>(reader)?;
 
                 Ok(Some(DeploymentResource::from(rows)))
             })
@@ -266,15 +269,21 @@ impl StateStore {
                 // Delete only the resources present in this deployment
                 let containers = Deployment::join_resources()
                     .filter(deployment_containers::deployment_id.eq(id))
-                    .select(deployment_containers::container_id)
+                    .select((
+                        deployment_containers::idx,
+                        deployment_containers::container_id,
+                    ))
                     .except(
                         Deployment::join_resources()
                             .filter(deployment_containers::deployment_id.ne(id))
-                            .select(deployment_containers::container_id),
+                            .select((
+                                deployment_containers::idx,
+                                deployment_containers::container_id,
+                            )),
                     )
-                    .load::<SqlUuid>(reader)?
+                    .load::<(i64, SqlUuid)>(reader)?
                     .into_iter()
-                    .map(Uuid::from)
+                    .map(|(idx, id)| (idx, Uuid::from(id)))
                     .collect();
 
                 let images = Deployment::join_resources()
@@ -415,7 +424,7 @@ impl From<CreateDeployment> for Deployment {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{BTreeMap, HashSet};
 
     use diesel::OptionalExtension;
     use edgehog_store::db;
@@ -684,7 +693,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let exp = DeploymentResource {
-            containers: HashSet::from_iter([container_id]),
+            containers: BTreeMap::from_iter([(0, container_id)]),
             images: HashSet::from_iter([image_id]),
             volumes: HashSet::from_iter([volume_id.0]),
             networks: HashSet::from_iter([network_id.0]),
@@ -836,11 +845,156 @@ mod tests {
             .unwrap();
 
         let exp = DeploymentResource {
-            containers: HashSet::from_iter([container_id_1]),
+            containers: BTreeMap::from_iter([(0, container_id_1)]),
             images: HashSet::new(),
             volumes: HashSet::new(),
             networks: HashSet::new(),
             device_mapping: HashSet::new(),
+        };
+
+        assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn sorted_deployment_containers() {
+        let tmp = TempDir::with_prefix("sorted_deployment_containers").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let deployment_id = Uuid::new_v4();
+
+        let image_id = Uuid::new_v4();
+        let image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "postgres:15".to_string(),
+            registry_auth: String::new(),
+        };
+        store.create_image(image).await.unwrap();
+
+        let volume_id = Uuid::new_v4();
+        let volume = CreateVolume {
+            id: ReqUuid(volume_id),
+            deployment_id: ReqUuid(deployment_id),
+            driver: "local".to_string(),
+            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                .map(str::to_string)
+                .to_vec(),
+        };
+        store.create_volume(volume).await.unwrap();
+
+        let network_id = Uuid::new_v4();
+        let network = CreateNetwork {
+            id: ReqUuid(network_id),
+            deployment_id: ReqUuid(deployment_id),
+            driver: "bridge".to_string(),
+            internal: true,
+            enable_ipv6: false,
+            options: vec!["isolate=true".to_string()],
+        };
+        store.create_network(network).await.unwrap();
+
+        let device_mapping_id = Uuid::new_v4();
+        let device_mapping = CreateDeviceMapping {
+            id: ReqUuid(device_mapping_id),
+            deployment_id: ReqUuid(deployment_id),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "dev/tty12".to_string(),
+            c_group_permissions: OptString::from("msv".to_string()),
+        };
+        store.create_device_mapping(device_mapping).await.unwrap();
+
+        let container_id_1 = Uuid::new_v4();
+        let container_1 = CreateContainer {
+            id: ReqUuid(container_id_1),
+            deployment_id: ReqUuid(deployment_id),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
+            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
+            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
+            privileged: false,
+        };
+        store.create_container(Box::new(container_1)).await.unwrap();
+
+        let container_id_2 = Uuid::new_v4();
+        let container_2 = CreateContainer {
+            id: ReqUuid(container_id_2),
+            deployment_id: ReqUuid(deployment_id),
+            image_id: ReqUuid(image_id),
+            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
+            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
+            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
+            hostname: "database".to_string(),
+            restart_policy: "unless-stopped".to_string(),
+            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                .map(str::to_string)
+                .to_vec(),
+            binds: vec!["/var/lib/postgres".to_string()],
+            network_mode: "bridge".to_string(),
+            port_bindings: vec!["5432:5432".to_string()],
+            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
+            cap_add: vec!["CAP_CHOWN".to_string()],
+            cap_drop: vec!["CAP_KILL".to_string()],
+            cpu_period: 1000,
+            cpu_quota: 100,
+            cpu_realtime_period: 1000,
+            cpu_realtime_runtime: 100,
+            memory: 4096,
+            memory_reservation: 1024,
+            memory_swap: 8192,
+            memory_swappiness: 50,
+            volume_driver: "local".to_string().into(),
+            storage_opt: vec!["size=1024k".to_string()],
+            read_only_rootfs: true,
+            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
+            privileged: false,
+        };
+        store.create_container(Box::new(container_2)).await.unwrap();
+
+        let deployment = CreateDeployment {
+            id: ReqUuid(deployment_id),
+            containers: VecReqUuid(vec![ReqUuid(container_id_1), ReqUuid(container_id_2)]),
+        };
+        store.create_deployment(deployment).await.unwrap();
+
+        let res = store
+            .find_complete_deployment(deployment_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let exp = DeploymentResource {
+            containers: BTreeMap::from_iter([(0, container_id_1), (1, container_id_2)]),
+            images: HashSet::from_iter([image_id]),
+            volumes: HashSet::from_iter([volume_id]),
+            networks: HashSet::from_iter([network_id]),
+            device_mapping: HashSet::from_iter([device_mapping_id]),
         };
 
         assert_eq!(res, exp);

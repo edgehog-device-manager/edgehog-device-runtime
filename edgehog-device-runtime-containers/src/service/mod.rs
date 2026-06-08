@@ -315,10 +315,14 @@ impl<D> Service<D> {
     where
         D: Client + Send + Sync + 'static,
     {
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
+
         let deployment = match self.store.find_complete_deployment(id).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{id} not found");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
                 DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
                     .send(&id, &mut self.device)
@@ -330,6 +334,8 @@ impl<D> Service<D> {
                 let error = eyre::Report::new(err);
 
                 error!(error = format!("{:#}", error), "couldn't start deployment");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
                 DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
@@ -350,12 +356,17 @@ impl<D> Service<D> {
 
             error!(error = format!("{:#}", error), "couldn't start deployment");
 
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
+
             DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
 
         DeploymentEvent::with_message(EventStatus::Started, "")
             .send(&id, &mut self.device)
@@ -368,6 +379,8 @@ impl<D> Service<D> {
     where
         D: Client + Send + Sync + 'static,
     {
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartInit);
+
         for id in deployment.images {
             ImageResource::up(self.context(id)).await?;
         }
@@ -380,7 +393,7 @@ impl<D> Service<D> {
             NetworkResource::up(self.context(id)).await?;
         }
 
-        for id in deployment.containers {
+        for id in deployment.containers.values().copied() {
             let mut container = ContainerResource::up(self.context(id)).await?;
 
             container.start(self.context(id)).await?;
@@ -393,6 +406,8 @@ impl<D> Service<D> {
             )
             .await
             .map_err(ResourceError::Property)?;
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartOk);
 
         Ok(())
     }
@@ -433,10 +448,12 @@ impl<D> Service<D> {
             .send(&id, &mut self.device)
             .await;
 
-        if let Err(err) = self.stop_deployment(id, containers).await {
+        if let Err(err) = self.stop_deployment(id, &containers).await {
             let error = eyre::Report::new(err);
 
             error!(error = format!("{:#}", error), "couldn't stop deployment");
+
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
 
             DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
@@ -453,14 +470,16 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip(self, containers))]
-    async fn stop_deployment(&mut self, deployment: Uuid, containers: Vec<SqlUuid>) -> Result<()>
+    async fn stop_deployment(&mut self, deployment: Uuid, containers: &[SqlUuid]) -> Result<()>
     where
         D: Client + Send + Sync + 'static,
     {
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopInit);
+
         for id in containers {
             debug!(%id, "stopping container");
 
-            let mut ctx = self.context(id);
+            let mut ctx = self.context(*id);
             let (state, mut container) =
                 ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
                     opt.ok_or(ResourceError::Missing {
@@ -489,6 +508,8 @@ impl<D> Service<D> {
             .await
             .map_err(ResourceError::from)?;
 
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopOk);
+
         Ok(())
     }
 
@@ -498,10 +519,14 @@ impl<D> Service<D> {
     where
         D: Client + Send + Sync + 'static,
     {
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentInit);
+
         let deployment = match self.store.find_deployment_for_delete(id).await {
             Ok(Some(deployment)) => deployment,
             Ok(None) => {
                 error!("{id} not found");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
                 DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
                     .send(&id, &mut self.device)
@@ -513,6 +538,8 @@ impl<D> Service<D> {
                 let error = eyre::Report::new(err);
 
                 error!(error = format!("{:#}", error), "couldn't delete deployment");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
                 DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
@@ -533,12 +560,16 @@ impl<D> Service<D> {
 
             error!(error = format!("{:#}", error), "couldn't delete deployment");
 
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
+
             DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentOk);
 
         info!("deployment deleted");
     }
@@ -547,7 +578,8 @@ impl<D> Service<D> {
     where
         D: Client + Send + Sync + 'static,
     {
-        for id in deployment.containers {
+        // Delete the deployments in reverse order
+        for id in deployment.containers.values().rev().copied() {
             ContainerResource::down(self.context(id)).await?;
         }
 
@@ -583,6 +615,8 @@ impl<D> Service<D> {
     where
         D: Client + Send + Sync + 'static,
     {
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
+
         let from_deployment = match self
             .store
             .load_deployment_containers_update_from(bundle)
@@ -592,6 +626,8 @@ impl<D> Service<D> {
             Ok(None) => {
                 let msg = format!("{} not found", bundle.from);
                 error!("{msg}");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
                 DeploymentEvent::with_message(EventStatus::Error, msg)
                     .send(&bundle.from, &mut self.device)
@@ -603,6 +639,8 @@ impl<D> Service<D> {
                 let err = eyre::Report::new(err);
 
                 error!(error = format!("{:#}", err), "couldn't update deployment");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
                 DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
                     .send(&bundle.from, &mut self.device)
@@ -618,6 +656,8 @@ impl<D> Service<D> {
                 let msg = format!("{} not found", bundle.to);
                 error!("{msg}");
 
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
+
                 DeploymentEvent::with_message(EventStatus::Error, msg)
                     .send(&bundle.to, &mut self.device)
                     .await;
@@ -628,6 +668,8 @@ impl<D> Service<D> {
                 let err = eyre::Report::new(err);
 
                 error!(error = format!("{:#}", err), "couldn't update deployment");
+
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
                 DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
                     .send(&bundle.to, &mut self.device)
@@ -643,21 +685,30 @@ impl<D> Service<D> {
             .send(&bundle.from, &mut self.device)
             .await;
 
-        // TODO: consider if it's necessary re-start the `from` containers or a retry logic
+        // TODO: consider if it's necessary a retry logic
         if let Err(err) = self
-            .update_deployment(bundle, from_deployment, to_deployment)
+            .update_deployment(bundle, &from_deployment, to_deployment)
             .await
         {
             let err = eyre::Report::new(err);
 
             error!(error = format!("{:#}", err), "couldn't update deployment");
 
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
+
             DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
                 .send(&bundle.from, &mut self.device)
                 .await;
 
+            // Start the old deployment on error
+            if let Err(error) = self.restart_failed(bundle.from, &from_deployment).await {
+                error!(%error, "couldn't restart deployment after failed update")
+            }
+
             return;
         }
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
 
         info!("deployment updated");
     }
@@ -665,15 +716,23 @@ impl<D> Service<D> {
     async fn update_deployment(
         &mut self,
         bundle: DeploymentUpdate,
-        to_stop: Vec<SqlUuid>,
+        to_stop: &[SqlUuid],
         to_start: Deployment,
     ) -> Result<()>
     where
         D: Client + Send + Sync + 'static,
     {
-        self.stop_deployment(bundle.from, to_stop).await?;
+        self.stop_deployment(bundle.from, to_stop)
+            .await
+            .inspect_err(|_| {
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail)
+            })?;
 
-        self.start_deployment(bundle.to, to_start).await?;
+        self.start_deployment(bundle.to, to_start)
+            .await
+            .inspect_err(|_| {
+                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail)
+            })?;
 
         Ok(())
     }
@@ -702,6 +761,46 @@ impl<D> Service<D> {
                 "couldn't refresh resource status"
             );
         }
+    }
+
+    #[instrument(skip_all)]
+    async fn restart_failed(&mut self, deployment: Uuid, to_restart: &[SqlUuid]) -> Result<()>
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        for id in to_restart {
+            debug!(%id, "restarting container");
+
+            let mut ctx = self.context(*id);
+            let (state, mut container) =
+                ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
+                    opt.ok_or(ResourceError::Missing {
+                        id: ctx.id,
+                        resource: "container",
+                    })
+                })?;
+
+            match state {
+                State::Missing => {
+                    warn!(%id, "container missing, cannot restart");
+
+                    continue;
+                }
+                State::Created => {}
+            }
+
+            container.start(ctx).await?;
+        }
+
+        AvailableDeployment::new(&deployment)
+            .send(
+                &mut self.device,
+                crate::properties::deployment::DeploymentStatus::Started,
+            )
+            .await
+            .map_err(ResourceError::from)?;
+
+        Ok(())
     }
 }
 
