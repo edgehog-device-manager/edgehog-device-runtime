@@ -48,6 +48,7 @@ use crate::{
         container::{parse_port_binding, RestartPolicy},
         BindingError,
     },
+    tracing::{container_event, ContainerSecurityEvent},
 };
 
 /// Error for the container operations.
@@ -221,21 +222,32 @@ impl ContainerId {
     pub(crate) async fn start(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("starting {self}");
 
+        let container_name = self.name_as_str();
+        container_event(ContainerSecurityEvent::ContainerStartInit, container_name);
+
         let res = client
             .start_container(self.container(), None::<StartContainerOptions>)
             .await;
 
         match res {
-            Ok(()) => Ok(Some(())),
+            Ok(()) => {
+                container_event(ContainerSecurityEvent::ContainerStartOk, container_name);
+
+                Ok(Some(()))
+            }
             Err(BollardError::DockerResponseServerError {
                 status_code: 404,
                 message,
             }) => {
+                container_event(ContainerSecurityEvent::ContainerStartFail, container_name);
                 warn!("container not found: {message}");
 
                 Ok(None)
             }
-            Err(err) => return Err(ContainerError::Start(err)),
+            Err(err) => {
+                container_event(ContainerSecurityEvent::ContainerStartFail, container_name);
+                Err(ContainerError::Start(err))
+            }
         }
     }
 
@@ -246,16 +258,24 @@ impl ContainerId {
     pub(crate) async fn stop(&self, client: &Client) -> Result<Option<()>, ContainerError> {
         debug!("stopping {self}");
 
+        let container_name = self.name_as_str();
+        container_event(ContainerSecurityEvent::ContainerStopInit, container_name);
+
         let res = client
             .stop_container(self.container(), None::<StopContainerOptions>)
             .await;
 
         match res {
-            Ok(()) => Ok(Some(())),
+            Ok(()) => {
+                container_event(ContainerSecurityEvent::ContainerStopOk, container_name);
+
+                Ok(Some(()))
+            }
             Err(BollardError::DockerResponseServerError {
                 status_code: 304,
                 message,
             }) => {
+                container_event(ContainerSecurityEvent::ContainerStopOk, container_name);
                 debug!("container already stopped: {message}");
 
                 Ok(Some(()))
@@ -264,11 +284,15 @@ impl ContainerId {
                 status_code: 404,
                 message,
             }) => {
+                container_event(ContainerSecurityEvent::ContainerStopFail, container_name);
                 warn!("container not found: {message}");
 
                 Ok(None)
             }
-            Err(err) => return Err(ContainerError::Start(err)),
+            Err(err) => {
+                container_event(ContainerSecurityEvent::ContainerStopFail, container_name);
+                Err(ContainerError::Start(err))
+            }
         }
     }
 
