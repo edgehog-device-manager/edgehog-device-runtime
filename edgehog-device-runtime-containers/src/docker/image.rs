@@ -274,7 +274,15 @@ impl Image {
         debug!("removing {self}");
 
         let res = client
-            .remove_image(id, None::<RemoveImageOptions>, self.docker_credentials()?)
+            .remove_image(
+                id,
+                // NOTE: remove image by id with multiple tags
+                Some(RemoveImageOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+                self.docker_credentials()?,
+            )
             .await;
 
         match res {
@@ -578,7 +586,10 @@ mod tests {
             mock.expect_remove_image()
                 .with(
                     predicate::eq(name.to_string()),
-                    predicate::eq(None),
+                    predicate::eq(Some(RemoveImageOptions {
+                        force: true,
+                        ..Default::default()
+                    })),
                     predicate::eq(None),
                 )
                 .once()
