@@ -68,7 +68,7 @@ jobs:
           EXPORT_FOR_CI=1 ./scripts/ci/coverage.sh
       # Upload the coverage if we are not a PR from a fork, see ".github/workflows/coverage.yaml"
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v6.0.1
+        uses: codecov/codecov-action@v7.0.0
         with:
           use_oidc: true
           fail_ci_if_error: false
