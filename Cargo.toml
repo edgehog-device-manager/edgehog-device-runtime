@@ -33,7 +33,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.1"
+version = "0.11.2"
 edition = "2021"
 homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 license = "Apache-2.0"
@@ -66,7 +66,7 @@ default = ["udev", "wifiscanner", "zbus", "platform-verifier"]
 containers = [
   "dep:edgehog-containers",
   "dep:edgehog-store",
-  "edgehog-service/containers"
+  "edgehog-service/containers",
 ]
 # Enable the forwarder service
 forwarder = ["dep:edgehog-forwarder"]
@@ -131,9 +131,7 @@ udev = { workspace = true, optional = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v5", "v4", "serde"] }
 wifiscanner = { workspace = true, optional = true }
-zbus = { workspace = true, optional = true, default-features = false, features = [
-  "tokio"
-] }
+zbus = { workspace = true, optional = true, default-features = false, features = ["tokio"] }
 
 # C dependencies
 aws-lc-rs = { workspace = true, optional = true }
@@ -178,13 +176,13 @@ deadpool = { version = "0.12.3", default-features = false }
 diesel = "2.2.12"
 diesel_migrations = "2.2.0"
 displaydoc = "0.2.5"
-edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.11.1" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.11.2" }
 edgehog-device-forwarder-proto = "0.1.0"
-edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.11.1" }
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.11.2" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
-edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.11.1" }
-edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.11.1" }
-edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.11.1" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.11.2" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.11.2" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.11.2" }
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"
@@ -219,8 +217,8 @@ tokio-tungstenite = "0.27.0"
 tokio-util = "0.7.16"
 toml = "0.9.8"
 tracing = "0.1.41"
-tracing-subscriber = "0.3.20"
 tracing-journald = "0.3.2"
+tracing-subscriber = "0.3.20"
 udev = "0.9.3"
 url = "2.5.7"
 uuid = "1.18.1"
