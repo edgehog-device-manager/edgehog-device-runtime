@@ -41,7 +41,7 @@ jobs:
         uses: astarte-platform/astarte-cluster-action@v2.0.0
         with:
           astarte_version: 1.3.0
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: ./.github/actions/install-deps
