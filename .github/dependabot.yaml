@@ -30,7 +30,7 @@ updates:
           - patch
   - package-ecosystem: cargo
     directory: "/"
-    versioning-strategy: lockfile-only
+    versioning-strategy: increase-if-necessary
     schedule:
       interval: daily
     cooldown:
