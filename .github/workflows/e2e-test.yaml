@@ -44,7 +44,7 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Create Astarte Cluster
         id: astarte
-        uses: astarte-platform/astarte-cluster-action@v1
+        uses: astarte-platform/astarte-cluster-action@v2
         with:
           astarte_version: "1.2.2-rc.0"
       - name: Checkout edgehog-astarte-interfaces
