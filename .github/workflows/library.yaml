@@ -41,13 +41,13 @@ jobs:
           submodules: true
       - uses: ./.github/actions/install-deps
       - name: install rust stable
-        uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
       - name: install rust nightly
-        uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           toolchain: nightly
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@v2.82.3
+      - uses: taiki-e/install-action@v2.82.4
         with:
           tool: cargo-hack,cargo-minimal-versions
       - run: rustup default stable
@@ -64,11 +64,11 @@ jobs:
         with:
           submodules: true
       - uses: ./.github/actions/install-deps
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           toolchain: ${{ matrix.msrv }}
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@v2.82.3
+      - uses: taiki-e/install-action@v2.82.4
         with:
           tool: cargo-hack
       - name: cargo +${{ matrix.msrv }} check
@@ -82,7 +82,7 @@ jobs:
         with:
           submodules: true
       - uses: ./.github/actions/install-deps
-      - uses: actions-rust-lang/setup-rust-toolchain@v1.16.1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
       - uses: mozilla-actions/sccache-action@v0.0.10
       - name: Check library API semver breakages
         uses: obi1kenobi/cargo-semver-checks-action@v2.9
