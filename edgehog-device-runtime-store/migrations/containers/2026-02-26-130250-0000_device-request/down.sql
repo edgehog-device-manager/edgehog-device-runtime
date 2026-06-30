@@ -16,19 +16,10 @@
 --
 -- SPDX-License-Identifier: Apache-2.0
 
-DROP TABLE deployment_containers;
-DROP TABLE deployments;
-DROP TABLE container_port_bindings;
-DROP TABLE container_binds;
-DROP TABLE container_env;
-DROP TABLE container_missing_images;
-DROP TABLE container_missing_networks;
-DROP TABLE container_missing_volumes;
-DROP TABLE container_volumes;
-DROP TABLE container_networks;
-DROP TABLE containers;
-DROP TABLE volume_driver_opts;
-DROP TABLE volumes;
-DROP TABLE network_driver_opts;
-DROP TABLE networks;
-DROP TABLE images;
+DROP TABLE container_missing_device_requests;
+DROP TABLE container_device_requests;
+DROP TABLE container_device_requests;
+DROP TABLE device_requests_options;
+DROP TABLE device_requests_capabilities;
+DROP TABLE device_requests_device_ids;
+DROP TABLE device_requests;
