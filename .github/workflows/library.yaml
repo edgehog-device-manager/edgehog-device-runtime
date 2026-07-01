@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2025, 2026 SECO Mind Srl
+# Copyright 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Tests that don't run on linux
-name: multi-platform
+name: library
 on:
   workflow_call:
   workflow_dispatch:
@@ -27,31 +26,32 @@ defaults:
   run:
     shell: bash
 env:
+  # needed for cargo-insta and other tools
   CI: "true"
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
-  NEXTEST_PROFILE: "ci"
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+  MAIN_CRATE: "edgehog-device-runtime"
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }} / test
+  msrv:
+    runs-on: ubuntu-24.04
     strategy:
-      fail-fast: false
       matrix:
-        os: [windows-latest]
+        msrv: [1.88]
+    name: msrv / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: ./.github/actions/install-deps
-        with:
-          for-image: "${{ matrix.os }}"
       - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+        with:
+          toolchain: ${{ matrix.msrv }}
       - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: taiki-e/install-action@v2.82.5
         with:
-          tool: cargo-nextest
-      - name: cargo nextest run
-        run: |
-          cargo nextest run --locked --all-features --workspace
+          tool: cargo-hack
+      - name: cargo +${{ matrix.msrv }} check
+        run: cargo +${{ matrix.msrv }} hack --no-dev-deps check --all-features -p "$MAIN_CRATE"
