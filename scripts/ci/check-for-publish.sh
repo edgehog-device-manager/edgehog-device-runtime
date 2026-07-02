@@ -8,7 +8,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,12 +29,19 @@ listPackage() {
 
 pkgsFiles=$(
     cat <(cargo package --allow-dirty -l -p "edgehog-device-runtime") \
-        <(listPackage "edgehog-device-runtime-forwarder") \
-        <(listPackage "edgehog-device-runtime-storage") \
+        <(listPackage "cellular-modems-service") \
         <(listPackage "e2e-test") \
         <(listPackage "e2e-test-containers") \
         <(listPackage "e2e-test-forwarder") \
-        <(listPackage "edgehog-device-runtime-containers") |
+        <(listPackage "e2e-test-forwarder") \
+        <(listPackage "edgehog-device-runtime-containers") \
+        <(listPackage "edgehog-device-runtime-forwarder") \
+        <(listPackage "edgehog-device-runtime-service") \
+        <(listPackage "edgehog-device-runtime-store") \
+        <(listPackage "edgehog-device-runtime-tls") \
+        <(listPackage "edgehogctl") \
+        <(listPackage "hardware-id-service") \
+        <(listPackage "led-manager-service") |
         sort
 )
 localFiles=$(

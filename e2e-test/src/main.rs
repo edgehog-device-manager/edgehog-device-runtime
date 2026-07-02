@@ -51,17 +51,17 @@ struct AstartePayload<T> {
 #[derive(Debug, Parser)]
 struct Cli {
     /// Astarte API base url
-    #[arg(short = 'u', long, env = "E2E_ASTARTE_API_URL")]
+    #[arg(short = 'u', long, env = "E2E_API_URL")]
     api_url: Url,
     /// Astarte realm to use
-    #[arg(short, long, env = "E2E_REALM_NAME")]
+    #[arg(short, long, env = "E2E_REALM")]
     realm: String,
     /// Astarte device id to send data from.
     #[arg(short, long, env = "E2E_DEVICE_ID")]
     device_id: String,
-    /// The test device credentials secret
-    #[arg(short, long, env = "E2E_CREDENTIALS_SECRET")]
-    secret: String,
+    /// The test device pairing token
+    #[arg(short, long, env = "E2E_PAIRING_TOKEN")]
+    pairing_token: String,
     /// Token with access to the Astarte APIs
     #[arg(short, long, env = "E2E_TOKEN")]
     token: String,
@@ -134,10 +134,10 @@ async fn main() -> color_eyre::Result<()> {
     let astarte_options = AstarteDeviceSdkConfigOptions {
         realm: cli.realm.clone(),
         device_id: Some(cli.device_id.clone()),
-        credentials_secret: Some(cli.secret.clone()),
+        pairing_token: Some(cli.pairing_token.clone()),
         pairing_url,
-        pairing_token: None,
         ignore_ssl: cli.ignore_ssl,
+        credentials_secret: None,
     };
 
     let device_options = DeviceManagerOptions {
