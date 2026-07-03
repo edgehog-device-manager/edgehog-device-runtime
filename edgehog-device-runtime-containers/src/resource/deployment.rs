@@ -21,7 +21,9 @@ use std::collections::{BTreeMap, HashSet};
 use edgehog_store::{
     conversions::SqlUuid,
     models::containers::{
-        container::{ContainerDeviceMapping, ContainerNetwork, ContainerVolume},
+        container::{
+            ContainerDeviceMapping, ContainerDeviceRequest, ContainerNetwork, ContainerVolume,
+        },
         deployment::DeploymentStatus,
     },
 };
@@ -44,6 +46,7 @@ pub(crate) type DeploymentRow = (
     Option<ContainerNetwork>,
     Option<ContainerVolume>,
     Option<ContainerDeviceMapping>,
+    Option<ContainerDeviceRequest>,
 );
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -52,14 +55,24 @@ pub(crate) struct Deployment {
     pub(crate) images: HashSet<Uuid>,
     pub(crate) volumes: HashSet<Uuid>,
     pub(crate) networks: HashSet<Uuid>,
-    pub(crate) device_mapping: HashSet<Uuid>,
+    pub(crate) device_mappings: HashSet<Uuid>,
+    pub(crate) device_requests: HashSet<Uuid>,
 }
 
 impl From<Vec<DeploymentRow>> for Deployment {
     fn from(value: Vec<DeploymentRow>) -> Self {
         value.into_iter().fold(
             Self::default(),
-            |mut acc, (container_id, idx, image_id, c_network, c_volume, c_device_mapping)| {
+            |mut acc,
+             (
+                container_id,
+                idx,
+                image_id,
+                c_network,
+                c_volume,
+                c_device_mapping,
+                c_device_request,
+            )| {
                 acc.containers.insert(idx, *container_id);
                 acc.images.insert(*image_id);
 
@@ -72,8 +85,13 @@ impl From<Vec<DeploymentRow>> for Deployment {
                 }
 
                 if let Some(c_device_mapping) = c_device_mapping {
-                    acc.device_mapping
+                    acc.device_mappings
                         .insert(*c_device_mapping.device_mapping_id);
+                }
+
+                if let Some(c_device_request) = c_device_request {
+                    acc.device_requests
+                        .insert(*c_device_request.device_request_id);
                 }
 
                 acc
