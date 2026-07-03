@@ -210,7 +210,7 @@ systemd = { workspace = true, optional = true }
 udev = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"], optional = true }
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
 [features]
 default = [
@@ -234,7 +234,7 @@ containers = [
 # installed
 cross = ["bindgen", "vendored"]
 # Enable the file transfer feature
-file-transfer = ["windows-sys"]
+file-transfer = []
 # Enable the forwarder service
 forwarder = ["dep:edgehog-forwarder"]
 # Enable connecting to astarte through the Message Hub
