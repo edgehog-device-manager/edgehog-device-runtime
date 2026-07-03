@@ -8,7 +8,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,6 +22,13 @@ set -exEuo pipefail
 
 # Check if the crate can be compiled with only the files that will be packaged when publishing
 
+target_dir=$(cargo metadata --no-deps --format-version 1 | jq '.target_directory' --raw-output)
+
+workingDir="$target_dir/check-publish"
+
+rm -rf "$workingDir" || true
+mkdir -p "$workingDir"
+
 # List files in a package
 listPackage() {
     cargo package --allow-dirty -l -p "$1" | xargs -I '{}' echo "$1/{}"
@@ -29,12 +36,19 @@ listPackage() {
 
 pkgsFiles=$(
     cat <(cargo package --allow-dirty -l -p "edgehog-device-runtime") \
-        <(listPackage "edgehog-device-runtime-forwarder") \
-        <(listPackage "edgehog-device-runtime-storage") \
+        <(listPackage "cellular-modems-service") \
         <(listPackage "e2e-test") \
         <(listPackage "e2e-test-containers") \
         <(listPackage "e2e-test-forwarder") \
-        <(listPackage "edgehog-device-runtime-containers") |
+        <(listPackage "e2e-test-forwarder") \
+        <(listPackage "edgehog-device-runtime-containers") \
+        <(listPackage "edgehog-device-runtime-forwarder") \
+        <(listPackage "edgehog-device-runtime-service") \
+        <(listPackage "edgehog-device-runtime-store") \
+        <(listPackage "edgehog-device-runtime-tls") \
+        <(listPackage "edgehogctl") \
+        <(listPackage "hardware-id-service") \
+        <(listPackage "led-manager-service") |
         sort
 )
 localFiles=$(
@@ -43,10 +57,6 @@ localFiles=$(
 
 # List files unique to localFiles and not present in pkgsFiles
 toCopy=$(comm -12 <(echo "$localFiles") <(echo "$pkgsFiles"))
-
-workingDir="$(mktemp -d)"
-
-mkdir -p "$workingDir"
 
 cp -v Cargo.toml Cargo.lock "$workingDir"
 
@@ -58,3 +68,6 @@ echo "$toCopy" | while read -r file; do
 done
 
 cargo publish --dry-run --manifest-path "$workingDir/Cargo.toml" --workspace --all-features --locked
+
+# So it doesn't get cached in CI
+rm -rf "$workingDir"

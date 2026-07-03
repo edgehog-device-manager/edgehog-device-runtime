@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -53,6 +53,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: true
           persist-credentials: false
       - &install-rust
         uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
@@ -60,7 +61,7 @@ jobs:
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - name: Run release-plz
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@v0.5.130
         with:
           command: release
         env:
@@ -71,6 +72,7 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-24.04
+    if: ${{ github.repository_owner == 'edgehog-device-manager' }}
     permissions:
       contents: write
       pull-requests: write
@@ -83,7 +85,7 @@ jobs:
       - *install-rust
       - *login-crates
       - name: Run release-plz
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@v0.5.130
         with:
           command: release-pr
         env:

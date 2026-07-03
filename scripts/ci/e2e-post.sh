@@ -23,16 +23,21 @@ set -exEuo pipefail
 # Trap -e errors
 trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
 
-if [ $# != 2 ]; then
-    base=${BASE_REF:-main}
-    head=${HEAD_REF:-HEAD}
-else
-    base=$1
-    head=$2
-fi
+NAMESPACE="$1"
 
-git_file_names() {
-    git diff --name-only "$base" "$head"
-}
+kubectl describe astarte astarte -n "$NAMESPACE"
 
-git_file_names | xargs --max-args 1 -P "$(nproc)" ./scripts/ci/copyright.sh
+kubectl describe deployments/astarte-operator-controller-manager -n astarte-operator
+kubectl logs deployments/astarte-operator-controller-manager -n astarte-operator
+
+kubectl get pods -n "$NAMESPACE"
+
+for pod in $(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name"); do
+    echo "==== POD($pod) ===="
+
+    kubectl describe pod -n "$NAMESPACE" "$pod"
+
+    echo "==== LOGS($pod) ===="
+
+    kubectl logs -n "$NAMESPACE" "$pod"
+done

@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,11 +23,15 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 env:
+  CI: "true"
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
-  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  NEXTEST_PROFILE: "ci"
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -38,18 +42,16 @@ jobs:
         os: [windows-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: ./.github/actions/install-deps
+        with:
+          for-image: "${{ matrix.os }}"
       - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
       - uses: mozilla-actions/sccache-action@v0.0.10
-      # Setup vcpkg binary cache
-      # https://learn.microsoft.com/en-us/vcpkg/users/binarycaching#gha-quickstart
-      - uses: actions/github-script@v9
+      - uses: taiki-e/install-action@v2.82.5
         with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-      - name: Set VCPKG_ROOT
-        run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Install dependencies
-        run: vcpkg install sqlite3:x64-windows-static-md
-      - name: cargo test
-        run: cargo test --locked --all-features --workspace
+          tool: cargo-nextest
+      - name: cargo nextest run
+        run: |
+          cargo nextest run --locked --all-features --workspace

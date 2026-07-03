@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,8 +26,17 @@ on:
       - release-*
 permissions:
   contents: read
+  id-token: write
 env:
   CI: "true"
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+  NEXTEST_PROFILE: "ci"
+  MAIN_CRATE: "edgehog-device-runtime"
+  EXPORT_FOR_CI: "true"
 # Spend CI time only on latest ref
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -43,25 +52,38 @@ jobs:
       pull-requests: read
     with:
       pr: ${{ github.event.pull_request.number }}
-  reuse:
-    uses: ./.github/workflows/reuse-lint.yaml
   common:
     uses: ./.github/workflows/common.yaml
-    needs: [reuse, dco]
-  warmup-caches:
-    uses: ./.github/workflows/warmup-caches.yaml
-    needs: [reuse, dco]
-  check:
-    uses: ./.github/workflows/check.yaml
-    needs: [warmup-caches]
-  test:
-    uses: ./.github/workflows/test.yaml
-    secrets: inherit
-    needs: [warmup-caches]
   e2e-test:
     uses: ./.github/workflows/e2e-test.yaml
-    # doesn't need to wait for the cache since creating the astarte cluster takes longer
-    needs: [reuse, dco]
   multi-platform:
     uses: ./.github/workflows/multi-platform.yaml
-    needs: [reuse, dco]
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: ./.github/actions/install-deps
+      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: go-task/setup-task@v2.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - uses: taiki-e/install-action@v2.82.5
+        with:
+          tool: |
+            cargo-docs-rs
+            cargo-hack
+            cargo-llvm-cov
+            cargo-minimal-versions
+            cargo-nextest
+            cargo-semver-checks
+            rustfilt
+            typos-cli
+      - run: |
+          task ci
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          use_oidc: true
+          fail_ci_if_error: false
