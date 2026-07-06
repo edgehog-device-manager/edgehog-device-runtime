@@ -59,7 +59,9 @@ fn main() -> eyre::Result<()> {
 
     debug!(protos = %protos_path.display(), "using proto directory");
 
-    let protos = find_protos(&protos_path)?;
+    let mut protos = find_protos(&protos_path)?;
+    // Make the paths stable
+    protos.sort_unstable();
 
     debug!(output = %cli.output.display(), "using output directory");
 
