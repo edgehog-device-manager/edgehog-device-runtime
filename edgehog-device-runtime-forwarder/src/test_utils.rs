@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -73,6 +73,7 @@ fn proto_http_req(request_id: Vec<u8>, url: &Url, body: Vec<u8>) -> proto::Messa
                 headers: HashMap::new(),
                 body,
                 port: url.port().expect("nonexistent port").into(),
+                host: None,
             })),
         })),
     }
@@ -120,6 +121,7 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> Result<TungMes
                 headers,
                 body: Vec::new(),
                 port,
+                host: None,
             })),
         })),
     };

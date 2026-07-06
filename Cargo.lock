@@ -248,7 +248,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec8a5259cc34ea9f26db1202ccd83ff4c961ed19fdb4ca7b775ef83022458092"
 dependencies = [
  "chrono",
- "prost 0.14.4",
+ "prost",
  "prost-types",
  "serde",
  "serde_json",
@@ -1240,18 +1240,9 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-forwarder-proto"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa13626ad1479a5b82b7bf55984c49b80478381e7600deaef201f9fd1db60a50"
+version = "0.12.0"
 dependencies = [
- "prost 0.12.6",
-]
-
-[[package]]
-name = "edgehog-device-forwarder-proto"
-version = "0.11.1"
-dependencies = [
- "prost 0.14.4",
+ "prost",
 ]
 
 [[package]]
@@ -1350,7 +1341,7 @@ dependencies = [
  "astarte-device-sdk",
  "backoff",
  "displaydoc",
- "edgehog-device-forwarder-proto 0.1.0",
+ "edgehog-device-forwarder-proto",
  "edgehog-device-runtime-tls",
  "futures",
  "hex",
@@ -1373,7 +1364,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12807d2216753a325df14ca0d086932ad9cf7daf0da581b14cbd6627db49ccbd"
 dependencies = [
  "chrono",
- "prost 0.14.4",
+ "prost",
  "prost-types",
  "tonic",
  "tonic-prost",
@@ -2374,15 +2365,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
@@ -3096,22 +3078,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
-dependencies = [
- "bytes",
- "prost-derive 0.12.6",
-]
-
-[[package]]
-name = "prost"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
- "prost-derive 0.14.4",
+ "prost-derive",
 ]
 
 [[package]]
@@ -3126,24 +3098,11 @@ dependencies = [
  "multimap",
  "petgraph",
  "prettyplease",
- "prost 0.14.4",
+ "prost",
  "prost-types",
  "regex",
  "syn",
  "tempfile",
-]
-
-[[package]]
-name = "prost-derive"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
-dependencies = [
- "anyhow",
- "itertools 0.12.1",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -3166,7 +3125,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "chrono",
- "prost 0.14.4",
+ "prost",
 ]
 
 [[package]]
@@ -4379,7 +4338,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
 dependencies = [
  "bytes",
- "prost 0.14.4",
+ "prost",
  "tonic",
 ]
 

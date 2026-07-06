@@ -32,7 +32,7 @@ clap = { workspace = true, features = ["derive"] }
 color-eyre.workspace = true
 eyre.workspace = true
 prost-build.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing.workspace = true
 tracing-error.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 walkdir.workspace = true
