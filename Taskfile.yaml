@@ -48,6 +48,7 @@ tasks:
       # - check-copyright
       - check-spelling
       - check-for-publish
+      - check-proto
       - cargo-fmt
       - cargo-clippy
       - cargo-docs-rs
@@ -121,3 +122,14 @@ tasks:
   e2e-test:
     desc: "Run the e2e-test with Astarte"
     cmd: ./scripts/ci/e2e-test.sh
+
+  check-proto:
+    desc: "Check that the protobuf are up to date"
+    deps:
+      - generate-proto
+    cmd: git diff --exit-code --name-only
+
+  generate-proto:
+    desc: "Generates the protobuf definitions"
+    cmds:
+      - ./scripts/ci/generate-proto.sh
