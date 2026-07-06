@@ -30,7 +30,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev libudev-dev libsystemd-dev upower
+        sudo apt-get install -y libsqlite3-dev libudev-dev libsystemd-dev upower protobuf-compiler
     - name: Install MacOS system dependencies
       if: ${{ startsWith(inputs.for-image, 'macos-') }}
       shell: bash
