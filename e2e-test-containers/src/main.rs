@@ -16,60 +16,43 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::env::VarError;
+use std::{env::VarError, path::PathBuf};
 
-use astarte_device_sdk::{
-    DeviceClient, EventLoop,
-    builder::DeviceBuilder,
-    pairing::api::PairingApi,
-    rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
-    store::SqliteStore,
-    transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig},
-};
+use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
-use cli::AstarteConfig;
-use eyre::{WrapErr, eyre};
-use receive::receive;
-use tokio::task::JoinSet;
+use eyre::eyre;
+use reqwest::Url;
+use serde::Deserialize;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use self::cli::Cli;
 use self::send::ApiClient;
 
 mod cli;
-mod receive;
 mod send;
 
-async fn connect(
-    astarte: &AstarteConfig,
-    tasks: &mut JoinSet<color_eyre::Result<()>>,
-) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>> {
-    let mqtt_config = MqttConfig::new(MqttArgs {
-        realm: astarte.realm.clone(),
-        device_id: astarte.device_id.clone(),
-        credential: Credential::secret(astarte.credentials_secret.clone()),
-        pairing_url: astarte.pairing_url.clone(),
-    })
-    .ignore_ssl_errors();
+/// Configuration file
+// TODO: share with edgehog
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Config {
+    pub astarte_device_sdk: Option<DeviceSdkArgs>,
+    pub store_directory: Option<PathBuf>,
+}
 
-    let store = SqliteStore::options()
-        .with_writable_dir(&astarte.store_dir)
-        .await?;
-
-    let (client, connection) = DeviceBuilder::new()
-        .interface_directory(&astarte.interfaces_dir)?
-        .writable_dir(&astarte.store_dir)
-        .store(store)
-        .connection(mqtt_config)
-        .build()
-        .await?;
-
-    tasks.spawn(async move {
-        connection.handle_events().await?;
-        Ok(())
-    });
-
-    Ok(client)
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeviceSdkArgs {
+    /// The Astarte realm the device belongs to.
+    pub realm: Option<String>,
+    /// A unique ID for the device.
+    pub device_id: Option<String>,
+    /// The credentials secret used to authenticate with Astarte.
+    pub credentials_secret: Option<String>,
+    /// Token used to register the device.
+    pub pairing_token: Option<String>,
+    /// Url to the Astarte pairing API
+    pub pairing_url: Option<Url>,
+    /// Ignores SSL error from the Astarte broker.
+    pub ignore_ssl: Option<bool>,
 }
 
 #[tokio::main]
@@ -78,7 +61,7 @@ async fn main() -> color_eyre::Result<()> {
 
     color_eyre::install()?;
 
-    aws_lc_rs::default_provider()
+    rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .map_err(|_| eyre!("couldn't install default crypto provider"))?;
 
@@ -98,43 +81,19 @@ async fn main() -> color_eyre::Result<()> {
     match &cli.command {
         cli::Command::Send {
             token,
-            appengine_url,
             data,
             curl,
+            config,
         } => {
-            let client = ApiClient::new(&cli.astarte, token.clone(), appengine_url.clone())?;
+            let config = tokio::fs::read_to_string(config).await?;
+            let config: Config = toml::from_str(&config)?;
+
+            let client = ApiClient::new(config, token.clone())?;
 
             if *curl {
                 client.print_curl(data).await?;
             } else {
                 client.read(data).await?;
-            }
-        }
-        cli::Command::Receive => {
-            let mut tasks = JoinSet::new();
-
-            let client = connect(&cli.astarte, &mut tasks).await?;
-
-            tasks.spawn(async move { receive(client, &cli.astarte.store_dir).await });
-
-            tasks.spawn(async {
-                tokio::signal::ctrl_c().await?;
-
-                Ok(())
-            });
-
-            while let Some(res) = tasks.join_next().await {
-                match res {
-                    Err(err) if !err.is_cancelled() => {
-                        return Err(err).wrap_err("tsak failed ");
-                    }
-                    Err(_cancel) => {}
-                    Ok(res) => {
-                        return res.wrap_err("task returned an error");
-                    }
-                }
-
-                tasks.abort_all();
             }
         }
     }

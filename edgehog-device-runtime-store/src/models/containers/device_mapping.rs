@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,7 +21,7 @@
 use std::fmt::Display;
 
 use diesel::{
-    Insertable, Queryable, Selectable,
+    HasQuery, Insertable,
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
     dsl::exists,
@@ -39,7 +39,7 @@ use crate::{
 };
 
 /// Container device mappings with cGroup permissions.
-#[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
+#[derive(Debug, Clone, Insertable, HasQuery, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::device_mappings)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(treat_none_as_default_value = false)]

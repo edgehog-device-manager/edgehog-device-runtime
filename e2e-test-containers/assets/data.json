@@ -24,11 +24,19 @@
         "restartPolicy": "",
         "env": [],
         "binds": [],
-        "portBindings": ["9000:80"],
+        "portBindings": [
+          "9000:80"
+        ],
         "networkMode": "bridge",
-        "extraHosts": ["host.docker.internal:host-gateway"],
-        "capAdd": ["CAP_CHOWN"],
-        "capDrop": ["CAP_KILL"],
+        "extraHosts": [
+          "host.docker.internal:host-gateway"
+        ],
+        "capAdd": [
+          "CAP_CHOWN"
+        ],
+        "capDrop": [
+          "CAP_KILL"
+        ],
         "cpuPeriod": -1,
         "cpuQuota": -1,
         "cpuRealtimePeriod": -1,
@@ -38,9 +46,11 @@
         "memorySwap": -2,
         "memorySwappiness": -1,
         "volumeDriver": "local",
-        "storageOpt": [],
+        "storageOptKeys": [],
+        "storageOptValues": [],
         "readOnlyRootfs": false,
-        "tmpfs": [],
+        "tmpfsPaths": [],
+        "tmpfsOptions": [],
         "privileged": false
       }
     },
@@ -58,11 +68,19 @@
         "restartPolicy": "",
         "env": [],
         "binds": [],
-        "portBindings": ["9001:80"],
+        "portBindings": [
+          "9001:80"
+        ],
         "networkMode": "bridge",
-        "extraHosts": ["host.docker.internal:host-gateway"],
-        "capAdd": ["CAP_CHOWN"],
-        "capDrop": ["CAP_KILL"],
+        "extraHosts": [
+          "host.docker.internal:host-gateway"
+        ],
+        "capAdd": [
+          "CAP_CHOWN"
+        ],
+        "capDrop": [
+          "CAP_KILL"
+        ],
         "cpuPeriod": -1,
         "cpuQuota": -1,
         "cpuRealtimePeriod": -1,
@@ -72,9 +90,11 @@
         "memorySwap": -2,
         "memorySwappiness": -1,
         "volumeDriver": "local",
-        "storageOpt": [],
+        "storageOptKeys": [],
+        "storageOptValues": [],
         "readOnlyRootfs": false,
-        "tmpfs": [],
+        "tmpfsPaths": [],
+        "tmpfsOptions": [],
         "privileged": false
       }
     },
@@ -83,7 +103,9 @@
       "path": "/deployment",
       "data": {
         "id": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
-        "containers": ["03aba87c-1ebe-45e9-ab8c-c4eb89752af9"]
+        "containers": [
+          "03aba87c-1ebe-45e9-ab8c-c4eb89752af9"
+        ]
       }
     },
     {
@@ -91,7 +113,9 @@
       "path": "/deployment",
       "data": {
         "id": "0f3b4689-70f9-41da-a8ba-bf47be1c840b",
-        "containers": ["4c8f61e6-47e0-4acf-92fd-dbe8e49cb0b0"]
+        "containers": [
+          "4c8f61e6-47e0-4acf-92fd-dbe8e49cb0b0"
+        ]
       }
     },
     {

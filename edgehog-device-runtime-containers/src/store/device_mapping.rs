@@ -142,26 +142,8 @@ impl From<CreateDeviceMapping> for DeviceMapping {
     }
 }
 
-impl From<DeviceMapping> for crate::docker::container::DeviceMapping {
-    fn from(
-        DeviceMapping {
-            id: _,
-            status: _,
-            path_on_host,
-            path_in_container,
-            cgroup_permissions,
-        }: DeviceMapping,
-    ) -> Self {
-        Self {
-            path_on_host,
-            path_in_container,
-            cgroup_permissions,
-        }
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::requests::{OptString, ReqUuid};
 
     use super::*;
