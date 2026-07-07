@@ -18,62 +18,95 @@
 
 //! Device Request sent from Astarte
 
-use astarte_device_sdk::{FromEvent, IntoAstarteObject};
+use astarte_device_sdk::FromEvent;
 
-use super::{OptString, ReqUuid};
+use super::ReqUuid;
 
 /// Request to pull a Docker Network.
-#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord, IntoAstarteObject)]
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateDeviceRequest",
     path = "/deviceRequest",
     rename_all = "camelCase",
     aggregation = "object"
 )]
-#[astarte_object(rename_all = "camelCase")]
 pub struct CreateDeviceRequest {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
-    pub(crate) driver: OptString,
-    pub(crate) count: i64,
-    pub(crate) device_ids: Vec<String>,
-    pub(crate) capabilities: Vec<String>,
-    pub(crate) option_keys: Vec<String>,
-    pub(crate) option_values: Vec<String>,
+    pub(crate) driver: Option<String>,
+    pub(crate) count: Option<i64>,
+    pub(crate) device_ids: Option<Vec<String>>,
+    pub(crate) capabilities: Option<Vec<String>>,
+    pub(crate) option_keys: Option<Vec<String>>,
+    pub(crate) option_values: Option<Vec<String>>,
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
-    use astarte_device_sdk::{DeviceEvent, Value};
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_device_request(id: Uuid, deployment_id: Uuid) -> CreateDeviceRequest {
+    pub fn create_device_request(deployment_id: Uuid) -> CreateDeviceRequest {
         CreateDeviceRequest {
-            id: id.into(),
+            id: ReqUuid(Uuid::new_v4()),
             deployment_id: deployment_id.into(),
-            driver: "nvidia".into(),
-            count: -1,
-            device_ids: ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
-                .map(str::to_string)
-                .to_vec(),
-            capabilities: vec![r#"["gpu","nvidia","compute"]"#.to_string()],
-            option_keys: ["property1", "property2"].map(str::to_string).to_vec(),
-            option_values: ["string", "string"].map(str::to_string).to_vec(),
+            driver: Some("nvidia".into()),
+            count: Some(4),
+            device_ids: Some(
+                ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            capabilities: Some(vec![r#"["gpu","nvidia","compute"]"#.to_string()]),
+            option_keys: Some(["property1", "property2"].map(str::to_string).to_vec()),
+            option_values: Some(["string", "string"].map(str::to_string).to_vec()),
         }
     }
 
     pub fn create_device_request_event(id: Uuid, deployment_id: Uuid) -> DeviceEvent {
+        let fields = [
+            ("id", AstarteData::String(id.to_string())),
+            (
+                "deploymentId",
+                AstarteData::String(deployment_id.to_string()),
+            ),
+            ("driver", AstarteData::String("nvidia".to_string())),
+            ("count", AstarteData::Integer(4)),
+            (
+                "deviceIds",
+                AstarteData::StringArray(
+                    ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
+                        .map(str::to_string)
+                        .to_vec(),
+                ),
+            ),
+            (
+                "capabilities",
+                AstarteData::StringArray(vec![r#"["gpu","nvidia","compute"]"#.to_string()]),
+            ),
+            (
+                "optionKeys",
+                AstarteData::StringArray(["property1", "property2"].map(str::to_string).to_vec()),
+            ),
+            (
+                "optionValues",
+                AstarteData::StringArray(["string", "string"].map(str::to_string).to_vec()),
+            ),
+        ]
+        .map(|(k, v)| (k.to_string(), v));
+
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateDeviceRequest".to_string(),
             path: "/deviceRequest".to_string(),
             data: Value::Object {
-                data: AstarteObject::try_from(create_device_request(id, deployment_id)).unwrap(),
+                data: AstarteObject::from_iter(fields),
                 timestamp: Utc::now(),
             },
         }
@@ -81,13 +114,12 @@ pub(crate) mod tests {
 
     #[test]
     fn device_request_from_event() {
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let event = create_device_request_event(id, deployment_id);
+
+        let expect = create_device_request(deployment_id);
+        let event = create_device_request_event(expect.id.0, deployment_id);
 
         let request = CreateDeviceRequest::from_event(event).unwrap();
-
-        let expect = create_device_request(id, deployment_id);
 
         assert_eq!(request, expect);
     }

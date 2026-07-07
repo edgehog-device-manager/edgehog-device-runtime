@@ -31,45 +31,51 @@ use super::ReqUuid;
     aggregation = "object"
 )]
 pub struct CreateNetwork {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) driver: String,
+    #[mapping(required)]
     pub(crate) internal: bool,
+    #[mapping(required)]
     pub(crate) enable_ipv6: bool,
+    #[mapping(required)]
     pub(crate) options: Vec<String>,
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use std::fmt::Display;
-
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
-    use itertools::Itertools;
     use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_network_request_event(
-        id: impl Display,
-        deployment_id: impl Display,
-        driver: &str,
-        options: &[&str],
-    ) -> DeviceEvent {
-        let options = options.iter().map(|s| s.to_string()).collect_vec();
+    pub(crate) fn create_network_req(deployment_id: Uuid) -> CreateNetwork {
+        CreateNetwork {
+            id: ReqUuid(Uuid::new_v4()),
+            deployment_id: ReqUuid(deployment_id),
+            driver: "bridge".to_string(),
+            internal: true,
+            enable_ipv6: false,
+            options: vec!["isolate=true".to_string()],
+        }
+    }
 
+    pub fn create_network_request_event(network: &CreateNetwork) -> DeviceEvent {
         let fields = [
-            ("id", AstarteData::String(id.to_string())),
+            ("id", AstarteData::String(network.id.to_string())),
             (
                 "deploymentId",
-                AstarteData::String(deployment_id.to_string()),
+                AstarteData::String(network.deployment_id.to_string()),
             ),
-            ("driver", AstarteData::String(driver.to_string())),
-            ("checkDuplicate", AstarteData::Boolean(false)),
-            ("internal", AstarteData::Boolean(false)),
-            ("enableIpv6", AstarteData::Boolean(false)),
-            ("options", AstarteData::StringArray(options)),
+            ("driver", AstarteData::String(network.driver.to_string())),
+            ("internal", AstarteData::Boolean(network.internal)),
+            ("enableIpv6", AstarteData::Boolean(network.enable_ipv6)),
+            ("options", AstarteData::StringArray(network.options.clone())),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -86,23 +92,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn create_network_request() {
-        let id = Uuid::new_v4();
+    fn should_create_network_request() {
         let deployment_id = Uuid::new_v4();
-        let event =
-            create_network_request_event(id, deployment_id, "driver", &["foo=bar", "some="]);
+        let network = create_network_req(deployment_id);
+        let event = create_network_request_event(&network);
 
         let request = CreateNetwork::from_event(event).unwrap();
 
-        let expect = CreateNetwork {
-            id: ReqUuid(id),
-            deployment_id: ReqUuid(deployment_id),
-            driver: "driver".to_string(),
-            internal: false,
-            enable_ipv6: false,
-            options: ["foo=bar", "some="].map(str::to_string).to_vec(),
-        };
-
-        assert_eq!(request, expect);
+        assert_eq!(request, network);
     }
 }
