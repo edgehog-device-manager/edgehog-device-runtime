@@ -288,6 +288,9 @@ impl Manager {
 
             if reader {
                 conn.batch_execute("PRAGMA query_only = ON;")?;
+            } else {
+                // See: https://sqlite.org/pragma.html#pragma_optimize
+                conn.batch_execute("PRAGMA optimize=0x10002;")?;
             }
 
             Ok(conn)
