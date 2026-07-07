@@ -42,29 +42,38 @@ pub struct CreateImage {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::fmt::Display;
-
+    use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
-    use astarte_device_sdk::{DeviceEvent, Value};
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_image_request_event(
-        id: impl Display,
-        deployment_id: impl Display,
-        reference: &str,
-        auth: &str,
-    ) -> DeviceEvent {
-        let fields = [
-            ("id", id.to_string()),
-            ("deploymentId", deployment_id.to_string()),
-            ("reference", reference.to_string()),
-            ("registryAuth", auth.to_string()),
+    pub(crate) fn create_image_req(deployment_id: Uuid) -> CreateImage {
+        CreateImage {
+            id: ReqUuid(Uuid::new_v4()),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "postgres:15".to_string(),
+            registry_auth: None,
+        }
+    }
+
+    pub fn create_image_request_event(image: &CreateImage) -> DeviceEvent {
+        let mut fields: AstarteObject = [
+            ("id", image.id.to_string()),
+            ("deploymentId", image.deployment_id.to_string()),
+            ("reference", image.reference.to_string()),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.into()))
         .collect();
+
+        if let Some(retrystry_auth) = &image.registry_auth {
+            fields.insert(
+                "registryAuth".to_string(),
+                AstarteData::String(retrystry_auth.clone()),
+            );
+        }
 
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateImageRequest".to_string(),
@@ -78,20 +87,13 @@ pub(crate) mod tests {
 
     #[test]
     fn create_image_request() {
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let event =
-            create_image_request_event(id.to_string(), deployment_id, "reference", "registry_auth");
+
+        let image = create_image_req(deployment_id);
+        let event = create_image_request_event(&image);
 
         let request = CreateImage::from_event(event).unwrap();
 
-        let expect = CreateImage {
-            id: ReqUuid(id),
-            deployment_id: ReqUuid(deployment_id),
-            reference: "reference".to_string(),
-            registry_auth: Some("registry_auth".to_string()),
-        };
-
-        assert_eq!(request, expect);
+        assert_eq!(request, image);
     }
 }

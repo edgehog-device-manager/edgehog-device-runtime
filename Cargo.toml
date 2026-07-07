@@ -20,10 +20,10 @@
 name = "edgehog-device-runtime"
 version.workspace = true
 edition.workspace = true
-homepage.workspace = true
-license.workspace = true
 rust-version.workspace = true
 description.workspace = true
+homepage.workspace = true
+license.workspace = true
 
 [workspace]
 resolver = "3"
@@ -47,16 +47,17 @@ members = [
 [workspace.package]
 version = "0.12.2"
 edition = "2024"
-homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
-license = "Apache-2.0"
 rust-version = "1.88"
 description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
+homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
+license = "Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
 astarte-device-sdk = "0.15.0"
 astarte-device-sdk-mock = "0.15.0"
+astarte-test-utils = "0.15.0"
 async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
@@ -166,7 +167,7 @@ sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = { workspace = true, features = ["rt", "compat"] }
+tokio-util = { workspace = true, features = ["compat", "rt"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
@@ -242,6 +243,8 @@ forwarder = ["dep:edgehog-forwarder"]
 message-hub = ["astarte-device-sdk/message-hub"]
 # Preferred, use the platform certificate and TLS verifier.
 platform-verifier = ["edgehog-tls/platform-verifier"]
+# Enable logging of security events to journald
+security-events = ["dep:tracing-journald"]
 # Local service for the runtime
 service = ["dep:edgehog-service"]
 # Notifies systemd of the status and health of the runtime service
@@ -264,8 +267,6 @@ webpki-roots = [
 wifiscanner = ["dep:wifiscanner"]
 # Enable the communication with DBUS
 zbus = ["dep:zbus"]
-# Enable logging of security events to journald
-security-events = ["dep:tracing-journald"]
 
 [profile.release-optimised]
 inherits = "release"

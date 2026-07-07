@@ -54,7 +54,7 @@ pub struct DeviceRequest {
     /// Note that if this is specified the capabilities are ignored when selecting a device driver.
     pub driver: Option<String>,
     /// Path in the container for the device.
-    pub count: i64,
+    pub count: Option<i64>,
 }
 
 impl QueryModel for DeviceRequest {

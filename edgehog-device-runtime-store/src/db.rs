@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -288,6 +288,9 @@ impl Manager {
 
             if reader {
                 conn.batch_execute("PRAGMA query_only = ON;")?;
+            } else {
+                // See: https://sqlite.org/pragma.html#pragma_optimize
+                conn.batch_execute("PRAGMA optimize=0x10002;")?;
             }
 
             Ok(conn)
