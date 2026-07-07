@@ -34,7 +34,7 @@ use uuid::Uuid;
 /// Binary serialization of a UUID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, FromSqlRow, AsExpression)]
 #[diesel(sql_type = Binary)]
-pub struct SqlUuid(Uuid);
+pub struct SqlUuid(pub Uuid);
 
 impl SqlUuid {
     /// create a new wrapped [`uuid`]
