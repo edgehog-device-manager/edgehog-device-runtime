@@ -212,8 +212,9 @@ impl TryFrom<&CreateVolume> for Vec<VolumeDriverOpts> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::requests::ReqUuid;
+    use crate::requests::volume::tests::create_volume_req;
 
     use super::*;
 
@@ -315,32 +316,21 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        let volume_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let volume = CreateVolume {
-            id: ReqUuid(volume_id),
-            deployment_id: ReqUuid(deployment_id),
-            driver: "local".to_string(),
-            options: [
-                "device=tmpfs",
-                "o=size=100m,uid=1000",
-                "type=tmpfs",
-                "empty=",
-            ]
-            .map(str::to_string)
-            .to_vec(),
-        };
-        store.create_volume(volume).await.unwrap();
+        let volume = create_volume_req(deployment_id);
+        store.create_volume(volume.clone()).await.unwrap();
 
-        let res = find_volume(&store, volume_id).await.unwrap();
+        let res = find_volume(&store, volume.id.0).await.unwrap();
 
         let exp = Volume {
-            id: SqlUuid::new(volume_id),
+            id: SqlUuid::new(volume.id.0),
             status: VolumeStatus::Received,
             driver: "local".to_string(),
         };
 
         assert_eq!(res, exp);
+
+        let volume_id = volume.id.0;
 
         let volume_opts = store.volume_opts(volume_id).await.unwrap();
 
@@ -417,18 +407,10 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        let volume_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let volume = CreateVolume {
-            id: ReqUuid(volume_id),
-            deployment_id: ReqUuid(deployment_id),
-            driver: "local".to_string(),
-            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
-                .map(str::to_string)
-                .to_vec(),
-        };
-        store.create_volume(volume).await.unwrap();
+        let volume = create_volume_req(deployment_id);
+        store.create_volume(volume.clone()).await.unwrap();
 
-        assert!(store.check_volume_exists(volume_id).await.unwrap());
+        assert!(store.check_volume_exists(volume.id.0).await.unwrap());
     }
 }

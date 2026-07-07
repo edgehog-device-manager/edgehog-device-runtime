@@ -156,14 +156,12 @@ dependencies = [
 [[package]]
 name = "astarte-device-error"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56505cfb31c3e3f9918178a4e45d33dc1ee919ccfee26247a667d3c8af3e490c"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#73c1ece81028c00465439d5edd0a896a9b35734c"
 
 [[package]]
 name = "astarte-device-sdk"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0d3d8564e1bf40b60014af3f465ebdea56a48eba3d0e6521ba66397ed42f2ba"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#73c1ece81028c00465439d5edd0a896a9b35734c"
 dependencies = [
  "astarte-device-error",
  "astarte-device-sdk-derive",
@@ -207,8 +205,7 @@ dependencies = [
 [[package]]
 name = "astarte-device-sdk-derive"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfc0400dacecd4e9dc2deaeb2f4661fbd7af4ef2dfc7bed789bb75b1aba5ede6"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#73c1ece81028c00465439d5edd0a896a9b35734c"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -219,8 +216,7 @@ dependencies = [
 [[package]]
 name = "astarte-device-sdk-mock"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d088dc79deaf7067d05160f5d0da129446ef9fa6978c35e16e53487f9e4e23"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#73c1ece81028c00465439d5edd0a896a9b35734c"
 dependencies = [
  "astarte-device-sdk",
  "chrono",
@@ -256,6 +252,15 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "uuid",
+]
+
+[[package]]
+name = "astarte-test-utils"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f93a68c827766a5d0481c5cfa543176ba4ee307b4a2b7e69add598bb0dec17c"
+dependencies = [
+ "insta",
 ]
 
 [[package]]
@@ -1311,6 +1316,7 @@ version = "0.12.0"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
+ "astarte-test-utils",
  "base64",
  "bollard",
  "cfg-if",
@@ -1322,6 +1328,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
+ "insta",
  "itertools 0.15.0",
  "mockall",
  "pretty_assertions",
@@ -1510,7 +1517,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3540,7 +3547,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3606,7 +3613,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4070,7 +4077,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4776,7 +4783,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

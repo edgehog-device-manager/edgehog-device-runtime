@@ -18,37 +18,39 @@
 
 //! Docker struct to manage containers.
 
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    hash::Hash,
-    ops::{Deref, DerefMut},
-    sync::OnceLock,
-};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::fmt::{Debug, Display};
+use std::ops::{Deref, DerefMut};
+use std::sync::OnceLock;
 
-use bollard::{
-    errors::Error as BollardError,
-    models::{
-        ContainerCreateBody, ContainerInspectResponse, ContainerStatsResponse, EndpointSettings,
-        HostConfig, NetworkingConfig, PortBinding, RestartPolicy as BollardRestartPolicy,
-        RestartPolicyNameEnum,
-    },
-    query_parameters::{
-        CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
-        StartContainerOptions, StatsOptionsBuilder, StopContainerOptions,
-    },
+use bollard::errors::Error as BollardError;
+use bollard::models::{
+    ContainerCreateBody, ContainerInspectResponse, ContainerStatsResponse, EndpointSettings,
+    HostConfig, PortBinding, RestartPolicy as BollardRestartPolicy, RestartPolicyNameEnum,
 };
+use bollard::plugin::{
+    DeviceMapping, DeviceRequest, HealthConfig, HostConfigCgroupnsModeEnum, HostConfigLogConfig,
+    ResourcesBlkioWeightDevice, ResourcesUlimits, ThrottleDevice,
+};
+use bollard::query_parameters::{
+    CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions, StartContainerOptions,
+    StatsOptionsBuilder, StopContainerOptions,
+};
+use edgehog_store::conversions::SqlUuid;
+use edgehog_store::models::containers::container::{
+    CgroupnsMode, Container as StoreContainer, ContainerBlkioDeviceReadBps,
+    ContainerBlkioDeviceReadIops, ContainerBlkioDeviceWriteBps, ContainerBlkioDeviceWriteIops,
+    ContainerBlkioWeightDevice, ContainerPortBindData, ContainerRestartPolicy, ContainerUlimit,
+};
+use edgehog_store::models::containers::device_mapping::DeviceMapping as StoreDeviceMapping;
+use eyre::Context;
 use futures::StreamExt;
 use tracing::{debug, info, instrument, trace, warn};
 use uuid::Uuid;
 
-use crate::{
-    client::*,
-    requests::{
-        BindingError,
-        container::{RestartPolicy, parse_port_binding},
-    },
-};
+use crate::client::*;
+use crate::store::device_request::StoredDeviceRequest;
 
 /// Error for the container operations.
 #[non_exhaustive]
@@ -319,109 +321,372 @@ impl Display for ContainerId {
 }
 
 /// Docker container struct.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Container {
     pub(crate) id: ContainerId,
-    /// The name (or reference) of the image to use.
-    ///
-    /// This should be in the form `[https://docker.io/][library/]postgres[:14]` with the fields in
-    /// square brackets optional.
-    pub(crate) image: String,
-    /// Network mode to use for this container.
-    pub(crate) network_mode: String,
-    /// Network to connect the container to.
-    pub(crate) networks: Vec<String>,
-    /// The hostname to use for the container.
-    ///
-    /// Defaults to the container name.
-    pub(crate) hostname: Option<String>,
-    /// The behaviour to apply when the container exits.
-    ///
-    /// See the [create container
-    /// API](https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerCreate) for
-    /// possible values.
-    pub(crate) restart_policy: RestartPolicy,
-    /// A list of environment variables to set inside the container.
-    ///
-    /// In the form of `NAME=VALUE`.
-    pub(crate) env: Vec<String>,
-    /// A list of volume bindings for this container.
-    pub(crate) binds: Vec<String>,
-    /// Describes the mapping of container ports to host ports.
-    ///
-    /// It uses the container's port-number and protocol as key in the format `<port>/<protocol>`, for
-    /// example, 80/udp.
-    pub(crate) port_bindings: PortBindingMap<String>,
-    /// A list of hostnames/IP mappings to add to the container's /etc/hosts file.
-    ///
-    /// Specified in the form ["hostname:IP"].
-    pub(crate) extra_hosts: Vec<String>,
-    /// A list of kernel capabilities to add to the container.
-    pub(crate) cap_add: Vec<String>,
-    /// A list of kernel capabilities to drop from the container.
-    pub(crate) cap_drop: Vec<String>,
-    /// A list of device to mount inside the container.
-    pub(crate) device_mappings: Vec<DeviceMapping>,
-    /// A list of device to request for the container.
-    pub(crate) device_requests: Vec<DeviceRequest>,
-    /// The length of a CPU period in microseconds.
-    pub(crate) cpu_period: Option<i64>,
-    /// Microseconds of CPU time that the container can get in a CPU period.
-    pub(crate) cpu_quota: Option<i64>,
-    /// The length of a CPU real-time period in microseconds.
-    pub(crate) cpu_realtime_period: Option<i64>,
-    /// The length of a CPU real-time runtime in microseconds.
-    pub(crate) cpu_realtime_runtime: Option<i64>,
-    /// Memory limit in bytes.
-    pub(crate) memory: Option<i64>,
-    /// Memory soft limit in bytes.
-    pub(crate) memory_reservation: Option<i64>,
-    /// Total memory limit (memory + swap).
-    pub(crate) memory_swap: Option<i64>,
-    /// Memory swappiness
-    pub(crate) memory_swappiness: Option<i64>,
-    /// Driver that this container uses to mount volumes.
-    pub(crate) volume_driver: Option<String>,
-    /// Mount the container's root filesystem as read only.
-    pub(crate) read_only_rootfs: bool,
-    /// Storage driver options for this container.
-    pub(crate) storage_opt: HashMap<String, String>,
-    /// Gives the container full access to the host.
-    ///
-    /// Defaults to false.
-    pub(crate) privileged: bool,
+    pub(crate) req: Box<ContainerCreateBody>,
 }
 
 impl Container {
-    /// Convert the port bindings to be used in [`HostConfig`].
-    fn as_port_bindings(&self) -> HashMap<String, Option<Vec<PortBinding>>> {
-        self.port_bindings
-            .iter()
-            .map(|(port_proto, binds)| {
-                let bindings = if binds.is_empty() {
-                    None
-                } else {
-                    Some(binds.iter().map(PortBinding::from).collect())
-                };
-
-                (port_proto.to_string(), bindings)
-            })
-            .collect()
+    pub(crate) fn add_image(&mut self, refrence: String) {
+        self.req.image = Some(refrence);
     }
 
-    /// Convert the networks into [`NetworkingConfig`]
-    fn as_network_config(&self) -> HashMap<String, EndpointSettings> {
-        self.networks
-            .iter()
-            .map(|net_id| {
-                (
-                    net_id.clone(),
-                    EndpointSettings {
-                        ..Default::default()
-                    },
-                )
+    pub(crate) fn add_networks(&mut self, network_ids: Vec<SqlUuid>) {
+        let endpoint_config = self
+            .req
+            .networking_config
+            .get_or_insert_default()
+            .endpoints_config
+            .get_or_insert_default();
+
+        let iter = network_ids.into_iter().map(|net_id| {
+            (
+                net_id.to_string(),
+                EndpointSettings {
+                    ..Default::default()
+                },
+            )
+        });
+
+        endpoint_config.extend(iter);
+    }
+
+    pub(crate) fn add_env_vars(&mut self, envs: Vec<String>) {
+        self.req.env.get_or_insert_default().extend(envs);
+    }
+
+    pub(crate) fn add_binds(&mut self, binds: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .binds
+            .get_or_insert_default()
+            .extend(binds);
+    }
+
+    /// Convert the port bindings to be used in [`HostConfig`].
+    pub(crate) fn add_port_bindings(&mut self, binds: Vec<ContainerPortBindData<'_>>) {
+        let exposed_ports = binds.iter().map(|bind| bind.port.to_string());
+
+        self.add_exposed_ports(exposed_ports);
+
+        let port_binds = self
+            .req
+            .host_config
+            .get_or_insert_default()
+            .port_bindings
+            .get_or_insert_default();
+
+        binds.into_iter().for_each(|bind| {
+            let ContainerPortBindData {
+                port,
+                host_ip,
+                host_port,
+            } = bind;
+
+            let entry = port_binds
+                .entry(port.into_owned())
+                .or_default()
+                .get_or_insert_default();
+
+            entry.push(PortBinding {
+                host_ip: host_ip.map(Cow::into_owned),
+                host_port: host_port.map(|port| port.to_string()),
+            });
+        });
+    }
+
+    pub(crate) fn add_extra_hosts(&mut self, hosts: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .extra_hosts
+            .get_or_insert_default()
+            .extend(hosts);
+    }
+
+    pub(crate) fn extend_caps(&mut self, cap_add: Vec<String>, cap_drop: Vec<String>) {
+        let host = self.req.host_config.get_or_insert_default();
+
+        host.cap_add.get_or_insert_default().extend(cap_add);
+        host.cap_drop.get_or_insert_default().extend(cap_drop);
+    }
+
+    pub(crate) fn add_storage_opt(&mut self, opts: HashMap<String, String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .storage_opt
+            .get_or_insert_default()
+            .extend(opts);
+    }
+
+    pub(crate) fn add_tempfs(&mut self, tmpfs: HashMap<String, String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .tmpfs
+            .get_or_insert_default()
+            .extend(tmpfs);
+    }
+
+    pub(crate) fn add_device_mappings(&mut self, device_mappings: Vec<StoreDeviceMapping>) {
+        let iter = device_mappings.into_iter().map(|mapping| DeviceMapping {
+            path_on_host: Some(mapping.path_on_host),
+            path_in_container: Some(mapping.path_in_container),
+            cgroup_permissions: mapping.cgroup_permissions,
+        });
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .devices
+            .get_or_insert_default()
+            .extend(iter);
+    }
+
+    pub(crate) fn add_device_request(&mut self, req: StoredDeviceRequest) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .device_requests
+            .get_or_insert_default()
+            .push(DeviceRequest {
+                driver: req.device_request.driver,
+                count: req.device_request.count,
+                device_ids: Some(req.device_ids),
+                capabilities: Some(req.capabilities),
+                options: Some(req.options),
+            });
+    }
+
+    pub(crate) fn add_cmd(&mut self, cmds: Vec<String>) {
+        self.req.cmd.get_or_insert_default().extend(cmds);
+    }
+
+    pub(crate) fn add_health_check_test(&mut self, test: Vec<String>) {
+        self.req
+            .healthcheck
+            .get_or_insert_default()
+            .test
+            .get_or_insert_default()
+            .extend(test);
+    }
+
+    pub(crate) fn add_entrypoint(&mut self, entrypoint: Vec<String>) {
+        self.req
+            .entrypoint
+            .get_or_insert_default()
+            .extend(entrypoint);
+    }
+
+    pub(crate) fn add_labels(&mut self, labels: HashMap<String, String>) {
+        self.req.labels.get_or_insert_default().extend(labels);
+    }
+
+    pub(crate) fn add_exposed_ports(&mut self, ports: impl IntoIterator<Item = String>) {
+        self.req.exposed_ports.get_or_insert_default().extend(ports);
+    }
+
+    pub(crate) fn add_device_cgroup_rules(&mut self, rules: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .device_cgroup_rules
+            .get_or_insert_default()
+            .extend(rules);
+    }
+
+    pub(crate) fn add_ulimits(&mut self, ulimits: Vec<ContainerUlimit>) {
+        let iter = ulimits.into_iter().map(
+            |ContainerUlimit {
+                 container_id: _,
+                 name,
+                 soft,
+                 hard,
+             }| ResourcesUlimits {
+                name: Some(name.into_owned()),
+                soft: Some(i64::from(soft)),
+                hard: Some(i64::from(hard)),
+            },
+        );
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .ulimits
+            .get_or_insert_default()
+            .extend(iter);
+    }
+
+    pub(crate) fn add_dns(&mut self, dns: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .dns
+            .get_or_insert_default()
+            .extend(dns);
+    }
+
+    pub(crate) fn add_dns_options(&mut self, options: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .dns_options
+            .get_or_insert_default()
+            .extend(options);
+    }
+
+    pub(crate) fn add_dns_search(&mut self, search: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .dns_search
+            .get_or_insert_default()
+            .extend(search);
+    }
+
+    pub(crate) fn add_group_add(&mut self, groups: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .group_add
+            .get_or_insert_default()
+            .extend(groups);
+    }
+
+    pub(crate) fn add_sysctl(&mut self, systctl: HashMap<String, String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .sysctls
+            .get_or_insert_default()
+            .extend(systctl);
+    }
+
+    pub(crate) fn add_log_config(&mut self, log_config: HashMap<String, String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .log_config
+            .get_or_insert_default()
+            .config
+            .get_or_insert_default()
+            .extend(log_config);
+    }
+
+    pub(crate) fn add_blkio_weight_device(
+        &mut self,
+        blkio: Vec<ContainerBlkioWeightDevice>,
+    ) -> eyre::Result<()> {
+        let iter = blkio
+            .into_iter()
+            .map(|item| {
+                let weight = usize::try_from(item.weight)
+                    .wrap_err("couldn't convert device blkio weight")?;
+
+                Ok(ResourcesBlkioWeightDevice {
+                    path: Some(item.path.into_owned()),
+                    weight: Some(weight),
+                })
             })
-            .collect()
+            .collect::<eyre::Result<Vec<ResourcesBlkioWeightDevice>>>()?;
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .blkio_weight_device
+            .get_or_insert_default()
+            .extend(iter);
+
+        Ok(())
+    }
+
+    pub(crate) fn add_blkio_device_read_bps(&mut self, blkio: Vec<ContainerBlkioDeviceReadBps>) {
+        let iter = blkio.into_iter().map(|item| ThrottleDevice {
+            path: Some(item.path.into_owned()),
+            rate: Some(item.rate),
+        });
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .blkio_device_read_bps
+            .get_or_insert_default()
+            .extend(iter);
+    }
+
+    pub(crate) fn add_blkio_device_write_bps(&mut self, blkio: Vec<ContainerBlkioDeviceWriteBps>) {
+        let iter = blkio.into_iter().map(|item| ThrottleDevice {
+            path: Some(item.path.into_owned()),
+            rate: Some(item.rate),
+        });
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .blkio_device_write_bps
+            .get_or_insert_default()
+            .extend(iter);
+    }
+
+    pub(crate) fn add_blkio_device_read_iops(&mut self, blkio: Vec<ContainerBlkioDeviceReadIops>) {
+        let iter = blkio.into_iter().map(|item| ThrottleDevice {
+            path: Some(item.path.into_owned()),
+            rate: Some(item.rate),
+        });
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .blkio_device_read_iops
+            .get_or_insert_default()
+            .extend(iter);
+    }
+
+    pub(crate) fn add_blkio_device_write_iops(
+        &mut self,
+        blkio: Vec<ContainerBlkioDeviceWriteIops>,
+    ) {
+        let iter = blkio.into_iter().map(|item| ThrottleDevice {
+            path: Some(item.path.into_owned()),
+            rate: Some(item.rate),
+        });
+
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .blkio_device_write_iops
+            .get_or_insert_default()
+            .extend(iter);
+    }
+
+    pub(crate) fn add_security_opts(&mut self, security_opts: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .security_opt
+            .get_or_insert_default()
+            .extend(security_opts);
+    }
+
+    pub(crate) fn add_masked_paths(&mut self, masked_paths: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .masked_paths
+            .get_or_insert_default()
+            .extend(masked_paths);
+    }
+
+    pub(crate) fn add_read_only_paths(&mut self, read_only_paths: Vec<String>) {
+        self.req
+            .host_config
+            .get_or_insert_default()
+            .readonly_paths
+            .get_or_insert_default()
+            .extend(read_only_paths);
     }
 
     /// Create a new docker container.
@@ -432,9 +697,9 @@ impl Container {
         debug!("creating the {}", self);
 
         let options = CreateContainerOptions::from(&*self);
-        let config = ContainerCreateBody::from(&*self);
+        let config = self.req.clone();
         let res = client
-            .create_container(Some(options), config)
+            .create_container(Some(options), *config)
             .await
             .map_err(ContainerError::Create)?;
 
@@ -478,99 +743,129 @@ impl<'a> From<&'a Container> for CreateContainerOptions {
     }
 }
 
-impl From<&Container> for ContainerCreateBody {
-    fn from(value: &Container) -> Self {
-        let Container {
-            id: _,
-            image,
+impl<'a> TryFrom<StoreContainer<'a>> for Container {
+    type Error = eyre::Report;
+
+    fn try_from(value: StoreContainer<'a>) -> Result<Self, Self::Error> {
+        let StoreContainer {
+            id,
+            local_id,
+            image_id: _,
+            status: _,
             network_mode,
-            networks: _,
             hostname,
             restart_policy,
-            env,
-            binds,
-            port_bindings: _,
-            extra_hosts,
-            cap_add,
-            cap_drop,
-            device_mappings,
-            device_requests,
-            privileged,
+            restart_policy_maximum_retry_count,
             cpu_period,
             cpu_quota,
             cpu_realtime_period,
             cpu_realtime_runtime,
+            cpu_shares,
             memory,
             memory_reservation,
             memory_swap,
             memory_swappiness,
             volume_driver,
             read_only_rootfs,
-            storage_opt,
+            privileged,
+            domainname,
+            user,
+            health_check_interval,
+            health_check_timeout,
+            health_check_retries,
+            health_check_start_period,
+            health_check_start_interval,
+            working_dir,
+            network_disabled,
+            stop_signal,
+            stop_timeout,
+            auto_remove,
+            cgroupns_mode,
+            ipc_mode,
+            oom_score_adj,
+            userns_mode,
+            shm_size,
+            log_type,
+            blkio_weight,
+            pid_mode,
+            runtime,
         } = value;
 
-        let hostname = hostname.clone();
-        let env = env.iter().map(String::clone).collect();
-        let binds = binds.clone();
-        let port_bindings = value.as_port_bindings();
-        let networks = value.as_network_config();
-        let device_mappings = device_mappings
-            .iter()
-            .cloned()
-            .map(bollard::models::DeviceMapping::from)
-            .collect();
-        let device_requests = device_requests
-            .iter()
-            .cloned()
-            .map(bollard::models::DeviceRequest::from)
-            .collect();
+        let restart_policy = restart_policy.map(|policy| BollardRestartPolicy {
+            name: Some(match policy {
+                ContainerRestartPolicy::Empty => RestartPolicyNameEnum::EMPTY,
+                ContainerRestartPolicy::No => RestartPolicyNameEnum::NO,
+                ContainerRestartPolicy::Always => RestartPolicyNameEnum::ALWAYS,
+                ContainerRestartPolicy::UnlessStopped => RestartPolicyNameEnum::UNLESS_STOPPED,
+                ContainerRestartPolicy::OnFailure => RestartPolicyNameEnum::ON_FAILURE,
+            }),
+            maximum_retry_count: restart_policy_maximum_retry_count.map(i64::from),
+        });
 
-        let restart_policy = BollardRestartPolicy {
-            name: Some(RestartPolicyNameEnum::from(*restart_policy)),
-            maximum_retry_count: None,
-        };
+        let cgroupns_mode = cgroupns_mode.map(|mode| match mode {
+            CgroupnsMode::Empty => HostConfigCgroupnsModeEnum::EMPTY,
+            CgroupnsMode::Private => HostConfigCgroupnsModeEnum::PRIVATE,
+            CgroupnsMode::Host => HostConfigCgroupnsModeEnum::HOST,
+        });
 
-        // NOTE: to expose ports you need to set both port_bindings in the host_config and exposed_ports
-        let exposed_ports = port_bindings.keys().cloned().collect();
+        let log_config = log_type.map(|log_type| HostConfigLogConfig {
+            typ: Some(log_type.into_owned()),
+            config: None,
+        });
 
-        let host_config = HostConfig {
-            restart_policy: Some(restart_policy),
-            binds: Some(binds),
-            port_bindings: Some(port_bindings),
-            network_mode: Some(network_mode.clone()),
-            extra_hosts: Some(extra_hosts.clone()),
-            cap_add: Some(cap_add.clone()),
-            cap_drop: Some(cap_drop.clone()),
-            privileged: Some(*privileged),
-            devices: Some(device_mappings),
-            device_requests: Some(device_requests),
-            cpu_period: *cpu_period,
-            cpu_quota: *cpu_quota,
-            cpu_realtime_period: *cpu_realtime_period,
-            cpu_realtime_runtime: *cpu_realtime_runtime,
-            memory: *memory,
-            memory_reservation: *memory_reservation,
-            memory_swap: *memory_swap,
-            memory_swappiness: *memory_swappiness,
-            volume_driver: volume_driver.clone(),
-            readonly_rootfs: Some(*read_only_rootfs),
-            storage_opt: Some(storage_opt.clone()),
-            ..Default::default()
-        };
+        let blkio_weight = blkio_weight
+            .map(u16::try_from)
+            .transpose()
+            .wrap_err("invalid blkio_weight value")?;
 
-        let networking_config = NetworkingConfig {
-            endpoints_config: Some(networks),
-        };
-
-        ContainerCreateBody {
-            hostname,
-            image: Some(image.clone()),
-            env: Some(env),
-            host_config: Some(host_config),
-            networking_config: Some(networking_config),
-            exposed_ports: Some(exposed_ports),
-            ..Default::default()
-        }
+        Ok(Container {
+            id: ContainerId::new(local_id.map(Cow::into_owned), id.0),
+            req: Box::new(ContainerCreateBody {
+                hostname: hostname.map(Cow::into_owned),
+                domainname: domainname.map(Cow::into_owned),
+                user: user.map(Cow::into_owned),
+                working_dir: working_dir.map(Cow::into_owned),
+                network_disabled,
+                stop_signal: stop_signal.map(|sig| sig.to_string()),
+                stop_timeout: stop_timeout.map(i64::from),
+                healthcheck: Some(HealthConfig {
+                    test: None,
+                    interval: health_check_interval,
+                    timeout: health_check_timeout,
+                    retries: health_check_retries.map(i64::from),
+                    start_period: health_check_start_period,
+                    start_interval: health_check_start_interval,
+                }),
+                host_config: Some(HostConfig {
+                    network_mode: network_mode.map(Cow::into_owned),
+                    restart_policy,
+                    cpu_period,
+                    cpu_quota,
+                    cpu_realtime_period,
+                    cpu_realtime_runtime,
+                    cpu_shares: cpu_shares.map(i64::from),
+                    memory,
+                    memory_reservation,
+                    memory_swap,
+                    memory_swappiness: memory_swappiness.map(i64::from),
+                    volume_driver: volume_driver.map(Cow::into_owned),
+                    readonly_rootfs: read_only_rootfs,
+                    privileged,
+                    auto_remove,
+                    cgroupns_mode,
+                    ipc_mode: ipc_mode.map(Cow::into_owned),
+                    oom_score_adj: oom_score_adj.map(i64::from),
+                    userns_mode: userns_mode.map(Cow::into_owned),
+                    shm_size,
+                    log_config,
+                    blkio_weight,
+                    pid_mode: pid_mode.map(Cow::into_owned),
+                    runtime: runtime.map(Cow::into_owned),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        })
     }
 }
 
@@ -582,65 +877,6 @@ where
         (None, None) => true,
         (None, Some(_)) | (Some(_), None) => false,
         (Some(v1), Some(v2)) => *v1 == *v2,
-    }
-}
-
-/// Map of a port/protocol and an array of bindings.
-///
-/// See [`Container::port_bindings`] for more information.
-#[derive(Debug, Clone, Default)]
-pub struct PortBindingMap<S>(pub HashMap<String, Vec<Binding<S>>>);
-
-impl TryFrom<&[String]> for PortBindingMap<String> {
-    type Error = BindingError;
-
-    fn try_from(value: &[String]) -> Result<Self, Self::Error> {
-        value
-            .iter()
-            .try_fold(
-                HashMap::<String, Vec<Binding<String>>>::new(),
-                |mut acc, s| {
-                    let bind = parse_port_binding(s)?;
-
-                    let port_binds = acc.entry(bind.id()).or_default();
-
-                    port_binds.push(bind.host.into());
-
-                    Ok(acc)
-                },
-            )
-            .map(PortBindingMap)
-    }
-}
-
-impl<S> PartialEq for PortBindingMap<S>
-where
-    S: Eq + Hash,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
-    }
-}
-
-impl<S> Eq for PortBindingMap<S> where S: Eq + Hash {}
-
-impl<S> Deref for PortBindingMap<S>
-where
-    S: Hash + Eq,
-{
-    type Target = HashMap<String, Vec<Binding<S>>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<S> DerefMut for PortBindingMap<S>
-where
-    S: Hash + Eq,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -706,95 +942,196 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DeviceMapping {
-    pub path_on_host: String,
-    pub path_in_container: String,
-    pub cgroup_permissions: Option<String>,
-}
-
-impl From<DeviceMapping> for bollard::models::DeviceMapping {
-    fn from(
-        DeviceMapping {
-            path_on_host,
-            path_in_container,
-            cgroup_permissions,
-        }: DeviceMapping,
-    ) -> Self {
-        Self {
-            path_on_host: Some(path_on_host),
-            path_in_container: Some(path_in_container),
-            cgroup_permissions,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DeviceRequest {
-    pub driver: Option<String>,
-    pub count: i64,
-    pub device_ids: Vec<String>,
-    pub capabilities: Vec<Vec<String>>,
-    pub options: HashMap<String, String>,
-}
-
-impl From<DeviceRequest> for bollard::config::DeviceRequest {
-    fn from(value: DeviceRequest) -> Self {
-        let DeviceRequest {
-            driver,
-            count,
-            device_ids,
-            capabilities,
-            options,
-        } = value;
-
-        Self {
-            driver,
-            count: Some(count),
-            device_ids: Some(device_ids),
-            capabilities: Some(capabilities),
-            options: Some(options),
-        }
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use bollard::plugin::NetworkingConfig;
     use mockall::predicate;
 
+    use crate::requests::container::CreateContainer;
     use crate::{docker_mock, image::Image};
 
     use super::*;
+
+    pub(crate) fn create_container_resource(container: &CreateContainer) -> Container {
+        Container {
+            id: ContainerId::new(None, container.id.0),
+            req: Box::new(ContainerCreateBody {
+                image: Some("postgres:15".to_string()),
+                // network_ids: Some(VecReqUuid(vec![network.id])),
+                // volume_ids: Some(VecReqUuid(vec![volume.id])),
+                // device_mapping_ids: Some(VecReqUuid(vec![device_mapping.id])),
+                // device_request_ids: Some(VecReqUuid(vec![device_request.id])),
+                domainname: Some("database.host".to_string()),
+                hostname: Some("database".to_string()),
+                env: Some(
+                    ["POSTGRES_PASSWORD=password", "POSTGRES_USER=user"]
+                        .map(str::to_string)
+                        .to_vec(),
+                ),
+                user: Some("pg".to_string()),
+                cmd: Some(["-u=postgres", "-d=test"].map(str::to_string).to_vec()),
+                working_dir: Some("/app-data".to_string()),
+                entrypoint: Some(["CMD-SHELL", "/entrypoint.sh"].map(str::to_string).to_vec()),
+                network_disabled: Some(false),
+                healthcheck: Some(HealthConfig {
+                    test: Some(
+                        ["pg-is-ready", "-u=postgres", "-d=test"]
+                            .map(str::to_string)
+                            .to_vec(),
+                    ),
+                    interval: Some(42_000),
+                    timeout: Some(6_000),
+                    retries: Some(3),
+                    start_period: Some(10_000),
+                    start_interval: Some(10_000),
+                }),
+                labels: Some(HashMap::from_iter(
+                    [("lab_1", "foo"), ("lab_2", "bar")]
+                        .map(|(k, v)| (k.to_string(), v.to_string())),
+                )),
+                stop_signal: Some("SIGSTOP".to_string()),
+                stop_timeout: Some(32),
+                exposed_ports: Some(
+                    ["5432", "53/udp", "90/tcp", "9000"]
+                        .map(str::to_string)
+                        .to_vec(),
+                ),
+                host_config: Some(HostConfig {
+                    restart_policy: Some(BollardRestartPolicy {
+                        name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+                        maximum_retry_count: Some(4),
+                    }),
+                    binds: Some(vec!["/var/lib/postgres:/data".to_string()]),
+                    network_mode: Some("bridge".to_string()),
+                    port_bindings: Some(HashMap::from_iter([(
+                        "5432".to_string(),
+                        Some(vec![PortBinding {
+                            host_port: Some("5432".to_string()),
+                            host_ip: None,
+                        }]),
+                    )])),
+                    extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+                    cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+                    cap_drop: Some(vec!["CAP_KILL".to_string()]),
+                    cpu_period: Some(1000),
+                    cpu_quota: Some(100),
+                    cpu_realtime_period: Some(1000),
+                    cpu_realtime_runtime: Some(100),
+                    memory: Some(4096),
+                    memory_reservation: Some(1024),
+                    memory_swap: Some(8192),
+                    memory_swappiness: Some(50),
+                    volume_driver: Some("local".to_string()),
+                    storage_opt: Some(HashMap::from_iter([(
+                        "size".to_string(),
+                        "1024k".to_string(),
+                    )])),
+                    readonly_rootfs: Some(true),
+                    tmpfs: Some(HashMap::from_iter([(
+                        "/run".to_string(),
+                        "rw,noexec,nosuid,size=65536k".to_string(),
+                    )])),
+                    privileged: Some(false),
+                    cpu_shares: Some(100),
+                    device_cgroup_rules: Some(vec!["c 1:3 mr".to_string()]),
+                    ulimits: Some(vec![ResourcesUlimits {
+                        name: Some("nofile".to_string()),
+                        soft: Some(1024),
+                        hard: Some(2048),
+                    }]),
+                    auto_remove: Some(false),
+                    cgroupns_mode: Some(HostConfigCgroupnsModeEnum::PRIVATE),
+                    dns: Some(vec!["8.8.8.8".to_string()]),
+                    dns_options: Some(vec!["timeout:3".to_string()]),
+                    dns_search: Some(vec!["example.com".to_string()]),
+                    group_add: Some(vec!["dialout".to_string()]),
+                    ipc_mode: Some("shareable".to_string()),
+                    oom_score_adj: Some(500),
+                    userns_mode: Some("host".to_string()),
+                    sysctls: Some(HashMap::from_iter([(
+                        "net.ipv4.ip_forward".to_string(),
+                        "1".to_string(),
+                    )])),
+                    shm_size: Some(67_108_864), // 64 MB
+                    runtime: Some("runc".to_string()),
+                    log_config: Some(HostConfigLogConfig {
+                        typ: Some("json-file".to_string()),
+                        config: Some(HashMap::from_iter([
+                            ("max-size".to_string(), "10m".to_string()),
+                            ("max-file".to_string(), "3".to_string()),
+                        ])),
+                    }),
+                    blkio_weight: Some(500),
+                    blkio_weight_device: Some(vec![ResourcesBlkioWeightDevice {
+                        path: Some("/dev/sda".to_string()),
+                        weight: Some(500),
+                    }]),
+                    blkio_device_read_bps: Some(vec![ThrottleDevice {
+                        path: Some("/dev/sda".to_string()),
+                        rate: Some(1_048_576),
+                    }]),
+                    blkio_device_write_bps: Some(vec![ThrottleDevice {
+                        path: Some("/dev/sda".to_string()),
+                        rate: Some(1_048_576),
+                    }]),
+                    blkio_device_read_iops: Some(vec![ThrottleDevice {
+                        path: Some("/dev/sda".to_string()),
+                        rate: Some(1000),
+                    }]),
+                    blkio_device_write_iops: Some(vec![ThrottleDevice {
+                        path: Some("/dev/sda".to_string()),
+                        rate: Some(1000),
+                    }]),
+                    security_opt: Some(vec!["no-new-privileges".to_string()]),
+                    pid_mode: Some("host".to_string()),
+                    masked_paths: Some(vec!["/proc/kcore".to_string()]),
+                    readonly_paths: Some(vec!["/proc/sys".to_string()]),
+                    devices: Some(vec![bollard::models::DeviceMapping {
+                        path_on_host: Some("/dev/tty12".to_string()),
+                        path_in_container: Some("dev/tty12".to_string()),
+                        cgroup_permissions: Some("msv".to_string()),
+                    }]),
+                    device_requests: Some(vec![bollard::models::DeviceRequest {
+                        driver: Some("nvidia".to_string()),
+                        count: Some(4),
+                        device_ids: Some(
+                            ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
+                                .map(str::to_string)
+                                .to_vec(),
+                        ),
+                        capabilities: Some(vec![
+                            ["compute", "gpu", "nvidia"].map(str::to_string).to_vec(),
+                        ]),
+                        options: Some(HashMap::from_iter(
+                            [("property1", "string"), ("property2", "string")]
+                                .map(|(k, v)| (k.to_string(), v.to_string())),
+                        )),
+                    }]),
+                    ..Default::default()
+                }),
+                networking_config: Some(NetworkingConfig {
+                    endpoints_config: Some(HashMap::from_iter(
+                        container
+                            .network_ids
+                            .as_ref()
+                            .unwrap()
+                            .iter()
+                            .map(|id| (id.to_string(), EndpointSettings::default())),
+                    )),
+                }),
+                ..Default::default()
+            }),
+        }
+    }
 
     impl Container {
         fn new(name: Uuid, image: impl Into<String>) -> Self {
             Self {
                 id: ContainerId::new(None, name),
-                image: image.into(),
-                hostname: None,
-                restart_policy: RestartPolicy::Empty,
-                env: Vec::new(),
-                binds: Vec::new(),
-                network_mode: "bridge".to_string(),
-                networks: Vec::new(),
-                port_bindings: PortBindingMap::default(),
-                extra_hosts: Vec::new(),
-                cap_add: Vec::new(),
-                cap_drop: Vec::new(),
-                device_mappings: Vec::new(),
-                device_requests: Vec::new(),
-                privileged: false,
-                cpu_period: None,
-                cpu_quota: None,
-                cpu_realtime_period: None,
-                cpu_realtime_runtime: None,
-                memory: None,
-                memory_reservation: None,
-                memory_swap: None,
-                memory_swappiness: None,
-                volume_driver: None,
-                read_only_rootfs: false,
-                storage_opt: HashMap::new(),
+                req: Box::new(ContainerCreateBody {
+                    image: Some(image.into()),
+                    ..Default::default()
+                }),
             }
         }
     }

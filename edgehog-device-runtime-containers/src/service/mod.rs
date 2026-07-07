@@ -884,7 +884,6 @@ impl Display for ResourceType {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::vec;
 
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::pairing::api::PairingApi;
@@ -895,29 +894,32 @@ mod tests {
     use astarte_device_sdk_mock::mockall::Sequence;
     use bollard::query_parameters::CreateImageOptions;
     use edgehog_store::db;
+    use futures::{StreamExt, stream};
     use mockall::predicate;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
 
-    use crate::container::{
-        Binding, Container, ContainerId, DeviceMapping, DeviceRequest, PortBindingMap,
-    };
+    use crate::container::tests::create_container_resource;
     use crate::image::Image;
     use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
     use crate::requests::ContainerRequest;
-    use crate::requests::container::RestartPolicy;
-    use crate::requests::container::tests::create_container_request_event;
+    use crate::requests::container::tests::{create_container_req, create_container_request_event};
     use crate::requests::deployment::tests::create_deployment_request_event;
-    use crate::requests::device_mapping::tests::create_device_mapping_request_event;
-    use crate::requests::device_request::tests::create_device_request_event;
+    use crate::requests::device_mapping::tests::create_device_mapping_req;
+    use crate::requests::image::tests::create_image_req;
     use crate::requests::image::tests::create_image_request_event;
+    use crate::requests::network::tests::create_network_req;
     use crate::requests::network::tests::create_network_request_event;
+    use crate::requests::volume::tests::create_volume_req;
     use crate::requests::volume::tests::create_volume_request_event;
+    use crate::requests::{
+        device_mapping::tests::create_device_mapping_request_event,
+        device_request::tests::{create_device_request, create_device_request_event},
+    };
     use crate::tests::not_found_response;
     use crate::volume::{Volume, VolumeId};
-    use crate::{docker, docker_mock};
 
     use super::events::ServiceHandle;
     use super::*;
@@ -1059,10 +1061,10 @@ mod tests {
     fn expect_container(
         id: Uuid,
         device_mapping_id: Uuid,
+        device_request_id: Uuid,
         seq: &mut Sequence,
         device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
-        device_request_id: Uuid,
     ) {
         device
             .expect_set_property()
@@ -1120,9 +1122,8 @@ mod tests {
     async fn should_add_an_image() {
         let tmpdir = TempDir::new().unwrap();
 
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let reference = "docker.io/nginx:stable-alpine-slim";
+        let image = create_image_req(deployment_id);
 
         let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
@@ -1134,11 +1135,17 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
-        expect_image(id, reference, &mut seq, &mut device, &mut client);
+        expect_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
 
         let (mut service, mut handle) = mock_service(&tmpdir, client, device).await;
 
-        let create_image_req = create_image_request_event(id, deployment_id, reference, "");
+        let create_image_req = create_image_request_event(&image);
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
 
@@ -1147,9 +1154,9 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.find_image(id).await.unwrap().unwrap();
+        let resource = service.store.find_image(image.id.0).await.unwrap().unwrap();
 
-        let exp = Image::new(None, reference.to_string(), None);
+        let exp = Image::new(None, image.reference.to_string(), None);
 
         assert_eq!(resource.image, exp);
     }
@@ -1158,8 +1165,8 @@ mod tests {
     async fn should_add_a_volume() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
+        let volume = create_volume_req(deployment_id);
 
         let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
@@ -1171,12 +1178,11 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
-        expect_volume(id, &mut seq, &mut device, &mut client);
+        expect_volume(volume.id.0, &mut seq, &mut device, &mut client);
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
-        let create_volume_req =
-            create_volume_request_event(id, deployment_id, "local", &["foo=bar", "some="]);
+        let create_volume_req = create_volume_request_event(&volume);
 
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
 
@@ -1184,15 +1190,25 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.find_volume(id).await.unwrap().unwrap();
+        let resource = service
+            .store
+            .find_volume(volume.id.0)
+            .await
+            .unwrap()
+            .unwrap();
 
         let exp = Volume {
-            id: VolumeId::new(id),
+            id: VolumeId::new(volume.id.0),
             driver: "local".to_string(),
-            driver_opts: HashMap::from([
-                ("foo".to_string(), "bar".to_string()),
-                ("some".to_string(), "".to_string()),
-            ]),
+            driver_opts: HashMap::from_iter(
+                [
+                    ("device", "tmpfs"),
+                    ("o", "size=100m,uid=1000"),
+                    ("type", "tmpfs"),
+                    ("empty", ""),
+                ]
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+            ),
         };
 
         assert_eq!(resource.volume, exp);
@@ -1202,8 +1218,8 @@ mod tests {
     async fn should_add_a_network() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
+        let network = create_network_req(deployment_id);
 
         let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
@@ -1215,11 +1231,11 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
-        expect_network(id, &mut seq, &mut device, &mut client);
+        expect_network(network.id.0, &mut seq, &mut device, &mut client);
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
-        let create_network_req = create_network_request_event(id, deployment_id, "bridged", &[]);
+        let create_network_req = create_network_request_event(&network);
 
         let req = ContainerRequest::from_event(create_network_req).unwrap();
 
@@ -1228,14 +1244,19 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.find_network(id).await.unwrap().unwrap();
+        let resource = service
+            .store
+            .find_network(network.id.0)
+            .await
+            .unwrap()
+            .unwrap();
 
         let exp = Network {
-            id: NetworkId::new(None, id),
-            driver: "bridged".to_string(),
-            internal: false,
+            id: NetworkId::new(None, network.id.0),
+            driver: "bridge".to_string(),
+            internal: true,
             enable_ipv6: false,
-            driver_opts: HashMap::new(),
+            driver_opts: HashMap::from_iter([("isolate".to_string(), "true".to_string())]),
         };
 
         assert_eq!(resource.network, exp);
@@ -1245,14 +1266,20 @@ mod tests {
     async fn should_add_a_container() {
         let tempdir = TempDir::new().unwrap();
 
-        let id = Uuid::new_v4();
-        let image_id = Uuid::new_v4();
-        let network_id = Uuid::new_v4();
-        let device_mapping_id = Uuid::new_v4();
-        let device_request_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-
-        let reference = "docker.io/nginx:stable-alpine-slim";
+        let image = create_image_req(deployment_id);
+        let network = create_network_req(deployment_id);
+        let volume = create_volume_req(deployment_id);
+        let device_mapping = create_device_mapping_req(deployment_id);
+        let device_request = create_device_request(deployment_id);
+        let container = create_container_req(
+            deployment_id,
+            &image,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+        );
 
         let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
@@ -1264,21 +1291,28 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
-        expect_image(image_id, reference, &mut seq, &mut device, &mut client);
-        expect_network(network_id, &mut seq, &mut device, &mut client);
-        expect_container(
-            id,
-            device_mapping_id,
+        expect_image(
+            image.id.0,
+            &image.reference,
             &mut seq,
             &mut device,
             &mut client,
-            device_request_id,
+        );
+        expect_network(network.id.0, &mut seq, &mut device, &mut client);
+        expect_volume(volume.id.0, &mut seq, &mut device, &mut client);
+        expect_container(
+            container.id.0,
+            device_mapping.id.0,
+            device_request.id.0,
+            &mut seq,
+            &mut device,
+            &mut client,
         );
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
         // image
-        let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
+        let create_image_req = create_image_request_event(&image);
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
         handle.on_event(req).await.unwrap();
@@ -1286,20 +1320,21 @@ mod tests {
         service.on_event(event).await;
 
         // Network
-        let create_network_req =
-            create_network_request_event(network_id, deployment_id, "bridged", &[]);
+        let create_network_req = create_network_request_event(&network);
         let req = ContainerRequest::from_event(create_network_req).unwrap();
         handle.on_event(req).await.unwrap();
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
+        // Volume
+        let create_volume_req = create_volume_request_event(&volume);
+        let req = ContainerRequest::from_event(create_volume_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
         // Device mapping
-        let create_device_mapping_req = create_device_mapping_request_event(
-            device_mapping_id,
-            deployment_id,
-            "/dev/tty12",
-            "/dev/tty12",
-        );
+        let create_device_mapping_req = create_device_mapping_request_event(&device_mapping);
         let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
         handle.on_event(req).await.unwrap();
         let event = service.events.recv().await.unwrap();
@@ -1307,22 +1342,14 @@ mod tests {
 
         // Device request
         let create_device_request_req =
-            create_device_request_event(device_request_id, deployment_id);
+            create_device_request_event(device_request.id.0, deployment_id);
         let req = ContainerRequest::from_event(create_device_request_req).unwrap();
         handle.on_event(req).await.unwrap();
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Container
-        let create_container_req = create_container_request_event(
-            id,
-            deployment_id,
-            image_id,
-            "image",
-            &[network_id],
-            &[device_mapping_id.to_string()],
-            &[device_request_id.to_string()],
-        );
+        let create_container_req = create_container_request_event(&container);
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
@@ -1331,57 +1358,14 @@ mod tests {
         let event = service.events.recv().await.unwrap();
         service.on_event(event).await;
 
-        let resource = service.store.find_container(id).await.unwrap().unwrap();
+        let resource = service
+            .store
+            .find_container(container.id.0)
+            .await
+            .unwrap()
+            .unwrap();
 
-        let exp = Container {
-            id: ContainerId::new(None, id),
-            image: "docker.io/nginx:stable-alpine-slim".to_string(),
-            network_mode: "bridge".to_string(),
-            networks: vec![network_id.to_string()],
-            hostname: Some("hostname".to_string()),
-            restart_policy: RestartPolicy::No,
-            env: vec!["env".to_string()],
-            binds: vec!["binds".to_string()],
-            port_bindings: PortBindingMap(HashMap::from_iter([(
-                "80/tcp".to_string(),
-                vec![Binding {
-                    host_ip: None,
-                    host_port: Some(80),
-                }],
-            )])),
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            device_mappings: vec![DeviceMapping {
-                path_on_host: "/dev/tty12".to_string(),
-                path_in_container: "/dev/tty12".to_string(),
-                cgroup_permissions: Some("msv".to_string()),
-            }],
-            device_requests: vec![DeviceRequest {
-                driver: Some("nvidia".to_string()),
-                count: -1,
-                device_ids: ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
-                    .map(str::to_string)
-                    .to_vec(),
-                capabilities: vec![["compute", "gpu", "nvidia"].map(str::to_string).to_vec()],
-                options: HashMap::from_iter(
-                    [("property1", "string"), ("property2", "string")]
-                        .map(|(k, v)| (k.to_string(), v.to_string())),
-                ),
-            }],
-            privileged: false,
-            cpu_period: Some(1000),
-            cpu_quota: Some(100),
-            cpu_realtime_period: Some(1000),
-            cpu_realtime_runtime: Some(100),
-            memory: Some(4096),
-            memory_reservation: Some(1024),
-            memory_swap: Some(8192),
-            memory_swappiness: Some(50),
-            volume_driver: Some("local".to_string()),
-            read_only_rootfs: true,
-            storage_opt: HashMap::from_iter([("size".to_string(), "1024k".to_string())]),
-        };
+        let exp = create_container_resource(&container);
 
         assert_eq!(resource, exp);
     }
@@ -1390,99 +1374,22 @@ mod tests {
     async fn should_start_deployment() {
         let tempdir = TempDir::new().unwrap();
 
-        let image_id = Uuid::new_v4();
-        let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
+        let image = create_image_req(deployment_id);
+        let network = create_network_req(deployment_id);
+        let volume = create_volume_req(deployment_id);
+        let device_mapping = create_device_mapping_req(deployment_id);
+        let device_request = create_device_request(deployment_id);
+        let container = create_container_req(
+            deployment_id,
+            &image,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+        );
 
-        let reference = "docker.io/nginx:stable-alpine-slim";
-
-        let client = docker_mock!(docker::Client::connect_with_local_defaults().unwrap(), {
-            use self::docker::tests::not_found_response;
-            use futures::StreamExt;
-
-            let mut mock = docker::Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            mock.expect_inspect_image()
-                .withf(move |name| name == reference)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| Err(not_found_response()));
-
-            let container_name = container_id.to_string();
-            mock.expect_inspect_container()
-                .times(1)
-                .in_sequence(&mut seq)
-                .with(predicate::eq(container_name.clone()), predicate::always())
-                .returning(|_, _| Err(docker::tests::not_found_response()));
-
-            mock.expect_inspect_image()
-                .withf(move |name| name == reference)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| Err(not_found_response()));
-
-            mock.expect_create_image()
-                .with(
-                    predicate::eq(Some(CreateImageOptions {
-                        from_image: Some(reference.to_string()),
-                        ..Default::default()
-                    })),
-                    predicate::always(),
-                    predicate::eq(None),
-                )
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_, _, _| futures::stream::empty().boxed());
-
-            mock.expect_inspect_image()
-                .withf(move |name| name ==reference)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| {
-                    Ok(bollard::models::ImageInspect {
-                    id: Some(
-                        "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a".to_string(),
-                    ),
-                    ..Default::default()
-                })
-                });
-
-            mock.expect_inspect_container()
-                .times(1)
-                .in_sequence(&mut seq)
-                .with(predicate::eq(container_name), predicate::always())
-                .returning(|_, _| Err(docker::tests::not_found_response()));
-
-            let name_exp = container_id.to_string();
-            mock.expect_create_container()
-                .withf(move |option, config| {
-                    option
-                        .as_ref()
-                        .and_then(|opt| opt.name.as_ref())
-                        .is_some_and(|name| *name == name_exp)
-                        && config
-                            .image
-                            .as_ref()
-                            .is_some_and(|image| image == reference)
-                })
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_, _| {
-                    Ok(bollard::models::ContainerCreateResponse {
-                        id: "container_id".to_string(),
-                        warnings: Vec::new(),
-                    })
-                });
-
-            mock.expect_start_container()
-                .withf(move |id, _| id == "container_id")
-                .once()
-                .in_sequence(&mut seq)
-                .returning(move |_, _| Ok(()));
-
-            mock
-        });
+        let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
@@ -1492,29 +1399,23 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
-        let image_path = format!("/{image_id}/pulled");
-        device
-            .expect_set_property()
-            .times(2)
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        let endpoint = format!("/{container_id}/status");
-        device
-            .expect_set_property()
-            .times(2)
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
+        expect_network(network.id.0, &mut seq, &mut device, &mut client);
+        expect_volume(volume.id.0, &mut seq, &mut device, &mut client);
+        expect_container(
+            container.id.0,
+            device_mapping.id.0,
+            device_request.id.0,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
 
         let endpoint = format!("/{deployment_id}/status");
         device
@@ -1547,7 +1448,14 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        let image_path = format!("/{image_id}/pulled");
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(image.reference.clone()))
+            .returning(|_| Err(not_found_response()));
+
+        let image_path = format!("/{}/pulled", image.id);
         device
             .expect_set_property()
             .once()
@@ -1559,7 +1467,36 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        let image_path = format!("/{image_id}/pulled");
+        client
+            .expect_create_image()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq(Some(CreateImageOptions {
+                    from_image: Some(image.reference.clone()),
+                    ..Default::default()
+                })),
+                predicate::always(),
+                predicate::eq(None),
+            )
+            .returning(|_, _, _| stream::empty().boxed());
+
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(image.reference.clone()))
+            .returning(|_| {
+                Ok(bollard::models::ImageInspect {
+                    id: Some(
+                        "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a"
+                            .to_string(),
+                    ),
+                    ..Default::default()
+                })
+            });
+
+        let image_path = format!("/{}/pulled", image.id);
         device
             .expect_set_property()
             .once()
@@ -1571,7 +1508,92 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        let endpoint = format!("/{container_id}/status");
+        client
+            .expect_inspect_volume()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(volume.id.to_string()))
+            .returning(|_| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/created", volume.id)),
+                predicate::eq(AstarteData::from(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_create_volume()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let vol_id = volume.id.to_string();
+                move |opt| opt.name == Some(vol_id.clone())
+            })
+            .returning(|_| Ok(Default::default()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/created", volume.id)),
+                predicate::eq(AstarteData::from(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_inspect_network()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(network.id.to_string()), predicate::always())
+            .returning(|_, _| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(format!("/{}/created", network.id)),
+                predicate::eq(AstarteData::from(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_create_network()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let net_id = network.id.to_string();
+                move |opt| opt.name == net_id.clone()
+            })
+            .returning(|_| Ok(Default::default()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(format!("/{}/created", network.id)),
+                predicate::eq(AstarteData::from(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_inspect_container()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(container.id.to_string()), predicate::always())
+            .returning(|_, _| Err(not_found_response()));
+
+        let endpoint = format!("/{}/status", container.id);
         device
             .expect_set_property()
             .once()
@@ -1582,6 +1604,21 @@ mod tests {
                 predicate::eq(AstarteData::from("Received")),
             )
             .returning(|_, _, _| Ok(()));
+
+        client
+            .expect_create_container()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let container_id = Some(container.id.to_string());
+                move |opt, _body| opt.as_ref().unwrap().name == container_id
+            })
+            .returning(|_, _| {
+                Ok(bollard::models::ContainerCreateResponse {
+                    id: "local-container-id".to_string(),
+                    warnings: Vec::new(),
+                })
+            });
 
         device
             .expect_set_property()
@@ -1594,7 +1631,17 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        let endpoint = format!("/{container_id}/status");
+        client
+            .expect_start_container()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("local-container-id".to_string()),
+                predicate::always(),
+            )
+            .returning(|_, _| Ok(()));
+
+        let endpoint = format!("/{}/status", container.id);
         device
             .expect_set_property()
             .once()
@@ -1606,7 +1653,7 @@ mod tests {
             })
             .returning(|_, _, _| Ok(()));
 
-        let endpoint = format!("/{deployment_id}/status");
+        let endpoint = format!("/{}/status", deployment_id);
         device
             .expect_set_property()
             .once()
@@ -1639,43 +1686,65 @@ mod tests {
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
-        let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
+        // image
+        let create_image_req = create_image_request_event(&image);
 
-        let image_req = ContainerRequest::from_event(create_image_req).unwrap();
+        let req = ContainerRequest::from_event(create_image_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
-        let create_container_req = create_container_request_event(
-            container_id,
-            deployment_id,
-            image_id,
-            reference,
-            &Vec::<Uuid>::new(),
-            &Vec::<Uuid>::new(),
-            &Vec::<Uuid>::new(),
-        );
+        // Network
+        let create_network_req = create_network_request_event(&network);
+        let req = ContainerRequest::from_event(create_network_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
-        let container_req = ContainerRequest::from_event(create_container_req).unwrap();
+        // Volume
+        let create_volume_req = create_volume_request_event(&volume);
+        let req = ContainerRequest::from_event(create_volume_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
+        // Device mapping
+        let create_device_mapping_req = create_device_mapping_request_event(&device_mapping);
+        let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Device request
+        let create_device_request_req =
+            create_device_request_event(device_request.id.0, deployment_id);
+        let req = ContainerRequest::from_event(create_device_request_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Container
+        let create_container_req = create_container_request_event(&container);
+        let req = ContainerRequest::from_event(create_container_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Deployment
         let create_deployment_req = create_deployment_request_event(
             &deployment_id.to_string(),
-            &[&container_id.to_string()],
+            &[&container.id.to_string()],
         );
-
         let deployment_req = ContainerRequest::from_event(create_deployment_req).unwrap();
 
+        // Start
         let start = ContainerRequest::DeploymentCommand(DeploymentCommand {
             id: deployment_id,
             command: CommandValue::Start,
         });
-
-        handle.on_event(image_req).await.unwrap();
-        handle.on_event(container_req).await.unwrap();
         handle.on_event(deployment_req).await.unwrap();
         handle.on_event(start).await.unwrap();
 
-        let image_event = service.events.recv().await.unwrap();
-        service.on_event(image_event).await;
-        let container_event = service.events.recv().await.unwrap();
-        service.on_event(container_event).await;
         let deployment_event = service.events.recv().await.unwrap();
         service.on_event(deployment_event).await;
         let start_event = service.events.recv().await.unwrap();
@@ -1686,39 +1755,22 @@ mod tests {
     async fn should_delete_deployment_no_start() {
         let tempdir = TempDir::new().unwrap();
 
-        let image_id = Uuid::new_v4();
-        let container_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
+        let image = create_image_req(deployment_id);
+        let network = create_network_req(deployment_id);
+        let volume = create_volume_req(deployment_id);
+        let device_mapping = create_device_mapping_req(deployment_id);
+        let device_request = create_device_request(deployment_id);
+        let container = create_container_req(
+            deployment_id,
+            &image,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+        );
 
-        let reference = "docker.io/nginx:stable-alpine-slim";
-
-        let client = docker_mock!(docker::Client::connect_with_local_defaults().unwrap(), {
-            use self::docker::tests::not_found_response;
-
-            let mut mock = docker::Client::new();
-            let mut seq = mockall::Sequence::new();
-
-            mock.expect_inspect_image()
-                .withf(move |name| name == reference)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| Err(not_found_response()));
-
-            let container_name = container_id.to_string();
-            mock.expect_inspect_container()
-                .withf(move |name, _option| name == container_name)
-                .times(2)
-                .in_sequence(&mut seq)
-                .returning(|_, _| Err(docker::tests::not_found_response()));
-
-            mock.expect_inspect_image()
-                .withf(move |name| name == reference)
-                .once()
-                .in_sequence(&mut seq)
-                .returning(|_| Err(not_found_response()));
-
-            mock
-        });
+        let mut client = Docker::connect().await.unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
@@ -1728,40 +1780,34 @@ mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
-        let image_path = format!("/{image_id}/pulled");
-        device
-            .expect_set_property()
-            .times(2)
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
+        expect_network(network.id.0, &mut seq, &mut device, &mut client);
+        expect_volume(volume.id.0, &mut seq, &mut device, &mut client);
+        expect_container(
+            container.id.0,
+            device_mapping.id.0,
+            device_request.id.0,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
 
-        let endpoint = format!("/{container_id}/status");
-        device
-            .expect_set_property()
-            .times(2)
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        let endpoint = format!("/{deployment_id}/status");
+        let endpoint = format!("/{}/status", deployment_id);
         device
             .expect_set_property()
             .once()
             .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::String("Stopped".to_string())),
-            )
+            .withf(move |interface, path, value| {
+                interface == "io.edgehog.devicemanager.apps.AvailableDeployments"
+                    && path == endpoint
+                    && *value == DeploymentStatus::Stopped.to_string()
+            })
             .returning(|_, _, _| Ok(()));
 
         device
@@ -1783,7 +1829,13 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        let endpoint = format!("/{container_id}/status");
+        client
+            .expect_inspect_container()
+            .once()
+            .in_sequence(&mut seq)
+            .return_once(|_, _| Err(not_found_response()));
+
+        let endpoint = format!("/{}/status", container.id);
         device
             .expect_set_property()
             .once()
@@ -1791,11 +1843,11 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
                 predicate::eq(endpoint),
-                predicate::eq(AstarteData::from("Received")),
+                predicate::eq(AstarteData::String(ContainerStatus::Received.to_string())),
             )
             .returning(|_, _, _| Ok(()));
 
-        let endpoint = format!("/{container_id}/status");
+        let endpoint = format!("/{}/status", container.id);
         device
             .expect_unset_property()
             .once()
@@ -1806,61 +1858,152 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        let image_path = format!("/{image_id}/pulled");
+        client
+            .expect_inspect_volume()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(volume.id.to_string()))
+            .returning(|_| Err(not_found_response()));
+
         device
             .expect_set_property()
             .once()
             .in_sequence(&mut seq)
             .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/created", volume.id)),
                 predicate::eq(AstarteData::Boolean(false)),
             )
             .returning(|_, _, _| Ok(()));
 
-        let image_path = format!("/{image_id}/pulled");
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/created", volume.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        client
+            .expect_inspect_network()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(network.id.to_string()), predicate::always())
+            .returning(|_, _| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(format!("/{}/created", network.id)),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableNetworks"),
+                predicate::eq(format!("/{}/created", network.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(image.reference.clone()))
+            .returning(|_| Err(not_found_response()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{}/pulled", image.id)),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
         device
             .expect_unset_property()
             .once()
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
+                predicate::eq(format!("/{}/pulled", image.id)),
             )
             .returning(|_, _| Ok(()));
 
-        let endpoint = format!("/{deployment_id}/status");
         device
             .expect_unset_property()
             .once()
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableDeployments"),
-                predicate::eq(endpoint),
+                predicate::eq(format!("/{}/status", deployment_id)),
             )
             .returning(|_, _| Ok(()));
 
         let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
 
-        let create_image_req = create_image_request_event(image_id, deployment_id, reference, "");
+        // image
+        let create_image_req = create_image_request_event(&image);
 
-        let image_req = ContainerRequest::from_event(create_image_req).unwrap();
+        let req = ContainerRequest::from_event(create_image_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
-        let create_container_req = create_container_request_event(
-            container_id,
-            deployment_id,
-            image_id,
-            reference,
-            &Vec::<Uuid>::new(),
-            &Vec::<Uuid>::new(),
-            &Vec::<Uuid>::new(),
-        );
+        // Network
+        let create_network_req = create_network_request_event(&network);
+        let req = ContainerRequest::from_event(create_network_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
-        let container_req = ContainerRequest::from_event(create_container_req).unwrap();
+        // Volume
+        let create_volume_req = create_volume_request_event(&volume);
+        let req = ContainerRequest::from_event(create_volume_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Device mapping
+        let create_device_mapping_req = create_device_mapping_request_event(&device_mapping);
+        let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Device request
+        let create_device_request_req =
+            create_device_request_event(device_request.id.0, deployment_id);
+        let req = ContainerRequest::from_event(create_device_request_req).unwrap();
+        handle.on_event(req).await.unwrap();
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        // Container
+        let create_container_req = create_container_request_event(&container);
+
+        let req = ContainerRequest::from_event(create_container_req).unwrap();
+
+        handle.on_event(req).await.unwrap();
+
+        let event = service.events.recv().await.unwrap();
+        service.on_event(event).await;
 
         let create_deployment_req = create_deployment_request_event(
             &deployment_id.to_string(),
-            &[&container_id.to_string()],
+            &[&container.id.to_string()],
         );
 
         let deployment_req = ContainerRequest::from_event(create_deployment_req).unwrap();
@@ -1870,18 +2013,12 @@ mod tests {
             command: CommandValue::Delete,
         });
 
-        handle.on_event(image_req).await.unwrap();
-        handle.on_event(container_req).await.unwrap();
         handle.on_event(deployment_req).await.unwrap();
         handle.on_event(delete).await.unwrap();
 
-        let image_event = service.events.recv().await.unwrap();
-        service.on_event(image_event).await;
-        let container_event = service.events.recv().await.unwrap();
-        service.on_event(container_event).await;
         let deployment_event = service.events.recv().await.unwrap();
         service.on_event(deployment_event).await;
-        let start_event = service.events.recv().await.unwrap();
-        service.on_event(start_event).await;
+        let delete_event = service.events.recv().await.unwrap();
+        service.on_event(delete_event).await;
     }
 }

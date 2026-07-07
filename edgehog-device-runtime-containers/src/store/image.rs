@@ -210,7 +210,7 @@ impl From<Image> for ContainerImage {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::requests::ReqUuid;
 
     use super::*;
