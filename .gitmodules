@@ -20,3 +20,7 @@
 	path = deps/forwarder-proto
 	url = https://github.com/edgehog-device-manager/edgehog-device-forwarder-proto.git
 	branch = main
+[submodule "deps/interfaces"]
+	path = deps/interfaces
+	url = https://github.com/edgehog-device-manager/edgehog-astarte-interfaces.git
+	branch = main

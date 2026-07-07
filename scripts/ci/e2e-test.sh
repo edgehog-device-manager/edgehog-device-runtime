@@ -27,7 +27,7 @@ export E2E_REALM=${E2E_REALM:-test}
 export E2E_BASE_DOMAIN=${E2E_BASE_DOMAIN:-autotest.astarte-platform.org}
 export E2E_IGNORE_SSL=${E2E_IGNORE_SSL:-false}
 export E2E_API_URL=${E2E_API_URL:-https://api.$E2E_BASE_DOMAIN}
-export E2E_INTERFACE_DIR=${E2E_INTERFACE_DIR:-edgehog/astarte-interfaces}
+export E2E_INTERFACE_DIR=${E2E_INTERFACE_DIR:-deps/interfaces}
 
 # Install interfaces
 astartectl realm-management interfaces sync --non-interactive "$E2E_INTERFACE_DIR"/*.json
