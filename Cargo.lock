@@ -274,6 +274,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "astarte-test-utils"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37f7dbf7c7facf391399aa6c247a15fbd4aebe911ca87bcd238aa0f3e306d356"
+dependencies = [
+ "insta",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1337,6 +1346,7 @@ version = "0.12.2"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
+ "astarte-test-utils",
  "base64 0.23.1",
  "bollard",
  "cfg-if",
@@ -1348,6 +1358,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
+ "insta",
  "itertools 0.15.0",
  "mockall",
  "pretty_assertions",

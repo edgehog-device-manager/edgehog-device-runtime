@@ -168,7 +168,7 @@ impl ToSql<Integer, Sqlite> for DeploymentStatus {
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::deployment_containers)]
 #[diesel(belongs_to(Deployment))]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct DeploymentContainer {
     /// [`Deployment`] id

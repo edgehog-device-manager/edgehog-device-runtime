@@ -20,7 +20,7 @@
 
 use astarte_device_sdk::FromEvent;
 
-use super::{OptString, ReqUuid};
+use super::ReqUuid;
 
 /// Request to pull a Docker Network.
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,7 +35,7 @@ pub struct CreateDeviceRequest {
     pub(crate) id: ReqUuid,
     #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
-    pub(crate) driver: Option<OptString>,
+    pub(crate) driver: Option<String>,
     pub(crate) count: Option<i64>,
     pub(crate) device_ids: Option<Vec<String>>,
     pub(crate) capabilities: Option<Vec<String>>,
@@ -45,7 +45,6 @@ pub struct CreateDeviceRequest {
 
 #[cfg(test)]
 pub(crate) mod tests {
-
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
@@ -54,12 +53,12 @@ pub(crate) mod tests {
 
     use super::*;
 
-    pub fn create_device_request(id: Uuid, deployment_id: Uuid) -> CreateDeviceRequest {
+    pub fn create_device_request(deployment_id: Uuid) -> CreateDeviceRequest {
         CreateDeviceRequest {
-            id: id.into(),
+            id: ReqUuid(Uuid::new_v4()),
             deployment_id: deployment_id.into(),
             driver: Some("nvidia".into()),
-            count: Some(-1),
+            count: Some(4),
             device_ids: Some(
                 ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
                     .map(str::to_string)
@@ -71,26 +70,30 @@ pub(crate) mod tests {
         }
     }
 
-    pub fn create_device_request_event(id: Uuid, deployment_id: Uuid) -> DeviceEvent {
-        let value = create_device_request(id, deployment_id);
-
+    pub fn create_device_request_event(value: &CreateDeviceRequest) -> DeviceEvent {
         let data = [
             ("id", AstarteData::from(value.id.to_string())),
             (
                 "deploymentId",
                 AstarteData::from(value.deployment_id.to_string()),
             ),
-            ("driver", AstarteData::from(value.driver.unwrap())),
+            ("driver", AstarteData::from(value.driver.clone().unwrap())),
             ("count", AstarteData::from(value.count.unwrap())),
-            ("deviceIds", AstarteData::from(value.device_ids.unwrap())),
+            (
+                "deviceIds",
+                AstarteData::from(value.device_ids.clone().unwrap()),
+            ),
             (
                 "capabilities",
-                AstarteData::from(value.capabilities.unwrap()),
+                AstarteData::from(value.capabilities.clone().unwrap()),
             ),
-            ("optionKeys", AstarteData::from(value.option_keys.unwrap())),
+            (
+                "optionKeys",
+                AstarteData::from(value.option_keys.clone().unwrap()),
+            ),
             (
                 "optionValues",
-                AstarteData::from(value.option_values.unwrap()),
+                AstarteData::from(value.option_values.clone().unwrap()),
             ),
         ]
         .map(|(k, v)| (k.to_string(), v));
@@ -107,13 +110,12 @@ pub(crate) mod tests {
 
     #[test]
     fn device_request_from_event() {
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let event = create_device_request_event(id, deployment_id);
+
+        let expect = create_device_request(deployment_id);
+        let event = create_device_request_event(&expect);
 
         let request = CreateDeviceRequest::from_event(event).unwrap();
-
-        let expect = create_device_request(id, deployment_id);
 
         assert_eq!(request, expect);
     }

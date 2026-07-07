@@ -42,34 +42,46 @@ pub struct CreateVolume {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::fmt::Display;
-
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
-    use itertools::Itertools;
     use uuid::Uuid;
 
     use super::*;
 
-    pub fn create_volume_request_event(
-        id: impl Display,
-        deployment_id: impl Display,
-        driver: &str,
-        options: &[&str],
-    ) -> DeviceEvent {
-        let options = options.iter().map(|s| s.to_string()).collect_vec();
+    pub(crate) fn create_volume_req(deployment_id: Uuid) -> CreateVolume {
+        let volume_id = ReqUuid(Uuid::new_v4());
+        CreateVolume {
+            id: volume_id,
+            deployment_id: ReqUuid(deployment_id),
+            driver: "local".to_string(),
+            options: Some(
+                [
+                    "device=tmpfs",
+                    "o=size=100m,uid=1000",
+                    "type=tmpfs",
+                    "empty=",
+                ]
+                .map(str::to_string)
+                .to_vec(),
+            ),
+        }
+    }
 
+    pub(crate) fn create_volume_request_event(volume: &CreateVolume) -> DeviceEvent {
         let fields = [
-            ("id".to_string(), AstarteData::String(id.to_string())),
+            ("id".to_string(), AstarteData::String(volume.id.to_string())),
             (
                 "deploymentId".to_string(),
-                AstarteData::String(deployment_id.to_string()),
+                AstarteData::String(volume.deployment_id.to_string()),
             ),
             (
                 "driver".to_string(),
-                AstarteData::String(driver.to_string()),
+                AstarteData::String(volume.driver.to_string()),
             ),
-            ("options".to_string(), AstarteData::StringArray(options)),
+            (
+                "options".to_string(),
+                AstarteData::StringArray(volume.options.clone().unwrap_or_default()),
+            ),
         ]
         .into_iter()
         .collect();
@@ -86,18 +98,11 @@ pub(crate) mod tests {
 
     #[test]
     fn create_volume_request() {
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let event = create_volume_request_event(id, deployment_id, "driver", &["foo=bar", "some="]);
+        let expect = create_volume_req(deployment_id);
+        let event = create_volume_request_event(&expect);
 
         let request = CreateVolume::from_event(event).unwrap();
-
-        let expect = CreateVolume {
-            id: ReqUuid(id),
-            deployment_id: ReqUuid(deployment_id),
-            driver: "driver".to_string(),
-            options: Some(["foo=bar", "some="].map(str::to_string).to_vec()),
-        };
 
         assert_eq!(request, expect);
     }

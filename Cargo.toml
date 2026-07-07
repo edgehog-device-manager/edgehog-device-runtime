@@ -57,6 +57,7 @@ description = "Edgehog Device Runtime is a portable middleware, that enables rem
 astarte-device-sdk = "0.15.0"
 astarte-device-sdk-mock = "0.15.0"
 astarte-device-tls = { version = "0.15.0", default-features = false }
+astarte-test-utils = "0.15.0"
 async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
@@ -160,7 +161,7 @@ sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = { workspace = true, features = ["rt", "compat"] }
+tokio-util = { workspace = true, features = ["compat", "rt"] }
 toml.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
@@ -236,6 +237,8 @@ forwarder = ["dep:edgehog-forwarder"]
 message-hub = ["astarte-device-sdk/message-hub"]
 # Preferred, use the platform certificate and TLS verifier.
 platform-verifier = ["astarte-device-tls/platform-verifier"]
+# Enable logging of security events to journald
+security-events = ["dep:tracing-journald"]
 # Local service for the runtime
 service = ["dep:edgehog-service"]
 # Notifies systemd of the status and health of the runtime service
@@ -258,8 +261,6 @@ webpki-roots = [
 wifiscanner = ["dep:wifiscanner"]
 # Enable the communication with DBUS
 zbus = ["dep:zbus"]
-# Enable logging of security events to journald
-security-events = ["dep:tracing-journald"]
 
 [profile.release-optimised]
 inherits = "release"
