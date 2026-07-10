@@ -49,7 +49,7 @@ jobs:
           for-image: "${{ matrix.os }}"
       - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
       - uses: mozilla-actions/sccache-action@v0.0.10
-      - uses: taiki-e/install-action@v2.82.5
+      - uses: taiki-e/install-action@v2.83.0
         with:
           tool: cargo-nextest
       - name: cargo nextest run
