@@ -16,12 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::os::windows::ffi::OsStrExt;
+
+use sysinfo::Disk;
+use tracing::error;
+use windows_sys::Win32::Storage::FileSystem::GetVolumeInformationW;
+
 /// Returns the disk serial number or the disk name on error.
 pub(super) fn read_disk_serial_number(dev: &Disk) -> String {
-    use std::os::windows::ffi::OsStrExt;
-
-    use windows_sys::Win32::Storage::FileSystem::GetVolumeInformationW;
-
     let mount: Vec<u16> = dev
         .mount_point()
         .as_os_str()
