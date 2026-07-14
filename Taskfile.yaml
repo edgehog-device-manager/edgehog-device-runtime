@@ -18,7 +18,11 @@
 
 version: 3
 
-output: prefixed
+output:
+  group:
+    begin: "::group::{{.TASK}}"
+    end: "::endgroup::"
+    error_only: false
 
 set: [errexit, nounset, pipefail]
 
@@ -53,6 +57,7 @@ tasks:
     cmds:
       - task: cargo-msrv
       - task: cargo-minimal-versions
+      - task: coverage
 
   reuse-lint:
     desc: "Check for files missing the copyright"

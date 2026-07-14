@@ -52,7 +52,7 @@ jobs:
         with:
           repository: edgehog-device-manager/edgehog-astarte-interfaces.git
           # Update ref when updated interfaces are required.
-          ref: v0.10.0
+          ref: main
           path: ./edgehog/astarte-interfaces
       - run: ./scripts/ci/e2e-test.sh
       - name: post
