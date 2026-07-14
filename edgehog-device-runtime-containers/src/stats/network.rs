@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -94,6 +94,7 @@ mod tests {
     use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -236,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_send_stats() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         let id = Uuid::new_v4();

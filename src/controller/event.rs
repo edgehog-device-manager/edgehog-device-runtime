@@ -18,6 +18,8 @@
 
 use std::fmt::Display;
 
+use astarte_device_sdk::astarte_device_error::Error;
+use astarte_device_sdk::error::InterfaceError;
 use astarte_device_sdk::{DeviceEvent, FromEvent, event::FromEventError};
 
 use crate::{commands::Commands, telemetry::event::TelemetryEvent};
@@ -78,7 +80,7 @@ impl Display for RuntimeEvent {
 }
 
 impl FromEvent for RuntimeEvent {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     fn from_event(event: DeviceEvent) -> Result<Self, Self::Err> {
         match event.interface.as_str() {
@@ -115,7 +117,11 @@ impl FromEvent for RuntimeEvent {
                 edgehog_forwarder::astarte::SessionInfo::from_event(event)
                     .map(RuntimeEvent::Forwarder)
             }
-            _ => Err(FromEventError::Interface(event.interface)),
+            _ => Err(Error::with(
+                FromEventError::Interface(InterfaceError::InterfaceNotFound),
+                "unrecognized runtime interface",
+            )
+            .set_ctx(event.interface)),
         }
     }
 }

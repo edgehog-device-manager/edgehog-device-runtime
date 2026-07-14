@@ -19,7 +19,7 @@
 use std::str::FromStr;
 
 use edgehog_store::models::job::Job;
-use eyre::{Context, bail, eyre};
+use eyre::{Context, eyre};
 use uuid::Uuid;
 
 use crate::file_transfer::interface::capabilities::{GZ, TAR, TAR_GZ};
@@ -97,7 +97,7 @@ impl TryFrom<i32> for TransferJobTag {
         match value {
             0 => Ok(TransferJobTag::Download),
             1 => Ok(TransferJobTag::Upload),
-            _ => bail!("unrecognize file transfer job tag {value}"),
+            _ => Err(eyre!("unrecognize file transfer job tag {value}")),
         }
     }
 }

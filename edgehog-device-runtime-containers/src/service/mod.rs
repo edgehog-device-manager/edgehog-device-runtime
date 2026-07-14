@@ -20,7 +20,7 @@
 
 use std::fmt::{Debug, Display};
 
-use astarte_device_sdk::event::FromEventError;
+use astarte_device_sdk::{astarte_device_error::Error, event::FromEventError};
 use edgehog_store::{conversions::SqlUuid, models::containers::deployment::DeploymentStatus};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
@@ -55,11 +55,11 @@ type Result<T> = std::result::Result<T, ServiceError>;
 #[derive(Debug, displaydoc::Display, thiserror::Error)]
 pub enum ServiceError {
     /// error converting event
-    FromEvent(#[from] FromEventError),
+    FromEvent(#[from] Error<FromEventError>),
     /// docker operation failed
     Docker(#[source] DockerError),
     /// couldn't send data to Astarte
-    Astarte(#[from] astarte_device_sdk::Error),
+    Astarte(#[from] astarte_device_sdk::error::AstarteError),
     /// couldn't process request
     Request(#[from] ReqError),
     /// store operation failed
@@ -887,6 +887,7 @@ mod tests {
     use std::vec;
 
     use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::{AstarteData, FromEvent};
@@ -924,10 +925,10 @@ mod tests {
     async fn mock_service(
         tempdir: &TempDir,
         client: Docker,
-        device: MockDeviceClient<Mqtt<SqliteStore>>,
+        device: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
     ) -> (
-        Service<MockDeviceClient<Mqtt<SqliteStore>>>,
-        ServiceHandle<MockDeviceClient<Mqtt<SqliteStore>>>,
+        Service<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
+        ServiceHandle<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
     ) {
         let db_file = tempdir.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
@@ -947,7 +948,7 @@ mod tests {
         id: Uuid,
         reference: &str,
         seq: &mut Sequence,
-        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
         let image_path = format!("/{id}/pulled");
@@ -984,7 +985,7 @@ mod tests {
     fn expect_volume(
         id: Uuid,
         seq: &mut Sequence,
-        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
         let endpoint = format!("/{id}/created");
@@ -1021,7 +1022,7 @@ mod tests {
     fn expect_network(
         id: Uuid,
         seq: &mut Sequence,
-        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
         let endpoint = format!("/{id}/created");
@@ -1059,7 +1060,7 @@ mod tests {
         id: Uuid,
         device_mapping_id: Uuid,
         seq: &mut Sequence,
-        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
         device_request_id: Uuid,
     ) {
@@ -1124,14 +1125,14 @@ mod tests {
         let reference = "docker.io/nginx:stable-alpine-slim";
 
         let mut client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         expect_image(id, reference, &mut seq, &mut device, &mut client);
 
@@ -1161,14 +1162,14 @@ mod tests {
         let deployment_id = Uuid::new_v4();
 
         let mut client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         expect_volume(id, &mut seq, &mut device, &mut client);
 
@@ -1205,14 +1206,14 @@ mod tests {
         let deployment_id = Uuid::new_v4();
 
         let mut client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         expect_network(id, &mut seq, &mut device, &mut client);
 
@@ -1254,14 +1255,14 @@ mod tests {
         let reference = "docker.io/nginx:stable-alpine-slim";
 
         let mut client = Docker::connect().await.unwrap();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         expect_image(image_id, reference, &mut seq, &mut device, &mut client);
         expect_network(network_id, &mut seq, &mut device, &mut client);
@@ -1482,14 +1483,14 @@ mod tests {
 
             mock
         });
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         let image_path = format!("/{image_id}/pulled");
         device
@@ -1718,14 +1719,14 @@ mod tests {
 
             mock
         });
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         device
             .expect_clone()
             .once()
             .in_sequence(&mut seq)
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         let image_path = format!("/{image_id}/pulled");
         device

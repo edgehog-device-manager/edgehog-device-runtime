@@ -149,6 +149,7 @@ async fn disk_uuid(disk: &Disk) -> Option<String> {
 mod tests {
     use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -186,7 +187,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_send_at_least_one() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         client
             .expect_send_object_with_timestamp()

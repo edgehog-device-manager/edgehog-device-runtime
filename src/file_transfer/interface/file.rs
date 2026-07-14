@@ -137,6 +137,7 @@ impl StoredFile {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::{AstarteData, store::SqliteStore, transport::mqtt::Mqtt};
     use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::predicate::eq;
@@ -154,7 +155,7 @@ mod tests {
 
         let stored = StoredFile::create(uuid.to_string(), path.clone(), size);
 
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         device
             .expect_set_property()
@@ -181,7 +182,7 @@ mod tests {
     async fn deleted_file() {
         let uuid = Uuid::new_v4();
 
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         device
             .expect_unset_property()

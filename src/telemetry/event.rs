@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,8 @@
 
 use std::time::Duration;
 
+use astarte_device_sdk::astarte_device_error::Error;
+use astarte_device_sdk::error::InterfaceError;
 use astarte_device_sdk::{
     AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
@@ -32,14 +34,15 @@ pub struct TelemetryEvent {
 }
 
 impl FromEvent for TelemetryEvent {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     fn from_event(event: DeviceEvent) -> Result<Self, Self::Err> {
         let interface = TelemetryConfig::interface_from_path(&event.path).ok_or_else(|| {
-            FromEventError::Path {
-                interface: "io.edgehog.devicemanager.config.Telemetry",
-                base_path: event.path.clone(),
-            }
+            Error::with(
+                FromEventError::Interface(InterfaceError::Path),
+                "invalid path for telemetry interface",
+            )
+            .set_ctx(event.path.clone())
         })?;
 
         TelemetryConfig::from_event(event).map(|config| TelemetryEvent { interface, config })
@@ -74,7 +77,7 @@ impl TelemetryConfig {
 pub struct TelemetryPeriod(pub Duration);
 
 impl TryFrom<AstarteData> for TelemetryPeriod {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let secs = i64::try_from(value)?;

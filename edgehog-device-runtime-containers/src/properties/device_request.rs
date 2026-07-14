@@ -55,6 +55,7 @@ impl AvailableProp for AvailableDeviceRequest<'_> {
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::{MockDeviceClient, mockall::Sequence};
@@ -69,7 +70,7 @@ mod tests {
 
         let device_request = AvailableDeviceRequest::new(&id);
 
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         client
@@ -92,7 +93,7 @@ mod tests {
 
         let device_request = AvailableDeviceRequest::new(&id);
 
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         client

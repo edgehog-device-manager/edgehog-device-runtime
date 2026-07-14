@@ -18,9 +18,8 @@
 
 use actor::Actor;
 use astarte_device_sdk::FromEvent;
-use astarte_device_sdk::client::RecvError;
 use astarte_device_sdk::prelude::PropAccess;
-use eyre::{Context, Report};
+use eyre::Context;
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, trace};
@@ -371,20 +370,13 @@ impl<C> Runtime<C> {
 
         info!("Running");
 
-        while let Some(res) = self.cancel.run_until_cancelled(self.client.recv()).await {
-            let event = match res {
-                Ok(event) => RuntimeEvent::from_event(event).wrap_err("couldn't convert event")?,
-                Err(RecvError::Disconnected) => {
-                    error!("the Runtime was disconnected");
-
-                    return Ok(());
-                }
-                Err(err) => {
-                    error!(error = %Report::new(err), "error received");
-
-                    continue;
-                }
-            };
+        while let Some(event) = self
+            .cancel
+            .run_until_cancelled(self.client.recv())
+            .await
+            .flatten()
+        {
+            let event = RuntimeEvent::from_event(event).wrap_err("couldn't convert event")?;
 
             self.handle_event(event).await;
         }
@@ -408,8 +400,8 @@ impl<C> Runtime<C> {
                     return;
                 }
 
-                if let Err(err) = execute_command(cmd).await {
-                    error!(error = %Report::new(err), "command failed to execute");
+                if let Err(error) = execute_command(cmd).await {
+                    error!(%error, "command failed to execute");
                 }
             }
             RuntimeEvent::Telemetry(event) => {
@@ -447,9 +439,9 @@ impl<C> Runtime<C> {
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             RuntimeEvent::Ota(ota) => {
-                if let Err(err) = self.ota_handler.handle_event(ota).await {
+                if let Err(error) = self.ota_handler.handle_event(ota).await {
                     error!(
-                        error = %eyre::Report::new(err),
+                        %error,
                         "error while processing ota event",
                     );
                 }

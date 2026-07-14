@@ -1,27 +1,24 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
+use astarte_device_sdk::astarte_device_error::Error;
 use astarte_device_sdk::{AstarteData, FromEvent, types::TypeError};
 use tracing::error;
-
-use crate::error::DeviceManagerError;
 
 #[derive(Debug, Clone, FromEvent, PartialEq, Eq)]
 #[from_event(
@@ -50,7 +47,7 @@ pub enum CmdReq {
 }
 
 impl TryFrom<AstarteData> for CmdReq {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
@@ -60,16 +57,17 @@ impl TryFrom<AstarteData> for CmdReq {
             _ => {
                 error!("unrecognize Commands request value {value}");
 
-                Err(TypeError::Conversion {
-                    ctx: format!("unrecognize Commands request value {value}"),
-                })
+                Err(
+                    Error::with(TypeError::Conversion, "unrecognize Commands request value")
+                        .set_ctx(value),
+                )
             }
         }
     }
 }
 
 /// handle io.edgehog.devicemanager.Commands
-pub(crate) async fn execute_command(cmd: Commands) -> Result<(), DeviceManagerError> {
+pub(crate) async fn execute_command(cmd: Commands) -> eyre::Result<()> {
     match cmd {
         Commands::Request(CmdReq::Reboot) => crate::power_management::reboot().await,
     }

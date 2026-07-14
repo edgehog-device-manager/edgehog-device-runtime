@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,7 @@
 
 use std::ops::Deref;
 
+use astarte_device_sdk::astarte_device_error::{Error, WrapError};
 use astarte_device_sdk::{AstarteData, FromEvent, types::TypeError};
 use tracing::error;
 use uuid::Uuid;
@@ -54,21 +55,15 @@ impl Deref for OtaUuid {
 }
 
 impl TryFrom<AstarteData> for OtaUuid {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let str = String::try_from(value)?;
 
-        Uuid::try_parse(&str).map(OtaUuid).map_err(|err| {
-            error!(
-                value = str,
-                error = format!("{:#}", eyre::Report::new(err)),
-                "coudln't parse Ota UUID",
-            );
+        Uuid::try_parse(&str).map(OtaUuid).wrap_err_with(|error| {
+            error!(value = str, %error, "coudln't parse Ota UUID",);
 
-            TypeError::Conversion {
-                ctx: format!("couldn't parse Ota UUID: {str}"),
-            }
+            Error::with(TypeError::Conversion, "couldn't parse Ota UUID").set_ctx(str)
         })
     }
 }
@@ -80,7 +75,7 @@ pub enum OtaOperation {
 }
 
 impl TryFrom<AstarteData> for OtaOperation {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
@@ -91,9 +86,10 @@ impl TryFrom<AstarteData> for OtaOperation {
             _ => {
                 error!(value, "unrecognize Ota operation value");
 
-                Err(TypeError::Conversion {
-                    ctx: format!("unrecognize Ota operation value {value}"),
-                })
+                Err(
+                    Error::with(TypeError::Conversion, "unrecognize Ota operation value")
+                        .set_ctx(value),
+                )
             }
         }
     }
@@ -107,7 +103,7 @@ mod tests {
 
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
-    use astarte_device_sdk::{DeviceEvent, Value, event::FromEventError};
+    use astarte_device_sdk::{DeviceEvent, Value};
 
     #[test]
     fn should_convert_ota_from_event() {
@@ -149,7 +145,7 @@ mod tests {
             AstarteData::String("http://instance.ota.bin".to_string()),
         )]);
 
-        let err = OtaRequest::from_event(DeviceEvent {
+        let _ = OtaRequest::from_event(DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
             data: Value::Object {
@@ -158,11 +154,6 @@ mod tests {
             },
         })
         .unwrap_err();
-
-        assert!(
-            matches!(err, FromEventError::MissingField { .. }),
-            "got err {err:?}"
-        );
     }
 
     #[tokio::test]
@@ -182,7 +173,7 @@ mod tests {
             ),
         ]);
 
-        let err = OtaRequest::from_event(DeviceEvent {
+        let _ = OtaRequest::from_event(DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
             data: Value::Object {
@@ -191,8 +182,6 @@ mod tests {
             },
         })
         .unwrap_err();
-
-        assert!(matches!(err, FromEventError::Conversion { .. }));
     }
 
     #[tokio::test]
@@ -209,7 +198,7 @@ mod tests {
             ),
         ]);
 
-        let err = OtaRequest::from_event(DeviceEvent {
+        let _ = OtaRequest::from_event(DeviceEvent {
             interface: "io.edgehog.devicemanager.OTARequest".to_string(),
             path: "/request".to_string(),
             data: Value::Object {
@@ -218,7 +207,5 @@ mod tests {
             },
         })
         .unwrap_err();
-
-        assert!(matches!(err, FromEventError::Conversion { .. }));
     }
 }

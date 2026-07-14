@@ -1,58 +1,36 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 use std::path::Path;
 
 use astarte_device_sdk::DeviceClient;
-use astarte_device_sdk::builder::{BuilderError, DeviceBuilder};
-use astarte_device_sdk::error::Error as AstarteError;
-use astarte_device_sdk::introspection::AddInterfaceError;
+use astarte_device_sdk::builder::DeviceBuilder;
+use astarte_device_sdk::pairing::api::PairingApi;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig};
+use eyre::{Context, eyre};
 use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 
 use crate::repository::StateRepository;
-use crate::repository::file_state_repository::{FileStateError, FileStateRepository};
-
-/// Error returned by the [`astarte_device_sdk`].
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum DeviceSdkError {
-    /// missing device ID
-    MissingDeviceId,
-    /// couldn't get the hardware id from DBus
-    #[cfg(all(feature = "zbus", target_os = "linux"))]
-    Zbus(#[from] zbus::Error),
-    /// couldn't read credential secret
-    ReadSecret(#[source] FileStateError),
-    /// couldn't get credential secret or pairing token
-    MissingCredentialSecret,
-    /// couldn't add interfaces directory
-    Interfaces(#[from] AddInterfaceError),
-    /// couldn't build Astarte device
-    Builder(#[from] BuilderError),
-    /// couldn't connect to Astarte
-    Connect(#[source] AstarteError),
-}
+use crate::repository::file_state_repository::FileStateRepository;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AstarteDeviceSdkConfigOptions {
@@ -66,18 +44,20 @@ pub struct AstarteDeviceSdkConfigOptions {
 }
 
 impl AstarteDeviceSdkConfigOptions {
-    async fn device_id_or_from_dbus(&self) -> Result<String, DeviceSdkError> {
+    async fn device_id_or_from_dbus(&self) -> eyre::Result<String> {
         if let Some(id) = self.device_id.as_ref().filter(|id| !id.is_empty()) {
             return Ok(id.clone());
         }
 
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "zbus", target_os = "linux"))] {
+                use eyre::OptionExt;
+
                 hardware_id_from_dbus()
                     .await?
-                    .ok_or(DeviceSdkError::MissingDeviceId)
+                    .ok_or_eyre("could't get device id from dbus")
             } else {
-                Err(DeviceSdkError::MissingDeviceId)
+                Err(eyre!("missing device id"))
             }
         }
     }
@@ -86,7 +66,7 @@ impl AstarteDeviceSdkConfigOptions {
         &self,
         device_id: &str,
         store_directory: impl AsRef<Path>,
-    ) -> Result<Credential, DeviceSdkError> {
+    ) -> eyre::Result<Credential> {
         let cred = self.credentials_secret.as_ref().filter(|id| !id.is_empty());
 
         if let Some(secret) = cred {
@@ -103,14 +83,14 @@ impl AstarteDeviceSdkConfigOptions {
                 .read()
                 .await
                 .map(Credential::secret)
-                .map_err(DeviceSdkError::ReadSecret);
+                .wrap_err("couldn't read credential secret");
         }
 
         if let Some(token) = &self.pairing_token {
             return Ok(Credential::paring_token(token));
         }
 
-        Err(DeviceSdkError::MissingCredentialSecret)
+        Err(eyre!("missing credential secret and pairing token"))
     }
 
     pub async fn connect<P>(
@@ -119,7 +99,7 @@ impl AstarteDeviceSdkConfigOptions {
         store: SqliteStore,
         store_dir: P,
         interface_dir: P,
-    ) -> Result<DeviceClient<Mqtt<SqliteStore>>, DeviceSdkError>
+    ) -> eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>>
     where
         P: AsRef<Path>,
     {
@@ -145,7 +125,7 @@ impl AstarteDeviceSdkConfigOptions {
             .connection(mqtt_cfg)
             .build()
             .await
-            .map_err(DeviceSdkError::Connect)?;
+            .wrap_err("couldn't build device connection")?;
 
         tasks.spawn(async move { connection.handle_events().await.map_err(Into::into) });
 
@@ -154,7 +134,7 @@ impl AstarteDeviceSdkConfigOptions {
 }
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
-pub async fn hardware_id_from_dbus() -> Result<Option<String>, DeviceSdkError> {
+pub async fn hardware_id_from_dbus() -> eyre::Result<Option<String>> {
     let connection = zbus::Connection::system().await?;
     let proxy = crate::device::DeviceProxy::new(&connection).await?;
     let hardware_id: String = proxy.get_hardware_id("").await?;

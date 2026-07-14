@@ -1,23 +1,23 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
+use astarte_device_sdk::astarte_device_error::Error;
+use astarte_device_sdk::error::InterfaceError;
 use astarte_device_sdk::{
     AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
@@ -34,14 +34,16 @@ pub struct LedEvent {
 }
 
 impl FromEvent for LedEvent {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     fn from_event(event: DeviceEvent) -> Result<Self, Self::Err> {
-        let led_id =
-            LedBehavior::led_id_from_path(&event.path).ok_or_else(|| FromEventError::Path {
-                interface: "io.edgehog.devicemanager.LedBehavior",
-                base_path: event.path.clone(),
-            })?;
+        let led_id = LedBehavior::led_id_from_path(&event.path).ok_or_else(|| {
+            Error::with(
+                FromEventError::Interface(InterfaceError::Path),
+                "invalid led event path",
+            )
+            .set_ctx(event.path.to_string())
+        })?;
 
         LedBehavior::from_event(event).map(|behavior| LedEvent { led_id, behavior })
     }
@@ -73,7 +75,7 @@ pub enum Blink {
 }
 
 impl TryFrom<AstarteData> for Blink {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
@@ -85,9 +87,11 @@ impl TryFrom<AstarteData> for Blink {
             _ => {
                 error!(value, "unrecognized LedBehavior behavior value");
 
-                Err(TypeError::Conversion {
-                    ctx: format!("unrecognized LedBehavior behavior value {value}"),
-                })
+                Err(Error::with(
+                    TypeError::Conversion,
+                    "unrecognized LedBehavior behavior value",
+                )
+                .set_ctx(value))
             }
         }
     }

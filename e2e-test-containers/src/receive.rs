@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 - 2025 SECO Mind Srl
+// Copyright 2024-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,7 +28,7 @@ use edgehog_containers::{
     store::StateStore,
 };
 use edgehog_store::db::Handle;
-use eyre::bail;
+use eyre::{OptionExt, eyre};
 use tokio::task::JoinSet;
 use tracing::{error, info};
 
@@ -37,7 +37,7 @@ where
     D: Client + Send + Sync + 'static,
 {
     loop {
-        let event = device.recv().await?;
+        let event = device.recv().await.ok_or_eyre("client disconnected")?;
 
         match ContainerRequest::from_event(event) {
             Ok(req) => {
@@ -51,7 +51,7 @@ where
                     "couldn't parse the event"
                 );
 
-                bail!("invalid event received");
+                return Err(eyre!("invalid event received"));
             }
         }
     }
@@ -135,7 +135,7 @@ where
                     "task panicked"
                 );
 
-                bail!("task panicked");
+                return Err(eyre!("task panicked"));
             }
         }
     }

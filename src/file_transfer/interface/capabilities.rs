@@ -148,6 +148,7 @@ impl<const T: usize> Capabilities<T> {
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::{store::SqliteStore, transport::Connection};
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -201,7 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_capabilities() {
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         device
             .expect_set_property()

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -441,6 +441,7 @@ impl TelemetryTasks {
 pub(crate) mod tests {
     use super::*;
 
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -461,8 +462,11 @@ pub(crate) mod tests {
     }
 
     fn mock_telemetry(
-        client: MockDeviceClient<Mqtt<SqliteStore>>,
-    ) -> (Telemetry<MockDeviceClient<Mqtt<SqliteStore>>>, TempDir) {
+        client: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+    ) -> (
+        Telemetry<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
+        TempDir,
+    ) {
         let (dir, path) = temp_dir();
 
         (
@@ -489,7 +493,7 @@ pub(crate) mod tests {
 
         let (_dir, t_dir) = temp_dir();
 
-        let client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         let tel = Telemetry::from_config(
             client,
@@ -517,7 +521,7 @@ pub(crate) mod tests {
 
         let (_dir, t_dir) = temp_dir();
 
-        let client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         let mut tel = Telemetry::from_config(
             client,
@@ -570,7 +574,7 @@ pub(crate) mod tests {
         }];
 
         let (_dir, t_dir) = temp_dir();
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         client
@@ -619,7 +623,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn send_initial_telemetry_success() {
         let client = {
-            let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+            let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
             let mut seq = Sequence::new();
 
             client

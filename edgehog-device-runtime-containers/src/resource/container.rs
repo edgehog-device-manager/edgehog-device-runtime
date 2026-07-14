@@ -126,9 +126,9 @@ impl ContainerResource {
                 (PropertyStatus::Running, true)
             }
             ContainerStateStatusEnum::REMOVING => (PropertyStatus::Received, false),
-            ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD => {
-                (PropertyStatus::Stopped, true)
-            }
+            ContainerStateStatusEnum::STOPPING
+            | ContainerStateStatusEnum::EXITED
+            | ContainerStateStatusEnum::DEAD => (PropertyStatus::Stopped, true),
             ContainerStateStatusEnum::PAUSED | ContainerStateStatusEnum::EMPTY => {
                 debug!(%container_state, "weird state");
 

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023, 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,6 +21,7 @@ use std::env::VarError;
 use astarte_device_sdk::{
     DeviceClient, EventLoop,
     builder::DeviceBuilder,
+    pairing::api::PairingApi,
     rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
     store::SqliteStore,
     transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig},
@@ -42,7 +43,7 @@ mod send;
 async fn connect(
     astarte: &AstarteConfig,
     tasks: &mut JoinSet<color_eyre::Result<()>>,
-) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore>>> {
+) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>> {
     let mqtt_config = MqttConfig::new(MqttArgs {
         realm: astarte.realm.clone(),
         device_id: astarte.device_id.clone(),

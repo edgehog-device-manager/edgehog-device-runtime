@@ -22,7 +22,7 @@ use edgehog_device_runtime::file_transfer::config::FileTransferArgs;
 use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
 use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
 use edgehog_device_runtime::telemetry::status::runtime_info::{RUNTIME_INFO, RuntimeInfo};
-use eyre::{OptionExt, WrapErr, bail, eyre};
+use eyre::{OptionExt, WrapErr, eyre};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -104,7 +104,7 @@ where
         }
     }
 
-    bail!("to many attempts")
+    Err(eyre!("to many attempts"))
 }
 
 #[tokio::main]
