@@ -154,13 +154,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "astarte-device-error"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56505cfb31c3e3f9918178a4e45d33dc1ee919ccfee26247a667d3c8af3e490c"
+
+[[package]]
 name = "astarte-device-sdk"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c4150fdbde0ffd3132ef81c960a1f79631917bcbe36d8fb6578775fb124528e"
 dependencies = [
  "astarte-device-sdk-derive",
- "astarte-interfaces",
+ "astarte-interfaces 0.1.1",
  "astarte-message-hub-proto",
  "async-channel",
  "aws-lc-rs",
@@ -194,6 +200,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "astarte-device-sdk"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0d3d8564e1bf40b60014af3f465ebdea56a48eba3d0e6521ba66397ed42f2ba"
+dependencies = [
+ "astarte-device-error",
+ "astarte-interfaces 1.0.0",
+ "async-channel",
+ "base64",
+ "bson",
+ "bytes",
+ "cfg-if",
+ "chrono",
+ "flate2",
+ "futures",
+ "http",
+ "http-body-util",
+ "itertools 0.14.0",
+ "mime",
+ "rand 0.10.2",
+ "rcgen",
+ "reqwest",
+ "rumqttc-dev-patched",
+ "rusqlite",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile",
+ "rustls-webpki 0.103.13",
+ "serde",
+ "serde_json",
+ "sync_wrapper",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
+ "uuid",
+ "x509-parser",
+]
+
+[[package]]
 name = "astarte-device-sdk-derive"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -207,11 +254,11 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-mock"
-version = "0.13.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85be8a22418ab65c26728d1490030c7935fc0d9511d68cd732bf3ad9ef4aaadf"
+checksum = "47d088dc79deaf7067d05160f5d0da129446ef9fa6978c35e16e53487f9e4e23"
 dependencies = [
- "astarte-device-sdk",
+ "astarte-device-sdk 0.14.1",
  "chrono",
  "mockall",
 ]
@@ -221,6 +268,20 @@ name = "astarte-interfaces"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45bcdb5d3a2f2883e0958b78c2c6ba16c137de8ef2cc3887445af57f4f157fa5"
+dependencies = [
+ "cfg-if",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "astarte-interfaces"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f8b7a2a5a2e54f865ebe5ca93ee3efd41dea73f7eb0b5e0802f5ced63a8cf9d"
 dependencies = [
  "cfg-if",
  "regex",
@@ -1147,7 +1208,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 name = "e2e-test"
 version = "0.1.0"
 dependencies = [
- "astarte-device-sdk",
+ "astarte-device-sdk 0.13.0",
  "clap",
  "color-eyre",
  "edgehog-device-runtime",
@@ -1167,7 +1228,7 @@ dependencies = [
 name = "e2e-test-containers"
 version = "0.11.1"
 dependencies = [
- "astarte-device-sdk",
+ "astarte-device-sdk 0.13.0",
  "clap",
  "color-eyre",
  "edgehog-device-runtime-containers",
@@ -1205,7 +1266,7 @@ dependencies = [
 name = "edgehog-device-runtime"
 version = "0.11.1"
 dependencies = [
- "astarte-device-sdk",
+ "astarte-device-sdk 0.13.0",
  "astarte-device-sdk-mock",
  "async-compression",
  "async-tar",
@@ -1265,7 +1326,7 @@ dependencies = [
 name = "edgehog-device-runtime-containers"
 version = "0.11.1"
 dependencies = [
- "astarte-device-sdk",
+ "astarte-device-sdk 0.13.0",
  "astarte-device-sdk-mock",
  "base64",
  "bollard",
@@ -1294,7 +1355,7 @@ dependencies = [
 name = "edgehog-device-runtime-forwarder"
 version = "0.11.1"
 dependencies = [
- "astarte-device-sdk",
+ "astarte-device-sdk 0.13.0",
  "backoff",
  "displaydoc",
  "edgehog-device-forwarder-proto",
@@ -1466,7 +1527,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3445,7 +3506,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3511,7 +3572,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3961,10 +4022,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4670,7 +4731,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
