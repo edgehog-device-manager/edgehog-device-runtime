@@ -25,14 +25,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-forwarder-v0.11.1...edgehog-device-runtime-forwarder-v0.12.0) - 2026-07-23
+## [0.12.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-tls-v0.11.1...edgehog-device-runtime-tls-v0.12.0) - 2026-07-23
 
-### Other
+### Changed
 
-- _(v0.11.1)_ forward port the release
+- _(fileTransfer)_ feature gate the implementation
 
-## [0.11.1] - 2026-05-27
+### Fixed
 
-## [0.11.0] - 2026-05-26
+- _(telemetry)_ make it work on other platforms
 
-## [0.10.6] - 2026-05-13
