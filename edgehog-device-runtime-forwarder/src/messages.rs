@@ -1,4 +1,19 @@
-// Copyright 2024 SECO Mind Srl
+// This file is part of Edgehog.
+//
+// Copyright 2024, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
 // SPDX-License-Identifier: Apache-2.0
 
 //! Internal Rust representation of protobuf structures.
@@ -8,9 +23,9 @@
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::TryFromIntError;
 use std::ops::Not;
-use std::str::FromStr;
 
 use thiserror::Error as ThisError;
 use tokio_tungstenite::tungstenite::{Bytes, Error as TungError, Message as TungMessage};
@@ -18,15 +33,17 @@ use tracing::{debug, error, instrument, warn};
 use url::ParseError;
 
 use edgehog_device_forwarder_proto as proto;
+use edgehog_device_forwarder_proto::http::{
+    Message as ProtobufHttpMessage, Request as ProtobufHttpRequest,
+    Response as ProtobufHttpResponse,
+};
+use edgehog_device_forwarder_proto::message::Protocol as ProtobufProtocol;
+use edgehog_device_forwarder_proto::prost::{self, Message as ProstMessage};
+use edgehog_device_forwarder_proto::web_socket::{
+    Close as ProtobufWsClose, Message as ProtobufWsMessage,
+};
 use edgehog_device_forwarder_proto::{
-    Http as ProtobufHttp, WebSocket as ProtobufWebSocket,
-    http::Message as ProtobufHttpMessage,
-    http::Request as ProtobufHttpRequest,
-    http::Response as ProtobufHttpResponse,
-    message::Protocol as ProtobufProtocol,
-    prost::{self, Message as ProstMessage},
-    web_socket::Close as ProtobufWsClose,
-    web_socket::Message as ProtobufWsMessage,
+    Http as ProtobufHttp, Https as ProtobufHttps, WebSocket as ProtobufWebSocket,
 };
 
 /// Errors occurring while handling [`protobuf`](https://protobuf.dev/overview/) messages
@@ -171,6 +188,7 @@ impl TryFrom<ProtobufProtocol> for ProtoMessage {
         let protocol = match value {
             ProtobufProtocol::Http(http) => ProtoMessage::Http(http.try_into()?),
             ProtobufProtocol::Ws(ws) => ProtoMessage::WebSocket(ws.try_into()?),
+            ProtobufProtocol::Https(https) => ProtoMessage::Http(https.try_into()?),
         };
 
         Ok(protocol)
@@ -237,8 +255,40 @@ impl TryFrom<ProtobufHttp> for Http {
         message
             .ok_or(ProtocolError::Empty)
             .and_then(|msg| match msg {
-                ProtobufHttpMessage::Request(req) => req.try_into().map(HttpMessage::Request),
+                ProtobufHttpMessage::Request(req) => {
+                    HttpRequest::with_scheme(http::uri::Scheme::HTTP, req).map(HttpMessage::Request)
+                }
                 ProtobufHttpMessage::Response(res) => res.try_into().map(HttpMessage::Response),
+            })
+            .map(|http_msg: HttpMessage| Http {
+                request_id,
+                http_msg: Box::new(http_msg),
+            })
+    }
+}
+
+impl TryFrom<ProtobufHttps> for Http {
+    type Error = ProtocolError;
+
+    fn try_from(value: ProtobufHttps) -> Result<Self, Self::Error> {
+        let ProtobufHttps {
+            request_id,
+            message,
+        } = value;
+
+        // check also request_id emptiness
+        let request_id = request_id.try_into()?;
+
+        message
+            .ok_or(ProtocolError::Empty)
+            .and_then(|msg| match msg {
+                edgehog_device_forwarder_proto::https::Message::Request(request) => {
+                    HttpRequest::with_scheme(http::uri::Scheme::HTTPS, request)
+                        .map(HttpMessage::Request)
+                }
+                edgehog_device_forwarder_proto::https::Message::Response(response) => {
+                    response.try_into().map(HttpMessage::Response)
+                }
             })
             .map(|http_msg: HttpMessage| Http {
                 request_id,
@@ -303,7 +353,9 @@ fn check_ws_upgrade_headers(headers: &http::HeaderMap) -> bool {
 /// HTTP request fields.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct HttpRequest {
+    pub(crate) scheme: http::uri::Scheme,
     pub(crate) method: http::Method,
+    pub(crate) host: Option<String>,
     pub(crate) path: String,
     pub(crate) query_string: String,
     pub(crate) headers: http::HeaderMap,
@@ -313,26 +365,73 @@ pub(crate) struct HttpRequest {
 }
 
 impl HttpRequest {
+    pub(crate) fn with_scheme(
+        scheme: http::uri::Scheme,
+        req: ProtobufHttpRequest,
+    ) -> Result<Self, ProtocolError> {
+        let ProtobufHttpRequest {
+            path,
+            method,
+            query_string,
+            headers,
+            body,
+            port,
+            host,
+        } = req;
+
+        Ok(Self {
+            scheme,
+            path,
+            method: method.as_str().try_into()?,
+            query_string,
+            headers: (&headers).try_into()?,
+            body,
+            port: port.try_into()?,
+            host,
+        })
+    }
+
     /// Create a [`RequestBuilder`](reqwest::RequestBuilder) from an HTTP request message.
     pub(crate) fn request_builder(self) -> Result<reqwest::RequestBuilder, ProtocolError> {
+        let HttpRequest {
+            scheme,
+            method,
+            host,
+            path,
+            query_string,
+            headers,
+            body,
+            port,
+        } = self;
+
         let url_str = format!(
-            "http://localhost:{}/{}?{}",
-            self.port, self.path, self.query_string
+            "{scheme}://{}:{port}/{path}?{query_string}",
+            host.as_deref().unwrap_or("127.0.0.1")
         );
+
         let url = url::Url::parse(&url_str)?;
-        let method = http::method::Method::from_str(self.method.as_str())?;
 
         let tls = edgehog_tls::config().map_err(|error| {
             error!(%error, "couldn't configure TLS");
 
             ProtocolError::ReqBuild(", configure TLS")
         })?;
-        let http_builder = reqwest::Client::builder()
-            .use_preconfigured_tls(tls)
+
+        let mut http_builder = reqwest::Client::builder().use_preconfigured_tls(tls);
+
+        // Resolve the host to localhost, this prevents making requests to other hosts.
+        if let Some(host) = host.as_ref() {
+            http_builder = http_builder.resolve(
+                host,
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)),
+            );
+        }
+
+        let http_builder = http_builder
             .build()?
             .request(method, url)
-            .headers(self.headers)
-            .body(self.body);
+            .headers(headers)
+            .body(body);
 
         Ok(http_builder)
     }
@@ -386,28 +485,6 @@ impl HttpRequest {
     }
 }
 
-impl TryFrom<ProtobufHttpRequest> for HttpRequest {
-    type Error = ProtocolError;
-    fn try_from(value: ProtobufHttpRequest) -> Result<Self, Self::Error> {
-        let ProtobufHttpRequest {
-            path,
-            method,
-            query_string,
-            headers,
-            body,
-            port,
-        } = value;
-        Ok(Self {
-            path,
-            method: method.as_str().try_into()?,
-            query_string,
-            headers: (&headers).try_into()?,
-            body,
-            port: port.try_into()?,
-        })
-    }
-}
-
 impl From<HttpRequest> for ProtobufHttpRequest {
     fn from(http_req: HttpRequest) -> Self {
         Self {
@@ -417,6 +494,7 @@ impl From<HttpRequest> for ProtobufHttpRequest {
             headers: headermap_to_hashmap(&http_req.headers),
             body: http_req.body,
             port: http_req.port.into(),
+            host: http_req.host,
         }
     }
 }
@@ -633,12 +711,14 @@ mod tests {
 
     fn http_message_req() -> HttpMessage {
         HttpMessage::Request(HttpRequest {
+            scheme: http::uri::Scheme::HTTP,
             method: http::Method::GET,
             path: String::new(),
             query_string: String::new(),
             headers: http::HeaderMap::new(),
             body: Vec::new(),
             port: 0,
+            host: None,
         })
     }
 
@@ -659,6 +739,7 @@ mod tests {
                 path: String::new(),
                 method: "GET".to_string(),
                 port: 0,
+                host: None,
             })),
         }
     }
@@ -674,12 +755,14 @@ mod tests {
         let headers = headermap_http_upgrade();
 
         HttpRequest {
+            scheme: http::uri::Scheme::HTTP,
             method: http::Method::GET,
             path: String::new(),
             query_string: String::new(),
             headers,
             body,
             port: 0,
+            host: None,
         }
     }
 
