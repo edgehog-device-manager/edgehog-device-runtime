@@ -61,7 +61,7 @@ jobs:
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - name: Run release-plz
-        uses: release-plz/action@v0.5.130
+        uses: release-plz/action@v0.5.131
         with:
           command: release
         env:
@@ -85,7 +85,7 @@ jobs:
       - *install-rust
       - *login-crates
       - name: Run release-plz
-        uses: release-plz/action@v0.5.130
+        uses: release-plz/action@v0.5.131
         with:
           command: release-pr
         env:
