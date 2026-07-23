@@ -22,6 +22,7 @@ version.workspace = true
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
+publish = false
 rust-version.workspace = true
 description.workspace = true
 
@@ -33,7 +34,6 @@ color-eyre.workspace = true
 edgehog.workspace = true
 edgehog-store.workspace = true
 edgehog-tls.workspace = true
-walkdir.workspace = true
 eyre.workspace = true
 hex.workspace = true
 rustls.workspace = true
@@ -46,6 +46,7 @@ tracing-error.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
+walkdir.workspace = true
 
 [dependencies.reqwest]
 workspace = true

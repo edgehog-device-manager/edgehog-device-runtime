@@ -60,6 +60,7 @@ jobs:
       - &login-crates
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
+      - uses: ./.github/actions/install-deps
       - name: Run release-plz
         uses: release-plz/action@v0.5.130
         with:
@@ -84,6 +85,7 @@ jobs:
       - *checkout
       - *install-rust
       - *login-crates
+      - uses: ./.github/actions/install-deps
       - name: Run release-plz
         uses: release-plz/action@v0.5.130
         with:
