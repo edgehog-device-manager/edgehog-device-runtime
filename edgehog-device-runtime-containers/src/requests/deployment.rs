@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,10 @@
 
 //! Create image request
 
-use astarte_device_sdk::{AstarteData, FromEvent, event::FromEventError, types::TypeError};
+use astarte_device_sdk::astarte_device_error::{Error, WrapError};
+use astarte_device_sdk::event::FromEventError;
+use astarte_device_sdk::types::TypeError;
+use astarte_device_sdk::{AstarteData, FromEvent};
 use tracing::error;
 use uuid::Uuid;
 
@@ -45,7 +48,7 @@ pub struct DeploymentCommand {
 }
 
 impl FromEvent for DeploymentCommand {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
         let id = event
@@ -53,9 +56,11 @@ impl FromEvent for DeploymentCommand {
             .strip_prefix('/')
             .and_then(|path| path.strip_suffix("/command"))
             .and_then(|id| Uuid::parse_str(id).ok())
-            .ok_or_else(|| FromEventError::Path {
-                interface: "io.edgehog.devicemanager.apps.DeploymentCommand",
-                base_path: event.path.clone(),
+            .ok_or_else(|| {
+                Error::with(
+                    FromEventError::Interface(astarte_device_sdk::error::InterfaceError::Path),
+                    "not a valid deployment command path path",
+                )
             })?;
 
         let event = DeploymentCommandEvent::from_event(event)?;
@@ -84,7 +89,7 @@ pub(crate) enum CommandValue {
 }
 
 impl TryFrom<AstarteData> for CommandValue {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
@@ -96,9 +101,11 @@ impl TryFrom<AstarteData> for CommandValue {
             _ => {
                 error!("unrecognize DeploymentCommand command value {value}");
 
-                Err(TypeError::Conversion {
-                    ctx: format!("unrecognize DeploymentCommand command value {value}"),
-                })
+                Err(Error::with(
+                    TypeError::Conversion,
+                    "unrecognize DeploymentCommand command value",
+                )
+                .set_ctx(value))
             }
         }
     }
@@ -112,33 +119,32 @@ pub struct DeploymentUpdate {
 }
 
 impl FromEvent for DeploymentUpdate {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
         let event = DeploymentUpdateEvent::from_event(event)?;
 
-        let from = Uuid::parse_str(&event.from).map_err(|err| {
-            error!(
-                error = format!("{:#}", eyre::Report::new(err)),
-                from = event.from,
-                "invalid deployment update 'from' uuid"
+        let from = Uuid::parse_str(&event.from).wrap_err_with(|error| {
+            error!(%error, from = event.from, "invalid deployment update 'from' uuid"
             );
 
-            FromEventError::Conversion(TypeError::Conversion {
-                ctx: "invalid deployment update 'from' uuid".to_string(),
-            })
+            Error::with(
+                FromEventError::Conversion(TypeError::Conversion),
+                "invalid deployment update 'from' uuid",
+            )
         })?;
 
-        let to = Uuid::parse_str(&event.to).map_err(|err| {
+        let to = Uuid::parse_str(&event.to).wrap_err_with(|error| {
             error!(
-                error = format!("{:#}", eyre::Report::new(err)),
+                %error,
                 to = event.to,
                 "invalid deployment update 'to' uuid"
             );
 
-            FromEventError::Conversion(TypeError::Conversion {
-                ctx: "invalid deployment update 'to' uuid".to_string(),
-            })
+            Error::with(
+                FromEventError::Conversion(TypeError::Conversion),
+                "invalid deployment update 'to' uuid",
+            )
         })?;
 
         Ok(Self { from, to })

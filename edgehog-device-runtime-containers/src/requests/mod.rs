@@ -20,6 +20,7 @@
 
 use std::{borrow::Borrow, fmt::Display, num::ParseIntError, ops::Deref};
 
+use astarte_device_sdk::astarte_device_error::{Error, WrapError};
 use astarte_device_sdk::{
     AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
@@ -112,7 +113,7 @@ impl ContainerRequest {
 }
 
 impl FromEvent for ContainerRequest {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     fn from_event(value: DeviceEvent) -> Result<Self, Self::Err> {
         match value.interface.as_str() {
@@ -144,7 +145,13 @@ impl FromEvent for ContainerRequest {
             "io.edgehog.devicemanager.apps.DeploymentUpdate" => {
                 DeploymentUpdate::from_event(value).map(ContainerRequest::DeploymentUpdate)
             }
-            _ => Err(FromEventError::Interface(value.interface.clone())),
+            _ => Err(Error::with(
+                FromEventError::Interface(
+                    astarte_device_sdk::error::InterfaceError::InterfaceNotFound,
+                ),
+                "unrecognized interface interface",
+            )
+            .set_ctx(value.interface)),
         }
     }
 }
@@ -174,24 +181,20 @@ impl Deref for ReqUuid {
 }
 
 impl TryFrom<&str> for ReqUuid {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Uuid::parse_str(value).map(ReqUuid).map_err(|err| {
-            error!(
-                error = format!("{:#}", eyre::Report::new(err)),
-                value, "couldn't parse uuid value"
-            );
+        Uuid::parse_str(value).map(ReqUuid).wrap_err_with(|error| {
+            error!(%error, value, "couldn't parse uuid value");
 
-            TypeError::Conversion {
-                ctx: format!("couldn't parse uuid value: {value}"),
-            }
+            Error::with(TypeError::Conversion, "couldn't parse uuid value")
+                .set_ctx(value.to_string())
         })
     }
 }
 
 impl TryFrom<AstarteData> for ReqUuid {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;
@@ -240,7 +243,7 @@ impl Deref for VecReqUuid {
 }
 
 impl TryFrom<AstarteData> for VecReqUuid {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = Vec::<String>::try_from(value)?;
@@ -248,7 +251,7 @@ impl TryFrom<AstarteData> for VecReqUuid {
         value
             .iter()
             .map(|v| ReqUuid::try_from(v.as_str()))
-            .collect::<Result<Vec<ReqUuid>, TypeError>>()
+            .collect::<Result<Vec<ReqUuid>, Error<TypeError>>>()
             .map(VecReqUuid)
     }
 }
@@ -258,7 +261,7 @@ impl TryFrom<AstarteData> for VecReqUuid {
 pub struct OptString(Option<String>);
 
 impl TryFrom<AstarteData> for OptString {
-    type Error = TypeError;
+    type Error = Error<TypeError>;
 
     fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
         let value = String::try_from(value)?;

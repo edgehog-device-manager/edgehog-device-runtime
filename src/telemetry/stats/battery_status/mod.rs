@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,7 +33,9 @@ pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.BatteryStatus";
 #[derive(Debug, IntoAstarteObject, PartialEq)]
 #[astarte_object(rename_all = "camelCase")]
 pub struct BatteryStatus {
+    #[astarte_object(fallible)]
     level_percentage: f64,
+    #[astarte_object(fallible)]
     level_absolute_error: f64,
     /// "Battery status string, any of: Charging, Discharging, Idle, EitherIdleOrCharging, Failure, Removed, Unknown",
     status: String,
@@ -183,6 +185,7 @@ fn get_error_level(device_state: BatteryState) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -282,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_battery_status_test() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         client
             .expect_send_object_with_timestamp()

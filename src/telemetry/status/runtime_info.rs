@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2022 - 2025 SECO Mind Srl
+// Copyright 2022-2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -66,6 +66,7 @@ impl RuntimeInfo<'static> {
 #[cfg(test)]
 pub(crate) mod tests {
     use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -74,7 +75,7 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn mock_runtime_info_telemetry(
-        client: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        client: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         seq: &mut Sequence,
     ) {
         client
@@ -124,7 +125,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn should_send_runtime_info() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         mock_runtime_info_telemetry(&mut client, &mut seq);

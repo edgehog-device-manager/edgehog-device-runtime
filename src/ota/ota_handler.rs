@@ -30,7 +30,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace};
 
 use crate::controller::actor::Actor;
-use crate::error::DeviceManagerError;
 use crate::ota::OtaError;
 use crate::ota::rauc::OTARauc;
 use crate::ota::{Ota, OtaId, OtaStatus};
@@ -137,7 +136,7 @@ impl OtaHandler {
         self.flag.in_progress()
     }
 
-    pub async fn handle_event(&mut self, req: OtaRequest) -> Result<(), DeviceManagerError> {
+    pub async fn handle_event(&mut self, req: OtaRequest) -> eyre::Result<()> {
         let operation = req.operation;
         let id = OtaId::from(req);
 
@@ -151,7 +150,7 @@ impl OtaHandler {
         }
     }
 
-    async fn handle_update(&mut self, id: OtaId) -> Result<(), DeviceManagerError> {
+    async fn handle_update(&mut self, id: OtaId) -> eyre::Result<()> {
         if self.check_update_already_in_progress(&id).await {
             return Ok(());
         }

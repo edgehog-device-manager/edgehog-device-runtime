@@ -40,7 +40,6 @@ use mockall::automock;
 
 use crate::DeviceManagerOptions;
 use crate::controller::actor::Actor;
-use crate::error::DeviceManagerError;
 use crate::http::default_http_client_builder;
 use crate::ota::rauc::BundleInfo;
 use crate::repository::StateRepository;
@@ -76,32 +75,24 @@ pub enum DeployStatus {
 }
 
 /// Stream of the [`DeployStatus`] events
-pub type ProgressStream = BoxStream<'static, Result<DeployStatus, DeviceManagerError>>;
+pub type ProgressStream = BoxStream<'static, eyre::Result<DeployStatus>>;
 
 /// A **trait** required for all SystemUpdate handlers that want to update a system.
 #[cfg_attr(test, automock)]
 pub trait SystemUpdate: Send + Sync {
-    fn install_bundle(
-        &self,
-        source: &str,
-    ) -> impl Future<Output = Result<(), DeviceManagerError>> + Send;
-    fn last_error(&self) -> impl Future<Output = Result<String, DeviceManagerError>> + Send;
-    fn info(
-        &self,
-        bundle: &str,
-    ) -> impl Future<Output = Result<BundleInfo, DeviceManagerError>> + Send;
-    fn operation(&self) -> impl Future<Output = Result<String, DeviceManagerError>> + Send;
-    fn compatible(&self) -> impl Future<Output = Result<String, DeviceManagerError>> + Send;
-    fn boot_slot(&self) -> impl Future<Output = Result<String, DeviceManagerError>> + Send;
-    fn receive_completed(
-        &self,
-    ) -> impl Future<Output = Result<ProgressStream, DeviceManagerError>> + Send;
-    fn get_primary(&self) -> impl Future<Output = Result<String, DeviceManagerError>> + Send;
+    fn install_bundle(&self, source: &str) -> impl Future<Output = eyre::Result<()>> + Send;
+    fn last_error(&self) -> impl Future<Output = eyre::Result<String>> + Send;
+    fn info(&self, bundle: &str) -> impl Future<Output = eyre::Result<BundleInfo>> + Send;
+    fn operation(&self) -> impl Future<Output = eyre::Result<String>> + Send;
+    fn compatible(&self) -> impl Future<Output = eyre::Result<String>> + Send;
+    fn boot_slot(&self) -> impl Future<Output = eyre::Result<String>> + Send;
+    fn receive_completed(&self) -> impl Future<Output = eyre::Result<ProgressStream>> + Send;
+    fn get_primary(&self) -> impl Future<Output = eyre::Result<String>> + Send;
     fn mark(
         &self,
         state: &str,
         slot_identifier: &str,
-    ) -> impl Future<Output = Result<(String, String), DeviceManagerError>> + Send;
+    ) -> impl Future<Output = eyre::Result<(String, String)>> + Send;
 }
 
 /// Edgehog OTA error.
@@ -408,7 +399,7 @@ where
         }
     }
 
-    pub async fn last_error(&self) -> Result<String, DeviceManagerError> {
+    pub async fn last_error(&self) -> eyre::Result<String> {
         self.system_update.last_error().await
     }
 
@@ -660,8 +651,8 @@ where
                     Ok(err) => {
                         error!("{message}: {err}");
                     }
-                    Err(err) => {
-                        error!("{message}: {}", eyre::Report::new(err));
+                    Err(error) => {
+                        error!(%error, "{message}");
                     }
                 }
 
@@ -1012,6 +1003,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
+    use eyre::eyre;
     use futures::{FutureExt, StreamExt, future};
     use httpmock::prelude::*;
     use mockall::{Sequence, predicate};
@@ -1021,7 +1013,6 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
-    use crate::error::DeviceManagerError;
     use crate::ota::ota_handler_test::deploy_status_stream;
     use crate::ota::rauc::BundleInfo;
     use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, SystemUpdate};
@@ -1108,12 +1099,9 @@ mod tests {
         let mut system_update = MockSystemUpdate::new();
         let state_mock = MockStateRepository::<PersistentState>::new();
 
-        system_update.expect_last_error().returning(|| {
-            future::ready(Err(DeviceManagerError::Fatal(
-                "Unable to call last error".to_string(),
-            )))
-            .boxed()
-        });
+        system_update
+            .expect_last_error()
+            .returning(|| future::ready(Err(eyre!("Unable to call last error"))).boxed());
 
         let (tx, _rx) = mpsc::channel(10);
 
@@ -1122,10 +1110,6 @@ mod tests {
         let last_error_result = ota.last_error().await;
 
         assert!(last_error_result.is_err());
-        assert!(matches!(
-            last_error_result.err().unwrap(),
-            DeviceManagerError::Fatal(_)
-        ))
     }
 
     #[tokio::test]
@@ -1307,12 +1291,9 @@ mod tests {
         let state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
 
-        system_update.expect_info().returning(|_: &str| {
-            future::ready(Err(DeviceManagerError::Fatal(
-                "Unable to get info".to_string(),
-            )))
-            .boxed()
-        });
+        system_update
+            .expect_info()
+            .returning(|_: &str| future::ready(Err(eyre!("Unable to get info"))).boxed());
 
         let mut ota_request = OtaId::default();
         let binary_content = b"\x80\x02\x03";
@@ -1445,12 +1426,9 @@ mod tests {
         let state_mock = MockStateRepository::<PersistentState>::new();
         let mut system_update = MockSystemUpdate::new();
 
-        system_update.expect_info().returning(|_: &str| {
-            future::ready(Err(DeviceManagerError::Fatal(
-                "Unable to get info".to_string(),
-            )))
-            .boxed()
-        });
+        system_update
+            .expect_info()
+            .returning(|_: &str| future::ready(Err(eyre!("Unable to get info"))).boxed());
 
         let mut ota_request = OtaId::default();
         let binary_content = b"\x80\x02\x03";
@@ -1505,9 +1483,9 @@ mod tests {
             .boxed()
         });
 
-        system_update.expect_compatible().returning(|| {
-            future::ready(Err(DeviceManagerError::Fatal("empty value".to_string()))).boxed()
-        });
+        system_update
+            .expect_compatible()
+            .returning(|| future::ready(Err(eyre!("empty value"))).boxed());
 
         let binary_content = b"\x80\x02\x03";
         let binary_size = binary_content.len();
@@ -1641,12 +1619,7 @@ mod tests {
             .expect_boot_slot()
             .once()
             .in_sequence(&mut seq)
-            .returning(|| {
-                future::ready(Err(DeviceManagerError::Fatal(
-                    "unable to call boot slot".to_string(),
-                )))
-                .boxed()
-            });
+            .returning(|| future::ready(Err(eyre::eyre!("unable to call boot slot"))).boxed());
 
         state_mock
             .expect_exists()
@@ -1920,9 +1893,7 @@ mod tests {
             .expect_install_bundle()
             .once()
             .in_sequence(&mut seq)
-            .returning(|_| {
-                future::ready(Err(DeviceManagerError::Fatal("install fail".to_string()))).boxed()
-            });
+            .returning(|_| future::ready(Err(eyre!("install fail"))).boxed());
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
         let (ota, _dir) = Ota::mock_new_with_path(
@@ -1974,12 +1945,7 @@ mod tests {
             .expect_operation()
             .once()
             .in_sequence(&mut seq)
-            .returning(|| {
-                future::ready(Err(DeviceManagerError::Fatal(
-                    "operation call fail".to_string(),
-                )))
-                .boxed()
-            });
+            .returning(|| future::ready(Err(eyre::eyre!("operation call fail"))).boxed());
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
         let (ota, _dir) = Ota::mock_new_with_path(
@@ -2035,12 +2001,7 @@ mod tests {
             .expect_receive_completed()
             .once()
             .in_sequence(&mut seq)
-            .returning(|| {
-                future::ready(Err(DeviceManagerError::Fatal(
-                    "receive_completed call fail".to_string(),
-                )))
-                .boxed()
-            });
+            .returning(|| future::ready(Err(eyre::eyre!("receive_completed call fail"))).boxed());
 
         let (ota_status_publisher, mut ota_status_receiver) = mpsc::channel(1);
         let (ota, _dir) = Ota::mock_new_with_path(
@@ -2365,12 +2326,9 @@ mod tests {
         });
 
         let mut system_update = MockSystemUpdate::new();
-        system_update.expect_boot_slot().returning(|| {
-            future::ready(Err(DeviceManagerError::Fatal(
-                "unable to call boot slot".to_string(),
-            )))
-            .boxed()
-        });
+        system_update
+            .expect_boot_slot()
+            .returning(|| future::err(eyre!("unable to call boot slot")).boxed());
 
         let (ota_status_publisher, _ota_status_receiver) = mpsc::channel(1);
         let ota = Ota::mock_new(system_update, state_mock, ota_status_publisher);
@@ -2429,12 +2387,9 @@ mod tests {
         system_update
             .expect_boot_slot()
             .returning(|| future::ready(Ok("B".to_owned())).boxed());
-        system_update.expect_get_primary().returning(|| {
-            future::ready(Err(DeviceManagerError::Fatal(
-                "unable to call boot slot".to_string(),
-            )))
-            .boxed()
-        });
+        system_update
+            .expect_get_primary()
+            .returning(|| future::ready(Err(eyre::eyre!("unable to call boot slot"))).boxed());
 
         let (ota_status_publisher, _ota_status_receiver) = mpsc::channel(1);
         let ota = Ota::mock_new(system_update, state_mock, ota_status_publisher);
@@ -2474,10 +2429,7 @@ mod tests {
             .expect_get_primary()
             .returning(|| future::ready(Ok("rootfs.0".to_owned())).boxed());
         system_update.expect_mark().returning(|_: &str, _: &str| {
-            future::ready(Err(DeviceManagerError::Fatal(
-                "Unable to call mark function".to_string(),
-            )))
-            .boxed()
+            future::ready(Err(eyre::eyre!("Unable to call mark function"))).boxed()
         });
 
         let (ota_status_publisher, _ota_status_receiver) = mpsc::channel(1);

@@ -1,29 +1,27 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::astarte_device_error::Error;
 use astarte_device_sdk::chrono::{DateTime, Utc};
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::store::sqlite::SqliteError;
-use astarte_device_sdk::types::AstarteData;
-use futures::TryFutureExt;
+use astarte_device_sdk::store::sqlite::error::SqliteError;
+use astarte_device_sdk::types::{AstarteData, TypeError};
 use std::path::Path;
 use tracing::{debug, error, info};
 
@@ -34,7 +32,7 @@ pub mod astarte_device_sdk_lib;
 pub mod astarte_message_hub_node;
 
 /// Connect to the store.
-pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, SqliteError>
+pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, Error<SqliteError>>
 where
     P: AsRef<Path>,
 {
@@ -58,10 +56,21 @@ pub(crate) async fn send_object_with_timestamp<C, T>(
     timestamp: DateTime<Utc>,
 ) where
     C: Client,
-    T: TryInto<AstarteObject, Error = astarte_device_sdk::Error>,
+    T: TryInto<AstarteObject, Error = Error<TypeError>>,
 {
-    let res = futures::future::ready(data.try_into())
-        .and_then(|data| client.send_object_with_timestamp(interface, path, data, timestamp))
+    let data = match data.try_into() {
+        Ok(data) => data,
+        Err(error) => {
+            error!(
+                error = format!("{:#}", eyre::Report::new(error)),
+                interface, path, "failed to publish",
+            );
+            return;
+        }
+    };
+
+    let res = client
+        .send_object_with_timestamp(interface, path, data, timestamp)
         .await;
 
     if let Err(err) = res {

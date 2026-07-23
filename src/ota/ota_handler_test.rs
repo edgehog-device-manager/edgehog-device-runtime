@@ -23,9 +23,11 @@ use crate::controller::actor::Actor;
 use crate::ota::event::{OtaOperation, OtaRequest};
 use astarte_device_sdk::AstarteData;
 use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::pairing::api::PairingApi;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::mqtt::Mqtt;
 use astarte_device_sdk_mock::MockDeviceClient;
+use eyre::eyre;
 use futures::{FutureExt, StreamExt};
 use httpmock::prelude::*;
 use mockall::{Sequence, predicate};
@@ -34,7 +36,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::error::DeviceManagerError;
 use crate::ota::ota_handler::{OtaHandler, OtaMessage};
 use crate::ota::rauc::BundleInfo;
 use crate::ota::{DeployProgress, DeployStatus, MockSystemUpdate, OtaError, ProgressStream};
@@ -43,16 +44,16 @@ use crate::repository::MockStateRepository;
 
 use super::ota_handler::OtaPublisher;
 
-pub(crate) fn deploy_status_stream<I>(iter: I) -> Result<ProgressStream, DeviceManagerError>
+pub(crate) fn deploy_status_stream<I>(iter: I) -> eyre::Result<ProgressStream>
 where
     I: IntoIterator<Item = DeployStatus>,
 {
     Ok(futures::stream::iter(iter.into_iter().map(Ok).collect::<Vec<_>>()).boxed())
 }
 
-impl OtaPublisher<MockDeviceClient<Mqtt<SqliteStore>>> {
+impl OtaPublisher<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>> {
     fn mock_new(
-        client: MockDeviceClient<Mqtt<SqliteStore>>,
+        client: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         publisher_rx: mpsc::Receiver<OtaStatus>,
     ) -> JoinHandle<eyre::Result<()>> {
         let publisher = Self::new(client);
@@ -155,9 +156,7 @@ async fn handle_ota_event_bundle_not_compatible() {
         .expect_install_bundle()
         .once()
         .in_sequence(&mut seq)
-        .returning(|_| {
-            future::ready(Err(DeviceManagerError::Fatal("install fail".to_string()))).boxed()
-        });
+        .returning(|_| future::ready(Err(eyre!("install fail"))).boxed());
 
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
@@ -417,9 +416,7 @@ async fn ota_event_fail_deployed() {
         .expect_install_bundle()
         .once()
         .in_sequence(&mut seq)
-        .returning(|_| {
-            future::ready(Err(DeviceManagerError::Fatal("install fail".to_string()))).boxed()
-        });
+        .returning(|_| future::ready(Err(eyre!("install fail"))).boxed());
 
     let binary_content = b"\x80\x02\x03";
     let binary_size = binary_content.len();
@@ -812,7 +809,7 @@ async fn ota_event_canceled() {
     let uuid = Uuid::new_v4();
     let cancel_token = CancellationToken::new();
 
-    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
     client
         .expect_send_object_with_timestamp()
@@ -1100,7 +1097,7 @@ async fn ota_event_not_canceled() {
         uuid: uuid.into(),
     };
 
-    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
     client
         .expect_send_object_with_timestamp()
@@ -1153,7 +1150,7 @@ async fn ota_event_not_canceled_empty() {
         uuid: uuid.into(),
     };
 
-    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
     client
         .expect_send_object_with_timestamp()
@@ -1208,7 +1205,7 @@ async fn ota_event_not_canceled_different_uuid() {
         uuid: uuid.into(),
     };
 
-    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
     client
         .expect_send_object_with_timestamp()
@@ -1344,7 +1341,7 @@ async fn ensure_pending_ota_is_done_ota_success() {
         .boxed()
     });
 
-    let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+    let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
     let mut seq = mockall::Sequence::new();
 
     client

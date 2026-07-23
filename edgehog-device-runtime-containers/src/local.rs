@@ -66,6 +66,7 @@ impl ContainerHandle {
                 | ContainerStateStatusEnum::RESTARTING
                 | ContainerStateStatusEnum::REMOVING
                 | ContainerStateStatusEnum::EXITED
+                | ContainerStateStatusEnum::STOPPING
                 | ContainerStateStatusEnum::DEAD => Some(s.to_string()),
             })
             .collect();

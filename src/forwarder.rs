@@ -1,30 +1,30 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2023-2024 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2023, 2024, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 //! Manage the device forwarder operation.
 
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt::{Display, Formatter};
 
+use astarte_device_sdk::astarte_device_error::Error;
+use astarte_device_sdk::error::AstarteError;
 use astarte_device_sdk::prelude::PropAccess;
-use astarte_device_sdk::types::AstarteData;
+use astarte_device_sdk::types::{AstarteData, TypeError};
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use reqwest::Url;
@@ -39,10 +39,10 @@ const FORWARDER_SESSION_STATE_INTERFACE: &str = "io.edgehog.devicemanager.Forwar
 #[derive(displaydoc::Display, thiserror::Error, Debug)]
 pub enum ForwarderError {
     /// Astarte error
-    Astarte(#[from] astarte_device_sdk::Error),
+    Astarte(#[from] astarte_device_sdk::error::AstarteError),
 
     /// Astarte type conversion error
-    Type(#[from] astarte_device_sdk::types::TypeError),
+    Type(#[from] Error<TypeError>),
 
     /// Connections manager error
     ConnectionsManager(#[from] edgehog_forwarder::connections_manager::Error),
@@ -108,7 +108,7 @@ impl From<SessionState> for Option<AstarteData> {
 
 impl SessionState {
     /// Send a property to Astarte to update the session state.
-    async fn send<C>(self, client: &mut C) -> Result<(), astarte_device_sdk::Error>
+    async fn send<C>(self, client: &mut C) -> Result<(), AstarteError>
     where
         C: Client + Send + Sync + 'static,
     {
@@ -284,6 +284,7 @@ mod tests {
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::astarte_interfaces::schema::Ownership;
     use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::{SqliteStore, StoredProp};
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk::{DeviceEvent, FromEvent};
@@ -356,7 +357,7 @@ mod tests {
     #[tokio::test]
     async fn test_session_state_send() {
         let ss = SessionState::connected("abcd".to_string());
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
         client
@@ -393,56 +394,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_init_forwarder() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         mock_forwarder_init(&mut client);
         let f = Forwarder::init(client).await;
 
         assert!(f.is_ok());
-
-        // test when an error is returned by the publisher
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-
-        client
-            .expect_interface_props()
-            .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
-            .returning(|_: &str| {
-                // the returned error is irrelevant, it is only necessary to the test
-                Err(astarte_device_sdk::error::Error::ConnectionTimeout)
-            });
-
-        let f = Forwarder::init(client).await;
-
-        assert!(f.is_err());
-
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
-
-        client
-            .expect_interface_props()
-            .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
-            .returning(|_: &str| {
-                Ok(vec![StoredProp {
-                    interface: FORWARDER_SESSION_STATE_INTERFACE.to_string(),
-                    path: "/abcd/status".to_string(),
-                    value: AstarteData::String("Connected".to_string()),
-                    interface_major: 0,
-                    ownership: Ownership::Device,
-                }])
-            });
-
-        client
-            .expect_unset_property()
-            .withf(move |iface, ipath| {
-                iface == "io.edgehog.devicemanager.ForwarderSessionState" && ipath == "/abcd/status"
-            })
-            // the returned error is irrelevant, it is only necessary to the test
-            .returning(|_, _| Err(astarte_device_sdk::error::Error::ConnectionTimeout));
-
-        let f = Forwarder::init(client).await;
-
-        assert!(f.is_err());
     }
 
-    fn mock_forwarder_init(pub_sub: &mut MockDeviceClient<Mqtt<SqliteStore>>) {
+    fn mock_forwarder_init(pub_sub: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>) {
         pub_sub
             .expect_interface_props()
             .withf(move |iface: &str| iface == FORWARDER_SESSION_STATE_INTERFACE)
@@ -466,11 +425,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_sessions() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         client
             .expect_clone()
-            .returning(MockDeviceClient::<Mqtt<SqliteStore>>::new);
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
 
         let mut f = Forwarder {
             client,

@@ -20,7 +20,7 @@ use std::{path::Path, sync::Arc};
 
 use astarte_device_sdk::Client;
 use edgehog_store::models::job::{Job, job_type::JobType, status::JobStatus};
-use eyre::{Context, bail};
+use eyre::{Context, eyre};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument};
@@ -358,7 +358,7 @@ impl TryFrom<i32> for StorageJobTag {
         match value {
             0 => Ok(StorageJobTag::CleanUp),
             1 => Ok(StorageJobTag::Delete),
-            _ => bail!("unrecognize file transfer job tag {value}"),
+            _ => Err(eyre!("unrecognize file transfer job tag {value}")),
         }
     }
 }
@@ -370,7 +370,8 @@ mod tests {
         tests::with_insta,
     };
     use astarte_device_sdk::{
-        AstarteData, aggregate::AstarteObject, store::SqliteStore, transport::mqtt::Mqtt,
+        AstarteData, aggregate::AstarteObject, pairing::api::PairingApi, store::SqliteStore,
+        transport::mqtt::Mqtt,
     };
     use astarte_device_sdk_mock::MockDeviceClient;
     use edgehog_store::db::Handle;
@@ -412,7 +413,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_job() {
         let dir = TempDir::new("delete_job").unwrap();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         let request_id = Uuid::new_v4();
         let file_id = Uuid::new_v4();

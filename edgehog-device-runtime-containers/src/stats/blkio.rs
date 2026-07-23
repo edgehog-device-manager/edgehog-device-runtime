@@ -93,6 +93,7 @@ mod tests {
     use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -177,7 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_send_stats() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let id = Uuid::new_v4();
         let timestamp = Utc::now();
 

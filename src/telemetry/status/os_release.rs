@@ -224,6 +224,7 @@ impl BaseImage {
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::AstarteData;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -320,7 +321,7 @@ VERSION_ID="11""#;
 
     #[tokio::test]
     async fn should_send_os_info() {
-        let mut mock = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut mock = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         mock.expect_set_property()
             .once()

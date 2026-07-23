@@ -33,7 +33,7 @@ use edgehog_proto::containers::v1::{
 };
 use edgehog_proto::prost_types::Timestamp;
 use edgehog_proto::tonic::Status;
-use eyre::{Context, bail};
+use eyre::{Context, eyre};
 use tracing::error;
 use uuid::Uuid;
 
@@ -99,7 +99,7 @@ fn parse_port_binding_key(key: &str) -> eyre::Result<(u16, PortType)> {
         "tcp" => PortType::Tcp,
         "udp" => PortType::Udp,
         "scpt" => PortType::Sctp,
-        _ => bail!("invalid protocol: {proto}"),
+        _ => return Err(eyre!("invalid protocol: {proto}")),
     };
 
     Ok((port, proto))
@@ -287,7 +287,10 @@ pub(crate) fn convert_container_summary(
             .map(|seconds| Timestamp { seconds, nanos: 0 }),
         image: summary.image_id.unwrap_or_default(),
         state: match summary.state {
-            None | Some(ContainerSummaryStateEnum::EMPTY) => ContainerState::Unspecified,
+            // FIXME: add to protos
+            None
+            | Some(ContainerSummaryStateEnum::EMPTY)
+            | Some(ContainerSummaryStateEnum::STOPPING) => ContainerState::Unspecified,
             Some(ContainerSummaryStateEnum::CREATED) => ContainerState::Created,
             Some(ContainerSummaryStateEnum::RUNNING) => ContainerState::Running,
             Some(ContainerSummaryStateEnum::PAUSED) => ContainerState::Paused,
@@ -342,8 +345,11 @@ pub(crate) fn convert_container(
             nanos: 0,
         }),
         image: container.image.unwrap_or_default(),
+        // FIXME: add to protos
         state: match container.state.and_then(|state| state.status) {
-            None | Some(ContainerStateStatusEnum::EMPTY) => ContainerState::Unspecified,
+            None
+            | Some(ContainerStateStatusEnum::EMPTY)
+            | Some(ContainerStateStatusEnum::STOPPING) => ContainerState::Unspecified,
             Some(ContainerStateStatusEnum::CREATED) => ContainerState::Created,
             Some(ContainerStateStatusEnum::RUNNING) => ContainerState::Running,
             Some(ContainerStateStatusEnum::PAUSED) => ContainerState::Paused,

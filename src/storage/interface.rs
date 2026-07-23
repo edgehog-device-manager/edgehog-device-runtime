@@ -19,7 +19,7 @@
 use std::io;
 
 use astarte_device_sdk::{AstarteData, FromEvent, IntoAstarteObject, aggregate::AstarteObject};
-use eyre::bail;
+use eyre::eyre;
 use tracing::instrument;
 
 use crate::{
@@ -69,7 +69,7 @@ impl TryFrom<StorageJobTag> for ActionType {
 
     fn try_from(value: StorageJobTag) -> Result<Self, Self::Error> {
         match value {
-            StorageJobTag::CleanUp => bail!("cleanup job shouldn't send reseponses"),
+            StorageJobTag::CleanUp => Err(eyre!("cleanup job shouldn't send reseponses")),
             StorageJobTag::Delete => Ok(ActionType::Delete),
         }
     }

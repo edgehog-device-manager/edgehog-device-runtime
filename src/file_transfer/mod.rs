@@ -31,7 +31,7 @@ use async_compression::tokio::write::GzipDecoder;
 use edgehog_store::models::job::Job;
 use edgehog_store::models::job::job_type::JobType;
 use edgehog_store::models::job::status::JobStatus;
-use eyre::{Context, bail, eyre};
+use eyre::{Context, eyre};
 use futures::StreamExt;
 use tokio::fs::File;
 use tokio::io::{AsyncSeekExt, BufReader};
@@ -394,7 +394,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let (writer, status) = match download.encoding {
             encoding @ Some(Encoding::TarGz | Encoding::Tar) => {
-                bail!("{:?} is not supported for download stream", encoding)
+                return Err(eyre!("{:?} is not supported for download stream", encoding));
             }
             Some(Encoding::Gz) => {
                 let decoder = GzipDecoder::new(writer);
@@ -875,6 +875,7 @@ mod tests {
 
     use astarte_device_sdk::AstarteData;
     use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
@@ -897,9 +898,9 @@ mod tests {
 
     async fn mk_def_transfer(
         prefix: &str,
-        client: MockDeviceClient<Mqtt<SqliteStore>>,
+        client: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
     ) -> (
-        FileTransfer<Fs, SysPipe, MockDeviceClient<Mqtt<SqliteStore>>>,
+        FileTransfer<Fs, SysPipe, MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
         TempDir,
     ) {
         let (tx, _rx) = watch::channel(None);
@@ -909,10 +910,10 @@ mod tests {
 
     async fn mk_transfer(
         prefix: &str,
-        device: MockDeviceClient<Mqtt<SqliteStore>>,
+        device: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         tracker: watch::Sender<Option<FileTransferProgress>>,
     ) -> (
-        FileTransfer<Fs, SysPipe, MockDeviceClient<Mqtt<SqliteStore>>>,
+        FileTransfer<Fs, SysPipe, MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
         TempDir,
     ) {
         let dir = TempDir::new(prefix).unwrap();
@@ -1192,7 +1193,7 @@ mod tests {
     }
 
     fn add_download_ok_expect(
-        device: &mut MockDeviceClient<Mqtt<SqliteStore>>,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         seq: &mut Sequence,
         id: Uuid,
     ) {
@@ -1234,7 +1235,7 @@ mod tests {
         let mock_download_event = mk_download(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
 
         let (mut transfer, dir) = mk_def_transfer("should_download", device).await;
@@ -1256,7 +1257,7 @@ mod tests {
         let mock_download_event = mk_download_part(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
 
         let (mut transfer, dir) = mk_def_transfer("download", device).await;
@@ -1286,7 +1287,7 @@ mod tests {
         let mock_download_event = mk_download_not_satisfied(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
 
         let (mut transfer, dir) = mk_def_transfer("download_full_unsatisfiable", device).await;
@@ -1320,7 +1321,7 @@ mod tests {
         let mock_upload_event = mk_upload(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         device
             .expect_send_object()
             .with(
@@ -1351,7 +1352,7 @@ mod tests {
         let mock_upload_event = mk_large_upload(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         device
             .expect_send_object()
             .with(
@@ -1362,7 +1363,7 @@ mod tests {
             .once()
             .in_sequence(&mut seq)
             .returning(|_, _, _| Ok(()));
-        let mut progress_device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut progress_device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         progress_device
             .expect_send_object()
             .times(1..)
@@ -1433,7 +1434,7 @@ mod tests {
         let mock_download_event = mk_download_wrong_digest(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         device
             .expect_send_object()
             .with(
@@ -1480,7 +1481,7 @@ mod tests {
         let mock_download_event = mk_download(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         add_download_ok_expect(&mut device, &mut seq, *mock_download_event.req.id());
 
         let (mut transfer, dir) = mk_def_transfer("update_job", device).await;
@@ -1514,7 +1515,7 @@ mod tests {
         let mock_upload_event = mk_upload(&server).await;
 
         let mut seq = Sequence::new();
-        let mut device = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         device
             .expect_send_object()
             .with(

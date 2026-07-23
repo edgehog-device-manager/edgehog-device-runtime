@@ -16,6 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use astarte_device_sdk::astarte_device_error::Error;
+use astarte_device_sdk::error::InterfaceError;
 use astarte_device_sdk::{FromEvent, event::FromEventError};
 use tracing::{error, instrument, trace};
 
@@ -52,7 +54,7 @@ impl std::fmt::Display for FileTransferRequest {
 }
 
 impl FromEvent for FileTransferRequest {
-    type Err = FromEventError;
+    type Err = Error<FromEventError>;
 
     #[instrument(fields(interface = event.interface, path = event.path), skip(event))]
     fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
@@ -68,7 +70,11 @@ impl FromEvent for FileTransferRequest {
             _ => {
                 error!("unrecognized event interface");
 
-                Err(FromEventError::Interface(event.interface))
+                Err(Error::with(
+                    FromEventError::Interface(InterfaceError::InterfaceNotFound),
+                    "unrecognized file transfer interface",
+                )
+                .set_ctx(event.interface))
             }
         }
     }

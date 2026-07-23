@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ impl From<bollard::models::ContainerPidsStats> for ContainerProcesses {
 #[cfg(test)]
 mod tests {
     use astarte_device_sdk::chrono::Utc;
+    use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::{
         AstarteData, aggregate::AstarteObject, store::SqliteStore, transport::mqtt::Mqtt,
     };
@@ -89,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_send_stats() {
-        let mut client = MockDeviceClient::<Mqtt<SqliteStore>>::new();
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let id = Uuid::new_v4();
         let timestamp = Utc::now();
 

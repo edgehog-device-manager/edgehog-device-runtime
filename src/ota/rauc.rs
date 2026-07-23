@@ -1,25 +1,24 @@
-/*
- * This file is part of Edgehog.
- *
- * Copyright 2022 SECO Mind Srl
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
+// This file is part of Edgehog.
+//
+// Copyright 2022, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
 
 use std::task::Poll;
 
+use eyre::Context;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt, TryStreamExt, future, ready};
 use serde::{Deserialize, Serialize};
@@ -27,7 +26,6 @@ use tracing::{debug, error, info, instrument, warn};
 use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::error::DeviceManagerError;
 use crate::ota::config::RaucDbus;
 use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
 
@@ -127,49 +125,49 @@ pub struct OTARauc<'a> {
 }
 
 impl SystemUpdate for OTARauc<'static> {
-    async fn install_bundle(&self, source: &str) -> Result<(), DeviceManagerError> {
+    async fn install_bundle(&self, source: &str) -> eyre::Result<()> {
         self.rauc
             .install_bundle(source, std::collections::HashMap::new())
             .await?;
         Ok(())
     }
 
-    async fn last_error(&self) -> Result<String, DeviceManagerError> {
+    async fn last_error(&self) -> eyre::Result<String> {
         self.rauc
             .last_error()
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't get dbus Rauc last error")
     }
 
-    async fn info(&self, bundle: &str) -> Result<BundleInfo, DeviceManagerError> {
+    async fn info(&self, bundle: &str) -> eyre::Result<BundleInfo> {
         self.rauc
             .info(bundle)
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't get dbus Rauc info")
     }
 
-    async fn operation(&self) -> Result<String, DeviceManagerError> {
+    async fn operation(&self) -> eyre::Result<String> {
         self.rauc
             .operation()
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't get dbus Rauc operation")
     }
 
-    async fn compatible(&self) -> Result<String, DeviceManagerError> {
+    async fn compatible(&self) -> eyre::Result<String> {
         self.rauc
             .compatible()
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't get dbus Rauc operation")
     }
 
-    async fn boot_slot(&self) -> Result<String, DeviceManagerError> {
+    async fn boot_slot(&self) -> eyre::Result<String> {
         self.rauc
             .boot_slot()
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't get dbus Rauc boot slot")
     }
 
-    async fn receive_completed(&self) -> Result<ProgressStream, DeviceManagerError> {
+    async fn receive_completed(&self) -> eyre::Result<ProgressStream> {
         let progress_stream = self
             .rauc
             .receive_progress_changed()
@@ -190,28 +188,24 @@ impl SystemUpdate for OTARauc<'static> {
         Ok(stream.boxed())
     }
 
-    async fn get_primary(&self) -> Result<String, DeviceManagerError> {
+    async fn get_primary(&self) -> eyre::Result<String> {
         self.rauc
             .get_primary()
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't get dbus Rauc primary partition")
     }
 
-    async fn mark(
-        &self,
-        state: &str,
-        slot_identifier: &str,
-    ) -> Result<(String, String), DeviceManagerError> {
+    async fn mark(&self, state: &str, slot_identifier: &str) -> eyre::Result<(String, String)> {
         self.rauc
             .mark(state, slot_identifier)
             .await
-            .map_err(DeviceManagerError::Zbus)
+            .wrap_err("couldn't call dbus Rauc mark partition")
     }
 }
 
 impl<'a> OTARauc<'a> {
     #[instrument]
-    pub async fn connect(config: &OtaConfig) -> Result<OTARauc<'a>, DeviceManagerError> {
+    pub async fn connect(config: &OtaConfig) -> eyre::Result<OTARauc<'a>> {
         let connection = match &config.rauc.dbus_socket {
             RaucDbus::System => zbus::Connection::system().await?,
             RaucDbus::Session => zbus::Connection::session().await?,
@@ -261,7 +255,7 @@ struct DeployStream<S> {
 
 impl<S> DeployStream<S>
 where
-    S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
+    S: Stream<Item = eyre::Result<(i32, String)>> + Unpin,
 {
     fn new(progress_changed: S, completed_stream: CompletedStream) -> Self {
         Self {
@@ -271,7 +265,7 @@ where
         }
     }
 
-    fn map_completed(completed: Completed) -> Result<DeployStatus, DeviceManagerError> {
+    fn map_completed(completed: Completed) -> eyre::Result<DeployStatus> {
         let signal = *completed.args()?.result();
 
         Ok(DeployStatus::Completed { signal })
@@ -280,7 +274,7 @@ where
     fn poll_completed(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Result<DeployStatus, DeviceManagerError>>> {
+    ) -> Poll<Option<eyre::Result<DeployStatus>>> {
         match ready!(self.completed_stream.poll_next_unpin(cx)) {
             Some(completed) => {
                 debug!("deployment completed with signal: {:?}", completed);
@@ -301,7 +295,7 @@ where
     fn poll_progress(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Result<DeployStatus, DeviceManagerError>>> {
+    ) -> Poll<Option<eyre::Result<DeployStatus>>> {
         match ready!(self.progress_changed.poll_next_unpin(cx)) {
             Some(Ok((percentage, message))) => {
                 debug!("progress {message} {percentage}");
@@ -323,9 +317,9 @@ where
 
 impl<S> Stream for DeployStream<S>
 where
-    S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
+    S: Stream<Item = eyre::Result<(i32, String)>> + Unpin,
 {
-    type Item = Result<DeployStatus, DeviceManagerError>;
+    type Item = eyre::Result<DeployStatus>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -356,7 +350,7 @@ where
 
 impl<S> FusedStream for DeployStream<S>
 where
-    S: Stream<Item = Result<(i32, String), DeviceManagerError>> + Unpin,
+    S: Stream<Item = eyre::Result<(i32, String)>> + Unpin,
 {
     fn is_terminated(&self) -> bool {
         self.completed
