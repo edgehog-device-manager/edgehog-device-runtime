@@ -134,10 +134,7 @@ zbus = { version = "5.16.0", default-features = false }
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 async-compression = { workspace = true, features = ["gzip", "tokio"] }
-async-tar = { workspace = true, default-features = false, features = [
-  "runtime-tokio",
-  "xattr"
-] }
+async-tar = { workspace = true, default-features = false, features = ["runtime-tokio", "xattr"] }
 aws-lc-rs.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true

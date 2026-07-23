@@ -42,8 +42,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 workspace = true
 default-features = false
 features = [
-    "charset",
-    "http2",
-    "system-proxy",
-    "rustls-no-provider",
+  "charset",
+  "http2",
+  "system-proxy",
+  "rustls-no-provider",
 ]
