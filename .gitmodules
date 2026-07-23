@@ -1,0 +1,4 @@
+[submodule "deps/forwarder-proto"]
+	path = deps/forwarder-proto
+	url = https://github.com/edgehog-device-manager/edgehog-device-forwarder-proto.git
+	branch = main
