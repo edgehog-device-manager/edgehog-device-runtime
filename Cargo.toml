@@ -32,6 +32,7 @@ members = [
   "e2e-test",
   "e2e-test-containers",
   "e2e-test-forwarder",
+  "edgehog-device-forwarder-proto",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
   "edgehog-device-runtime-service",
@@ -40,6 +41,7 @@ members = [
   "edgehogctl",
   "hardware-id-service",
   "led-manager-service",
+  "proto-codegen",
 ]
 
 [workspace.package]
@@ -55,6 +57,7 @@ description = "Edgehog Device Runtime is a portable middleware, that enables rem
 [workspace.dependencies]
 astarte-device-sdk = "0.14.1"
 astarte-device-sdk-mock = "0.14.1"
+astarte-test-utils = "0.14.1"
 async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
 async-trait = "0.1.89"
@@ -73,7 +76,7 @@ dirs = "6.0.0"
 displaydoc = "0.2.6"
 edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.12.0" }
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.12.0" }
-edgehog-device-forwarder-proto = "0.1.0"
+edgehog-device-forwarder-proto = { version = "=0.12.0", path = "./edgehog-device-forwarder-proto/" }
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.12.0" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
 edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.12.0" }
@@ -96,6 +99,8 @@ mockall = "0.14.0"
 pin-project = "1.1.13"
 pretty_assertions = "1.4.1"
 procfs = "0.18.0"
+prost = "0.14.4"
+prost-build = "0.14.4"
 reqwest = { version = "0.13.1", default-features = false }
 rstest = "0.26.1"
 # Version required by diesel
@@ -271,3 +276,7 @@ split-debuginfo = "packed"
 strip = true
 # Similar to fat in term of performances, but takes substantially less time to run
 lto = "thin"
+
+[patch.crates-io]
+astarte-device-sdk = { git = "https://github.com/joshuachp/astarte-device-sdk-rust", branch = "feat-derive-add-the-required-object-attribute/xpnrkxnwnsoy" }
+astarte-device-sdk-mock = { git = "https://github.com/joshuachp/astarte-device-sdk-rust", branch = "feat-derive-add-the-required-object-attribute/xpnrkxnwnsoy" }

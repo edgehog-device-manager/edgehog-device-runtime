@@ -21,7 +21,7 @@
 use std::fmt::Display;
 
 use diesel::{
-    Insertable, Queryable, Selectable,
+    HasQuery, Insertable,
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
     dsl::exists,
@@ -39,7 +39,7 @@ use crate::{
 };
 
 /// Container device mappings with cGroup permissions.
-#[derive(Debug, Clone, Insertable, Queryable, Selectable, PartialEq, Eq)]
+#[derive(Debug, Clone, Insertable, HasQuery, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::device_mappings)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(treat_none_as_default_value = false)]

@@ -44,10 +44,10 @@ use super::{Result, StateStore, StoreError};
 /// DTO to pass the values in a format usable by the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredDeviceRequest {
-    device_request: DeviceRequest,
-    device_ids: Vec<String>,
-    capabilities: Vec<Vec<String>>,
-    options: HashMap<String, String>,
+    pub(crate) device_request: DeviceRequest,
+    pub(crate) device_ids: Vec<String>,
+    pub(crate) capabilities: Vec<Vec<String>>,
+    pub(crate) options: HashMap<String, String>,
 }
 
 impl TryFrom<CreateDeviceRequest> for StoredDeviceRequest {
@@ -65,8 +65,9 @@ impl TryFrom<CreateDeviceRequest> for StoredDeviceRequest {
             option_values,
         }: CreateDeviceRequest,
     ) -> Result<Self> {
-        let device_ids = Vec::from_iter(device_ids);
+        let device_ids = device_ids.unwrap_or_default();
         let capabilities = capabilities
+            .unwrap_or_default()
             .iter()
             .map(|json_array| {
                 serde_json::from_str::<Vec<String>>(json_array).map_err(|error| {
@@ -79,44 +80,23 @@ impl TryFrom<CreateDeviceRequest> for StoredDeviceRequest {
             })
             .collect::<Result<Vec<Vec<String>>>>()?;
 
-        let options = option_keys.into_iter().zip(option_values).collect();
+        let options = option_keys
+            .unwrap_or_default()
+            .into_iter()
+            .zip(option_values.unwrap_or_default())
+            .collect();
 
         Ok(StoredDeviceRequest {
             device_request: DeviceRequest {
                 id: SqlUuid::new(id),
                 status: DeviceRequestStatus::default(),
                 count,
-                driver: driver.into(),
+                driver,
             },
             device_ids,
             capabilities,
             options,
         })
-    }
-}
-
-impl From<StoredDeviceRequest> for crate::docker::container::DeviceRequest {
-    fn from(
-        StoredDeviceRequest {
-            device_request:
-                DeviceRequest {
-                    id: _,
-                    status: _,
-                    driver,
-                    count,
-                },
-            device_ids,
-            capabilities,
-            options,
-        }: StoredDeviceRequest,
-    ) -> Self {
-        Self {
-            driver,
-            count,
-            device_ids: Vec::from_iter(device_ids),
-            capabilities: capabilities.into_iter().map(Vec::from_iter).collect(),
-            options,
-        }
     }
 }
 
@@ -347,7 +327,7 @@ mod tests {
                 id: SqlUuid::new(id),
                 status: DeviceRequestStatus::Received,
                 driver: Some("nvidia".to_string()),
-                count: -1,
+                count: Some(4),
             },
             device_ids: ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
                 .map(str::to_string)
@@ -369,16 +349,18 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        let device_request_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let device_request = create_device_request(device_request_id, deployment_id);
-        store.create_device_request(device_request).await.unwrap();
-
-        let res = find_device_request(&store, device_request_id)
+        let device_request = create_device_request(deployment_id);
+        store
+            .create_device_request(device_request.clone())
             .await
             .unwrap();
 
-        let exp = create_stored_device_request(device_request_id);
+        let res = find_device_request(&store, device_request.id.0)
+            .await
+            .unwrap();
+
+        let exp = create_stored_device_request(device_request.id.0);
 
         assert_eq!(res, exp);
     }
@@ -392,21 +374,23 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        let device_request_id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let device_request = create_device_request(device_request_id, deployment_id);
-        store.create_device_request(device_request).await.unwrap();
+        let device_request = create_device_request(deployment_id);
+        store
+            .create_device_request(device_request.clone())
+            .await
+            .unwrap();
 
         store
-            .update_device_request_status(device_request_id, DeviceRequestStatus::Published)
+            .update_device_request_status(device_request.id.0, DeviceRequestStatus::Published)
             .await
             .unwrap();
 
-        let res = find_device_request(&store, device_request_id)
+        let res = find_device_request(&store, device_request.id.0)
             .await
             .unwrap();
 
-        let mut exp = create_stored_device_request(device_request_id);
+        let mut exp = create_stored_device_request(device_request.id.0);
         exp.device_request.status = DeviceRequestStatus::Published;
 
         assert_eq!(res, exp);

@@ -27,7 +27,7 @@ description.workspace = true
 
 [dependencies]
 deadpool = { workspace = true, default-features = false, features = ["rt_tokio_1", "managed"] }
-diesel = { workspace = true, features = ["sqlite", "uuid"] }
+diesel = { workspace = true, features = ["sqlite", "uuid", "64-column-tables"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 displaydoc.workspace = true
 eyre.workspace = true

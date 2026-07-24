@@ -18,34 +18,30 @@
 
 //! Container models.
 
-use std::{fmt::Display, ops::Deref};
+use std::{borrow::Cow, fmt::Display, ops::Deref, str::FromStr};
 
 use diesel::{
-    Associations, ExpressionMethods, Insertable, QueryDsl, Queryable, Selectable,
+    Associations, ExpressionMethods, HasQuery, Insertable, QueryDsl, Queryable, Selectable,
     backend::Backend,
     deserialize::{FromSql, FromSqlRow},
     dsl::{Eq, Filter, exists},
     expression::AsExpression,
     select,
     serialize::{IsNull, ToSql},
-    sql_types::Integer,
+    sql_types::{Integer, SmallInt},
     sqlite::Sqlite,
 };
 
-use crate::{
-    conversions::{QuotaValue, SqlUuid, Swappiness},
-    models::{
-        ExistsFilterById, QueryModel,
-        containers::{
-            device_mapping::DeviceMapping, device_request::DeviceRequest, image::Image,
-            network::Network, volume::Volume,
-        },
-    },
-    schema::containers::{
-        container_missing_device_mappings, container_missing_device_requests,
-        container_missing_images, container_missing_networks, container_missing_volumes,
-        containers,
-    },
+use crate::conversions::SqlUuid;
+use crate::models::containers::device_mapping::DeviceMapping;
+use crate::models::containers::device_request::DeviceRequest;
+use crate::models::containers::image::Image;
+use crate::models::containers::network::Network;
+use crate::models::containers::volume::Volume;
+use crate::models::{ExistsFilterById, QueryModel};
+use crate::schema::containers::{
+    container_missing_device_mappings, container_missing_device_requests, container_missing_images,
+    container_missing_networks, container_missing_volumes, containers,
 };
 
 /// Container configuration.
@@ -53,46 +49,98 @@ use crate::{
 #[diesel(table_name = crate::schema::containers::containers)]
 #[diesel(belongs_to(Image))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct Container {
+pub struct Container<'a> {
     /// Unique id received from Edgehog.
     pub id: SqlUuid,
     /// Container id returned by the container engine.
-    pub local_id: Option<String>,
+    pub local_id: Option<Cow<'a, str>>,
     /// Unique id received from Edgehog.
     pub image_id: Option<SqlUuid>,
     /// Status of the volume.
     pub status: ContainerStatus,
     /// Container network mode: none, bridge, ...
-    pub network_mode: String,
+    pub network_mode: Option<Cow<'a, str>>,
     /// Hostname for the container
-    pub hostname: Option<String>,
+    pub hostname: Option<Cow<'a, str>>,
     /// Container restart policy
-    pub restart_policy: ContainerRestartPolicy,
+    pub restart_policy: Option<ContainerRestartPolicy>,
+    /// If on-failure is used, the number of times to retry before giving up.
+    pub restart_policy_maximum_retry_count: Option<i32>,
     /// The length of a CPU period in microseconds.
-    pub cpu_period: Option<QuotaValue<-1>>,
+    pub cpu_period: Option<i64>,
     /// Microseconds of CPU time that the container can get in a CPU period.
-    pub cpu_quota: Option<QuotaValue<-1>>,
+    pub cpu_quota: Option<i64>,
     /// The length of a CPU real-time period in microseconds.
-    pub cpu_realtime_period: Option<QuotaValue<-1>>,
+    pub cpu_realtime_period: Option<i64>,
     /// The length of a CPU real-time runtime in microseconds.
-    pub cpu_realtime_runtime: Option<QuotaValue<-1>>,
+    pub cpu_realtime_runtime: Option<i64>,
+    /// An integer value representing this container's relative CPU weight versus other containers.
+    pub cpu_shares: Option<i32>,
     /// Memory limit in bytes.
-    pub memory: Option<QuotaValue<-1>>,
+    pub memory: Option<i64>,
     /// Memory soft limit in bytes.
-    pub memory_reservation: Option<QuotaValue<-1>>,
+    pub memory_reservation: Option<i64>,
     /// Total memory limit (memory + swap).
-    pub memory_swap: Option<QuotaValue<-2>>,
+    pub memory_swap: Option<i64>,
     /// Memory swappiness
-    pub memory_swappiness: Option<Swappiness>,
+    pub memory_swappiness: Option<i16>,
     /// Driver that this container uses to mount volumes.
-    pub volume_driver: Option<String>,
+    pub volume_driver: Option<Cow<'a, str>>,
     /// Mount the container's root filesystem as read only.
-    pub read_only_rootfs: bool,
+    pub read_only_rootfs: Option<bool>,
     /// Privileged
-    pub privileged: bool,
+    pub privileged: Option<bool>,
+    /// Domain name for the container
+    pub domainname: Option<Cow<'a, str>>,
+    /// User and group running in the container
+    pub user: Option<Cow<'a, str>>,
+    /// The time to wait between checks in nanoseconds.
+    pub health_check_interval: Option<i64>,
+    /// The time to wait before considering the check to have hung in nanoseconds.
+    pub health_check_timeout: Option<i64>,
+    /// The number of consecutive failures needed to consider a container as unhealthy
+    pub health_check_retries: Option<i32>,
+    /// Start period for the container to initialize before starting health-retries countdown in nanoseconds.
+    ///
+    /// It should be 0 or at least 1000000 (1 ms). 0 means inherit.
+    pub health_check_start_period: Option<i64>,
+    /// The time to wait between checks in nanoseconds during the start period.
+    ///
+    /// It should be 0 or at least 1000000 (1 ms). 0 means inherit.
+    pub health_check_start_interval: Option<i64>,
+    /// The working directory for commands to run in.
+    pub working_dir: Option<Cow<'a, str>>,
+    /// Disable networking for the container.
+    pub network_disabled: Option<bool>,
+    /// Disable networking for the container.
+    pub stop_signal: Option<Cow<'a, str>>,
+    /// Timeout to stop a container in seconds.
+    pub stop_timeout: Option<i32>,
+    /// Automatically remove the container when the container's process exits.
+    ///
+    /// This has no effect if RestartPolicy is set.
+    pub auto_remove: Option<bool>,
+    /// cgroup namespace mode for the container.
+    pub cgroupns_mode: Option<CgroupnsMode>,
+    /// IPC sharing mode for the container.
+    pub ipc_mode: Option<Cow<'a, str>>,
+    /// An integer value containing the score given to the container in order to tune OOM killer preferences.
+    pub oom_score_adj: Option<i32>,
+    /// Sets the usernamespace mode for the container when usernamespace remapping option is enabled.
+    pub userns_mode: Option<Cow<'a, str>>,
+    /// Size of /dev/shm in bytes.
+    pub shm_size: Option<i64>,
+    /// Name of the logging driver used for the container or "none" if logging is disabled.
+    pub log_type: Option<Cow<'a, str>>,
+    /// Block IO weight (relative weight).
+    pub blkio_weight: Option<i16>,
+    /// Set the PID (Process) Namespace mode for the container.
+    pub pid_mode: Option<Cow<'a, str>>,
+    /// Runtime to use with this container.
+    pub runtime: Option<Cow<'a, str>>,
 }
 
-impl QueryModel for Container {
+impl<'c> QueryModel for Container<'c> {
     type Table = containers::table;
 
     type Id = containers::id;
@@ -203,6 +251,21 @@ impl Display for ContainerRestartPolicy {
     }
 }
 
+impl FromStr for ContainerRestartPolicy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Ok(ContainerRestartPolicy::Empty),
+            "no" => Ok(ContainerRestartPolicy::No),
+            "always" => Ok(ContainerRestartPolicy::Always),
+            "unless-stopped" => Ok(ContainerRestartPolicy::UnlessStopped),
+            "on-failure" => Ok(ContainerRestartPolicy::OnFailure),
+            _ => Err(format!("couldn't parse container restart policy {s}")),
+        }
+    }
+}
+
 impl From<ContainerRestartPolicy> for i32 {
     fn from(value: ContainerRestartPolicy) -> Self {
         (value as u8).into()
@@ -245,10 +308,88 @@ impl ToSql<Integer, Sqlite> for ContainerRestartPolicy {
     }
 }
 
+/// CGruop name-space mode
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, FromSqlRow, AsExpression)]
+#[diesel(sql_type = SmallInt)]
+pub enum CgroupnsMode {
+    /// Empty restart policy
+    Empty = 0,
+    /// No restart policy
+    Private = 1,
+    /// Always restart the container
+    Host = 2,
+}
+
+impl Display for CgroupnsMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CgroupnsMode::Empty => write!(f, ""),
+            CgroupnsMode::Private => write!(f, "private"),
+            CgroupnsMode::Host => write!(f, "host"),
+        }
+    }
+}
+
+impl FromStr for CgroupnsMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let res = match s {
+            "" => CgroupnsMode::Empty,
+            "private" => CgroupnsMode::Private,
+            "host" => CgroupnsMode::Host,
+            _ => return Err(format!("couldn't parse cgroupns {s}")),
+        };
+
+        Ok(res)
+    }
+}
+
+impl From<CgroupnsMode> for i16 {
+    fn from(value: CgroupnsMode) -> Self {
+        (value as u8).into()
+    }
+}
+
+impl TryFrom<i16> for CgroupnsMode {
+    type Error = String;
+
+    fn try_from(value: i16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(CgroupnsMode::Empty),
+            1 => Ok(CgroupnsMode::Private),
+            2 => Ok(CgroupnsMode::Host),
+            _ => Err(format!("unrecognized cgroupns mode value {value}")),
+        }
+    }
+}
+
+impl FromSql<SmallInt, Sqlite> for CgroupnsMode {
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> diesel::deserialize::Result<Self> {
+        let value = i16::from_sql(bytes)?;
+
+        Self::try_from(value).map_err(Into::into)
+    }
+}
+
+impl ToSql<SmallInt, Sqlite> for CgroupnsMode {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, Sqlite>,
+    ) -> diesel::serialize::Result {
+        let val = i16::from(*self);
+
+        out.set_value(i32::from(val));
+
+        Ok(IsNull::No)
+    }
+}
+
 /// Missing image for a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
 #[diesel(table_name = crate::schema::containers::container_missing_images)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerMissingImage {
     /// [`Container`] id
@@ -276,7 +417,7 @@ impl ContainerMissingImage {
 /// Networks used by a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_networks)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(belongs_to(Network))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerNetwork {
@@ -289,7 +430,7 @@ pub struct ContainerNetwork {
 /// Missing image for a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
 #[diesel(table_name = crate::schema::containers::container_missing_networks)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerMissingNetwork {
     /// [`Container`] id
@@ -331,7 +472,7 @@ impl From<ContainerNetwork> for ContainerMissingNetwork {
 /// Volumes used by a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_volumes)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(belongs_to(Volume))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerVolume {
@@ -344,7 +485,7 @@ pub struct ContainerVolume {
 /// Missing image for a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
 #[diesel(table_name = crate::schema::containers::container_missing_volumes)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerMissingVolume {
     /// [`Container`] id
@@ -388,41 +529,360 @@ impl From<ContainerVolume> for ContainerMissingVolume {
     Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
 )]
 #[diesel(table_name = crate::schema::containers::container_env)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerEnv {
+pub struct ContainerEnv<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// Environment variable name and optionally a value
-    pub value: String,
+    pub value: Cow<'a, str>,
+}
+
+/// Container commands
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_cmds)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerCmd<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Idx in the db
+    pub idx: i64,
+    /// Command
+    pub cmd: Cow<'a, str>,
+}
+
+/// Container test command for the health check
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_healthcheck_test)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerHealthcheckTest<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Idx in the db
+    pub idx: i64,
+    /// Command
+    pub cmd: Cow<'a, str>,
+}
+
+/// Container entrypoint
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_entrypoints)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerEntrypoint<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Idx in the db
+    pub idx: i64,
+    /// Command
+    pub cmd: Cow<'a, str>,
+}
+
+/// Container labels
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_labels)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerLabel<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Key of the label
+    pub key: Cow<'a, str>,
+    /// Label value
+    pub value: Cow<'a, str>,
+}
+
+/// Container exposed ports
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_exposed_ports)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerExposedPort<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Port
+    pub port: Cow<'a, str>,
+}
+
+/// Container cgroup rules
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_device_cgroup_rules)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDeviceCgroupRule<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Cgroup rule
+    pub rule: Cow<'a, str>,
+}
+
+/// Container ulimit
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_ulimits)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerUlimit<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Name of the ulimit
+    pub name: Cow<'a, str>,
+    /// Soft limit
+    pub soft: i32,
+    /// Hard limit
+    pub hard: i32,
+}
+
+/// Container dns
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_dns)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDns<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Dns server
+    pub dns: Cow<'a, str>,
+}
+
+/// Container dns option
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_dns_options)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDnsOption<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Dns server
+    pub dns_option: Cow<'a, str>,
+}
+
+/// Container dns search adress
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_dns_search)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerDnsSearch<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Dns search address
+    pub dns_search: Cow<'a, str>,
+}
+
+/// Container group add
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_group_add)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerGroupAdd<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Dns search address
+    pub group_add: Cow<'a, str>,
+}
+
+/// Container sysctl
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_sysctls)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerSysctl<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// System parameter name
+    pub key: Cow<'a, str>,
+    /// System parameter value
+    pub value: Cow<'a, str>,
+}
+
+/// Container log config
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_log_config)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerLogConfig<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// System parameter name
+    pub key: Cow<'a, str>,
+    /// System parameter value
+    pub value: Cow<'a, str>,
+}
+
+/// Container blkio weight  device
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_blkio_weight_device)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerBlkioWeightDevice<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Device path
+    pub path: Cow<'a, str>,
+    /// Weight
+    pub weight: i32,
+}
+
+/// Container blkio device read bps
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_blkio_device_read_bps)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerBlkioDeviceReadBps<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Device path
+    pub path: Cow<'a, str>,
+    /// Rate
+    pub rate: i64,
+}
+
+/// Container blkio device write bps
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_blkio_device_write_bps)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerBlkioDeviceWriteBps<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Device path
+    pub path: Cow<'a, str>,
+    /// Rate
+    pub rate: i64,
+}
+
+/// Container blkio device read iops
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_blkio_device_read_iops)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerBlkioDeviceReadIops<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Device path
+    pub path: Cow<'a, str>,
+    /// Rate
+    pub rate: i64,
+}
+
+/// Container blkio device write iops
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_blkio_device_write_iops)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerBlkioDeviceWriteIops<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Device path
+    pub path: Cow<'a, str>,
+    /// Rate
+    pub rate: i64,
+}
+
+/// Container security opts
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq, PartialOrd, Ord)]
+#[diesel(table_name = crate::schema::containers::container_securityopts)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerSecurityopt<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Security option
+    pub opt: Cow<'a, str>,
+}
+
+/// Container masked path
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_masked_paths)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerMaskedPath<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Path to mask
+    pub path: Cow<'a, str>,
+}
+
+/// Container read only path
+#[derive(
+    Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[diesel(table_name = crate::schema::containers::container_readonly_paths)]
+#[diesel(belongs_to(Container<'_>))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerReadonlyPath<'a> {
+    /// [`Container`] id
+    pub container_id: SqlUuid,
+    /// Path to mask
+    pub path: Cow<'a, str>,
 }
 
 /// Bind mounts for a container
 #[derive(Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_binds)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerBind {
+pub struct ContainerBind<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// Environment variable name and optionally a value
-    pub value: String,
+    pub value: Cow<'a, str>,
 }
 
 /// Container port bindings
-#[derive(Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
+#[derive(Debug, Clone, Insertable, HasQuery, Associations, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_port_bindings)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerPortBind {
+pub struct ContainerPortBind<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// Container port and optionally protocol
-    pub port: String,
+    pub port: Cow<'a, str>,
     /// Index o the array of host ip and port for the container port
     pub idx: i64,
     /// Host IP to map the port to
-    pub host_ip: Option<String>,
+    pub host_ip: Option<Cow<'a, str>>,
+    /// Host port to map the port to
+    pub host_port: Option<HostPort>,
+}
+
+/// Container port bindings
+#[derive(Debug, Clone, HasQuery, PartialEq, Eq)]
+#[diesel(table_name = crate::schema::containers::container_port_bindings)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ContainerPortBindData<'a> {
+    /// Container port and optionally protocol
+    pub port: Cow<'a, str>,
+    /// Host IP to map the port to
+    pub host_ip: Option<Cow<'a, str>>,
     /// Host port to map the port to
     pub host_port: Option<HostPort>,
 }
@@ -466,15 +926,15 @@ impl ToSql<Integer, Sqlite> for HostPort {
     Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
 )]
 #[diesel(table_name = crate::schema::containers::container_extra_hosts)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerExtraHost {
+pub struct ContainerExtraHost<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// Host to add to /etc/hosts inside the container.
     ///
     /// Its in the form of Host:IP
-    pub value: String,
+    pub value: Cow<'a, str>,
 }
 
 /// A kernel capabilities to add to the container.
@@ -482,13 +942,13 @@ pub struct ContainerExtraHost {
     Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
 )]
 #[diesel(table_name = crate::schema::containers::container_add_capabilities)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerAddCapability {
+pub struct ContainerAddCapability<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// A kernel capabilities to add to the container.
-    pub value: String,
+    pub value: Cow<'a, str>,
 }
 
 /// A kernel capabilities to drop to the container.
@@ -496,13 +956,13 @@ pub struct ContainerAddCapability {
     Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
 )]
 #[diesel(table_name = crate::schema::containers::container_drop_capabilities)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerDropCapability {
+pub struct ContainerDropCapability<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// A kernel capabilities to drop from the container.
-    pub value: String,
+    pub value: Cow<'a, str>,
 }
 
 /// Storage driver options for a container.
@@ -510,19 +970,19 @@ pub struct ContainerDropCapability {
     Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
 )]
 #[diesel(table_name = crate::schema::containers::container_storage_options)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerStorageOptions {
+pub struct ContainerStorageOptions<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// Name of the option
     ///
     /// Example: `size`
-    pub name: String,
+    pub name: Cow<'a, str>,
     /// The value of the option
     ///
     /// Example: `120G`
-    pub value: Option<String>,
+    pub value: Cow<'a, str>,
 }
 
 /// A map of container directories which should be replaced by tmpfs mounts.
@@ -530,25 +990,25 @@ pub struct ContainerStorageOptions {
     Debug, Clone, Insertable, Queryable, Associations, Selectable, PartialEq, Eq, PartialOrd, Ord,
 )]
 #[diesel(table_name = crate::schema::containers::container_tmpfs)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct ContainerTmpfs {
+pub struct ContainerTmpfs<'a> {
     /// [`Container`] id
     pub container_id: SqlUuid,
     /// Path inside the container.
     ///
     /// Example: `/run`
-    pub path: String,
+    pub path: Cow<'a, str>,
     /// Mount options for the tmpfs
     ///
     /// Example: `rw,noexec,nosuid,size=65536k`
-    pub options: Option<String>,
+    pub options: Cow<'a, str>,
 }
 
 /// Device Mapping used by a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_device_mappings)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(belongs_to(DeviceMapping))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerDeviceMapping {
@@ -561,7 +1021,7 @@ pub struct ContainerDeviceMapping {
 /// Missing device mapping for a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
 #[diesel(table_name = crate::schema::containers::container_missing_device_mappings)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerMissingDeviceMapping {
     /// [`Container`] id
@@ -610,7 +1070,7 @@ impl From<ContainerDeviceMapping> for ContainerMissingDeviceMapping {
 /// device request used by a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable, PartialEq, Eq)]
 #[diesel(table_name = crate::schema::containers::container_device_requests)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(belongs_to(DeviceRequest))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerDeviceRequest {
@@ -623,7 +1083,7 @@ pub struct ContainerDeviceRequest {
 /// Missing device request for a container
 #[derive(Debug, Clone, Copy, Insertable, Queryable, Associations, Selectable)]
 #[diesel(table_name = crate::schema::containers::container_missing_device_requests)]
-#[diesel(belongs_to(Container))]
+#[diesel(belongs_to(Container<'_>))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ContainerMissingDeviceRequest {
     /// [`Container`] id
@@ -675,40 +1135,54 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn should_convert_status() {
-        let variants = [
-            ContainerStatus::Received,
-            ContainerStatus::Published,
-            ContainerStatus::Stopped,
-            ContainerStatus::Running,
-        ];
+    #[rstest::rstest]
+    #[case(ContainerStatus::Received)]
+    #[case(ContainerStatus::Published)]
+    #[case(ContainerStatus::Stopped)]
+    #[case(ContainerStatus::Running)]
+    fn should_convert_status(#[case] exp: ContainerStatus) {
+        let val = i32::from(exp);
 
-        for exp in variants {
-            let val = i32::from(exp);
+        let status = ContainerStatus::try_from(val).unwrap();
 
-            let status = ContainerStatus::try_from(val).unwrap();
-
-            assert_eq!(status, exp);
-        }
+        assert_eq!(status, exp);
     }
 
-    #[test]
-    fn should_convert_restart_policy() {
-        let variants = [
-            ContainerRestartPolicy::Empty,
-            ContainerRestartPolicy::No,
-            ContainerRestartPolicy::Always,
-            ContainerRestartPolicy::UnlessStopped,
-            ContainerRestartPolicy::OnFailure,
-        ];
+    #[rstest::rstest]
+    #[case(ContainerRestartPolicy::Empty)]
+    #[case(ContainerRestartPolicy::No)]
+    #[case(ContainerRestartPolicy::Always)]
+    #[case(ContainerRestartPolicy::UnlessStopped)]
+    #[case(ContainerRestartPolicy::OnFailure)]
+    fn should_convert_restart_policy(#[case] exp: ContainerRestartPolicy) {
+        let val = i32::from(exp);
 
-        for exp in variants {
-            let val = i32::from(exp);
+        let status = ContainerRestartPolicy::try_from(val).unwrap();
 
-            let status = ContainerRestartPolicy::try_from(val).unwrap();
+        assert_eq!(status, exp);
+    }
 
-            assert_eq!(status, exp);
-        }
+    #[rstest::rstest]
+    #[case(CgroupnsMode::Empty)]
+    #[case(CgroupnsMode::Private)]
+    #[case(CgroupnsMode::Host)]
+    fn should_convert_cgroupns_mode(#[case] exp: CgroupnsMode) {
+        let val = i16::from(exp);
+
+        let status = CgroupnsMode::try_from(val).unwrap();
+
+        assert_eq!(status, exp);
+    }
+    #[rstest::rstest]
+    #[case("", ContainerRestartPolicy::Empty)]
+    #[case("no", ContainerRestartPolicy::No)]
+    #[case("unless-stopped", ContainerRestartPolicy::UnlessStopped)]
+    #[case("on-failure", ContainerRestartPolicy::OnFailure)]
+    #[case("on-failure", ContainerRestartPolicy::OnFailure)]
+    fn parse_restart_policy(#[case] case: &str, #[case] exp: ContainerRestartPolicy) {
+        let policy = ContainerRestartPolicy::from_str(case).unwrap();
+
+        assert_eq!(policy, exp);
+        assert_eq!(policy.to_string(), case);
     }
 }

@@ -23,22 +23,14 @@ set -exEuo pipefail
 # Trap -e errors
 trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
 
-export E2E_REALM=${E2E_REALM:-test}
-export E2E_BASE_DOMAIN=${E2E_BASE_DOMAIN:-autotest.astarte-platform.org}
-export E2E_IGNORE_SSL=${E2E_IGNORE_SSL:-false}
-export E2E_API_URL=${E2E_API_URL:-https://api.$E2E_BASE_DOMAIN}
-export E2E_INTERFACE_DIR=${E2E_INTERFACE_DIR:-deps/interfaces}
+manifest=$(cargo metadata --no-deps --format-version 1)
+root_dir=$(echo "$manifest" | jq '.workspace_root' --raw-output)
+target_dir=$(echo "$manifest" | jq '.target_directory' --raw-output)
+workingDir="$target_dir/edgehog-protos"
 
-# Install interfaces
-astartectl realm-management interfaces sync --non-interactive "$E2E_INTERFACE_DIR"/*.json
-astartectl realm-management interfaces ls
+rm -rf "$workingDir" || true
+mkdir -p "$workingDir"
 
-# Register
-E2E_DEVICE_ID=$(astartectl utils device-id generate-random)
-E2E_TOKEN=$(astartectl utils gen-jwt all-realm-apis)
-E2E_PAIRING_TOKEN=$(astartectl utils gen-jwt pairing)
-E2E_STORE_DIR=$(mktemp -d)
+cargo run -p proto-codegen --locked -- --protos ./deps/forwarder-proto/proto/ --output "$workingDir"
 
-export E2E_DEVICE_ID E2E_TOKEN E2E_PAIRING_TOKEN E2E_STORE_DIR
-
-cargo run --locked -p e2e-test
+mv "$workingDir/edgehog.device.forwarder.rs" "$root_dir/edgehog-device-forwarder-proto/src/proto.rs"

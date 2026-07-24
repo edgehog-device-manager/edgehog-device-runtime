@@ -31,17 +31,20 @@ use super::{OptString, ReqUuid};
     aggregation = "object"
 )]
 pub struct CreateDeviceMapping {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) path_on_host: String,
+    #[mapping(required)]
     pub(crate) path_in_container: String,
+    #[mapping(required)]
     pub(crate) c_group_permissions: OptString,
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-
-    use std::fmt::Display;
 
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
@@ -50,21 +53,32 @@ pub(crate) mod tests {
 
     use super::*;
 
-    pub fn create_device_mapping_request_event(
-        id: impl Display,
-        deployment_id: impl Display,
-        host: &str,
-        container: &str,
-    ) -> DeviceEvent {
+    pub(crate) fn create_device_mapping_req(deployment_id: Uuid) -> CreateDeviceMapping {
+        CreateDeviceMapping {
+            id: ReqUuid(Uuid::new_v4()),
+            deployment_id: ReqUuid(deployment_id),
+            path_on_host: "/dev/tty12".to_string(),
+            path_in_container: "dev/tty12".to_string(),
+            c_group_permissions: OptString::from("msv".to_string()),
+        }
+    }
+
+    pub fn create_device_mapping_request_event(req: &CreateDeviceMapping) -> DeviceEvent {
         let fields = [
-            ("id", AstarteData::String(id.to_string())),
+            ("id", AstarteData::String(req.id.to_string())),
             (
                 "deploymentId",
-                AstarteData::String(deployment_id.to_string()),
+                AstarteData::String(req.deployment_id.to_string()),
             ),
-            ("pathOnHost", AstarteData::from(host)),
-            ("pathInContainer", AstarteData::from(container)),
-            ("cGroupPermissions", AstarteData::from("msv")),
+            ("pathOnHost", AstarteData::String(req.path_on_host.clone())),
+            (
+                "pathInContainer",
+                AstarteData::String(req.path_in_container.clone()),
+            ),
+            (
+                "cGroupPermissions",
+                AstarteData::String(req.c_group_permissions.0.clone().unwrap_or_default()),
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
@@ -81,22 +95,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn create_device_mapping() {
-        let id = Uuid::new_v4();
+    fn should_create_device_mapping() {
         let deployment_id = Uuid::new_v4();
-        let event =
-            create_device_mapping_request_event(id, deployment_id, "/dev/tty12", "/dev/tty12");
+        let expected = create_device_mapping_req(deployment_id);
+        let event = create_device_mapping_request_event(&expected);
 
         let request = CreateDeviceMapping::from_event(event).unwrap();
 
-        let expect = CreateDeviceMapping {
-            id: ReqUuid(id),
-            deployment_id: ReqUuid(deployment_id),
-            path_on_host: "/dev/tty12".to_string(),
-            path_in_container: "/dev/tty12".to_string(),
-            c_group_permissions: OptString(Some("msv".to_string())),
-        };
-
-        assert_eq!(request, expect);
+        assert_eq!(request, expected);
     }
 }

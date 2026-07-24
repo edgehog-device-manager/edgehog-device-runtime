@@ -21,7 +21,6 @@
 
 [print_schema.runtime]
 file = "src/schema/runtime.rs"
-custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 with_docs = true
 
 [print_schema.runtime.filter]
@@ -31,18 +30,34 @@ only_tables = [
 
 [print_schema.containers]
 file = "src/schema/containers.rs"
-custom_type_derives = ["diesel::query_builder::QueryId", "Clone"]
 with_docs = true
 
 [print_schema.containers.filter]
 only_tables = [
   "container_add_capabilities",
   "container_binds",
+  "container_blkio_device_read_bps",
+  "container_blkio_device_read_iops",
+  "container_blkio_device_write_bps",
+  "container_blkio_device_write_iops",
+  "container_blkio_weight_device",
+  "container_cmds",
+  "container_device_cgroup_rules",
   "container_device_mappings",
   "container_device_requests",
+  "container_dns",
+  "container_dns_options",
+  "container_dns_search",
   "container_drop_capabilities",
+  "container_entrypoints",
   "container_env",
+  "container_exposed_ports",
   "container_extra_hosts",
+  "container_group_add",
+  "container_healthcheck_test",
+  "container_labels",
+  "container_log_config",
+  "container_masked_paths",
   "container_missing_device_mappings",
   "container_missing_device_requests",
   "container_missing_images",
@@ -50,8 +65,12 @@ only_tables = [
   "container_missing_volumes",
   "container_networks",
   "container_port_bindings",
+  "container_readonly_paths",
+  "container_securityopts",
   "container_storage_options",
+  "container_sysctls",
   "container_tmpfs",
+  "container_ulimits",
   "container_volumes",
   "containers",
   "deployment_containers",

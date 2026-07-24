@@ -36,8 +36,11 @@ use crate::{
 )]
 #[astarte_object(rename_all = "camelCase")]
 pub struct DeleteFile {
+    #[mapping(required)]
     pub(crate) id: String,
+    #[mapping(required)]
     pub(crate) file_id: String,
+    #[mapping(required)]
     pub(crate) force: bool,
 }
 
