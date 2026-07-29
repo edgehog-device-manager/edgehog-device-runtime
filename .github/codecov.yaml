@@ -1,4 +1,4 @@
-# Copyright 2024, 2025 SECO Mind Srl
+# Copyright 2024 - 2025 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 # ref: https://docs.codecov.com/docs/codecovyml-reference
 coverage:
-  range: 60..100
+  range: 70..100
   round: down
   precision: 1
   status:
@@ -27,6 +27,8 @@ coverage:
         threshold: 1%
         branches:
           - "!main"
+          - "!master"
+          - "!release-[0-9]+.[0-9]+"
 
 # Test files aren't important for coverage
 ignore:
@@ -40,16 +42,28 @@ comment:
   require_changes: yes
 
 component_management:
-  default_rules: # default rules that will be inherited by all components
+  # default rules that will be inherited by all components
+  default_rules:
     statuses:
       - type: project
         target: auto
+        # Avoid false negatives
         threshold: 1%
         branches:
           - "!main"
+          - "!master"
+          - "!release-[0-9]+.[0-9]+"
   individual_components:
     - component_id: "@MAIN_CRATE@"
-      name: device-sdk
+      name: "@MAIN_CRATE@"
       paths:
         - src/**
         - src/*
+      statuses: # the core component has its own statuses
+        - type: project
+          target: auto
+        - type: patch
+    - component_id: "@OTHER_CRATE"
+      name: "@OTHER_CRATE@"
+      paths:
+        - "@OTHER_CRATE_PATH@"

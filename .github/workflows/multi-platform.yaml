@@ -1,10 +1,10 @@
-# Copyright 2025 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,11 @@ env:
   CARGO_TERM_COLOR: always
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
   NEXTEST_PROFILE: "ci"
+  MAIN_CRATE: "@MAIN_CRATE@"
+  EXPORT_FOR_CI: "true"
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -51,4 +55,5 @@ jobs:
         with:
           tool: cargo-nextest
       - name: cargo nextest run
-        run: cargo nextest run --locked --all-features --workspace
+        run: |
+          cargo nextest run --locked --all-features --workspace

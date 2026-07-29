@@ -1,10 +1,10 @@
-# Copyright 2025 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - master
       - main
       - release-[0-9]+.[0-9]+
 # Only needs to clone the repository
@@ -36,27 +37,31 @@ concurrency:
   # It's not safe to cancel the publish
   cancel-in-progress: false
 env:
+  CI: "true"
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+  NEXTEST_PROFILE: "ci"
+  MAIN_CRATE: "@MAIN_CRATE@"
+  EXPORT_FOR_CI: "true"
 jobs:
   # Release unpublished packages.
   release-plz-release:
     name: Release-plz release
     runs-on: ubuntu-24.04
-    if: ${{ github.repository_owner == '@OWNER@' }}
+    if: ${{ github.repository_owner == "@REPOSITORY_OWNER@" }}
     permissions:
       contents: write
       id-token: write
     steps:
-      - &checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: true
           persist-credentials: false
-      - &install-rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
-      - &login-crates
-        uses: rust-lang/crates-io-auth-action@v1
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - name: Run release-plz
         uses: release-plz/action@v0.5.131
@@ -70,7 +75,7 @@ jobs:
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-24.04
-    if: ${{ github.repository_owner == '@OWNER@' }}
+    if: ${{ github.repository_owner == "@REPOSITORY_OWNER@" }}
     permissions:
       contents: write
       pull-requests: write
@@ -79,9 +84,15 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - *checkout
-      - *install-rust
-      - *login-crates
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: true
+          persist-credentials: false
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
       - name: Run release-plz
         uses: release-plz/action@v0.5.131
         with:

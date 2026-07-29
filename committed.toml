@@ -15,11 +15,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 style = "conventional"
-# Longer than git default, but useful in changelog messages. Even more when having to prepand the
+# Longer than git default, but useful in changelog messages. Even more when having to prepend the
 # types and scope to the subject line.
 subject_length = 150
 subject_capitalized = false
-merge_commit = false
+merge_commit = true
 allowed_types = [
   # User facing
   "feat",

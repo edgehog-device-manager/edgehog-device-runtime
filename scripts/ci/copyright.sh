@@ -16,6 +16,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+set -eEuo pipefail
+
+# Trap -e errors
+trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
+
+# Let's you enable debug mode in the github action
+if [[ -n ${RUNNER_DEBUG:-} ]]; then
+    set -x
+fi
+
 ##
 # Annotates the files passed from stdin
 #
@@ -23,8 +33,6 @@
 #
 #   git status --short | cut -f 2 -d ' ' | ./scripts/ci/copyright.sh
 #
-
-set -exEuo pipefail
 
 annotate() {
     # ignored files
