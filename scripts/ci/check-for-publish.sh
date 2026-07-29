@@ -41,6 +41,7 @@ pkgsFiles=$(
         <(listPackage "e2e-test-containers") \
         <(listPackage "e2e-test-forwarder") \
         <(listPackage "e2e-test-forwarder") \
+        <(listPackage "edgehog-device-forwarder-proto") \
         <(listPackage "edgehog-device-runtime-containers") \
         <(listPackage "edgehog-device-runtime-forwarder") \
         <(listPackage "edgehog-device-runtime-service") \
@@ -48,7 +49,8 @@ pkgsFiles=$(
         <(listPackage "edgehog-device-runtime-tls") \
         <(listPackage "edgehogctl") \
         <(listPackage "hardware-id-service") \
-        <(listPackage "led-manager-service") |
+        <(listPackage "led-manager-service") \
+        <(listPackage "proto-codegen") |
         sort
 )
 localFiles=$(
