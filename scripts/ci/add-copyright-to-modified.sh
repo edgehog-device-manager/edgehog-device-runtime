@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,19 +16,23 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-set -exEuo pipefail
+set -eEuo pipefail
 
 # Trap -e errors
 trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
 
-if [ $# != 2 ]; then
-    echo 'to use the script pass the base and head refs'
-    echo "$1 BASE_REF HEAD_REF"
-    exit 1
+# Let's you enable debug mode in the github action
+if [[ -n ${RUNNER_DEBUG:-} ]]; then
+    set -x
 fi
 
-base=$1
-head=$2
+if [ $# != 2 ]; then
+    base=${BASE_REF:-main}
+    head=${HEAD_REF:-HEAD}
+else
+    base=$1
+    head=$2
+fi
 
 git_file_names() {
     git diff --name-only "$base" "$head"

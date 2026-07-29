@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Copyright 2025 SECO Mind Srl
+# Copyright 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,22 +26,21 @@ if [[ -n ${RUNNER_DEBUG:-} ]]; then
     set -x
 fi
 
-export E2E_REALM=${E2E_REALM:-test}
-export E2E_BASE_DOMAIN=${E2E_BASE_DOMAIN:-autotest.astarte-platform.org}
-export E2E_IGNORE_SSL=${E2E_IGNORE_SSL:-false}
-export E2E_API_URL=${E2E_API_URL:-https://api.$E2E_BASE_DOMAIN}
-export E2E_INTERFACE_DIR=${E2E_INTERFACE_DIR:-deps/interfaces}
+NAMESPACE="$1"
 
-# Install interfaces
-astartectl realm-management interfaces sync --non-interactive "$E2E_INTERFACE_DIR"/*.json
-astartectl realm-management interfaces ls
+kubectl describe astarte astarte -n "$NAMESPACE"
 
-# Register
-E2E_DEVICE_ID=$(astartectl utils device-id generate-random)
-E2E_TOKEN=$(astartectl utils gen-jwt all-realm-apis)
-E2E_PAIRING_TOKEN=$(astartectl utils gen-jwt pairing)
-E2E_STORE_DIR=$(mktemp -d)
+kubectl describe deployments/astarte-operator-controller-manager -n astarte-operator
+kubectl logs deployments/astarte-operator-controller-manager -n astarte-operator
 
-export E2E_DEVICE_ID E2E_TOKEN E2E_PAIRING_TOKEN E2E_STORE_DIR
+kubectl get pods -n "$NAMESPACE"
 
-cargo run --locked -p e2e-test -- run
+for pod in $(kubectl get pods -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name"); do
+    echo "==== POD($pod) ===="
+
+    kubectl describe pod -n "$NAMESPACE" "$pod"
+
+    echo "==== LOGS($pod) ===="
+
+    kubectl logs -n "$NAMESPACE" "$pod"
+done
