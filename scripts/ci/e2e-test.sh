@@ -18,10 +18,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-set -exEuo pipefail
+set -eEuo pipefail
 
 # Trap -e errors
 trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
+
+# Let's you enable debug mode in the github action
+if [[ -n ${RUNNER_DEBUG:-} ]]; then
+    set -x
+fi
 
 export E2E_REALM=${E2E_REALM:-test}
 export E2E_BASE_DOMAIN=${E2E_BASE_DOMAIN:-autotest.astarte-platform.org}

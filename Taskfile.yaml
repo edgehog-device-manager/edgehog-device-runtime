@@ -127,7 +127,7 @@ tasks:
     desc: "Check that the protobuf are up to date"
     deps:
       - generate-proto
-    cmd: git diff --exit-code --name-only
+    cmd: git diff --exit-code
 
   generate-proto:
     desc: "Generates the protobuf definitions"

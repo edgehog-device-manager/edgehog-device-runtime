@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,6 +27,8 @@ git_release_body = """
 # Changelog
 {{ changelog }}
 """
+changelog_path = "./CHANGELOG.md"
+repo_url = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 
 [[package]]
 name = "edgehog-device-runtime"
@@ -77,8 +79,9 @@ body = """
     ## [Unreleased]
 {% endif -%}
 
+### `{{ package }}` - [{{ version }}]{%- if release_link -%}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
 {% for group, commits in commits | filter(attribute="merge_commit", value=false) | group_by(attribute="group") %}
-### {{ group | upper_first }}
+#### {{ group | upper_first }}
 
 {% for commit in commits | unique(attribute="message")  -%}
 {% if commit.scope -%}
