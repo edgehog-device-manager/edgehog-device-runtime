@@ -75,7 +75,7 @@ dirs = "6.0.0"
 displaydoc = "0.2.6"
 edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.12.1" }
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.12.1" }
-edgehog-device-forwarder-proto = "0.1.0"
+edgehog-device-forwarder-proto = { path = "./edgehog-device-forwarder-proto/", version = "=0.12.1" }
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.12.1" }
 edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
 edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.12.1" }
@@ -138,7 +138,10 @@ zbus = { version = "5.16.0", default-features = false }
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 async-compression = { workspace = true, features = ["gzip", "tokio"] }
-async-tar = { workspace = true, default-features = false, features = ["runtime-tokio", "xattr"] }
+async-tar = { workspace = true, default-features = false, features = [
+  "runtime-tokio",
+  "xattr"
+] }
 aws-lc-rs.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true

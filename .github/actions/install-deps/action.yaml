@@ -28,9 +28,16 @@ runs:
     - name: Install Linux (Ubuntu) system dependencies
       if: ${{ startsWith(inputs.for-image, 'ubuntu-') }}
       shell: bash
+      env:
+        PB_REL: https://github.com/protocolbuffers/protobuf/releases
+        PB_VERSION: 35.1
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev libudev-dev libsystemd-dev upower protobuf-compiler
+        sudo apt-get install -y libsqlite3-dev libudev-dev libsystemd-dev upower
+        curl -LO "$PB_REL/download/v$PB_VERSION/protoc-$PB_VERSION-linux-x86_64.zip"
+        unzip "protoc-$PB_VERSION-linux-x86_64.zip" -d "$HOME/.local"
+        rm "protoc-$PB_VERSION-linux-x86_64.zip"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
     - name: Install MacOS system dependencies
       if: ${{ startsWith(inputs.for-image, 'macos-') }}
       shell: bash

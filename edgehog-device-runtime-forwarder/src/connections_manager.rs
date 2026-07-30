@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -106,15 +106,6 @@ impl ConnectionsManager {
         } else {
             Connector::Plain
         };
-
-        // TODO: in the feature this will change, for now just set the default to make the tests pass
-        // Set default crypto provider
-        #[cfg(test)]
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            let _ = rustls::crypto::aws_lc_rs::default_provider()
-                .install_default()
-                .inspect_err(|_| tracing::error!("couldn't install default crypto provider"));
-        }
 
         let ws_stream = Self::ws_connect(&url, connector).await?;
 

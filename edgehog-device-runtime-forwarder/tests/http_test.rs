@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,6 +15,8 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
+
+use std::time::Duration;
 
 use edgehog_device_forwarder_proto::http::Message as HttpMessage;
 use edgehog_device_forwarder_proto::{
@@ -28,16 +30,8 @@ use futures::{SinkExt, StreamExt};
 async fn test_connect() {
     use edgehog_device_runtime_forwarder::test_utils::TestConnections;
 
-    // TODO: in the feature this will change, for now just set the default to make the tests pass
-    // Set default crypto provider
-    if rustls::crypto::CryptoProvider::get_default().is_none() {
-        let _ = rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .inspect_err(|_| tracing::error!("couldn't install default crypto provider"));
-    }
-
     let test_connections = TestConnections::<httpmock::MockServer>::init().await;
-    let endpoint = test_connections.endpoint();
+    let endpoint = test_connections.expect_endpoint();
 
     let test_url = test_connections
         .mock_server
@@ -57,9 +51,9 @@ async fn test_connect() {
     ws.send(http_req).await.expect("failed to send over ws");
 
     // the 1st request is correctly handled
-    let http_res = ws
-        .next()
+    let http_res = tokio::time::timeout(Duration::from_secs(3), ws.next())
         .await
+        .expect("timeout reached")
         .expect("ws already closed")
         .expect("failed to receive from ws")
         .into_data();

@@ -25,6 +25,8 @@ pub mod http {
         pub body: ::prost::alloc::vec::Vec<u8>,
         #[prost(uint32, tag = "6")]
         pub port: u32,
+        #[prost(string, optional, tag = "7")]
+        pub host: ::core::option::Option<::prost::alloc::string::String>,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Response {
@@ -44,6 +46,23 @@ pub mod http {
         Request(Request),
         #[prost(message, tag = "3")]
         Response(Response),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Https {
+    #[prost(bytes = "vec", tag = "1")]
+    pub request_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(oneof = "https::Message", tags = "3, 4")]
+    pub message: ::core::option::Option<https::Message>,
+}
+/// Nested message and enum types in `Https`.
+pub mod https {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Message {
+        #[prost(message, tag = "3")]
+        Request(super::http::Request),
+        #[prost(message, tag = "4")]
+        Response(super::http::Response),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -78,7 +97,7 @@ pub mod web_socket {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
-    #[prost(oneof = "message::Protocol", tags = "1, 2")]
+    #[prost(oneof = "message::Protocol", tags = "1, 2, 3")]
     pub protocol: ::core::option::Option<message::Protocol>,
 }
 /// Nested message and enum types in `Message`.
@@ -89,5 +108,7 @@ pub mod message {
         Http(super::Http),
         #[prost(message, tag = "2")]
         Ws(super::WebSocket),
+        #[prost(message, tag = "3")]
+        Https(super::Https),
     }
 }
