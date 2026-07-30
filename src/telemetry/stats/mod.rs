@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,6 +32,8 @@ use super::sender::TelemetryTask;
 pub(crate) mod battery_status;
 #[cfg(feature = "containers")]
 pub(crate) mod container;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
+pub(crate) mod geolocation;
 pub(crate) mod storage_usage;
 pub(crate) mod system_status;
 #[cfg(feature = "wifiscanner")]
@@ -70,6 +72,7 @@ pub(crate) enum TelemetryInterface {
     ContainerNetworks,
     ContainerProcesses,
     VolumeUsage,
+    Geolocation,
 }
 
 impl TelemetryInterface {
@@ -96,6 +99,7 @@ impl TelemetryInterface {
                 "io.edgehog.devicemanager.apps.stats.ContainerProcesses"
             }
             TelemetryInterface::VolumeUsage => "io.edgehog.devicemanager.apps.stats.VolumeUsage",
+            TelemetryInterface::Geolocation => "io.edgehog.devicemanager.Geolocation",
         }
     }
 }
@@ -126,6 +130,7 @@ impl FromStr for TelemetryInterface {
                 TelemetryInterface::ContainerProcesses
             }
             "io.edgehog.devicemanager.apps.stats.VolumeUsage" => TelemetryInterface::VolumeUsage,
+            "io.edgehog.devicemanager.Geolocation" => TelemetryInterface::Geolocation,
             _ => {
                 return Err(TelemetryInterfaceError {
                     interface: s.to_string(),
@@ -216,6 +221,10 @@ mod tests {
             (
                 "io.edgehog.devicemanager.apps.stats.VolumeUsage",
                 TelemetryInterface::VolumeUsage,
+            ),
+            (
+                "io.edgehog.devicemanager.Geolocation",
+                TelemetryInterface::Geolocation,
             ),
         ];
 
