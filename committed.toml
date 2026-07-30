@@ -36,4 +36,5 @@ allowed_types = [
   "ci",
   "style",
   "test",
+  "revert",
 ]
