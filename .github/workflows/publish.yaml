@@ -22,6 +22,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - master
       - main
       - release-[0-9]+.[0-9]+
 # Only needs to clone the repository
@@ -38,7 +39,13 @@ concurrency:
   # It's not safe to cancel the publish
   cancel-in-progress: false
 env:
+  CI: "true"
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+  NEXTEST_PROFILE: "ci"
+  MAIN_CRATE: "edgehog-device-runtime"
+  EXPORT_FOR_CI: "true"
 jobs:
   # Release unpublished packages.
   release-plz-release:
@@ -49,16 +56,14 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - &checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: true
           persist-credentials: false
-      - &install-rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
-      - &login-crates
-        uses: rust-lang/crates-io-auth-action@v1
+      - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - uses: ./.github/actions/install-deps
       - name: Run release-plz
@@ -82,10 +87,15 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - *checkout
-      - *install-rust
-      - *login-crates
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: true
+          persist-credentials: false
       - uses: ./.github/actions/install-deps
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
       - name: Run release-plz
         uses: release-plz/action@v0.5.131
         with:

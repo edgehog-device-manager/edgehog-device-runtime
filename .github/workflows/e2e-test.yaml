@@ -31,10 +31,14 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
   RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+  NEXTEST_PROFILE: "ci"
+  MAIN_CRATE: "edgehog-device-runtime"
+  EXPORT_FOR_CI: "true"
 jobs:
   e2e-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
