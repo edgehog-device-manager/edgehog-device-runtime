@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,8 +20,10 @@ use std::fmt::Display;
 
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 pub struct OtaConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default)]
     pub reboot: Reboot,
     #[serde(default)]
@@ -29,6 +31,21 @@ pub struct OtaConfig {
     /// RAUC configuration for the OTA
     #[serde(default)]
     pub rauc: RaucConfig,
+}
+
+impl Default for OtaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            reboot: Default::default(),
+            streaming: Default::default(),
+            rauc: Default::default(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -74,6 +91,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_values() {
+        let exp = OtaConfig {
+            enabled: true,
+            reboot: Reboot::Default,
+            streaming: false,
+            rauc: RaucConfig {
+                dbus_socket: RaucDbus::System,
+            },
+        };
+
+        assert_eq!(OtaConfig::default(), exp);
+    }
+
+    #[test]
     fn should_deserialize() {
         let string = r#"
         reboot = "external"
@@ -83,6 +114,7 @@ mod tests {
         let config: OtaConfig = toml::from_str(string).unwrap();
 
         let exp = OtaConfig {
+            enabled: true,
             reboot: Reboot::External,
             streaming: true,
             rauc: RaucConfig {
@@ -101,6 +133,7 @@ mod tests {
         let config: OtaConfig = toml::from_str(string).unwrap();
 
         let exp = OtaConfig {
+            enabled: true,
             reboot: Reboot::Default,
             streaming: false,
             rauc: RaucConfig {
@@ -121,10 +154,31 @@ mod tests {
         let config: OtaConfig = toml::from_str(string).unwrap();
 
         let exp = OtaConfig {
+            enabled: true,
             reboot: Reboot::Default,
             streaming: false,
             rauc: RaucConfig {
                 dbus_socket: RaucDbus::Session,
+            },
+        };
+
+        assert_eq!(config, exp);
+    }
+
+    #[test]
+    fn should_disable() {
+        let string = r#"
+        enabled = false
+        "#;
+
+        let config: OtaConfig = toml::from_str(string).unwrap();
+
+        let exp = OtaConfig {
+            enabled: false,
+            reboot: Reboot::Default,
+            streaming: false,
+            rauc: RaucConfig {
+                dbus_socket: RaucDbus::default(),
             },
         };
 
