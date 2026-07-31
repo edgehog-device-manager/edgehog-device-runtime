@@ -192,6 +192,17 @@ impl<C> Task<C> {
                     }
                 }
             }
+            TelemetryInterface::CellularConnectionStatus => {
+                cfg_if::cfg_if! {
+                    if #[cfg(all(feature = "zbus", target_os = "linux"))] {
+                        let telemetry = super::stats::cellular::CellularConnectionStatusTelemetry::default();
+
+                        task.run(telemetry).await;
+                    } else {
+                        tracing::warn!("the cellular connection status telemetry interface is not supported because the zbus feature is missing")
+                    }
+                }
+            }
         }
     }
 
