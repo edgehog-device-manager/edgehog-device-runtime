@@ -32,13 +32,21 @@ use super::{OptString, ReqUuid};
 )]
 #[astarte_object(rename_all = "camelCase")]
 pub struct CreateDeviceRequest {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) driver: OptString,
+    #[mapping(required)]
     pub(crate) count: i64,
+    #[mapping(required)]
     pub(crate) device_ids: Vec<String>,
+    #[mapping(required)]
     pub(crate) capabilities: Vec<String>,
+    #[mapping(required)]
     pub(crate) option_keys: Vec<String>,
+    #[mapping(required)]
     pub(crate) option_values: Vec<String>,
 }
 
