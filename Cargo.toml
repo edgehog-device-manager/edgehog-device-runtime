@@ -278,3 +278,6 @@ split-debuginfo = "packed"
 strip = true
 # Similar to fat in term of performances, but takes substantially less time to run
 lto = "thin"
+
+[patch.crates-io]
+astarte-device-sdk = { git = "https://github.com/joshuachp/astarte-device-sdk-rust", rev = "714a57aaa3bbf8bcb4b7c9dd97d7bf3978a0bbde" }
