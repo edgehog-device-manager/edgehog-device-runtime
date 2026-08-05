@@ -96,11 +96,8 @@ impl BatteryStatusTelemetry {
         if self.connection.is_none() {
             let connection = match zbus::Connection::system().await {
                 Ok(conn) => conn,
-                Err(err) => {
-                    error!(
-                        "couldn't connect to system dbus: {}",
-                        eyre::Report::new(err)
-                    );
+                Err(error) => {
+                    error!(%error, "couldn't connect to system dbus");
 
                     return None;
                 }
