@@ -79,6 +79,10 @@ async fn main() -> eyre::Result<()> {
             .wrap_err("Unable to create store directory")?;
     }
 
+    if options.interfaces_directory.is_some() {
+        warn!("DEPRECATED: the interface directory is no longer used as the interfaces are bundled")
+    }
+
     info!(
         "Using {} as store directory",
         options.store_directory.display()
@@ -97,12 +101,7 @@ async fn main() -> eyre::Result<()> {
                 .ok_or_eyre("couldn't get astarte options")?;
 
             let client = astarte_sdk_options
-                .connect(
-                    &mut tasks,
-                    store,
-                    &options.store_directory,
-                    &options.interfaces_directory,
-                )
+                .connect(&mut tasks, store, &options.store_directory)
                 .await?;
 
             let mut runtime =
@@ -123,7 +122,7 @@ async fn main() -> eyre::Result<()> {
                 .ok_or_eyre("couldn't get MessageHub options")?;
 
             let client = astarte_message_hub_options
-                .connect(&mut tasks, store, &options.interfaces_directory)
+                .connect(&mut tasks, store, &options.store_directory)
                 .await?;
 
             let mut runtime =

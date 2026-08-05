@@ -72,10 +72,6 @@ impl TryFrom<Config> for DeviceManagerOptions {
             .map(|opt| opt.try_into())
             .transpose()?;
 
-        let interfaces_directory = value
-            .interfaces_directory
-            .ok_or_eyre("config is missing interfaces directory")?;
-
         let store_directory = value
             .store_directory
             .ok_or_eyre("config is missing store directory")?;
@@ -107,7 +103,7 @@ impl TryFrom<Config> for DeviceManagerOptions {
             ota,
             #[cfg(feature = "file-transfer")]
             file_transfer,
-            interfaces_directory,
+            interfaces_directory: value.interfaces_directory,
             store_directory,
             download_directory,
             telemetry_config: value.telemetry_config,

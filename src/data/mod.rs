@@ -30,6 +30,7 @@ use crate::Client;
 pub mod astarte_device_sdk_lib;
 #[cfg(feature = "message-hub")]
 pub mod astarte_message_hub_node;
+pub(crate) mod interfaces;
 
 /// Connect to the store.
 pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, Error<SqliteError>>

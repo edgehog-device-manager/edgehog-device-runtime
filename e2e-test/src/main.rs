@@ -27,7 +27,6 @@ use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
-use std::path::PathBuf;
 use std::time::Duration;
 use tempdir::TempDir;
 use tokio::task::JoinSet;
@@ -68,9 +67,6 @@ struct Cli {
     /// Ignore SSL errors when talking to MQTT Broker.
     #[arg(long, env = "E2E_IGNORE_SSL")]
     ignore_ssl: bool,
-    /// Interface directory for the Device.
-    #[arg(short, long, env = "E2E_INTERFACE_DIR")]
-    interface_dir: PathBuf,
 }
 
 impl Cli {
@@ -143,7 +139,6 @@ async fn main() -> color_eyre::Result<()> {
     let device_options = DeviceManagerOptions {
         astarte_library: AstarteLibrary::AstarteDeviceSdk,
         astarte_device_sdk: Some(astarte_options.clone()),
-        interfaces_directory: cli.interface_dir.clone(),
         store_directory: store_path.path().to_path_buf(),
         download_directory: store_path.path().join("downloads"),
         telemetry_config: Some(Vec::new()),
@@ -156,6 +151,7 @@ async fn main() -> color_eyre::Result<()> {
         #[cfg(target_os = "linux")]
         ota: edgehog_device_runtime::ota::config::OtaConfig::default(),
         file_transfer: FileTransferArgs::with_store_dir(None, store_path.path()),
+        interfaces_directory: None,
     };
 
     let store = connect_store(store_path.path())
@@ -165,12 +161,7 @@ async fn main() -> color_eyre::Result<()> {
     let mut tasks = JoinSet::new();
 
     let client = astarte_options
-        .connect(
-            &mut tasks,
-            store,
-            &device_options.store_directory,
-            &device_options.interfaces_directory,
-        )
+        .connect(&mut tasks, store, &device_options.store_directory)
         .await
         .wrap_err("couldn't connect to astarte")?;
 
