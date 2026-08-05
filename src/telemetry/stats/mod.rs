@@ -30,6 +30,8 @@ use super::sender::TelemetryTask;
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 pub(crate) mod battery_status;
+#[cfg(all(feature = "zbus", target_os = "linux"))]
+pub(crate) mod cellular;
 #[cfg(feature = "containers")]
 pub(crate) mod container;
 #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -73,6 +75,7 @@ pub(crate) enum TelemetryInterface {
     ContainerProcesses,
     VolumeUsage,
     Geolocation,
+    CellularConnectionStatus,
 }
 
 impl TelemetryInterface {
@@ -100,6 +103,9 @@ impl TelemetryInterface {
             }
             TelemetryInterface::VolumeUsage => "io.edgehog.devicemanager.apps.stats.VolumeUsage",
             TelemetryInterface::Geolocation => "io.edgehog.devicemanager.Geolocation",
+            TelemetryInterface::CellularConnectionStatus => {
+                "io.edgehog.devicemanager.CellularConnectionStatus"
+            }
         }
     }
 }
@@ -131,6 +137,9 @@ impl FromStr for TelemetryInterface {
             }
             "io.edgehog.devicemanager.apps.stats.VolumeUsage" => TelemetryInterface::VolumeUsage,
             "io.edgehog.devicemanager.Geolocation" => TelemetryInterface::Geolocation,
+            "io.edgehog.devicemanager.CellularConnectionStatus" => {
+                TelemetryInterface::CellularConnectionStatus
+            }
             _ => {
                 return Err(TelemetryInterfaceError {
                     interface: s.to_string(),
@@ -225,6 +234,10 @@ mod tests {
             (
                 "io.edgehog.devicemanager.Geolocation",
                 TelemetryInterface::Geolocation,
+            ),
+            (
+                "io.edgehog.devicemanager.CellularConnectionStatus",
+                TelemetryInterface::CellularConnectionStatus,
             ),
         ];
 

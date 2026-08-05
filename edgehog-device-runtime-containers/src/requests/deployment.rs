@@ -36,7 +36,9 @@ use super::{ReqUuid, VecReqUuid};
     aggregation = "object"
 )]
 pub struct CreateDeployment {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) containers: VecReqUuid,
 }
 
@@ -159,7 +161,9 @@ impl FromEvent for DeploymentUpdate {
     aggregation = "object"
 )]
 struct DeploymentUpdateEvent {
+    #[mapping(required)]
     from: String,
+    #[mapping(required)]
     to: String,
 }
 
