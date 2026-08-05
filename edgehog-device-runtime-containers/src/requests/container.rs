@@ -18,24 +18,15 @@
 
 //! Create image request
 
-use std::str::FromStr;
-
 use astarte_device_sdk::FromEvent;
-use bollard::models::RestartPolicyNameEnum;
 use tracing::{instrument, trace};
 
 use crate::{container::Binding, requests::BindingError};
 
-use super::{OptString, ReqUuid, VecReqUuid};
-
-/// couldn't parse restart policy {value}
-#[derive(Debug, thiserror::Error, displaydoc::Display, PartialEq)]
-pub struct RestartPolicyError {
-    value: String,
-}
+use super::{ReqUuid, VecReqUuid};
 
 /// Request to pull a Docker Container.
-#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateContainerRequest",
     path = "/container",
@@ -43,62 +34,127 @@ pub struct RestartPolicyError {
     aggregation = "object"
 )]
 pub struct CreateContainer {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) image_id: ReqUuid,
-    pub(crate) network_ids: VecReqUuid,
-    pub(crate) volume_ids: VecReqUuid,
-    pub(crate) device_mapping_ids: VecReqUuid,
-    pub(crate) device_request_ids: VecReqUuid,
-    pub(crate) hostname: String,
-    pub(crate) restart_policy: String,
-    pub(crate) env: Vec<String>,
-    pub(crate) binds: Vec<String>,
-    pub(crate) network_mode: String,
-    pub(crate) port_bindings: Vec<String>,
-    pub(crate) extra_hosts: Vec<String>,
-    pub(crate) cap_add: Vec<String>,
-    pub(crate) cap_drop: Vec<String>,
-    pub(crate) cpu_period: i64,
-    pub(crate) cpu_quota: i64,
-    pub(crate) cpu_realtime_period: i64,
-    pub(crate) cpu_realtime_runtime: i64,
-    pub(crate) memory: i64,
-    pub(crate) memory_reservation: i64,
-    pub(crate) memory_swap: i64,
-    pub(crate) memory_swappiness: i32,
-    pub(crate) volume_driver: OptString,
-    pub(crate) storage_opt: Vec<String>,
-    pub(crate) read_only_rootfs: bool,
-    pub(crate) tmpfs: Vec<String>,
-    pub(crate) privileged: bool,
+    pub(crate) network_ids: Option<VecReqUuid>,
+    pub(crate) volume_ids: Option<VecReqUuid>,
+    pub(crate) device_mapping_ids: Option<VecReqUuid>,
+    pub(crate) device_request_ids: Option<VecReqUuid>,
+    pub(crate) hostname: Option<String>,
+    pub(crate) restart_policy: Option<String>,
+    pub(crate) env: Option<Vec<String>>,
+    pub(crate) binds: Option<Vec<String>>,
+    pub(crate) network_mode: Option<String>,
+    pub(crate) port_bindings: Option<Vec<String>>,
+    pub(crate) extra_hosts: Option<Vec<String>>,
+    pub(crate) cap_add: Option<Vec<String>>,
+    pub(crate) cap_drop: Option<Vec<String>>,
+    pub(crate) cpu_period: Option<i64>,
+    pub(crate) cpu_quota: Option<i64>,
+    pub(crate) cpu_realtime_period: Option<i64>,
+    pub(crate) cpu_realtime_runtime: Option<i64>,
+    pub(crate) memory: Option<i64>,
+    pub(crate) memory_reservation: Option<i64>,
+    pub(crate) memory_swap: Option<i64>,
+    pub(crate) memory_swappiness: Option<i32>,
+    pub(crate) volume_driver: Option<String>,
+    pub(crate) storage_opt_keys: Option<Vec<String>>,
+    pub(crate) storage_opt_values: Option<Vec<String>>,
+    pub(crate) read_only_rootfs: Option<bool>,
+    pub(crate) tmpfs_paths: Option<Vec<String>>,
+    pub(crate) tmpfs_options: Option<Vec<String>>,
+    pub(crate) privileged: Option<bool>,
+    pub(crate) domainname: Option<String>,
+    pub(crate) user: Option<String>,
+    pub(crate) cmd: Option<Vec<String>>,
+    pub(crate) health_check_test: Option<Vec<String>>,
+    pub(crate) health_check_interval: Option<i64>,
+    pub(crate) health_check_timeout: Option<i64>,
+    pub(crate) health_check_retries: Option<i32>,
+    pub(crate) health_check_start_period: Option<i64>,
+    pub(crate) health_check_start_interval: Option<i64>,
+    pub(crate) working_dir: Option<String>,
+    pub(crate) entrypoint: Option<Vec<String>>,
+    pub(crate) network_disabled: Option<bool>,
+    pub(crate) labels_keys: Option<Vec<String>>,
+    pub(crate) labels_values: Option<Vec<String>>,
+    pub(crate) stop_signal: Option<String>,
+    pub(crate) stop_timeout: Option<i32>,
+    pub(crate) restart_policy_maximum_retry_count: Option<i32>,
+    pub(crate) exposed_ports: Option<Vec<String>>,
+    pub(crate) cpu_shares: Option<i32>,
+    pub(crate) device_cgroup_rules: Option<Vec<String>>,
+    pub(crate) ulimits_name: Option<Vec<String>>,
+    pub(crate) ulimits_soft: Option<Vec<i32>>,
+    pub(crate) ulimits_hard: Option<Vec<i32>>,
+    pub(crate) auto_remove: Option<bool>,
+    pub(crate) cgroupns_mode: Option<String>,
+    pub(crate) dns: Option<Vec<String>>,
+    pub(crate) dns_options: Option<Vec<String>>,
+    pub(crate) dns_search: Option<Vec<String>>,
+    pub(crate) group_add: Option<Vec<String>>,
+    pub(crate) ipc_mode: Option<String>,
+    pub(crate) oom_score_adj: Option<i32>,
+    pub(crate) userns_mode: Option<String>,
+    pub(crate) sysctls_keys: Option<Vec<String>>,
+    pub(crate) sysctls_values: Option<Vec<String>>,
+    pub(crate) shm_size: Option<i64>,
+    pub(crate) runtime: Option<String>,
+    pub(crate) log_type: Option<String>,
+    pub(crate) log_config_keys: Option<Vec<String>>,
+    pub(crate) log_config_values: Option<Vec<String>>,
+    pub(crate) blkio_weight: Option<i32>,
+    pub(crate) blkio_weight_device_path: Option<Vec<String>>,
+    pub(crate) blkio_weight_device_weight: Option<Vec<i32>>,
+    pub(crate) blkio_device_read_bps_path: Option<Vec<String>>,
+    pub(crate) blkio_device_read_bps_rate: Option<Vec<i64>>,
+    pub(crate) blkio_device_write_bps_path: Option<Vec<String>>,
+    pub(crate) blkio_device_write_bps_rate: Option<Vec<i64>>,
+    pub(crate) blkio_device_read_iops_path: Option<Vec<String>>,
+    pub(crate) blkio_device_read_iops_rate: Option<Vec<i64>>,
+    pub(crate) blkio_device_write_iops_path: Option<Vec<String>>,
+    pub(crate) blkio_device_write_iops_rate: Option<Vec<i64>>,
+    pub(crate) securityopt: Option<Vec<String>>,
+    pub(crate) pid_mode: Option<String>,
+    pub(crate) masked_paths: Option<Vec<String>>,
+    pub(crate) read_only_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ParsedBind<'a> {
-    port: u16,
-    proto: Option<&'a str>,
+    pub(crate) port_proto: &'a str,
+    pub(crate) port: u16,
+    pub(crate) proto: Option<&'a str>,
     pub(crate) host: Binding<&'a str>,
 }
 
 impl<'a> ParsedBind<'a> {
     fn new(
+        port_proto: &'a str,
         port: u16,
         proto: Option<&'a str>,
         host_ip: Option<&'a str>,
         host_port: Option<u16>,
     ) -> Self {
+        debug_assert_eq!(
+            port_proto,
+            if let Some(proto) = proto {
+                format!("{port}/{proto}")
+            } else {
+                port.to_string()
+            }
+        );
+
         Self {
+            port_proto,
             port,
             proto,
             host: Binding { host_ip, host_port },
         }
-    }
-
-    pub(crate) fn id(&self) -> String {
-        let proto = self.proto.unwrap_or("tcp");
-
-        format!("{}/{}", self.port, proto)
     }
 }
 
@@ -131,6 +187,7 @@ pub(crate) fn parse_port_binding(input: &str) -> Result<ParsedBind<'_>, BindingE
     })?;
 
     Ok(ParsedBind::new(
+        rest,
         container_port,
         protocol,
         host_ip,
@@ -172,98 +229,195 @@ fn parse_host_ip_port(input: &str) -> Result<(Option<&str>, Option<u16>, &str), 
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RestartPolicy {
-    Empty,
-    No,
-    Always,
-    UnlessStopped,
-    OnFailure,
-}
-
-impl FromStr for RestartPolicy {
-    type Err = RestartPolicyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "" => Ok(RestartPolicy::Empty),
-            "no" => Ok(RestartPolicy::No),
-            "always" => Ok(RestartPolicy::Always),
-            "unless-stopped" => Ok(RestartPolicy::UnlessStopped),
-            "on-failure" => Ok(RestartPolicy::OnFailure),
-            _ => Err(RestartPolicyError {
-                value: s.to_string(),
-            }),
-        }
-    }
-}
-
-impl From<RestartPolicy> for RestartPolicyNameEnum {
-    fn from(value: RestartPolicy) -> Self {
-        match value {
-            RestartPolicy::Empty => RestartPolicyNameEnum::EMPTY,
-            RestartPolicy::No => RestartPolicyNameEnum::NO,
-            RestartPolicy::Always => RestartPolicyNameEnum::ALWAYS,
-            RestartPolicy::UnlessStopped => RestartPolicyNameEnum::UNLESS_STOPPED,
-            RestartPolicy::OnFailure => RestartPolicyNameEnum::ON_FAILURE,
-        }
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-
-    use std::fmt::Display;
-
+    use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
     use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
+    use crate::requests::device_mapping::CreateDeviceMapping;
+    use crate::requests::device_mapping::tests::create_device_mapping_req;
+    use crate::requests::device_request::CreateDeviceRequest;
+    use crate::requests::device_request::tests::create_device_request;
+    use crate::requests::image::CreateImage;
+    use crate::requests::image::tests::create_image_req;
+    use crate::requests::network::CreateNetwork;
+    use crate::requests::network::tests::create_network_req;
+    use crate::requests::volume::CreateVolume;
+    use crate::requests::volume::tests::create_volume_req;
+
     use super::*;
 
-    pub fn create_container_request_event<S: Display>(
-        id: impl Display,
-        deployment_id: impl Display,
-        image_id: impl Display,
-        image: &str,
-        network_ids: &[S],
-        device_mapping_ids: &[impl Display],
-        device_request_ids: &[impl Display],
-    ) -> DeviceEvent {
+    pub(crate) fn create_container_req(
+        deployment_id: Uuid,
+        image: &CreateImage,
+        volume: &CreateVolume,
+        network: &CreateNetwork,
+        device_mapping: &CreateDeviceMapping,
+        device_request: &CreateDeviceRequest,
+    ) -> CreateContainer {
+        CreateContainer {
+            id: ReqUuid(Uuid::new_v4()),
+            deployment_id: ReqUuid(deployment_id),
+            image_id: image.id,
+            network_ids: Some(VecReqUuid(vec![network.id])),
+            volume_ids: Some(VecReqUuid(vec![volume.id])),
+            device_mapping_ids: Some(VecReqUuid(vec![device_mapping.id])),
+            device_request_ids: Some(VecReqUuid(vec![device_request.id])),
+            hostname: Some("database".to_string()),
+            restart_policy: Some("unless-stopped".to_string()),
+            env: Some(
+                ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            binds: Some(vec!["/var/lib/postgres:/data".to_string()]),
+            network_mode: Some("bridge".to_string()),
+            port_bindings: Some(vec!["5432:5432".to_string()]),
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+            cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+            cap_drop: Some(vec!["CAP_KILL".to_string()]),
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string()),
+            storage_opt_keys: Some(vec!["size".to_string()]),
+            storage_opt_values: Some(vec!["1024k".to_string()]),
+            read_only_rootfs: Some(true),
+            tmpfs_paths: Some(vec!["/run".to_string()]),
+            tmpfs_options: Some(vec!["rw,noexec,nosuid,size=65536k".to_string()]),
+            privileged: Some(false),
+            domainname: Some("database.host".to_string()),
+            user: Some("pg".to_string()),
+            cmd: Some(["-u=postgres", "-d=test"].map(str::to_string).to_vec()),
+            health_check_test: Some(
+                ["pg-is-ready", "-u=postgres", "-d=test"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            health_check_interval: Some(42_000),
+            health_check_timeout: Some(6_000),
+            health_check_retries: Some(3),
+            health_check_start_period: Some(10_000),
+            health_check_start_interval: Some(10_000),
+            working_dir: Some("/app-data".to_string()),
+            entrypoint: Some(["CMD-SHELL", "/entrypoint.sh"].map(str::to_string).to_vec()),
+            network_disabled: Some(false),
+            labels_keys: Some(["lab_1", "lab_2"].map(str::to_string).to_vec()),
+            labels_values: Some(["foo", "bar"].map(str::to_string).to_vec()),
+            stop_signal: Some("SIGSTOP".to_string()),
+            stop_timeout: Some(32),
+            restart_policy_maximum_retry_count: Some(4),
+            exposed_ports: Some(["90/tcp", "53/udp", "9000"].map(str::to_string).to_vec()),
+            cpu_shares: Some(100),
+            device_cgroup_rules: Some(vec!["c 1:3 mr".to_string()]),
+            ulimits_name: Some(vec!["nofile".to_string()]),
+            ulimits_soft: Some(vec![1024]),
+            ulimits_hard: Some(vec![2048]),
+            auto_remove: Some(false),
+            cgroupns_mode: Some("private".to_string()),
+            dns: Some(vec!["8.8.8.8".to_string()]),
+            dns_options: Some(vec!["timeout:3".to_string()]),
+            dns_search: Some(vec!["example.com".to_string()]),
+            group_add: Some(vec!["dialout".to_string()]),
+            ipc_mode: Some("shareable".to_string()),
+            oom_score_adj: Some(500),
+            userns_mode: Some("host".to_string()),
+            sysctls_keys: Some(vec!["net.ipv4.ip_forward".to_string()]),
+            sysctls_values: Some(vec!["1".to_string()]),
+            shm_size: Some(67_108_864), // 64 MB
+            runtime: Some("runc".to_string()),
+            log_type: Some("json-file".to_string()),
+            log_config_keys: Some(vec!["max-size".to_string(), "max-file".to_string()]),
+            log_config_values: Some(vec!["10m".to_string(), "3".to_string()]),
+            blkio_weight: Some(500),
+            blkio_weight_device_path: Some(vec!["/dev/sda".to_string()]),
+            blkio_weight_device_weight: Some(vec![500]),
+            blkio_device_read_bps_path: Some(vec!["/dev/sda".to_string()]),
+            blkio_device_read_bps_rate: Some(vec![1_048_576]), // 1 MB/s
+            blkio_device_write_bps_path: Some(vec!["/dev/sda".to_string()]),
+            blkio_device_write_bps_rate: Some(vec![1_048_576]),
+            blkio_device_read_iops_path: Some(vec!["/dev/sda".to_string()]),
+            blkio_device_read_iops_rate: Some(vec![1000]),
+            blkio_device_write_iops_path: Some(vec!["/dev/sda".to_string()]),
+            blkio_device_write_iops_rate: Some(vec![1000]),
+            securityopt: Some(vec!["no-new-privileges".to_string()]),
+            pid_mode: Some("host".to_string()),
+            masked_paths: Some(vec!["/proc/kcore".to_string()]),
+            read_only_paths: Some(vec!["/proc/sys".to_string()]),
+        }
+    }
+
+    pub fn create_container_request_event(container: &CreateContainer) -> DeviceEvent {
+        let network_ids = container
+            .network_ids
+            .iter()
+            .flat_map(|i| i.iter().map(|id| id.to_string()))
+            .collect();
+        let volume_ids = container
+            .volume_ids
+            .iter()
+            .flat_map(|i| i.iter().map(|id| id.to_string()))
+            .collect();
+        let device_mapping_ids = container
+            .device_mapping_ids
+            .iter()
+            .flat_map(|i| i.iter().map(|id| id.to_string()))
+            .collect();
+        let device_request_ids = container
+            .device_request_ids
+            .iter()
+            .flat_map(|i| i.iter().map(|id| id.to_string()))
+            .collect();
+
         let fields = [
-            ("id", AstarteData::String(id.to_string())),
+            ("id", AstarteData::String(container.id.to_string())),
             (
                 "deploymentId",
-                AstarteData::String(deployment_id.to_string()),
+                AstarteData::String(container.deployment_id.to_string()),
             ),
-            ("imageId", AstarteData::String(image_id.to_string())),
-            ("volumeIds", AstarteData::StringArray(vec![])),
+            (
+                "imageId",
+                AstarteData::String(container.image_id.to_string()),
+            ),
+            ("networkIds", AstarteData::StringArray(network_ids)),
+            ("volumeIds", AstarteData::StringArray(volume_ids)),
             (
                 "deviceMappingIds",
-                AstarteData::StringArray(
-                    device_mapping_ids.iter().map(|d| d.to_string()).collect(),
-                ),
+                AstarteData::StringArray(device_mapping_ids),
             ),
             (
                 "deviceRequestIds",
+                AstarteData::StringArray(device_request_ids),
+            ),
+            ("hostname", AstarteData::String("database".to_string())),
+            (
+                "restartPolicy",
+                AstarteData::String("unless-stopped".to_string()),
+            ),
+            (
+                "env",
                 AstarteData::StringArray(
-                    device_request_ids.iter().map(|d| d.to_string()).collect(),
+                    ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                        .map(str::to_string)
+                        .to_vec(),
                 ),
             ),
-            ("image", AstarteData::String(image.to_string())),
-            ("hostname", AstarteData::String("hostname".to_string())),
-            ("restartPolicy", AstarteData::String("no".to_string())),
-            ("env", AstarteData::StringArray(vec!["env".to_string()])),
-            ("binds", AstarteData::StringArray(vec!["binds".to_string()])),
+            (
+                "binds",
+                AstarteData::StringArray(vec!["/var/lib/postgres:/data".to_string()]),
+            ),
             ("networkMode", AstarteData::String("bridge".to_string())),
             (
-                "networkIds",
-                AstarteData::StringArray(network_ids.iter().map(|s| s.to_string()).collect()),
-            ),
-            (
                 "portBindings",
-                AstarteData::StringArray(vec!["80:80".to_string()]),
+                AstarteData::StringArray(vec!["5432:5432".to_string()]),
             ),
             (
                 "extraHosts",
@@ -277,35 +431,188 @@ pub(crate) mod tests {
                 "capDrop",
                 AstarteData::StringArray(vec!["CAP_KILL".to_string()]),
             ),
-            ("privileged", AstarteData::Boolean(false)),
-            ("cpuPeriod", AstarteData::LongInteger(1000)),
-            ("cpuQuota", AstarteData::LongInteger(100)),
-            ("cpuRealtimePeriod", AstarteData::LongInteger(1000)),
-            ("cpuRealtimeRuntime", AstarteData::LongInteger(100)),
-            ("memory", AstarteData::LongInteger(4096)),
-            ("memoryReservation", AstarteData::LongInteger(1024)),
-            ("memorySwap", AstarteData::LongInteger(8192)),
+            ("cpuPeriod", AstarteData::Integer(1000)),
+            ("cpuQuota", AstarteData::Integer(100)),
+            ("cpuRealtimePeriod", AstarteData::Integer(1000)),
+            ("cpuRealtimeRuntime", AstarteData::Integer(100)),
+            ("memory", AstarteData::Integer(4096)),
+            ("memoryReservation", AstarteData::Integer(1024)),
+            ("memorySwap", AstarteData::Integer(8192)),
             ("memorySwappiness", AstarteData::Integer(50)),
-            ("volumeDriver", AstarteData::from("local")),
+            ("volumeDriver", AstarteData::String("local".to_string())),
             (
-                "storageOpt",
-                AstarteData::from(vec!["size=1024k".to_string()]),
+                "storageOptKeys",
+                AstarteData::StringArray(vec!["size".to_string()]),
             ),
-            ("readOnlyRootfs", AstarteData::from(true)),
             (
-                "tmpfs",
-                AstarteData::from(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+                "storageOptValues",
+                AstarteData::StringArray(vec!["1024k".to_string()]),
+            ),
+            ("readOnlyRootfs", AstarteData::Boolean(true)),
+            (
+                "tmpfsPaths",
+                AstarteData::StringArray(vec!["/run".to_string()]),
+            ),
+            (
+                "tmpfsOptions",
+                AstarteData::StringArray(vec!["rw,noexec,nosuid,size=65536k".to_string()]),
+            ),
+            ("privileged", AstarteData::Boolean(false)),
+            (
+                "domainname",
+                AstarteData::String("database.host".to_string()),
+            ),
+            ("user", AstarteData::String("pg".to_string())),
+            (
+                "cmd",
+                AstarteData::StringArray(["-u=postgres", "-d=test"].map(str::to_string).to_vec()),
+            ),
+            (
+                "healthCheckTest",
+                AstarteData::StringArray(
+                    ["pg-is-ready", "-u=postgres", "-d=test"]
+                        .map(str::to_string)
+                        .to_vec(),
+                ),
+            ),
+            ("healthCheckInterval", AstarteData::Integer(42_000)),
+            ("healthCheckTimeout", AstarteData::Integer(6_000)),
+            ("healthCheckRetries", AstarteData::Integer(3)),
+            ("healthCheckStartPeriod", AstarteData::Integer(10_000)),
+            ("healthCheckStartInterval", AstarteData::Integer(10_000)),
+            ("workingDir", AstarteData::String("/app-data".to_string())),
+            (
+                "entrypoint",
+                AstarteData::StringArray(
+                    ["CMD-SHELL", "/entrypoint.sh"].map(str::to_string).to_vec(),
+                ),
+            ),
+            ("networkDisabled", AstarteData::Boolean(false)),
+            (
+                "labelsKeys",
+                AstarteData::StringArray(["lab_1", "lab_2"].map(str::to_string).to_vec()),
+            ),
+            (
+                "labelsValues",
+                AstarteData::StringArray(["foo", "bar"].map(str::to_string).to_vec()),
+            ),
+            ("stopSignal", AstarteData::String("SIGSTOP".to_string())),
+            ("stopTimeout", AstarteData::Integer(32)),
+            ("restartPolicyMaximumRetryCount", AstarteData::Integer(4)),
+            (
+                "exposedPorts",
+                AstarteData::StringArray(["90/tcp", "53/udp", "9000"].map(str::to_string).to_vec()),
+            ),
+            ("cpuShares", AstarteData::Integer(100)),
+            (
+                "deviceCgroupRules",
+                AstarteData::StringArray(vec!["c 1:3 mr".to_string()]),
+            ),
+            (
+                "ulimitsName",
+                AstarteData::StringArray(vec!["nofile".to_string()]),
+            ),
+            ("ulimitsSoft", AstarteData::IntegerArray(vec![1024])),
+            ("ulimitsHard", AstarteData::IntegerArray(vec![2048])),
+            ("autoRemove", AstarteData::Boolean(false)),
+            ("cgroupnsMode", AstarteData::String("private".to_string())),
+            ("dns", AstarteData::StringArray(vec!["8.8.8.8".to_string()])),
+            (
+                "dnsOptions",
+                AstarteData::StringArray(vec!["timeout:3".to_string()]),
+            ),
+            (
+                "dnsSearch",
+                AstarteData::StringArray(vec!["example.com".to_string()]),
+            ),
+            (
+                "groupAdd",
+                AstarteData::StringArray(vec!["dialout".to_string()]),
+            ),
+            ("ipcMode", AstarteData::String("shareable".to_string())),
+            ("oomScoreAdj", AstarteData::Integer(500)),
+            ("usernsMode", AstarteData::String("host".to_string())),
+            (
+                "sysctlsKeys",
+                AstarteData::StringArray(vec!["net.ipv4.ip_forward".to_string()]),
+            ),
+            (
+                "sysctlsValues",
+                AstarteData::StringArray(vec!["1".to_string()]),
+            ),
+            ("shmSize", AstarteData::Integer(67_108_864)),
+            ("runtime", AstarteData::String("runc".to_string())),
+            ("logType", AstarteData::String("json-file".to_string())),
+            (
+                "logConfigKeys",
+                AstarteData::StringArray(vec!["max-size".to_string(), "max-file".to_string()]),
+            ),
+            (
+                "logConfigValues",
+                AstarteData::StringArray(vec!["10m".to_string(), "3".to_string()]),
+            ),
+            ("blkioWeight", AstarteData::Integer(500)),
+            (
+                "blkioWeightDevicePath",
+                AstarteData::StringArray(vec!["/dev/sda".to_string()]),
+            ),
+            (
+                "blkioWeightDeviceWeight",
+                AstarteData::IntegerArray(vec![500]),
+            ),
+            (
+                "blkioDeviceReadBpsPath",
+                AstarteData::StringArray(vec!["/dev/sda".to_string()]),
+            ),
+            (
+                "blkioDeviceReadBpsRate",
+                AstarteData::LongIntegerArray(vec![1_048_576]),
+            ),
+            (
+                "blkioDeviceWriteBpsPath",
+                AstarteData::StringArray(vec!["/dev/sda".to_string()]),
+            ),
+            (
+                "blkioDeviceWriteBpsRate",
+                AstarteData::LongIntegerArray(vec![1_048_576]),
+            ),
+            (
+                "blkioDeviceReadIopsPath",
+                AstarteData::StringArray(vec!["/dev/sda".to_string()]),
+            ),
+            (
+                "blkioDeviceReadIopsRate",
+                AstarteData::LongIntegerArray(vec![1000]),
+            ),
+            (
+                "blkioDeviceWriteIopsPath",
+                AstarteData::StringArray(vec!["/dev/sda".to_string()]),
+            ),
+            (
+                "blkioDeviceWriteIopsRate",
+                AstarteData::LongIntegerArray(vec![1000]),
+            ),
+            (
+                "securityopt",
+                AstarteData::StringArray(vec!["no-new-privileges".to_string()]),
+            ),
+            ("pidMode", AstarteData::String("host".to_string())),
+            (
+                "maskedPaths",
+                AstarteData::StringArray(vec!["/proc/kcore".to_string()]),
+            ),
+            (
+                "readOnlyPaths",
+                AstarteData::StringArray(vec!["/proc/sys".to_string()]),
             ),
         ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect();
+        .map(|(k, v)| (k.to_string(), v));
 
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateContainerRequest".to_string(),
             path: "/container".to_string(),
             data: Value::Object {
-                data: fields,
+                data: AstarteObject::from_iter(fields),
                 timestamp: Utc::now(),
             },
         }
@@ -313,55 +620,25 @@ pub(crate) mod tests {
 
     #[test]
     fn create_container_request() {
-        let id = ReqUuid(Uuid::new_v4());
         let deployment_id = ReqUuid(Uuid::new_v4());
-        let image_id = ReqUuid(Uuid::new_v4());
-        let network_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
-        let device_mapping_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
-        let device_request_ids = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
-        let event = create_container_request_event(
-            id,
-            deployment_id,
-            image_id,
-            "image",
-            &network_ids,
-            &device_mapping_ids,
-            &device_request_ids,
+        let image = create_image_req(deployment_id.0);
+        let network = create_network_req(deployment_id.0);
+        let volume = &create_volume_req(deployment_id.0);
+        let device_mapping = create_device_mapping_req(deployment_id.0);
+        let device_request = create_device_request(deployment_id.0);
+
+        let expect = create_container_req(
+            deployment_id.0,
+            &image,
+            volume,
+            &network,
+            &device_mapping,
+            &device_request,
         );
 
-        let request = CreateContainer::from_event(event).unwrap();
+        let event = create_container_request_event(&expect);
 
-        let expect = CreateContainer {
-            id,
-            deployment_id,
-            image_id,
-            network_ids,
-            volume_ids: VecReqUuid(vec![]),
-            device_mapping_ids,
-            device_request_ids,
-            hostname: "hostname".to_string(),
-            restart_policy: "no".to_string(),
-            env: vec!["env".to_string()],
-            binds: vec!["binds".to_string()],
-            network_mode: "bridge".to_string(),
-            port_bindings: vec!["80:80".to_string()],
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            cpu_period: 1000,
-            cpu_quota: 100,
-            cpu_realtime_period: 1000,
-            cpu_realtime_runtime: 100,
-            memory: 4096,
-            memory_reservation: 1024,
-            memory_swap: 8192,
-            memory_swappiness: 50,
-            volume_driver: "local".to_string().into(),
-            storage_opt: vec!["size=1024k".to_string()],
-            read_only_rootfs: true,
-            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
-            privileged: false,
-        };
+        let request = CreateContainer::from_event(event).unwrap();
 
         assert_eq!(request, expect);
     }
@@ -372,23 +649,26 @@ pub(crate) mod tests {
             // ip:[hostPort:]containerPort[/protocol]
             (
                 "1.1.1.1:80:90/udp",
-                ParsedBind::new(90, Some("udp"), Some("1.1.1.1"), Some(80)),
+                ParsedBind::new("90/udp", 90, Some("udp"), Some("1.1.1.1"), Some(80)),
             ),
             (
                 "1.1.1.1:90/udp",
-                ParsedBind::new(90, Some("udp"), Some("1.1.1.1"), None),
+                ParsedBind::new("90/udp", 90, Some("udp"), Some("1.1.1.1"), None),
             ),
             (
                 "1.1.1.1:90",
-                ParsedBind::new(90, None, Some("1.1.1.1"), None),
+                ParsedBind::new("90", 90, None, Some("1.1.1.1"), None),
             ),
             // [hostPort:]containerPort[/protocol]
             (
                 "80:90/udp",
-                ParsedBind::new(90, Some("udp"), None, Some(80)),
+                ParsedBind::new("90/udp", 90, Some("udp"), None, Some(80)),
             ),
-            ("90/udp", ParsedBind::new(90, Some("udp"), None, None)),
-            ("90", ParsedBind::new(90, None, None, None)),
+            (
+                "90/udp",
+                ParsedBind::new("90/udp", 90, Some("udp"), None, None),
+            ),
+            ("90", ParsedBind::new("90", 90, None, None, None)),
         ];
 
         for (case, expected) in cases {
@@ -396,46 +676,5 @@ pub(crate) mod tests {
 
             assert_eq!(parsed, expected, "failed to parse {case}");
         }
-    }
-
-    #[test]
-    fn parse_restart_policy() {
-        let cases = [
-            ("", RestartPolicy::Empty),
-            ("no", RestartPolicy::No),
-            ("unless-stopped", RestartPolicy::UnlessStopped),
-            ("on-failure", RestartPolicy::OnFailure),
-            ("on-failure", RestartPolicy::OnFailure),
-        ];
-
-        for (case, exp) in cases {
-            let policy = RestartPolicy::from_str(case).unwrap();
-
-            assert_eq!(policy, exp);
-        }
-
-        let err = RestartPolicy::from_str("bar").unwrap_err();
-        assert_eq!(
-            err,
-            RestartPolicyError {
-                value: "bar".to_string()
-            }
-        );
-
-        let err = RestartPolicy::from_str("NO").unwrap_err();
-        assert_eq!(
-            err,
-            RestartPolicyError {
-                value: "NO".to_string()
-            }
-        );
-
-        let err = RestartPolicy::from_str("on_failure").unwrap_err();
-        assert_eq!(
-            err,
-            RestartPolicyError {
-                value: "on_failure".to_string()
-            }
-        );
     }
 }

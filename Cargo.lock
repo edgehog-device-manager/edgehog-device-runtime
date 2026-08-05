@@ -155,15 +155,13 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-error"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e36a904fb755c033f877364ff74d8f18586c74d8beb6a045eb63c5d01d796f99"
+version = "0.14.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#6d62395af25de9f2c82f30130f13b7368dc984e3"
 
 [[package]]
 name = "astarte-device-sdk"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20c228f54abbed903bb8d7fbd3f424463398eeefe34f528353223ce1d1404ad9"
+version = "0.14.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#6d62395af25de9f2c82f30130f13b7368dc984e3"
 dependencies = [
  "astarte-device-error",
  "astarte-device-sdk-derive",
@@ -206,9 +204,8 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-derive"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d1ef61dd7e89058a09e8e82ffbbab75aac4283fcdf95655f56f715bd92595a"
+version = "0.14.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#6d62395af25de9f2c82f30130f13b7368dc984e3"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -218,9 +215,8 @@ dependencies = [
 
 [[package]]
 name = "astarte-device-sdk-mock"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86ed5816418b9b12c791db2020d3efa6af3f972c6c2bba71a1597febba7af21b"
+version = "0.14.1"
+source = "git+https://github.com/joshuachp/astarte-device-sdk-rust?branch=feat-derive-add-the-required-object-attribute%2Fxpnrkxnwnsoy#6d62395af25de9f2c82f30130f13b7368dc984e3"
 dependencies = [
  "astarte-device-sdk",
  "chrono",
@@ -256,6 +252,15 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "uuid",
+]
+
+[[package]]
+name = "astarte-test-utils"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fce7cff44d146b2026f5f5ed6641720fee5b5522c51f7e5c671a8e318d04bed6"
+dependencies = [
+ "insta",
 ]
 
 [[package]]
@@ -721,9 +726,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.4"
+version = "4.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d91e0c145792ef73a6ad36d27c75ac09f1832222a3c209689d90f534685ee5b7"
+checksum = "301b56658598e48f3648647ac6fc887be7e7108eddfa4e9b63fcf3ec58c0cadf"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -731,9 +736,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.6.2"
+version = "4.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f09628afdcc538b57f3c6341e9c8e9970f18e4a481690a64974d7023bd33548b"
+checksum = "94a65403d1a1bd28f7dc68eb8506e8874808ee5eecb59298de588e2e1407a078"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1317,6 +1322,7 @@ version = "0.12.1"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
+ "astarte-test-utils",
  "base64 0.23.0",
  "bollard",
  "cfg-if",
@@ -1328,6 +1334,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
+ "insta",
  "itertools 0.15.0",
  "mockall",
  "pretty_assertions",
@@ -2054,9 +2061,9 @@ dependencies = [
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "818356c5132c1fede50f837ca96afbe78ff42413047f4abb886217845e1b6c8c"
+checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
 dependencies = [
  "typenum",
 ]
@@ -2348,9 +2355,9 @@ dependencies = [
 
 [[package]]
 name = "ipnet"
-version = "2.12.0"
+version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
 
 [[package]]
 name = "is_terminal_polyfill"
@@ -2506,9 +2513,9 @@ dependencies = [
 
 [[package]]
 name = "libredox"
-version = "0.1.18"
+version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c943259e342f1e06ff2da7a83eabdfe7f92ce10262688dbf1895ff0b3e6e4652"
+checksum = "2026a5056764a10b2bf5d56488cba40da507f5493a6a429340e2004d9ed085fa"
 dependencies = [
  "libc",
 ]
@@ -4125,9 +4132,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.54"
+version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e1d5e639ff6bab73cb6885cc7e7b1de96c3f32c68ec55f3952614bec1092244"
+checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
  "num-conv",
