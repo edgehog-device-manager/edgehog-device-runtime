@@ -18,100 +18,180 @@
 
 //! Cellular connection properties telemetry information.
 
+use std::convert::identity;
+
 use eyre::WrapErr;
-use futures::StreamExt;
-use std::collections::HashMap;
-use tracing::{debug, error};
-use zbus::proxy;
+use tracing::{debug, error, instrument};
+use zbus::fdo::ObjectManagerProxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
 use crate::Client;
 use crate::data::set_property;
+use crate::telemetry::stats::cellular::modem::{ModemProxy, SimProxy};
 
 const INTERFACE: &str = "io.edgehog.devicemanager.CellularConnectionProperties";
+
+#[instrument(skip_all)]
+pub async fn send<C>(client: &mut C)
+where
+    C: Client,
+{
+    if let Err(error) = send_cellular_properties(client).await {
+        error!(%error, "couldn't send cellular properties");
+    }
+}
 
 #[derive(Debug, Clone, DeserializeDict, SerializeDict, Type)]
 #[zvariant(signature = "dict")]
 pub struct ModemProperties {
-    apn: String,
     imei: String,
-    imsi: String,
+    imsi: Option<String>,
+    apn: Option<String>,
 }
 
-#[proxy(
-    interface = "io.edgehog.CellularModems1",
-    default_service = "io.edgehog.CellularModems",
-    default_path = "/io/edgehog/CellularModems"
-)]
-trait CellularModems {
-    fn list(&self) -> zbus::Result<Vec<String>>;
-    fn get(&self, id: String) -> zbus::Result<ModemProperties>;
+impl ModemProperties {
+    pub fn new(imei: String) -> Self {
+        Self {
+            imei,
+            imsi: None,
+            apn: None,
+        }
+    }
+
+    pub async fn send<C>(self, client: &mut C, id: &str)
+    where
+        C: Client,
+    {
+        set_property(client, INTERFACE, &format!("/{id}/imei"), self.imei).await;
+
+        if let Some(apn) = self.apn {
+            set_property(client, INTERFACE, &format!("/{id}/apn"), apn).await;
+        }
+
+        if let Some(imsi) = self.imsi {
+            set_property(client, INTERFACE, &format!("/{id}/imsi"), imsi).await;
+        }
+    }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct CellularConnection {
-    properties: HashMap<String, ModemProperties>,
+async fn send_cellular_properties<C>(client: &mut C) -> eyre::Result<()>
+where
+    C: Client,
+{
+    let conn = zbus::Connection::system().await?;
+
+    let object_manager = ObjectManagerProxy::new(
+        &conn,
+        "org.freedesktop.ModemManager1",
+        "/org/freedesktop/ModemManager1",
+    )
+    .await?;
+
+    let objects = object_manager.get_managed_objects().await?;
+
+    for (path, interfaces) in objects {
+        if !interfaces.contains_key("org.freedesktop.ModemManager1.Modem") {
+            debug!("not a modem interface");
+
+            continue;
+        }
+
+        debug!(%path, "reading modem");
+
+        let modem_base = ModemProxy::builder(&conn)
+            .path(&path)
+            .wrap_err("invalid modem path")?
+            .build()
+            .await?;
+
+        let device_id = modem_base
+            .device_identifier()
+            .await
+            .wrap_err("couldn't get device identifier")?;
+
+        let mut prop = modem_base
+            .equipment_identifier()
+            .await
+            .map(ModemProperties::new)?;
+
+        if let Err(error) = handle_sim(&mut prop, &conn, &modem_base).await {
+            error!(%error, "couldn't get sim")
+        }
+
+        if let Err(error) = handle_bearers(&mut prop, &modem_base).await {
+            error!(%error, "couldn't get apn")
+        }
+
+        debug!(%device_id, "sending modem");
+
+        prop.send(client, &device_id).await;
+    }
+
+    Ok(())
 }
 
-impl CellularConnection {
-    pub async fn read() -> CellularConnection {
-        match Self::get_cellular_properties().await {
-            Ok(properties) => CellularConnection { properties },
-            Err(err) => {
-                error!("{err}");
+#[instrument(skip_all)]
+async fn handle_sim(
+    prop: &mut ModemProperties,
+    conn: &zbus::Connection,
+    modem_base: &ModemProxy<'_>,
+) -> Result<(), eyre::Error> {
+    let sim_path = modem_base.sim().await?;
 
-                CellularConnection::default()
+    if sim_path.as_ref() != "/" {
+        debug!(%sim_path, "reading primary sim slot");
+
+        let sim = SimProxy::builder(conn)
+            .path(&sim_path)
+            .wrap_err("invalid sim path")?
+            .build()
+            .await
+            .wrap_err("couldn't build sim")?;
+
+        prop.imsi = sim
+            .imsi()
+            .await
+            .inspect_err(|error| error!(%error,"couldn't get SIM imsi"))
+            .ok();
+    }
+
+    Ok(())
+}
+
+#[instrument(skip_all)]
+async fn handle_bearers(
+    prop: &mut ModemProperties,
+    modem_base: &ModemProxy<'_>,
+) -> eyre::Result<()> {
+    for bearer in modem_base.bearers().await? {
+        let mut bearer_prop = bearer
+            .properties()
+            .await
+            .wrap_err("couldn't get bearer properties")?;
+
+        let is_enabled = bearer_prop
+            .remove("profile-enabled")
+            .map(bool::try_from)
+            .transpose()
+            .wrap_err("couldn't convert profile-enabled")?
+            .is_some_and(identity);
+
+        if is_enabled {
+            prop.apn = bearer_prop
+                .remove("apn")
+                .map(String::try_from)
+                .transpose()
+                .wrap_err("couldn't convert apn")?;
+
+            if prop.apn.is_some() {
+                return Ok(());
             }
         }
     }
 
-    async fn get_cellular_properties() -> eyre::Result<HashMap<String, ModemProperties>> {
-        let connection = zbus::Connection::session().await?;
-        let proxy = CellularModemsProxy::new(&connection).await?;
+    debug!("bearer apn not found");
 
-        let modems = proxy.list().await?;
-
-        let properties = futures::stream::iter(modems)
-            .then(|id| async {
-                proxy
-                    .get(id.clone())
-                    .await
-                    .wrap_err_with(|| format!("couldn't get modem {id}"))
-                    .map(|modem| (id, modem))
-            })
-            .filter_map(|res| async {
-                let (id, modem) = match res {
-                    Ok(id_modem) => id_modem,
-                    Err(err) => {
-                        error!("{err}");
-
-                        return None;
-                    }
-                };
-
-                if modem.apn.is_empty() && modem.imei.is_empty() && modem.imsi.is_empty() {
-                    debug!("modem {id} fields are all empty");
-                    None
-                } else {
-                    Some((id, modem))
-                }
-            })
-            .collect()
-            .await;
-
-        Ok(properties)
-    }
-
-    pub async fn send<C>(self, client: &mut C)
-    where
-        C: Client,
-    {
-        for (id, modem) in self.properties {
-            set_property(client, INTERFACE, &format!("/{id}/apn"), modem.apn).await;
-            set_property(client, INTERFACE, &format!("/{id}/imei"), modem.imei).await;
-            set_property(client, INTERFACE, &format!("/{id}/imsi"), modem.imsi).await;
-        }
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -129,13 +209,24 @@ mod tests {
     async fn get_modem_properties_test() {
         let modem_id = "id";
         let modem = ModemProperties {
-            apn: "apn".to_string(),
             imei: "imei".to_string(),
-            imsi: "imsi".to_string(),
+            apn: Some("apn".to_string()),
+            imsi: Some("imsi".to_string()),
         };
 
         let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
+
+        client
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .withf(|interface, path, data| {
+                interface == "io.edgehog.devicemanager.CellularConnectionProperties"
+                    && path == "/id/imei"
+                    && *data == AstarteData::String("imei".to_string())
+            })
+            .returning(|_, _, _| Ok(()));
 
         client
             .expect_set_property()
@@ -154,26 +245,11 @@ mod tests {
             .in_sequence(&mut seq)
             .withf(|interface, path, data| {
                 interface == "io.edgehog.devicemanager.CellularConnectionProperties"
-                    && path == "/id/imei"
-                    && *data == AstarteData::String("imei".to_string())
-            })
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .withf(|interface, path, data| {
-                interface == "io.edgehog.devicemanager.CellularConnectionProperties"
                     && path == "/id/imsi"
                     && *data == AstarteData::String("imsi".to_string())
             })
             .returning(|_, _, _| Ok(()));
 
-        CellularConnection {
-            properties: HashMap::from([(modem_id.to_string(), modem)]),
-        }
-        .send(&mut client)
-        .await;
+        modem.send(&mut client, modem_id).await;
     }
 }
