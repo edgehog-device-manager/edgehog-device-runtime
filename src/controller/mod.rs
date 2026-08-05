@@ -58,7 +58,7 @@ pub struct Runtime<T> {
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     led_tx: mpsc::Sender<LedEvent>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
-    ota_handler: OtaHandler,
+    ota_handler: Option<OtaHandler>,
 }
 
 impl<C> Runtime<C> {
@@ -96,9 +96,15 @@ impl<C> Runtime<C> {
         let container_handle = std::sync::Arc::new(tokio::sync::OnceCell::new());
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
-        let ota_handler = OtaHandler::start(tasks, cancel.child_token(), client.clone(), &opts)
-            .await
-            .wrap_err("couldn't initialize ota handler")?;
+        let ota_handler = if opts.ota.enabled {
+            let handle = OtaHandler::start(tasks, cancel.child_token(), client.clone(), &opts)
+                .await
+                .wrap_err("couldn't initialize ota handler")?;
+
+            Some(handle)
+        } else {
+            None
+        };
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let led_tx = {
@@ -394,7 +400,12 @@ impl<C> Runtime<C> {
         match event {
             RuntimeEvent::Command(cmd) => {
                 #[cfg(all(feature = "zbus", target_os = "linux"))]
-                if cmd.is_reboot() && self.ota_handler.in_progress() {
+                if cmd.is_reboot()
+                    && self
+                        .ota_handler
+                        .as_ref()
+                        .is_some_and(|handle| handle.in_progress())
+                {
                     error!("cannot reboot during OTA update");
 
                     return;
@@ -439,13 +450,20 @@ impl<C> Runtime<C> {
             }
             #[cfg(all(feature = "zbus", target_os = "linux"))]
             RuntimeEvent::Ota(ota) => {
-                if let Err(error) = self.ota_handler.handle_event(ota).await {
+                let Some(ota_handler) = &mut self.ota_handler else {
+                    error!("the ota feature is disabled");
+
+                    return;
+                };
+
+                if let Err(error) = ota_handler.handle_event(ota).await {
                     error!(
                         %error,
                         "error while processing ota event",
                     );
                 }
             }
+
             #[cfg(feature = "containers")]
             RuntimeEvent::Container(event) => {
                 if let Some(containers_tx) = &self.containers_tx {
