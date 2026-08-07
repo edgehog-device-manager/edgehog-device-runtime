@@ -72,7 +72,11 @@ gethtml_wrapper() {
 
 crate="@MAIN_CRATE@"
 
+# Clean up old coverage artifacts
+rm -rf "$CARGO_TARGET_DIR/lcov" || true
+
 if [[ -n "${EXPORT_FOR_CI:-}" ]]; then
+    rm "$PWD/coverage-$crate.info" || true
     out_path="$PWD/coverage-$crate.info"
 else
     mkdir -p "$CARGO_TARGET_DIR/lcov"

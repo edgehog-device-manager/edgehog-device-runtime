@@ -28,7 +28,7 @@ env:
 jobs:
   check-copyright:
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     env:
       BASE_REF: ${{ github.event.pull_request.base.sha }}
       HEAD_REF: ${{ github.event.pull_request.head.sha }}
@@ -41,7 +41,7 @@ jobs:
           ./scripts/ci/add-copyright-to-modified.sh "$BASE_REF" "$HEAD_REF"
           git diff --exit-code --name-only
   conventional-commit:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:

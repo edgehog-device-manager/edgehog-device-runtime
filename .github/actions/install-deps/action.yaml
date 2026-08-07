@@ -19,7 +19,7 @@ description: "Install dependencies needed to run the jobs"
 inputs:
   for-image:
     description: Image the job is running on
-    default: "ubuntu-24.04"
+    default: "ubuntu-26.04"
 runs:
   using: "composite"
   steps:
