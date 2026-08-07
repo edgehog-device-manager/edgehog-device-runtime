@@ -35,7 +35,7 @@ env:
   GH_TOKEN: ${{ github.token }}
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - run: echo 'Checking DCO status for PR \#'${{ inputs.pr }}''
       - name: check DCO passed
