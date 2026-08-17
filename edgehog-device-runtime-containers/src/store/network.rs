@@ -246,7 +246,7 @@ impl TryFrom<&CreateNetwork> for Vec<NetworkDriverOpts> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::requests::ReqUuid;
 
     use super::*;
