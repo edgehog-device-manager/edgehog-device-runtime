@@ -48,12 +48,16 @@ pub enum AstarteError {
 )]
 pub struct SessionInfo {
     /// Hostname or IP address.
+    #[mapping(required)]
     pub host: String,
     /// Port number.
+    #[mapping(required)]
     pub port: i32,
     /// Session token.
+    #[mapping(required)]
     pub session_token: String,
     /// Flag to enable secure session establishment
+    #[mapping(required)]
     pub secure: bool,
 }
 

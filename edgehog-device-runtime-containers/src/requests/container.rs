@@ -43,34 +43,63 @@ pub struct RestartPolicyError {
     aggregation = "object"
 )]
 pub struct CreateContainer {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) image_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) network_ids: VecReqUuid,
+    #[mapping(required)]
     pub(crate) volume_ids: VecReqUuid,
+    #[mapping(required)]
     pub(crate) device_mapping_ids: VecReqUuid,
+    #[mapping(required)]
     pub(crate) device_request_ids: VecReqUuid,
+    #[mapping(required)]
     pub(crate) hostname: String,
+    #[mapping(required)]
     pub(crate) restart_policy: String,
+    #[mapping(required)]
     pub(crate) env: Vec<String>,
+    #[mapping(required)]
     pub(crate) binds: Vec<String>,
+    #[mapping(required)]
     pub(crate) network_mode: String,
+    #[mapping(required)]
     pub(crate) port_bindings: Vec<String>,
+    #[mapping(required)]
     pub(crate) extra_hosts: Vec<String>,
+    #[mapping(required)]
     pub(crate) cap_add: Vec<String>,
+    #[mapping(required)]
     pub(crate) cap_drop: Vec<String>,
+    #[mapping(required)]
     pub(crate) cpu_period: i64,
+    #[mapping(required)]
     pub(crate) cpu_quota: i64,
+    #[mapping(required)]
     pub(crate) cpu_realtime_period: i64,
+    #[mapping(required)]
     pub(crate) cpu_realtime_runtime: i64,
+    #[mapping(required)]
     pub(crate) memory: i64,
+    #[mapping(required)]
     pub(crate) memory_reservation: i64,
+    #[mapping(required)]
     pub(crate) memory_swap: i64,
+    #[mapping(required)]
     pub(crate) memory_swappiness: i32,
+    #[mapping(required)]
     pub(crate) volume_driver: OptString,
+    #[mapping(required)]
     pub(crate) storage_opt: Vec<String>,
+    #[mapping(required)]
     pub(crate) read_only_rootfs: bool,
+    #[mapping(required)]
     pub(crate) tmpfs: Vec<String>,
+    #[mapping(required)]
     pub(crate) privileged: bool,
 }
 

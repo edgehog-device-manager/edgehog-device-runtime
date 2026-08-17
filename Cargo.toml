@@ -55,7 +55,7 @@ description = "Edgehog Device Runtime is a portable middleware, that enables rem
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-astarte-device-sdk = "0.14.1"
+astarte-device-sdk = "0.14.3"
 astarte-device-sdk-mock = "0.14.1"
 async-compression = "0.4.42"
 async-tar = { version = "0.6.0", default-features = false }
@@ -278,3 +278,6 @@ split-debuginfo = "packed"
 strip = true
 # Similar to fat in term of performances, but takes substantially less time to run
 lto = "thin"
+
+[patch.crates-io]
+astarte-device-sdk = { git = "https://github.com/joshuachp/astarte-device-sdk-rust", rev = "714a57aaa3bbf8bcb4b7c9dd97d7bf3978a0bbde" }

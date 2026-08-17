@@ -18,6 +18,10 @@
 
 [default.extend-identifiers]
 UTRANwHSDPAandHSUPA = "UTRANwHSDPAandHSUPA"
+SetEpsUeModeOperation = "SetEpsUeModeOperation"
+set_eps_ue_mode_operation = "set_eps_ue_mode_operation"
+EpsUeModeOperation = "EpsUeModeOperation"
+eps_ue_mode_operation = "eps_ue_mode_operation"
 
 [default.extend-words]
 tung = "tung"

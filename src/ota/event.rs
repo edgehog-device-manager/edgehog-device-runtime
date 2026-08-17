@@ -32,8 +32,11 @@ use uuid::Uuid;
     aggregation = "object"
 )]
 pub struct OtaRequest {
+    #[mapping(required)]
     pub operation: OtaOperation,
+    #[mapping(required)]
     pub url: String,
+    #[mapping(required)]
     pub uuid: OtaUuid,
 }
 

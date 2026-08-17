@@ -32,6 +32,8 @@ use url::Url;
 use crate::repository::StateRepository;
 use crate::repository::file_state_repository::FileStateRepository;
 
+use super::interfaces::add_interfaces;
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct AstarteDeviceSdkConfigOptions {
     pub realm: String,
@@ -98,7 +100,6 @@ impl AstarteDeviceSdkConfigOptions {
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
         store_dir: P,
-        interface_dir: P,
     ) -> eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>>
     where
         P: AsRef<Path>,
@@ -118,8 +119,8 @@ impl AstarteDeviceSdkConfigOptions {
             mqtt_cfg = mqtt_cfg.ignore_ssl_errors();
         }
 
-        let (client, connection) = DeviceBuilder::new()
-            .interface_directory(interface_dir)?
+        let (client, connection) = add_interfaces(DeviceBuilder::new())
+            .wrap_err("couldn't add interfaces")?
             .writable_dir(store_dir)
             .store(store)
             .connection(mqtt_cfg)
