@@ -24,7 +24,7 @@ use astarte_device_sdk::astarte_device_error::{Error, WrapError};
 use astarte_device_sdk::{
     AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
-use container::{CreateContainer, RestartPolicyError};
+use container::CreateContainer;
 use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 use tracing::error;
 use uuid::Uuid;
@@ -47,8 +47,6 @@ pub mod volume;
 pub enum ReqError {
     /// couldn't parse option, expected key=value but got {0}
     Option(String),
-    /// couldn't parse container restart policy
-    RestartPolicy(#[from] RestartPolicyError),
     /// couldn't parse port binding
     PortBinding(#[from] BindingError),
 }
@@ -159,6 +157,12 @@ impl FromEvent for ContainerRequest {
 /// Wrapper to convert an [`AstarteData`] to [`Uuid`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ReqUuid(pub(crate) Uuid);
+
+impl Default for ReqUuid {
+    fn default() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
 
 impl Display for ReqUuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -303,46 +307,34 @@ mod tests {
     use super::*;
 
     use image::tests::create_image_request_event;
-    use network::{CreateNetwork, tests::create_network_request_event};
+    use network::tests::create_network_request_event;
     use pretty_assertions::assert_eq;
 
     use crate::requests::ContainerRequest;
+    use crate::requests::image::tests::create_image_req;
+    use crate::requests::network::tests::create_network_req;
 
     #[test]
     fn from_event_image() {
-        let id = Uuid::new_v4();
+        let _id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
 
-        let event = create_image_request_event(id, deployment_id, "reference", "registry_auth");
+        let expected = create_image_req(deployment_id);
+        let event = create_image_request_event(&expected);
 
         let request = ContainerRequest::from_event(event).unwrap();
 
-        let expect = ContainerRequest::Image(CreateImage {
-            id: ReqUuid(id),
-            deployment_id: ReqUuid(deployment_id),
-            reference: "reference".to_string(),
-            registry_auth: "registry_auth".to_string(),
-        });
-
-        assert_eq!(request, expect);
+        assert_eq!(request, ContainerRequest::Image(expected));
     }
 
     #[test]
     fn from_event_network() {
-        let id = Uuid::new_v4();
         let deployment_id = Uuid::new_v4();
-        let event = create_network_request_event(id, deployment_id, "driver", &[]);
+
+        let expect = create_network_req(deployment_id);
+        let event = create_network_request_event(&expect);
 
         let request = ContainerRequest::from_event(event).unwrap();
-
-        let expect = CreateNetwork {
-            id: ReqUuid(id),
-            deployment_id: ReqUuid(deployment_id),
-            driver: "driver".to_string(),
-            internal: false,
-            enable_ipv6: false,
-            options: Vec::new(),
-        };
 
         assert_eq!(request, ContainerRequest::Network(expect));
     }

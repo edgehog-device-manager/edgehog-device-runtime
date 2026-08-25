@@ -33,19 +33,33 @@ pub(crate) mod status;
 )]
 #[astarte_object(rename_all = "camelCase")]
 pub(crate) struct ServerToDevice {
+    #[mapping(required)]
     pub(crate) id: String,
+    #[mapping(required)]
     pub(crate) url: String,
+    #[mapping(required)]
     pub(crate) http_header_keys: Vec<String>,
+    #[mapping(required)]
     pub(crate) http_header_values: Vec<String>,
+    #[mapping(required)]
     pub(crate) encoding: String,
+    #[mapping(required)]
     pub(crate) file_size_bytes: i64,
+    #[mapping(required)]
     pub(crate) progress: bool,
+    #[mapping(required)]
     pub(crate) digest: String,
+    #[mapping(required)]
     pub(crate) ttl_seconds: i64,
+    #[mapping(required)]
     pub(crate) file_mode: i64,
+    #[mapping(required)]
     pub(crate) user_id: i64,
+    #[mapping(required)]
     pub(crate) group_id: i64,
+    #[mapping(required)]
     pub(crate) destination_type: String,
+    #[mapping(required)]
     pub(crate) destination: String,
 }
 
@@ -58,13 +72,21 @@ pub(crate) struct ServerToDevice {
 )]
 #[astarte_object(rename_all = "camelCase")]
 pub(crate) struct DeviceToServer {
+    #[mapping(required)]
     pub(crate) id: String,
+    #[mapping(required)]
     pub(crate) url: String,
+    #[mapping(required)]
     pub(crate) http_header_keys: Vec<String>,
+    #[mapping(required)]
     pub(crate) http_header_values: Vec<String>,
+    #[mapping(required)]
     pub(crate) encoding: String,
+    #[mapping(required)]
     pub(crate) progress: bool,
+    #[mapping(required)]
     pub(crate) source_type: String,
+    #[mapping(required)]
     pub(crate) source: String,
 }
 
