@@ -29,7 +29,7 @@ pub enum RuntimeEvent {
     Command(Commands),
     Telemetry(TelemetryEvent),
     #[cfg(feature = "file-transfer")]
-    FileTransfer(crate::file_transfer::interface::request::FileTransferRequest),
+    FileTransfer(Box<crate::file_transfer::interface::request::FileTransferRequest>),
     #[cfg(feature = "file-transfer")]
     Storage(crate::storage::interface::DeleteFile),
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -93,6 +93,7 @@ impl FromEvent for RuntimeEvent {
             #[cfg(feature = "file-transfer")]
             interface if interface.starts_with("io.edgehog.devicemanager.fileTransfer") => {
                 crate::file_transfer::interface::request::FileTransferRequest::from_event(event)
+                    .map(Box::new)
                     .map(RuntimeEvent::FileTransfer)
             }
             #[cfg(feature = "file-transfer")]

@@ -80,8 +80,10 @@ impl<'a> TryFrom<&'a DeviceToServer> for Upload<'a> {
         } = value;
 
         let headers = http_header_keys
+            .as_deref()
+            .unwrap_or_default()
             .iter()
-            .zip(http_header_values)
+            .zip(http_header_values.as_deref().unwrap_or_default())
             .map(|(k, v)| -> eyre::Result<(HeaderName, HeaderValue)> {
                 let k = HeaderName::try_from(k)?;
                 let mut v = HeaderValue::try_from(v)?;
@@ -105,7 +107,7 @@ impl<'a> TryFrom<&'a DeviceToServer> for Upload<'a> {
             url: url.parse()?,
             headers,
             encoding: compression,
-            progress: *progress,
+            progress: progress.unwrap_or(false),
             source,
         })
     }

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,10 +31,13 @@ use super::ReqUuid;
     aggregation = "object"
 )]
 pub struct CreateImage {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
+    #[mapping(required)]
     pub(crate) reference: String,
-    pub(crate) registry_auth: String,
+    pub(crate) registry_auth: Option<String>,
 }
 
 #[cfg(test)]
@@ -86,7 +89,7 @@ pub(crate) mod tests {
             id: ReqUuid(id),
             deployment_id: ReqUuid(deployment_id),
             reference: "reference".to_string(),
-            registry_auth: "registry_auth".to_string(),
+            registry_auth: Some("registry_auth".to_string()),
         };
 
         assert_eq!(request, expect);

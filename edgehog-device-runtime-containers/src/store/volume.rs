@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -192,6 +192,8 @@ impl TryFrom<&CreateVolume> for Vec<VolumeDriverOpts> {
 
         value
             .options
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .map(|s| {
                 split_key_value(s)
@@ -266,9 +268,11 @@ mod tests {
             id: ReqUuid(volume_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
-            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
-                .map(str::to_string)
-                .to_vec(),
+            options: Some(
+                ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
         };
         store.create_volume(volume).await.unwrap();
 
@@ -321,14 +325,16 @@ mod tests {
             id: ReqUuid(volume_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
-            options: [
-                "device=tmpfs",
-                "o=size=100m,uid=1000",
-                "type=tmpfs",
-                "empty=",
-            ]
-            .map(str::to_string)
-            .to_vec(),
+            options: Some(
+                [
+                    "device=tmpfs",
+                    "o=size=100m,uid=1000",
+                    "type=tmpfs",
+                    "empty=",
+                ]
+                .map(str::to_string)
+                .to_vec(),
+            ),
         };
         store.create_volume(volume).await.unwrap();
 
@@ -386,9 +392,11 @@ mod tests {
             id: ReqUuid(volume_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
-            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
-                .map(str::to_string)
-                .to_vec(),
+            options: Some(
+                ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
         };
         store.create_volume(volume).await.unwrap();
 
@@ -423,9 +431,11 @@ mod tests {
             id: ReqUuid(volume_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
-            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
-                .map(str::to_string)
-                .to_vec(),
+            options: Some(
+                ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
         };
         store.create_volume(volume).await.unwrap();
 

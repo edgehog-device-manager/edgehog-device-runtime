@@ -69,7 +69,7 @@ impl TryFrom<&interface::DeleteFile> for Delete {
         Ok(Self {
             id,
             file_id,
-            force: *force,
+            force: force.unwrap_or(false),
         })
     }
 }

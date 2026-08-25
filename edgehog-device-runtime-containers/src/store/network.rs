@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -213,8 +213,8 @@ impl From<CreateNetwork> for Network {
             local_id: None,
             status: NetworkStatus::default(),
             driver: driver.to_string(),
-            internal,
-            enable_ipv6,
+            internal: internal.unwrap_or_default(),
+            enable_ipv6: enable_ipv6.unwrap_or_default(),
         }
     }
 }
@@ -228,6 +228,8 @@ impl TryFrom<&CreateNetwork> for Vec<NetworkDriverOpts> {
 
         value
             .options
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .map(|s| {
                 split_key_value(s)
@@ -303,9 +305,9 @@ mod tests {
             id: ReqUuid(network_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "bridge".to_string(),
-            internal: true,
-            enable_ipv6: false,
-            options: vec!["isolate=true".to_string()],
+            internal: Some(true),
+            enable_ipv6: Some(false),
+            options: Some(vec!["isolate=true".to_string()]),
         };
         store.create_network(network).await.unwrap();
 
@@ -349,9 +351,9 @@ mod tests {
             id: ReqUuid(network_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "bridge".to_string(),
-            internal: true,
-            enable_ipv6: false,
-            options: vec!["isolate=true".to_string()],
+            internal: Some(true),
+            enable_ipv6: Some(false),
+            options: Some(vec!["isolate=true".to_string()]),
         };
         store.create_network(network).await.unwrap();
 
@@ -390,9 +392,9 @@ mod tests {
             id: ReqUuid(network_id),
             deployment_id: ReqUuid(deployment_id),
             driver: "bridge".to_string(),
-            internal: true,
-            enable_ipv6: false,
-            options: vec!["isolate=true".to_string()],
+            internal: Some(true),
+            enable_ipv6: Some(false),
+            options: Some(vec!["isolate=true".to_string()]),
         };
         store.create_network(network).await.unwrap();
 
