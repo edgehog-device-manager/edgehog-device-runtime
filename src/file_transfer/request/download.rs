@@ -120,8 +120,10 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
         } = value;
 
         let headers = http_header_keys
+            .as_deref()
+            .unwrap_or_default()
             .iter()
-            .zip(http_header_values)
+            .zip(http_header_values.as_deref().unwrap_or_default())
             .map(|(k, v)| -> eyre::Result<(HeaderName, HeaderValue)> {
                 let k = HeaderName::try_from(k)?;
                 let mut v = HeaderValue::try_from(v)?;
@@ -165,7 +167,7 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
             headers,
             encoding: compression,
             file_size,
-            progress: *progress,
+            progress: progress.unwrap_or(false),
             digest_type: digest_type.parse()?,
             digest,
             ttl,

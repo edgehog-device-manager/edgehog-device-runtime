@@ -18,28 +18,29 @@
 
 //! Device Request sent from Astarte
 
-use astarte_device_sdk::{FromEvent, IntoAstarteObject};
+use astarte_device_sdk::FromEvent;
 
 use super::{OptString, ReqUuid};
 
 /// Request to pull a Docker Network.
-#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord, IntoAstarteObject)]
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
 #[from_event(
     interface = "io.edgehog.devicemanager.apps.CreateDeviceRequest",
     path = "/deviceRequest",
     rename_all = "camelCase",
     aggregation = "object"
 )]
-#[astarte_object(rename_all = "camelCase")]
 pub struct CreateDeviceRequest {
+    #[mapping(required)]
     pub(crate) id: ReqUuid,
+    #[mapping(required)]
     pub(crate) deployment_id: ReqUuid,
-    pub(crate) driver: OptString,
-    pub(crate) count: i64,
-    pub(crate) device_ids: Vec<String>,
-    pub(crate) capabilities: Vec<String>,
-    pub(crate) option_keys: Vec<String>,
-    pub(crate) option_values: Vec<String>,
+    pub(crate) driver: Option<OptString>,
+    pub(crate) count: Option<i64>,
+    pub(crate) device_ids: Option<Vec<String>>,
+    pub(crate) capabilities: Option<Vec<String>>,
+    pub(crate) option_keys: Option<Vec<String>>,
+    pub(crate) option_values: Option<Vec<String>>,
 }
 
 #[cfg(test)]
@@ -47,7 +48,7 @@ pub(crate) mod tests {
 
     use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::chrono::Utc;
-    use astarte_device_sdk::{DeviceEvent, Value};
+    use astarte_device_sdk::{AstarteData, DeviceEvent, Value};
     use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
@@ -57,23 +58,48 @@ pub(crate) mod tests {
         CreateDeviceRequest {
             id: id.into(),
             deployment_id: deployment_id.into(),
-            driver: "nvidia".into(),
-            count: -1,
-            device_ids: ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
-                .map(str::to_string)
-                .to_vec(),
-            capabilities: vec![r#"["gpu","nvidia","compute"]"#.to_string()],
-            option_keys: ["property1", "property2"].map(str::to_string).to_vec(),
-            option_values: ["string", "string"].map(str::to_string).to_vec(),
+            driver: Some("nvidia".into()),
+            count: Some(-1),
+            device_ids: Some(
+                ["0", "1", "GPU-fef8089b-4820-abfc-e83e-94318197576e"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            capabilities: Some(vec![r#"["gpu","nvidia","compute"]"#.to_string()]),
+            option_keys: Some(["property1", "property2"].map(str::to_string).to_vec()),
+            option_values: Some(["string", "string"].map(str::to_string).to_vec()),
         }
     }
 
     pub fn create_device_request_event(id: Uuid, deployment_id: Uuid) -> DeviceEvent {
+        let value = create_device_request(id, deployment_id);
+
+        let data = [
+            ("id", AstarteData::from(value.id.to_string())),
+            (
+                "deploymentId",
+                AstarteData::from(value.deployment_id.to_string()),
+            ),
+            ("driver", AstarteData::from(value.driver.unwrap())),
+            ("count", AstarteData::from(value.count.unwrap())),
+            ("deviceIds", AstarteData::from(value.device_ids.unwrap())),
+            (
+                "capabilities",
+                AstarteData::from(value.capabilities.unwrap()),
+            ),
+            ("optionKeys", AstarteData::from(value.option_keys.unwrap())),
+            (
+                "optionValues",
+                AstarteData::from(value.option_values.unwrap()),
+            ),
+        ]
+        .map(|(k, v)| (k.to_string(), v));
+
         DeviceEvent {
             interface: "io.edgehog.devicemanager.apps.CreateDeviceRequest".to_string(),
             path: "/deviceRequest".to_string(),
             data: Value::Object {
-                data: AstarteObject::try_from(create_device_request(id, deployment_id)).unwrap(),
+                data: AstarteObject::from_iter(data),
                 timestamp: Utc::now(),
             },
         }

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -137,7 +137,7 @@ impl From<CreateDeviceMapping> for DeviceMapping {
             status: DeviceMappingStatus::default(),
             path_on_host,
             path_in_container,
-            cgroup_permissions: c_group_permissions.into(),
+            cgroup_permissions: c_group_permissions.and_then(|s| s.into()),
         }
     }
 }
@@ -200,7 +200,7 @@ mod tests {
             deployment_id: ReqUuid(deployment_id),
             path_on_host: "/dev/tty12".to_string(),
             path_in_container: "/dev/tty12".to_string(),
-            c_group_permissions: OptString::from("mvr".to_string()),
+            c_group_permissions: Some(OptString::from("mvr".to_string())),
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
@@ -235,7 +235,7 @@ mod tests {
             deployment_id: ReqUuid(deployment_id),
             path_on_host: "/dev/tty12".to_string(),
             path_in_container: "/dev/tty12".to_string(),
-            c_group_permissions: OptString::from("mvr".to_string()),
+            c_group_permissions: Some(OptString::from("mvr".to_string())),
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
