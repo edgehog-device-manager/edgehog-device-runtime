@@ -19,7 +19,6 @@
 use actor::Actor;
 use astarte_device_sdk::FromEvent;
 use astarte_device_sdk::prelude::PropAccess;
-use eyre::Context;
 use tokio::{sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, instrument, trace};
@@ -35,6 +34,15 @@ use crate::led_behavior::{LedBlink, LedEvent};
 use crate::ota::ota_handler::OtaHandler;
 
 use self::event::RuntimeEvent;
+
+#[cfg(any(
+    feature = "default",
+    feature = "containers",
+    feature = "forwarder",
+    feature = "file-transfer",
+    all(feature = "zbus", target_os = "linux")
+))]
+use eyre::Context;
 
 pub mod actor;
 pub mod event;
@@ -376,9 +384,14 @@ impl<C> Runtime<C> {
             .await
             .flatten()
         {
-            let event = RuntimeEvent::from_event(event).wrap_err("couldn't convert event")?;
-
-            self.handle_event(event).await;
+            match RuntimeEvent::from_event(event) {
+                Ok(event) => {
+                    self.handle_event(event).await;
+                }
+                Err(error) => {
+                    error!(%error, "couldn't handle runtime event")
+                }
+            }
         }
 
         Ok(())
@@ -412,7 +425,7 @@ impl<C> Runtime<C> {
             #[cfg(feature = "file-transfer")]
             RuntimeEvent::FileTransfer(event) => {
                 if let Some(file_transfer) = &self.file_transfer {
-                    if file_transfer.send(event).await.is_err() {
+                    if file_transfer.send(*event).await.is_err() {
                         error!("couldn't send file transfer event");
                     }
                 } else {

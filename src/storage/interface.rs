@@ -18,7 +18,8 @@
 
 use std::io;
 
-use astarte_device_sdk::{AstarteData, FromEvent, IntoAstarteObject, aggregate::AstarteObject};
+use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::{AstarteData, FromEvent, IntoAstarteObject};
 use eyre::eyre;
 use tracing::instrument;
 
@@ -27,18 +28,19 @@ use crate::{
     storage::{StorageJobTag, request::FileStorageId},
 };
 
-#[derive(Debug, Clone, PartialEq, FromEvent, IntoAstarteObject)]
+#[derive(Debug, Clone, PartialEq, FromEvent)]
 #[from_event(
     interface = "io.edgehog.devicemanager.storage.DeleteFile",
     aggregation = "object",
     path = "/request",
     rename_all = "camelCase"
 )]
-#[astarte_object(rename_all = "camelCase")]
 pub struct DeleteFile {
+    #[mapping(required)]
     pub(crate) id: String,
+    #[mapping(required)]
     pub(crate) file_id: String,
-    pub(crate) force: bool,
+    pub(crate) force: Option<bool>,
 }
 
 impl DeleteFile {

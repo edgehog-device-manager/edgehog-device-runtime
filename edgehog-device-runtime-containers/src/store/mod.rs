@@ -140,34 +140,36 @@ mod tests {
             id: container_id,
             deployment_id: ReqUuid(image_id),
             image_id: ReqUuid(image_id),
-            network_ids: VecReqUuid(vec![network_id]),
-            volume_ids: VecReqUuid(vec![volume_id]),
-            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
-            device_request_ids: VecReqUuid(vec![device_request_id]),
-            hostname: "database".to_string(),
-            restart_policy: "unless-stopped".to_string(),
-            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
-                .map(str::to_string)
-                .to_vec(),
-            binds: vec!["/var/lib/postgres".to_string()],
-            network_mode: "bridge".to_string(),
-            port_bindings: vec!["5432:5432".to_string()],
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            cpu_period: 1000,
-            cpu_quota: 100,
-            cpu_realtime_period: 1000,
-            cpu_realtime_runtime: 100,
-            memory: 4096,
-            memory_reservation: 1024,
-            memory_swap: 8192,
-            memory_swappiness: 50,
-            volume_driver: "local".to_string().into(),
-            storage_opt: vec!["size=1024k".to_string()],
-            read_only_rootfs: true,
-            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
-            privileged: false,
+            network_ids: Some(VecReqUuid(vec![network_id])),
+            volume_ids: Some(VecReqUuid(vec![volume_id])),
+            device_mapping_ids: Some(VecReqUuid(vec![device_mapping_id])),
+            device_request_ids: Some(VecReqUuid(vec![device_request_id])),
+            hostname: Some("database".to_string()),
+            restart_policy: Some("unless-stopped".to_string()),
+            env: Some(
+                ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            binds: Some(vec!["/var/lib/postgres".to_string()]),
+            network_mode: Some("bridge".to_string()),
+            port_bindings: Some(vec!["5432:5432".to_string()]),
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+            cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+            cap_drop: Some(vec!["CAP_KILL".to_string()]),
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string().into()),
+            storage_opt: Some(vec!["size=1024k".to_string()]),
+            read_only_rootfs: Some(true),
+            tmpfs: Some(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+            privileged: Some(false),
         };
         store.create_container(Box::new(container)).await.unwrap();
 
@@ -175,9 +177,9 @@ mod tests {
             id: network_id,
             deployment_id,
             driver: "bridge".to_string(),
-            internal: true,
-            enable_ipv6: false,
-            options: vec!["isolate=true".to_string()],
+            internal: Some(true),
+            enable_ipv6: Some(false),
+            options: Some(vec!["isolate=true".to_string()]),
         };
         store.create_network(network).await.unwrap();
 
@@ -185,9 +187,11 @@ mod tests {
             id: volume_id,
             deployment_id,
             driver: "local".to_string(),
-            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
-                .map(str::to_string)
-                .to_vec(),
+            options: Some(
+                ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
         };
         store.create_volume(volume).await.unwrap();
 
@@ -195,7 +199,7 @@ mod tests {
             id: ReqUuid(image_id),
             deployment_id,
             reference: "postgres:15".to_string(),
-            registry_auth: String::new(),
+            registry_auth: Some(String::new()),
         };
         store.create_image(image).await.unwrap();
     }

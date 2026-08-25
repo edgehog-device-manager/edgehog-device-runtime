@@ -321,7 +321,7 @@ mod tests {
             id: ReqUuid(id),
             deployment_id: ReqUuid(deployment_id),
             reference: "reference".to_string(),
-            registry_auth: "registry_auth".to_string(),
+            registry_auth: Some("registry_auth".to_string()),
         });
 
         assert_eq!(request, expect);
@@ -339,9 +339,9 @@ mod tests {
             id: ReqUuid(id),
             deployment_id: ReqUuid(deployment_id),
             driver: "driver".to_string(),
-            internal: false,
-            enable_ipv6: false,
-            options: Vec::new(),
+            internal: Some(false),
+            enable_ipv6: Some(false),
+            options: Some(Vec::new()),
         };
 
         assert_eq!(request, ContainerRequest::Network(expect));

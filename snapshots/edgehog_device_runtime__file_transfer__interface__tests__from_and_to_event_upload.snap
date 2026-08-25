@@ -17,6 +17,24 @@ AstarteObject {
             ),
         ),
         (
+            "encoding",
+            String(
+                "tar.gz",
+            ),
+        ),
+        (
+            "sourceType",
+            String(
+                "storage",
+            ),
+        ),
+        (
+            "source",
+            String(
+                "6389218e-0e05-4587-96e3-3e6e2b522a2b",
+            ),
+        ),
+        (
             "httpHeaderKeys",
             StringArray(
                 [
@@ -33,27 +51,9 @@ AstarteObject {
             ),
         ),
         (
-            "encoding",
-            String(
-                "tar.gz",
-            ),
-        ),
-        (
             "progress",
             Boolean(
                 true,
-            ),
-        ),
-        (
-            "sourceType",
-            String(
-                "storage",
-            ),
-        ),
-        (
-            "source",
-            String(
-                "6389218e-0e05-4587-96e3-3e6e2b522a2b",
             ),
         ),
     ],

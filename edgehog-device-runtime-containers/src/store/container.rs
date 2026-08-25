@@ -110,19 +110,38 @@ impl StateStore {
 
         let container_id = SqlUuid::new(id);
         let image_id = SqlUuid::new(image_id);
-        let networks = network_ids.iter().map(SqlUuid::new).collect_vec();
-        let volumes = volume_ids.iter().map(SqlUuid::new).collect_vec();
-        let device_mappings = device_mapping_ids.iter().map(SqlUuid::new).collect_vec();
-        let device_requests = device_request_ids.iter().map(SqlUuid::new).collect_vec();
+        let networks = network_ids
+            .unwrap_or_default()
+            .iter()
+            .map(SqlUuid::new)
+            .collect_vec();
+        let volumes = volume_ids
+            .unwrap_or_default()
+            .iter()
+            .map(SqlUuid::new)
+            .collect_vec();
+        let device_mappings = device_mapping_ids
+            .unwrap_or_default()
+            .iter()
+            .map(SqlUuid::new)
+            .collect_vec();
+        let device_requests = device_request_ids
+            .unwrap_or_default()
+            .iter()
+            .map(SqlUuid::new)
+            .collect_vec();
 
-        let envs = container_env_from_vec(&container_id, env);
-        let extra_hosts = container_extra_hosts_from_vec(&container_id, extra_hosts);
-        let binds = container_binds_from_vec(&container_id, binds);
-        let port_bindings = container_port_bindings_try_from_vec(&container_id, port_bindings)?;
-        let cap_add = container_cap_add_from_vec(&container_id, cap_add);
-        let cap_drop = container_cap_drop_from_vec(&container_id, cap_drop);
-        let storage_opt = container_storage_options_from_vec(&container_id, storage_opt)?;
-        let tmpfs = container_tmpfs_from_vec(&container_id, tmpfs)?;
+        let envs = container_env_from_vec(&container_id, env.unwrap_or_default());
+        let extra_hosts =
+            container_extra_hosts_from_vec(&container_id, extra_hosts.unwrap_or_default());
+        let binds = container_binds_from_vec(&container_id, binds.unwrap_or_default());
+        let port_bindings =
+            container_port_bindings_try_from_vec(&container_id, port_bindings.unwrap_or_default())?;
+        let cap_add = container_cap_add_from_vec(&container_id, cap_add.unwrap_or_default());
+        let cap_drop = container_cap_drop_from_vec(&container_id, cap_drop.unwrap_or_default());
+        let storage_opt =
+            container_storage_options_from_vec(&container_id, storage_opt.unwrap_or_default())?;
+        let tmpfs = container_tmpfs_from_vec(&container_id, tmpfs.unwrap_or_default())?;
 
         let mut container = create_container(
             container_id,
@@ -138,7 +157,7 @@ impl StateStore {
             memory_reservation,
             memory_swap,
             memory_swappiness,
-            volume_driver.into(),
+            volume_driver.and_then(|v| v.into()),
             read_only_rootfs,
             privileged,
         )?;
@@ -629,36 +648,39 @@ fn has_missing_device_requests(
 fn create_container(
     id: SqlUuid,
     image_id: SqlUuid,
-    network_mode: String,
-    hostname: String,
-    restart_policy: String,
-    cpu_period: i64,
-    cpu_quota: i64,
-    cpu_realtime_period: i64,
-    cpu_realtime_runtime: i64,
-    memory: i64,
-    memory_reservation: i64,
-    memory_swap: i64,
-    memory_swappiness: i32,
+    network_mode: Option<String>,
+    hostname: Option<String>,
+    restart_policy: Option<String>,
+    cpu_period: Option<i64>,
+    cpu_quota: Option<i64>,
+    cpu_realtime_period: Option<i64>,
+    cpu_realtime_runtime: Option<i64>,
+    memory: Option<i64>,
+    memory_reservation: Option<i64>,
+    memory_swap: Option<i64>,
+    memory_swappiness: Option<i32>,
     volume_driver: Option<String>,
-    read_only_rootfs: bool,
-    privileged: bool,
+    read_only_rootfs: Option<bool>,
+    privileged: Option<bool>,
 ) -> std::result::Result<Container, StoreError> {
-    let restart_policy = RestartPolicy::from_str(&restart_policy)?;
+    let restart_policy = RestartPolicy::from_str(&restart_policy.unwrap_or_default())?;
     let restart_policy = ContainerRestartPolicy::from(restart_policy);
-    let hostname = hostname.is_empty().not().then_some(hostname);
+    let hostname = hostname.filter(|hostname| !hostname.is_empty());
 
-    let cpu_period = QuotaValue::<-1>::new(cpu_period);
-    let cpu_quota = QuotaValue::<-1>::new(cpu_quota);
-    let cpu_realtime_period = QuotaValue::<-1>::new(cpu_realtime_period);
-    let cpu_realtime_runtime = QuotaValue::<-1>::new(cpu_realtime_runtime);
-    let memory = QuotaValue::<-1>::new(memory);
-    let memory_reservation = QuotaValue::<-1>::new(memory_reservation);
-    let memory_swap = QuotaValue::<-2>::new(memory_swap);
-    let memory_swappiness =
+    let cpu_period = cpu_period.and_then(QuotaValue::<-1>::new);
+    let cpu_quota = cpu_quota.and_then(QuotaValue::<-1>::new);
+    let cpu_realtime_period = cpu_realtime_period.and_then(QuotaValue::<-1>::new);
+    let cpu_realtime_runtime = cpu_realtime_runtime.and_then(QuotaValue::<-1>::new);
+    let memory = memory.and_then(QuotaValue::<-1>::new);
+    let memory_reservation = memory_reservation.and_then(QuotaValue::<-1>::new);
+    let memory_swap = memory_swap.and_then(QuotaValue::<-2>::new);
+    let memory_swappiness = if let Some(memory_swappiness) = memory_swappiness {
         Swappiness::try_new(memory_swappiness).map_err(|err| StoreError::Conversion {
             ctx: format!("invalid memory swappiness value {err}"),
-        })?;
+        })?
+    } else {
+        None
+    };
 
     // Make sure both are unset
     match (cpu_period, cpu_quota) {
@@ -680,10 +702,10 @@ fn create_container(
         local_id: None,
         image_id: Some(image_id),
         status: ContainerStatus::default(),
-        network_mode,
+        network_mode: network_mode.unwrap_or_else(|| String::from("bridge")),
         hostname,
         restart_policy,
-        privileged,
+        privileged: privileged.unwrap_or(false),
         cpu_period,
         cpu_quota,
         cpu_realtime_period,
@@ -693,7 +715,7 @@ fn create_container(
         memory_swap,
         memory_swappiness,
         volume_driver,
-        read_only_rootfs,
+        read_only_rootfs: read_only_rootfs.unwrap_or(false),
     })
 }
 
@@ -960,7 +982,7 @@ mod tests {
             id: ReqUuid(image_id),
             deployment_id: ReqUuid(deployment_id),
             reference: "postgres:15".to_string(),
-            registry_auth: String::new(),
+            registry_auth: Some(String::new()),
         };
         store.create_image(image).await.unwrap();
 
@@ -969,9 +991,11 @@ mod tests {
             id: volume_id,
             deployment_id: ReqUuid(deployment_id),
             driver: "local".to_string(),
-            options: ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
-                .map(str::to_string)
-                .to_vec(),
+            options: Some(
+                ["device=tmpfs", "o=size=100m,uid=1000", "type=tmpfs"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
         };
         store.create_volume(volume).await.unwrap();
 
@@ -980,9 +1004,9 @@ mod tests {
             id: network_id,
             deployment_id: ReqUuid(deployment_id),
             driver: "bridge".to_string(),
-            internal: true,
-            enable_ipv6: false,
-            options: vec!["isolate=true".to_string()],
+            internal: Some(true),
+            enable_ipv6: Some(false),
+            options: Some(vec!["isolate=true".to_string()]),
         };
         store.create_network(network).await.unwrap();
 
@@ -992,7 +1016,7 @@ mod tests {
             deployment_id: ReqUuid(deployment_id),
             path_on_host: "/dev/tty12".to_string(),
             path_in_container: "dev/tty12".to_string(),
-            c_group_permissions: OptString::from("msv".to_string()),
+            c_group_permissions: Some(OptString::from("msv".to_string())),
         };
         store.create_device_mapping(device_mapping).await.unwrap();
 
@@ -1005,34 +1029,36 @@ mod tests {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
             image_id: ReqUuid(image_id),
-            network_ids: VecReqUuid(vec![network_id]),
-            volume_ids: VecReqUuid(vec![volume_id]),
-            device_mapping_ids: VecReqUuid(vec![device_mapping_id]),
-            device_request_ids: VecReqUuid(vec![device_request_id]),
-            hostname: "database".to_string(),
-            restart_policy: "unless-stopped".to_string(),
-            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
-                .map(str::to_string)
-                .to_vec(),
-            binds: vec!["/var/lib/postgres:/data".to_string()],
-            network_mode: "bridge".to_string(),
-            port_bindings: vec!["5432:5432".to_string()],
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            cpu_period: 1000,
-            cpu_quota: 100,
-            cpu_realtime_period: 1000,
-            cpu_realtime_runtime: 100,
-            memory: 4096,
-            memory_reservation: 1024,
-            memory_swap: 8192,
-            memory_swappiness: 50,
-            volume_driver: "local".to_string().into(),
-            storage_opt: vec!["size=1024k".to_string()],
-            read_only_rootfs: true,
-            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
-            privileged: false,
+            network_ids: Some(VecReqUuid(vec![network_id])),
+            volume_ids: Some(VecReqUuid(vec![volume_id])),
+            device_mapping_ids: Some(VecReqUuid(vec![device_mapping_id])),
+            device_request_ids: Some(VecReqUuid(vec![device_request_id])),
+            hostname: Some("database".to_string()),
+            restart_policy: Some("unless-stopped".to_string()),
+            env: Some(
+                ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            binds: Some(vec!["/var/lib/postgres:/data".to_string()]),
+            network_mode: Some("bridge".to_string()),
+            port_bindings: Some(vec!["5432:5432".to_string()]),
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+            cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+            cap_drop: Some(vec!["CAP_KILL".to_string()]),
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string().into()),
+            storage_opt: Some(vec!["size=1024k".to_string()]),
+            read_only_rootfs: Some(true),
+            tmpfs: Some(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+            privileged: Some(false),
         };
         store.create_container(Box::new(container)).await.unwrap();
 
@@ -1112,34 +1138,36 @@ mod tests {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
             image_id: ReqUuid(image_id),
-            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
-            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
-            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
-            device_request_ids: VecReqUuid(vec![ReqUuid(device_request_id)]),
-            hostname: "database".to_string(),
-            restart_policy: "unless-stopped".to_string(),
-            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
-                .map(str::to_string)
-                .to_vec(),
-            binds: vec!["/var/lib/postgres".to_string()],
-            network_mode: "bridge".to_string(),
-            port_bindings: vec!["5432:5432".to_string()],
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            cpu_period: 1000,
-            cpu_quota: 100,
-            cpu_realtime_period: 1000,
-            cpu_realtime_runtime: 100,
-            memory: 4096,
-            memory_reservation: 1024,
-            memory_swap: 8192,
-            memory_swappiness: 50,
-            volume_driver: "local".to_string().into(),
-            storage_opt: vec!["size=1024k".to_string()],
-            read_only_rootfs: true,
-            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
-            privileged: false,
+            network_ids: Some(VecReqUuid(vec![ReqUuid(network_id)])),
+            volume_ids: Some(VecReqUuid(vec![ReqUuid(volume_id)])),
+            device_mapping_ids: Some(VecReqUuid(vec![ReqUuid(device_mapping_id)])),
+            device_request_ids: Some(VecReqUuid(vec![ReqUuid(device_request_id)])),
+            hostname: Some("database".to_string()),
+            restart_policy: Some("unless-stopped".to_string()),
+            env: Some(
+                ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            binds: Some(vec!["/var/lib/postgres".to_string()]),
+            network_mode: Some("bridge".to_string()),
+            port_bindings: Some(vec!["5432:5432".to_string()]),
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+            cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+            cap_drop: Some(vec!["CAP_KILL".to_string()]),
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string().into()),
+            storage_opt: Some(vec!["size=1024k".to_string()]),
+            read_only_rootfs: Some(true),
+            tmpfs: Some(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+            privileged: Some(false),
         };
         store.create_container(Box::new(container)).await.unwrap();
 
@@ -1193,34 +1221,36 @@ mod tests {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
             image_id: ReqUuid(image_id),
-            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
-            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
-            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
-            device_request_ids: VecReqUuid(vec![ReqUuid(device_request_id)]),
-            hostname: "database".to_string(),
-            restart_policy: "unless-stopped".to_string(),
-            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
-                .map(str::to_string)
-                .to_vec(),
-            binds: vec!["/var/lib/postgres".to_string()],
-            network_mode: "bridge".to_string(),
-            port_bindings: vec!["5432:5432".to_string()],
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            cpu_period: 1000,
-            cpu_quota: 100,
-            cpu_realtime_period: 1000,
-            cpu_realtime_runtime: 100,
-            memory: 4096,
-            memory_reservation: 1024,
-            memory_swap: 8192,
-            memory_swappiness: 50,
-            volume_driver: "local".to_string().into(),
-            storage_opt: vec!["size=1024k".to_string()],
-            read_only_rootfs: true,
-            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
-            privileged: false,
+            network_ids: Some(VecReqUuid(vec![ReqUuid(network_id)])),
+            volume_ids: Some(VecReqUuid(vec![ReqUuid(volume_id)])),
+            device_mapping_ids: Some(VecReqUuid(vec![ReqUuid(device_mapping_id)])),
+            device_request_ids: Some(VecReqUuid(vec![ReqUuid(device_request_id)])),
+            hostname: Some("database".to_string()),
+            restart_policy: Some("unless-stopped".to_string()),
+            env: Some(
+                ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            binds: Some(vec!["/var/lib/postgres".to_string()]),
+            network_mode: Some("bridge".to_string()),
+            port_bindings: Some(vec!["5432:5432".to_string()]),
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+            cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+            cap_drop: Some(vec!["CAP_KILL".to_string()]),
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string().into()),
+            storage_opt: Some(vec!["size=1024k".to_string()]),
+            read_only_rootfs: Some(true),
+            tmpfs: Some(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+            privileged: Some(false),
         };
         store.create_container(Box::new(container)).await.unwrap();
 
@@ -1259,34 +1289,36 @@ mod tests {
             id: ReqUuid(container_id),
             deployment_id: ReqUuid(deployment_id),
             image_id: ReqUuid(image_id),
-            network_ids: VecReqUuid(vec![ReqUuid(network_id)]),
-            volume_ids: VecReqUuid(vec![ReqUuid(volume_id)]),
-            device_mapping_ids: VecReqUuid(vec![ReqUuid(device_mapping_id)]),
-            device_request_ids: VecReqUuid(vec![ReqUuid(device_request_id)]),
-            hostname: "database".to_string(),
-            restart_policy: "unless-stopped".to_string(),
-            env: ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
-                .map(str::to_string)
-                .to_vec(),
-            binds: vec!["/var/lib/postgres".to_string()],
-            network_mode: "bridge".to_string(),
-            port_bindings: vec!["5432:5432".to_string()],
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_string()],
-            cap_add: vec!["CAP_CHOWN".to_string()],
-            cap_drop: vec!["CAP_KILL".to_string()],
-            cpu_period: 1000,
-            cpu_quota: 100,
-            cpu_realtime_period: 1000,
-            cpu_realtime_runtime: 100,
-            memory: 4096,
-            memory_reservation: 1024,
-            memory_swap: 8192,
-            memory_swappiness: 50,
-            volume_driver: "local".to_string().into(),
-            storage_opt: vec!["size=1024k".to_string()],
-            read_only_rootfs: true,
-            tmpfs: vec!["/run=rw,noexec,nosuid,size=65536k".to_string()],
-            privileged: false,
+            network_ids: Some(VecReqUuid(vec![ReqUuid(network_id)])),
+            volume_ids: Some(VecReqUuid(vec![ReqUuid(volume_id)])),
+            device_mapping_ids: Some(VecReqUuid(vec![ReqUuid(device_mapping_id)])),
+            device_request_ids: Some(VecReqUuid(vec![ReqUuid(device_request_id)])),
+            hostname: Some("database".to_string()),
+            restart_policy: Some("unless-stopped".to_string()),
+            env: Some(
+                ["POSTGRES_USER=user", "POSTGRES_PASSWORD=password"]
+                    .map(str::to_string)
+                    .to_vec(),
+            ),
+            binds: Some(vec!["/var/lib/postgres".to_string()]),
+            network_mode: Some("bridge".to_string()),
+            port_bindings: Some(vec!["5432:5432".to_string()]),
+            extra_hosts: Some(vec!["host.docker.internal:host-gateway".to_string()]),
+            cap_add: Some(vec!["CAP_CHOWN".to_string()]),
+            cap_drop: Some(vec!["CAP_KILL".to_string()]),
+            cpu_period: Some(1000),
+            cpu_quota: Some(100),
+            cpu_realtime_period: Some(1000),
+            cpu_realtime_runtime: Some(100),
+            memory: Some(4096),
+            memory_reservation: Some(1024),
+            memory_swap: Some(8192),
+            memory_swappiness: Some(50),
+            volume_driver: Some("local".to_string().into()),
+            storage_opt: Some(vec!["size=1024k".to_string()]),
+            read_only_rootfs: Some(true),
+            tmpfs: Some(vec!["/run=rw,noexec,nosuid,size=65536k".to_string()]),
+            privileged: Some(false),
         };
         store.create_container(Box::new(container)).await.unwrap();
 

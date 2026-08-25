@@ -65,8 +65,8 @@ impl TryFrom<CreateDeviceRequest> for StoredDeviceRequest {
             option_values,
         }: CreateDeviceRequest,
     ) -> Result<Self> {
-        let device_ids = Vec::from_iter(device_ids);
         let capabilities = capabilities
+            .unwrap_or_default()
             .iter()
             .map(|json_array| {
                 serde_json::from_str::<Vec<String>>(json_array).map_err(|error| {
@@ -79,16 +79,21 @@ impl TryFrom<CreateDeviceRequest> for StoredDeviceRequest {
             })
             .collect::<Result<Vec<Vec<String>>>>()?;
 
-        let options = option_keys.into_iter().zip(option_values).collect();
+        let options = option_keys
+            .unwrap_or_default()
+            .into_iter()
+            .zip(option_values.unwrap_or_default())
+            .collect();
 
         Ok(StoredDeviceRequest {
             device_request: DeviceRequest {
                 id: SqlUuid::new(id),
                 status: DeviceRequestStatus::default(),
-                count,
-                driver: driver.into(),
+                // FIXME: the filed should be nullable
+                count: count.unwrap_or(1),
+                driver: driver.and_then(|s| s.into()),
             },
-            device_ids,
+            device_ids: device_ids.unwrap_or_default(),
             capabilities,
             options,
         })
