@@ -144,7 +144,11 @@ pub(crate) struct FilePermissions {
 }
 
 impl FilePermissions {
-    fn from_event(file_mode: i64, user_id: i64, group_id: i64) -> eyre::Result<Self> {
+    fn from_event(
+        file_mode: Option<i64>,
+        user_id: Option<i64>,
+        group_id: Option<i64>,
+    ) -> eyre::Result<Self> {
         let file_mode = conv_or_default(file_mode, 0).wrap_err("couldn't convert file mode")?;
         let user_id = conv_or_default(user_id, -1).wrap_err("couldn't convert user id")?;
         let group_id = conv_or_default(group_id, -1).wrap_err("couldn't convert group id")?;
@@ -195,15 +199,15 @@ impl FromStr for FileDigest {
     }
 }
 
-fn conv_or_default<T, U>(value: T, default: T) -> Result<Option<U>, U::Error>
+fn conv_or_default<T, U>(value: Option<T>, default: T) -> Result<Option<U>, U::Error>
 where
     T: PartialEq,
     U: TryFrom<T>,
 {
-    if value == default {
-        Ok(None)
-    } else {
-        U::try_from(value).map(Some)
+    match value {
+        Some(value) if value == default => Ok(None),
+        Some(value) => U::try_from(value).map(Some),
+        None => Ok(None),
     }
 }
 

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -191,7 +191,7 @@ impl From<CreateImage> for Image {
             registry_auth,
         }: CreateImage,
     ) -> Self {
-        let registry_auth = (!registry_auth.is_empty()).then_some(registry_auth);
+        let registry_auth = registry_auth.filter(|s| !s.is_empty());
 
         Self {
             id: SqlUuid::new(id),
@@ -247,7 +247,7 @@ mod tests {
             id: ReqUuid(image_id),
             deployment_id: ReqUuid(deployment_id),
             reference: "postgres:15".to_string(),
-            registry_auth: String::new(),
+            registry_auth: None,
         };
         store.create_image(image).await.unwrap();
 
@@ -279,7 +279,7 @@ mod tests {
             id: ReqUuid(image_id),
             deployment_id: ReqUuid(deployment_id),
             reference: "postgres:15".to_string(),
-            registry_auth: String::new(),
+            registry_auth: None,
         };
         store.create_image(image).await.unwrap();
         store
@@ -321,7 +321,7 @@ mod tests {
             id: ReqUuid(image_id),
             deployment_id: ReqUuid(deployment_id),
             reference: reference.clone(),
-            registry_auth: String::new(),
+            registry_auth: None,
         };
         store.create_image(image).await.unwrap();
         let local_id = Uuid::new_v4().to_string();
