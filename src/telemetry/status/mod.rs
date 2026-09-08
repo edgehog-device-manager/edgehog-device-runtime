@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,8 +20,6 @@
 
 use astarte_device_sdk::Client;
 
-#[cfg(all(feature = "zbus", target_os = "linux"))]
-use self::cellular_properties::CellularConnection;
 use self::hardware_info::HardwareInfo;
 use self::os_release::OsRelease;
 use self::runtime_info::RUNTIME_INFO;
@@ -56,5 +54,5 @@ where
     SystemInfo::read().send(client).await;
 
     #[cfg(all(feature = "zbus", target_os = "linux"))]
-    CellularConnection::read().await.send(client).await;
+    self::cellular_properties::send(client).await;
 }

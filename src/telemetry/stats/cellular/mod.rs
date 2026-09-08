@@ -31,7 +31,7 @@ use crate::telemetry::sender::TelemetryTask;
 
 use self::modem::{LocationProxy, ModemProxy, SimpleProxy};
 
-mod modem;
+pub(crate) mod modem;
 
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.CellularConnectionStatus";
 
