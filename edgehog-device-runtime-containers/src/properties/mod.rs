@@ -28,6 +28,8 @@ pub(crate) mod container;
 pub(crate) mod deployment;
 pub(crate) mod device_mapping;
 pub(crate) mod device_request;
+pub(crate) mod env_file;
+pub(crate) mod file_bind;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;

@@ -23,7 +23,7 @@ use crate::{
     volume::Volume,
 };
 
-use super::{Context, Create, Resource, Result, State};
+use super::{Context, Create, Resource, ResourceError, Result, State};
 
 #[derive(Debug, Clone)]
 pub(crate) struct VolumeResource {
@@ -66,7 +66,12 @@ where
             return Ok(None);
         };
 
-        let exists = resource.volume.inspect(ctx.client).await?.is_some();
+        let exists = resource
+            .volume
+            .inspect(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?
+            .is_some();
 
         AvailableVolume::new(&ctx.id)
             .send(ctx.device, exists)
@@ -80,7 +85,10 @@ where
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.volume.create(ctx.client).await?;
+        self.volume
+            .create(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         AvailableVolume::new(&ctx.id).send(ctx.device, true).await?;
 
@@ -92,7 +100,10 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.volume.remove(ctx.client).await?;
+        self.volume
+            .remove(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         Ok(())
     }

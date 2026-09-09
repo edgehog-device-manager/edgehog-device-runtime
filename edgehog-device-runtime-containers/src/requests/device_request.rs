@@ -53,7 +53,7 @@ pub(crate) mod tests {
 
     use super::*;
 
-    pub fn create_device_request(deployment_id: Uuid) -> CreateDeviceRequest {
+    pub(crate) fn create_device_request(deployment_id: Uuid) -> CreateDeviceRequest {
         CreateDeviceRequest {
             id: ReqUuid(Uuid::new_v4()),
             deployment_id: deployment_id.into(),
@@ -70,7 +70,7 @@ pub(crate) mod tests {
         }
     }
 
-    pub fn create_device_request_event(value: &CreateDeviceRequest) -> DeviceEvent {
+    pub(crate) fn create_device_request_event(value: &CreateDeviceRequest) -> DeviceEvent {
         let data = [
             ("id", AstarteData::from(value.id.to_string())),
             (
