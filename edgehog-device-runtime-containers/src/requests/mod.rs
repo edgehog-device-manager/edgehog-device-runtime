@@ -18,6 +18,7 @@
 
 //! Container requests sent from Astarte.
 
+use std::borrow::Cow;
 use std::{borrow::Borrow, fmt::Display, num::ParseIntError, ops::Deref};
 
 use astarte_device_sdk::astarte_device_error::{Error, WrapError};
@@ -31,12 +32,16 @@ use uuid::Uuid;
 
 use self::device_mapping::CreateDeviceMapping;
 use self::device_request::CreateDeviceRequest;
+use self::env_file::CreateEnvFile;
+use self::file_bind::CreateFileBind;
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
 
 pub mod container;
 pub mod deployment;
 pub mod device_mapping;
 pub mod device_request;
+pub mod env_file;
+pub mod file_bind;
 pub mod image;
 pub mod network;
 pub mod volume;
@@ -84,6 +89,10 @@ pub enum ContainerRequest {
     DeviceMapping(CreateDeviceMapping),
     /// Request to create a device request.
     DeviceRequest(CreateDeviceRequest),
+    /// Request to create a file bind.
+    FileBind(CreateFileBind),
+    /// Request to create an env file.
+    EnvFile(CreateEnvFile),
     /// Request to create a container.
     Container(Box<CreateContainer>),
     /// Request to create a deployment.
@@ -103,6 +112,8 @@ impl ContainerRequest {
             ContainerRequest::Container(value) => value.deployment_id.0,
             ContainerRequest::DeviceMapping(value) => value.deployment_id.0,
             ContainerRequest::DeviceRequest(value) => value.deployment_id.0,
+            ContainerRequest::FileBind(value) => value.deployment_id.0,
+            ContainerRequest::EnvFile(value) => value.deployment_id.0,
             ContainerRequest::Deployment(create_deployment) => create_deployment.id.0,
             ContainerRequest::DeploymentCommand(deployment_command) => deployment_command.id,
             ContainerRequest::DeploymentUpdate(deployment_update) => deployment_update.from,
@@ -129,6 +140,12 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.CreateDeviceRequest" => {
                 CreateDeviceRequest::from_event(value).map(ContainerRequest::DeviceRequest)
+            }
+            "io.edgehog.devicemanager.apps.CreateFileBindRequest" => {
+                CreateFileBind::from_event(value).map(ContainerRequest::FileBind)
+            }
+            "io.edgehog.devicemanager.apps.CreateEnvFileRequest" => {
+                CreateEnvFile::from_event(value).map(ContainerRequest::EnvFile)
             }
             "io.edgehog.devicemanager.apps.CreateContainerRequest" => {
                 CreateContainer::from_event(value)
@@ -290,6 +307,12 @@ impl From<OptString> for Option<String> {
     }
 }
 
+impl From<OptString> for Option<Cow<'static, str>> {
+    fn from(value: OptString) -> Self {
+        value.0.map(Cow::Owned)
+    }
+}
+
 impl From<OptString> for AstarteData {
     fn from(value: OptString) -> Self {
         AstarteData::String(value.0.unwrap_or_default())
@@ -305,6 +328,8 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use crate::requests::ContainerRequest;
+    use crate::requests::env_file::tests::{create_env_file_event, create_env_file_req};
+    use crate::requests::file_bind::tests::{create_file_bind_event, create_file_bind_req};
     use crate::requests::image::tests::create_image_req;
     use crate::requests::network::tests::create_network_req;
 
@@ -330,6 +355,30 @@ mod tests {
         let request = ContainerRequest::from_event(event).unwrap();
 
         assert_eq!(request, ContainerRequest::Network(expect));
+    }
+
+    #[test]
+    fn from_event_file_bind() {
+        let deployment_id = Uuid::new_v4();
+
+        let expect = create_file_bind_req(deployment_id);
+        let event = create_file_bind_event(&expect);
+
+        let request = ContainerRequest::from_event(event).unwrap();
+
+        assert_eq!(request, ContainerRequest::FileBind(expect));
+    }
+
+    #[test]
+    fn from_event_env_file() {
+        let deployment_id = Uuid::new_v4();
+
+        let expect = create_env_file_req(deployment_id);
+        let event = create_env_file_event(&expect);
+
+        let request = ContainerRequest::from_event(event).unwrap();
+
+        assert_eq!(request, ContainerRequest::EnvFile(expect));
     }
 
     #[test]

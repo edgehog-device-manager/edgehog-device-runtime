@@ -16,28 +16,44 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::ops::ControlFlow;
+
+use astarte_device_sdk::properties::PropAccess;
 use bollard::models::ContainerStateStatusEnum;
 use edgehog_store::models::containers::container::ContainerStatus;
 use tracing::{debug, warn};
 
-use crate::{
-    container::Container,
-    properties::{
-        AvailableProp, Client,
-        container::{AvailableContainer, ContainerStatus as PropertyStatus},
-    },
-};
+use crate::container::Container;
+use crate::properties::container::{AvailableContainer, ContainerStatus as PropertyStatus};
+use crate::properties::{AvailableProp, Client};
+use crate::resource::file_bind::FileBindResource;
 
+use super::env_file::EnvFileResource;
 use super::{Context, Create, Resource, ResourceError, Result, State};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ContainerResource {
     pub(crate) container: Container,
+    pub(crate) file_binds: Vec<FileBindResource<'static>>,
+    pub(crate) env_files: Vec<EnvFileResource<'static>>,
+    /// Flag to only once fetch the props
+    ///
+    /// We need to query the props only when creating the container.
+    props_fetched: bool,
 }
 
 impl ContainerResource {
-    fn new(container: Container) -> Self {
-        Self { container }
+    pub(crate) fn new(
+        container: Container,
+        file_binds: Vec<FileBindResource<'static>>,
+        env_files: Vec<EnvFileResource<'static>>,
+    ) -> Self {
+        Self {
+            container,
+            file_binds,
+            env_files,
+            props_fetched: false,
+        }
     }
 
     async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> Result<std::convert::Infallible>
@@ -62,7 +78,11 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        let container = self.container.start(ctx.client).await?;
+        let container = self
+            .container
+            .start(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         if container.is_none() {
             return self.mark_missing(ctx).await.map(|_| ());
@@ -83,7 +103,11 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        let container = self.container.stop(ctx.client).await?;
+        let container = self
+            .container
+            .stop(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         if container.is_none() {
             return self.mark_missing(ctx).await.map(|_| ());
@@ -104,7 +128,13 @@ impl ContainerResource {
     where
         D: Client + Send + Sync + 'static,
     {
-        let Some(inspect) = self.container.inspect(ctx.client).await? else {
+        let resp = self
+            .container
+            .inspect(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
+
+        let Some(inspect) = resp else {
             debug!("container deleted");
 
             AvailableContainer::new(&ctx.id)
@@ -142,11 +172,44 @@ impl ContainerResource {
 
         Ok(exists)
     }
+
+    async fn fetch_props<D>(&mut self, ctx: &Context<'_, D>) -> Result<()>
+    where
+        D: PropAccess + Send + Sync + 'static,
+    {
+        if self.props_fetched {
+            return Ok(());
+        }
+
+        self.props_fetched = true;
+
+        for file_bind in &self.file_binds {
+            let bind = file_bind.to_container_bind(ctx).await?;
+            self.container.add_binds(std::iter::once(bind));
+        }
+
+        for env_file in &self.env_files {
+            let mut reader = env_file.open(ctx).await?;
+
+            while let ControlFlow::Continue(opt) = reader
+                .next_env()
+                .await
+                .map_err(|err| err.into_resource_err(env_file.inner.id.0))?
+            {
+                if let Some(env) = opt {
+                    self.container
+                        .add_env_vars(std::iter::once(env.to_string()));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<D> Resource<D> for ContainerResource
 where
-    D: Client + Send + Sync + 'static,
+    D: Client + PropAccess + Send + Sync + 'static,
 {
     async fn publish(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableContainer::new(&ctx.id)
@@ -165,32 +228,35 @@ where
 
 impl<D> Create<D> for ContainerResource
 where
-    D: Client + Send + Sync + 'static,
+    D: Client + PropAccess + Send + Sync + 'static,
 {
     const RESOURCE_NAME: &str = "container";
 
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<Option<(State, Self)>> {
-        let Some(container) = ctx.store.find_container(ctx.id).await? else {
+        let Some(mut this) = ctx.store.find_container(ctx.id).await? else {
             return Ok(None);
         };
 
-        let mut resource = ContainerResource::new(container);
-
-        let exists = resource.update_status(ctx).await?;
+        let exists = this.update_status(ctx).await?;
 
         if exists {
             ctx.store
-                .update_container_local_id(ctx.id, resource.container.id.id.clone())
+                .update_container_local_id(ctx.id, this.container.id.id.clone())
                 .await?;
 
-            Ok(Some((State::Created, resource)))
+            Ok(Some((State::Created, this)))
         } else {
-            Ok(Some((State::Missing, resource)))
+            Ok(Some((State::Missing, this)))
         }
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.container.create(ctx.client).await?;
+        self.fetch_props(ctx).await?;
+
+        self.container
+            .create(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         ctx.store
             .update_container_local_id(ctx.id, self.container.id.id.clone())
@@ -208,9 +274,15 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.container.stop(ctx.client).await?;
+        self.container
+            .stop(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
-        self.container.remove(ctx.client).await?;
+        self.container
+            .remove(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         Ok(())
     }

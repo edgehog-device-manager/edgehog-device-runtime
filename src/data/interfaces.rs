@@ -235,6 +235,16 @@ fn add_containers<C, S>(
     const APPS_CREATE_VOLUME_REQUEST: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.apps.CreateVolumeRequest.json"
     );
+    const APPS_CREATE_FILE_BIND_REQUEST: &str = include_str!(
+        "../../deps/interfaces/io.edgehog.devicemanager.apps.CreateFileBindRequest.json"
+    );
+    const APPS_AVAILABLE_FILE_BINDS: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableFileBinds.json");
+    const APPS_CREATE_ENV_FILE_REQUEST: &str = include_str!(
+        "../../deps/interfaces/io.edgehog.devicemanager.apps.CreateEnvFileRequest.json"
+    );
+    const APPS_AVAILABLE_ENV_FILES: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableEnvFiles.json");
     const APPS_DEPLOYMENT_COMMAND: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentCommand.json");
     const APPS_DEPLOYMENT_EVENT: &str =
@@ -277,6 +287,10 @@ fn add_containers<C, S>(
             .interface_str(APPS_CREATE_IMAGE_REQUEST)?
             .interface_str(APPS_CREATE_NETWORK_REQUEST)?
             .interface_str(APPS_CREATE_VOLUME_REQUEST)?
+            .interface_str(APPS_CREATE_FILE_BIND_REQUEST)?
+            .interface_str(APPS_AVAILABLE_FILE_BINDS)?
+            .interface_str(APPS_CREATE_ENV_FILE_REQUEST)?
+            .interface_str(APPS_AVAILABLE_ENV_FILES)?
             .interface_str(APPS_DEPLOYMENT_COMMAND)?
             .interface_str(APPS_DEPLOYMENT_EVENT)?
             .interface_str(APPS_DEPLOYMENT_UPDATE)?
