@@ -1362,6 +1362,7 @@ dependencies = [
  "itertools 0.15.0",
  "mockall",
  "pretty_assertions",
+ "rstest",
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",

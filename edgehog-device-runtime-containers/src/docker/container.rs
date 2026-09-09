@@ -352,11 +352,11 @@ impl Container {
         endpoint_config.extend(iter);
     }
 
-    pub(crate) fn add_env_vars(&mut self, envs: Vec<String>) {
+    pub(crate) fn add_env_vars(&mut self, envs: impl IntoIterator<Item = String>) {
         self.req.env.get_or_insert_default().extend(envs);
     }
 
-    pub(crate) fn add_binds(&mut self, binds: Vec<String>) {
+    pub(crate) fn add_binds(&mut self, binds: impl IntoIterator<Item = String>) {
         self.req
             .host_config
             .get_or_insert_default()

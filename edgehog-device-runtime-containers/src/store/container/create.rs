@@ -41,6 +41,10 @@ use edgehog_store::models::containers::container::{
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
 use edgehog_store::models::containers::device_request::DeviceRequest;
+use edgehog_store::models::containers::file_bind::{
+    ContainerEnvFile, ContainerFileBind, ContainerMissingEnvFile, ContainerMissingFileBind,
+    EnvFile, FileBind,
+};
 use edgehog_store::models::containers::image::Image;
 use edgehog_store::models::containers::network::Network;
 use edgehog_store::models::containers::volume::Volume;
@@ -50,11 +54,13 @@ use edgehog_store::schema::containers::{
     container_blkio_device_write_iops, container_blkio_weight_device, container_cmds,
     container_device_cgroup_rules, container_device_mappings, container_device_requests,
     container_dns, container_dns_options, container_dns_search, container_drop_capabilities,
-    container_entrypoints, container_env, container_exposed_ports, container_extra_hosts,
-    container_group_add, container_healthcheck_test, container_labels, container_log_config,
-    container_masked_paths, container_missing_device_mappings, container_missing_device_requests,
-    container_missing_images, container_missing_networks, container_missing_volumes,
-    container_networks, container_port_bindings, container_readonly_paths, container_securityopts,
+    container_entrypoints, container_env, container_env_files, container_exposed_ports,
+    container_extra_hosts, container_file_binds, container_group_add, container_healthcheck_test,
+    container_labels, container_log_config, container_masked_paths,
+    container_missing_device_mappings, container_missing_device_requests,
+    container_missing_env_files, container_missing_file_binds, container_missing_images,
+    container_missing_networks, container_missing_volumes, container_networks,
+    container_port_bindings, container_readonly_paths, container_securityopts,
     container_storage_options, container_sysctls, container_tmpfs, container_ulimits,
     container_volumes, containers, deployment_containers,
 };
@@ -120,6 +126,8 @@ impl StateStore {
                     volume_ids,
                     device_mapping_ids,
                     device_request_ids,
+                    file_bind_ids,
+                    env_file_ids,
                     env,
                     binds,
                     port_bindings,
@@ -594,6 +602,47 @@ impl StateStore {
                     }
                 }
 
+                for file_bind_id in map_uuids_vec_to_sql(file_bind_ids) {
+                    let file_bind_exists: bool =
+                        FileBind::exists(&file_bind_id).get_result(writer)?;
+
+                    if !file_bind_exists {
+                        insert_or_ignore_into(container_missing_file_binds::table)
+                            .values(ContainerMissingFileBind {
+                                container_id,
+                                file_bind_id,
+                            })
+                            .execute(writer)?;
+                    } else {
+                        insert_or_ignore_into(container_file_binds::table)
+                            .values(ContainerFileBind {
+                                container_id,
+                                file_bind_id,
+                            })
+                            .execute(writer)?;
+                    }
+                }
+
+                for env_file_id in map_uuids_vec_to_sql(env_file_ids) {
+                    let env_file_exists: bool = EnvFile::exists(&env_file_id).get_result(writer)?;
+
+                    if !env_file_exists {
+                        insert_or_ignore_into(container_missing_env_files::table)
+                            .values(ContainerMissingEnvFile {
+                                container_id,
+                                env_file_id,
+                            })
+                            .execute(writer)?;
+                    } else {
+                        insert_or_ignore_into(container_env_files::table)
+                            .values(ContainerEnvFile {
+                                container_id,
+                                env_file_id,
+                            })
+                            .execute(writer)?;
+                    }
+                }
+
                 // Update deployment missing container
                 insert_or_ignore_into(deployment_containers::table)
                     .values(DeploymentMissingContainer::find_by_container(&container_id))
@@ -804,11 +853,18 @@ pub(crate) mod tests {
     use crate::requests::container::tests::create_container_req;
     use crate::requests::device_mapping::tests::create_device_mapping_req;
     use crate::requests::device_request::tests::create_device_request;
+    use crate::requests::env_file::tests::create_env_file_req;
+    use crate::requests::file_bind::tests::create_file_bind_req;
     use crate::requests::image::CreateImage;
     use crate::requests::image::tests::create_image_req;
     use crate::requests::network::tests::create_network_req;
     use crate::requests::volume::tests::create_volume_req;
+    use crate::resource::container::ContainerResource;
+    use crate::resource::env_file::EnvFileResource;
+    use crate::resource::file_bind::FileBindResource;
     use crate::store::container::tests::find_container;
+    use crate::store::env_file::tests::env_file_to_store;
+    use crate::store::file_bind::tests::file_bind_to_store;
 
     use super::*;
 
@@ -874,6 +930,8 @@ pub(crate) mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(
             deployment_id,
             &image,
@@ -881,6 +939,8 @@ pub(crate) mod tests {
             &network,
             &device_mapping,
             &device_request,
+            &file_bind,
+            &env_file,
         );
 
         let container_id = container.id.0;
@@ -890,6 +950,8 @@ pub(crate) mod tests {
         store.create_network(network).await.unwrap();
         store.create_device_mapping(device_mapping).await.unwrap();
         store.create_device_request(device_request).await.unwrap();
+        store.create_file_bind(file_bind.clone()).await.unwrap();
+        store.create_env_file(env_file.clone()).await.unwrap();
 
         store
             .create_container(Box::new(container.clone()))
@@ -901,9 +963,14 @@ pub(crate) mod tests {
 
         assert_eq!(res, exp);
 
-        let exp = create_container_resource(&container);
-
         let res = store.find_container(container.id.0).await.unwrap().unwrap();
+
+        let exp = ContainerResource::new(
+            create_container_resource(&container),
+            vec![FileBindResource::new(file_bind_to_store(file_bind))],
+            vec![EnvFileResource::new(env_file_to_store(env_file))],
+        );
+
         assert_eq!(res, exp);
     }
 }

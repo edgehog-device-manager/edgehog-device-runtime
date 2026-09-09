@@ -85,4 +85,10 @@ only_tables = [
   "networks",
   "volume_driver_opts",
   "volumes",
+  "file_binds",
+  "container_file_binds",
+  "missing_container_file_binds",
+  "env_files",
+  "container_env_files",
+  "missing_container_env_files",
 ]

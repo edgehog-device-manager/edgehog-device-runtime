@@ -44,6 +44,8 @@ pub struct CreateContainer {
     pub(crate) volume_ids: Option<VecReqUuid>,
     pub(crate) device_mapping_ids: Option<VecReqUuid>,
     pub(crate) device_request_ids: Option<VecReqUuid>,
+    pub(crate) file_bind_ids: Option<VecReqUuid>,
+    pub(crate) env_file_ids: Option<VecReqUuid>,
     pub(crate) hostname: Option<String>,
     pub(crate) restart_policy: Option<String>,
     pub(crate) env: Option<Vec<String>>,
@@ -241,6 +243,10 @@ pub(crate) mod tests {
     use crate::requests::device_mapping::tests::create_device_mapping_req;
     use crate::requests::device_request::CreateDeviceRequest;
     use crate::requests::device_request::tests::create_device_request;
+    use crate::requests::env_file::CreateEnvFile;
+    use crate::requests::env_file::tests::create_env_file_req;
+    use crate::requests::file_bind::CreateFileBind;
+    use crate::requests::file_bind::tests::create_file_bind_req;
     use crate::requests::image::CreateImage;
     use crate::requests::image::tests::create_image_req;
     use crate::requests::network::CreateNetwork;
@@ -250,6 +256,7 @@ pub(crate) mod tests {
 
     use super::*;
 
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn create_container_req(
         deployment_id: Uuid,
         image: &CreateImage,
@@ -257,6 +264,8 @@ pub(crate) mod tests {
         network: &CreateNetwork,
         device_mapping: &CreateDeviceMapping,
         device_request: &CreateDeviceRequest,
+        file_bind: &CreateFileBind,
+        env_file: &CreateEnvFile,
     ) -> CreateContainer {
         CreateContainer {
             id: ReqUuid(Uuid::new_v4()),
@@ -266,6 +275,8 @@ pub(crate) mod tests {
             volume_ids: Some(VecReqUuid(vec![volume.id])),
             device_mapping_ids: Some(VecReqUuid(vec![device_mapping.id])),
             device_request_ids: Some(VecReqUuid(vec![device_request.id])),
+            file_bind_ids: Some(VecReqUuid(vec![file_bind.id])),
+            env_file_ids: Some(VecReqUuid(vec![env_file.id])),
             hostname: Some("database".to_string()),
             restart_policy: Some("unless-stopped".to_string()),
             env: Some(
@@ -376,6 +387,16 @@ pub(crate) mod tests {
             .iter()
             .flat_map(|i| i.iter().map(|id| id.to_string()))
             .collect();
+        let file_bind_ids = container
+            .file_bind_ids
+            .iter()
+            .flat_map(|i| i.iter().map(|id| id.to_string()))
+            .collect();
+        let env_file_ids = container
+            .env_file_ids
+            .iter()
+            .flat_map(|i| i.iter().map(|id| id.to_string()))
+            .collect();
 
         let fields = [
             ("id", AstarteData::String(container.id.to_string())),
@@ -397,6 +418,8 @@ pub(crate) mod tests {
                 "deviceRequestIds",
                 AstarteData::StringArray(device_request_ids),
             ),
+            ("fileBindIds", AstarteData::StringArray(file_bind_ids)),
+            ("envFileIds", AstarteData::StringArray(env_file_ids)),
             ("hostname", AstarteData::String("database".to_string())),
             (
                 "restartPolicy",
@@ -626,6 +649,8 @@ pub(crate) mod tests {
         let volume = &create_volume_req(deployment_id.0);
         let device_mapping = create_device_mapping_req(deployment_id.0);
         let device_request = create_device_request(deployment_id.0);
+        let file_bind = create_file_bind_req(deployment_id.0);
+        let env_file = create_env_file_req(deployment_id.0);
 
         let expect = create_container_req(
             deployment_id.0,
@@ -634,6 +659,8 @@ pub(crate) mod tests {
             &network,
             &device_mapping,
             &device_request,
+            &file_bind,
+            &env_file,
         );
 
         let event = create_container_request_event(&expect);

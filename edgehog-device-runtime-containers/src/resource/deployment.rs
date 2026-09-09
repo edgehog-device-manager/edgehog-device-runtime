@@ -18,15 +18,12 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use edgehog_store::{
-    conversions::SqlUuid,
-    models::containers::{
-        container::{
-            ContainerDeviceMapping, ContainerDeviceRequest, ContainerNetwork, ContainerVolume,
-        },
-        deployment::DeploymentStatus,
-    },
+use edgehog_store::conversions::SqlUuid;
+use edgehog_store::models::containers::container::{
+    ContainerDeviceMapping, ContainerDeviceRequest, ContainerNetwork, ContainerVolume,
 };
+use edgehog_store::models::containers::deployment::DeploymentStatus;
+use edgehog_store::models::containers::file_bind::{ContainerEnvFile, ContainerFileBind};
 use uuid::Uuid;
 
 use crate::properties::{
@@ -47,6 +44,8 @@ pub(crate) type DeploymentRow = (
     Option<ContainerVolume>,
     Option<ContainerDeviceMapping>,
     Option<ContainerDeviceRequest>,
+    Option<ContainerFileBind>,
+    Option<ContainerEnvFile>,
 );
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -57,6 +56,8 @@ pub(crate) struct Deployment {
     pub(crate) networks: HashSet<Uuid>,
     pub(crate) device_mappings: HashSet<Uuid>,
     pub(crate) device_requests: HashSet<Uuid>,
+    pub(crate) file_binds: HashSet<Uuid>,
+    pub(crate) env_files: HashSet<Uuid>,
 }
 
 impl From<Vec<DeploymentRow>> for Deployment {
@@ -72,6 +73,8 @@ impl From<Vec<DeploymentRow>> for Deployment {
                 c_volume,
                 c_device_mapping,
                 c_device_request,
+                c_file_bind,
+                c_env_file,
             )| {
                 acc.containers.insert(idx, *container_id);
                 acc.images.insert(*image_id);
@@ -92,6 +95,14 @@ impl From<Vec<DeploymentRow>> for Deployment {
                 if let Some(c_device_request) = c_device_request {
                     acc.device_requests
                         .insert(*c_device_request.device_request_id);
+                }
+
+                if let Some(c_file_bind) = c_file_bind {
+                    acc.file_binds.insert(c_file_bind.file_bind_id.0);
+                }
+
+                if let Some(c_env_file) = c_env_file {
+                    acc.env_files.insert(c_env_file.env_file_id.0);
                 }
 
                 acc

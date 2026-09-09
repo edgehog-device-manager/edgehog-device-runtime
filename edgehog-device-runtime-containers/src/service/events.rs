@@ -112,6 +112,12 @@ impl<D> ServiceHandle<D> {
                     .create_device_request(create_device_request)
                     .await
             }
+            ContainerRequest::FileBind(create_file_bind) => {
+                self.store.create_file_bind(create_file_bind).await
+            }
+            ContainerRequest::EnvFile(create_env_file) => {
+                self.store.create_env_file(create_env_file).await
+            }
             ContainerRequest::Container(create_container) => {
                 self.store.create_container(create_container).await
             }
@@ -203,6 +209,22 @@ impl From<&ContainerRequest> for ContainerEvent {
                     deployment: create_device_request.deployment_id.0,
                 }
             }
+            ContainerRequest::FileBind(create_file_bind) => {
+                let resource = Id::new(ResourceType::FileBind, create_file_bind.id.0);
+
+                ContainerEvent::Resource {
+                    resource,
+                    deployment: create_file_bind.deployment_id.0,
+                }
+            }
+            ContainerRequest::EnvFile(create_env_file) => {
+                let resource = Id::new(ResourceType::EnvFile, create_env_file.id.0);
+
+                ContainerEvent::Resource {
+                    resource,
+                    deployment: create_env_file.deployment_id.0,
+                }
+            }
             ContainerRequest::Container(create_container) => {
                 let resource = Id::new(ResourceType::Container, create_container.id.0);
 
@@ -232,5 +254,90 @@ impl From<CommandValue> for DeploymentStatus {
             CommandValue::Stop => Self::Stopped,
             CommandValue::Delete => Self::Deleted,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::requests::container::CreateContainer;
+    use crate::requests::container::tests::create_container_req;
+    use crate::requests::device_mapping::tests::create_device_mapping_req;
+    use crate::requests::device_request::tests::create_device_request;
+    use crate::requests::env_file::tests::create_env_file_req;
+    use crate::requests::file_bind::tests::create_file_bind_req;
+    use crate::requests::image::tests::create_image_req;
+    use crate::requests::network::tests::create_network_req;
+    use crate::requests::volume::tests::create_volume_req;
+
+    use super::*;
+
+    const RESOURCE_ID: Uuid = uuid::uuid!("11017edd-9738-4617-bcd3-9fdd12dce5a5");
+    const DEPLOYMENT_ID: Uuid = uuid::uuid!("923f765a-3bbb-4252-be88-b2c85e1d9911");
+
+    fn mock_container_req() -> Box<CreateContainer> {
+        Box::new(create_container_req(
+            DEPLOYMENT_ID,
+            &create_image_req(DEPLOYMENT_ID),
+            &create_volume_req(DEPLOYMENT_ID),
+            &create_network_req(DEPLOYMENT_ID),
+            &create_device_mapping_req(DEPLOYMENT_ID),
+            &create_device_request(DEPLOYMENT_ID),
+            &create_file_bind_req(DEPLOYMENT_ID),
+            &create_env_file_req(DEPLOYMENT_ID),
+        ))
+    }
+
+    #[rstest]
+    #[case(ContainerRequest::Image(create_image_req(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::Image, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::Volume(create_volume_req(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::Volume, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::Network(create_network_req(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::Network, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::DeviceMapping(create_device_mapping_req(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::DeviceMapping, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::DeviceRequest(create_device_request(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::DeviceRequest, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::FileBind(create_file_bind_req(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::FileBind, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::EnvFile(create_env_file_req(DEPLOYMENT_ID)), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::EnvFile, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    #[case(ContainerRequest::Container(mock_container_req()), ContainerEvent::Resource {
+        resource: Id::new(ResourceType::Container, RESOURCE_ID),
+        deployment: DEPLOYMENT_ID,
+    })]
+    fn event_from_request(#[case] case: ContainerRequest, #[case] exp: ContainerEvent) {
+        let res = ContainerEvent::from(&case);
+
+        assert_eq!(res, exp);
+    }
+
+    #[rstest]
+    #[case(CommandValue::Start, DeploymentStatus::Started)]
+    #[case(CommandValue::Stop, DeploymentStatus::Stopped)]
+    #[case(CommandValue::Delete, DeploymentStatus::Deleted)]
+    fn deployment_status_from_command_value(
+        #[case] case: CommandValue,
+        #[case] exp: DeploymentStatus,
+    ) {
+        let res = DeploymentStatus::from(case);
+
+        assert_eq!(res, exp);
     }
 }
