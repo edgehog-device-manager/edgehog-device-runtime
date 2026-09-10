@@ -76,7 +76,7 @@ pub struct DeviceManagerOptions {
     pub file_transfer: self::file_transfer::config::FileTransferArgs,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     pub ota: self::ota::config::OtaConfig,
-    pub interfaces_directory: PathBuf,
+    pub interfaces_directory: Option<PathBuf>,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
     pub telemetry_config: Option<Vec<TelemetryInterfaceConfig<'static>>>,

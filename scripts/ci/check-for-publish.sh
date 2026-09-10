@@ -62,7 +62,7 @@ pkgsFiles=$(
         sort
 )
 localFiles=$(
-    git ls-files -cdmo | sort -u
+    git ls-files --recurse-submodules --cached --no-deleted | sort -u
 )
 
 # List files unique to localFiles and not present in pkgsFiles
