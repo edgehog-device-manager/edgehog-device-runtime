@@ -21,31 +21,20 @@
 use std::path::Path;
 
 use astarte_device_sdk::DeviceClient;
-use astarte_device_sdk::astarte_device_error::Error;
 use astarte_device_sdk::builder::DeviceBuilder;
-use astarte_device_sdk::error::AstarteError;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
-use astarte_device_sdk::transport::grpc::error::GrpcError;
 use astarte_device_sdk::transport::grpc::{Grpc, GrpcConfig};
+use eyre::Context;
 use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 use uuid::{Uuid, uuid};
 
+use super::interfaces::add_interfaces;
+
 /// Device runtime node identifier.
 const DEVICE_RUNTIME_NODE_UUID: Uuid = uuid!("d72a6187-7cf1-44cc-87e8-e991936166db");
-
-/// Error returned by the [`astarte_device_sdk`].
-#[derive(Debug, thiserror::Error, displaydoc::Display)]
-pub enum MessageHubError {
-    /// missing configuration for the Astarte Message Hub
-    MissingConfig,
-    /// couldn't connect to Astarte
-    Connect(#[from] AstarteError),
-    /// Invalid endpoint
-    Endpoint(#[from] Error<GrpcError>),
-}
 
 /// Struct containing the configuration options for the Astarte message hub.
 #[derive(Debug, Deserialize, Clone)]
@@ -59,21 +48,22 @@ impl AstarteMessageHubOptions {
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        interface_dir: P,
-    ) -> Result<DeviceClient<Grpc<SqliteStore>>, MessageHubError>
+        store_dir: P,
+    ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>>
     where
         P: AsRef<Path>,
     {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
-            .map_err(MessageHubError::Endpoint)?;
+            .wrap_err("invalid message-hub endpoint")?;
 
-        let (device, connection) = DeviceBuilder::new()
+        let (device, connection) = add_interfaces(DeviceBuilder::new())
+            .wrap_err("couldn't add interfaces")?
+            .writable_dir(store_dir)
             .store(store)
-            .interface_directory(interface_dir)?
             .connection(grpc_cfg)
             .build()
             .await
-            .map_err(MessageHubError::Connect)?;
+            .wrap_err("couldn't connect to Astarte")?;
 
         tasks.spawn(async move { connection.handle_events().await.map_err(Into::into) });
 
