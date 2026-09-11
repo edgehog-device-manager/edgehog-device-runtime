@@ -20,7 +20,7 @@ use std::io;
 
 use astarte_device_sdk::AstarteData;
 use astarte_device_sdk::{IntoAstarteObject, aggregate::AstarteObject};
-use tracing::instrument;
+use tracing::{instrument, trace};
 use uuid::Uuid;
 
 use crate::file_transfer::errno;
@@ -87,6 +87,8 @@ impl FileTransferResponse {
     where
         C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
+        trace!("sending response");
+
         device
             .send_object(Self::INTERFACE, "/request", AstarteObject::try_from(self)?)
             .await

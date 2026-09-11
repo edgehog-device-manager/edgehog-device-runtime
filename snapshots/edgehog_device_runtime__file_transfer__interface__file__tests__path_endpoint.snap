@@ -1,0 +1,5 @@
+---
+source: src/file_transfer/interface/file.rs
+expression: endpoint
+---
+/testfile.txt/pathOnDevice
