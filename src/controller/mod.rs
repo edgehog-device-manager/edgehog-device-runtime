@@ -155,6 +155,7 @@ impl<C> Runtime<C> {
                 notify_cleanup,
                 cancel.child_token(),
             )
+            .await
             .wrap_err("could't initialize file transfer")?;
 
             (storage_manager, file_transfer)
@@ -245,7 +246,7 @@ impl<C> Runtime<C> {
     }
 
     #[cfg(feature = "file-transfer")]
-    fn file_transfer(
+    async fn file_transfer(
         device: C,
         config: crate::file_transfer::config::FileTransferArgs,
         tasks: &mut JoinSet<eyre::Result<()>>,
@@ -277,17 +278,17 @@ impl<C> Runtime<C> {
 
         let (progress_tx, progress_rx) = tokio::sync::watch::channel(None);
 
+        let file_transfer = FileTransfer::create(
+            jobs.clone(),
+            config,
+            device.clone(),
+            progress_tx,
+            notify_cleanup,
+        )
+        .await?;
+
         tasks.spawn(ProgressTracker::create(device.clone()).run(progress_rx, cancel.clone()));
-        tasks.spawn(
-            FileTransfer::create(
-                jobs.clone(),
-                config,
-                device.clone(),
-                progress_tx,
-                notify_cleanup,
-            )?
-            .run(Arc::clone(&job_notify), cancel.clone()),
-        );
+        tasks.spawn(file_transfer.run(Arc::clone(&job_notify), cancel.clone()));
         tasks
             .spawn(file_transfer::Receiver::new(jobs, job_notify, device).run(transfer_rx, cancel));
 

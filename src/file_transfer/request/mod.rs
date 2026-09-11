@@ -224,7 +224,8 @@ mod tests {
         pub(crate) fn target(&self) -> String {
             match self {
                 Request::Download(download) => match &download.destination {
-                    download::Destination::Storage => String::new(),
+                    // target for storage is ignored in these tests
+                    download::Destination::Storage { .. } => String::new(),
                     download::Destination::Stream => String::new(),
                     download::Destination::FileSystem { path } => {
                         path.to_string_lossy().to_string()

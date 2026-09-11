@@ -63,6 +63,7 @@ pub(crate) struct WriteHandle {
 }
 
 impl WriteHandle {
+    pub(crate) const MIGRATION_FILE_NAME: &str = "file";
     pub(crate) const PARTIAL_EXT: &str = ".part";
     pub(crate) const PARTIAL: &str = "part";
 
@@ -119,12 +120,21 @@ impl WriteHandle {
         file_options
     }
 
-    #[instrument(skip(opt))]
-    pub(crate) async fn open(path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
-        // Set partial extension
-        let mut partial = path.clone().into_os_string();
+    pub(crate) async fn with_path(file_path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
+        let mut partial = file_path.clone().into_os_string();
         partial.push(Self::PARTIAL_EXT);
         let partial = PathBuf::from(partial);
+
+        Self::open(file_path, partial, opt).await
+    }
+
+    #[instrument(skip(opt))]
+    pub(crate) async fn open(
+        path: PathBuf,
+        partial: PathBuf,
+        opt: &FileOptions,
+    ) -> io::Result<Self> {
+        trace!(path = %partial.display(), "opening partial for writing and reading");
 
         // TODO: flock the file?
         let file = Self::open_options(opt).open(&partial).await?;
@@ -132,8 +142,6 @@ impl WriteHandle {
         let current_size = file.metadata().await?.len();
 
         trace!(current_size, "reading existing content");
-
-        trace!("returning the handle");
 
         Ok(WriteHandle {
             path,
@@ -157,6 +165,10 @@ impl WriteHandle {
 
     #[instrument(skip_all)]
     async fn move_part(&mut self, opt: &FileOptions) -> io::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
         let from = &self.partial;
         let to = &self.path;
 
