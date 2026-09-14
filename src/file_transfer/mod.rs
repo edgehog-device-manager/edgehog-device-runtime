@@ -436,10 +436,6 @@ impl<F, S, C> FileTransfer<F, S, C> {
         if WriteHandle::try_exists(&path, download.digest_type, &download.digest).await? {
             info!("file already exists");
 
-            if let Some(ttl) = download.ttl {
-                self.queue_cleanup(download, ttl).await?;
-            }
-
             return Ok(());
         }
 
@@ -457,10 +453,6 @@ impl<F, S, C> FileTransfer<F, S, C> {
             error!(%error, "error while finalizing write");
             file.cleanup().await?;
             return Err(eyre!(error));
-        }
-
-        if let Some(ttl) = download.ttl {
-            self.queue_cleanup(download, ttl).await?;
         }
 
         Ok(())
