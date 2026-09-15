@@ -46,7 +46,7 @@ annotate() {
         echo "skipping test snapshot files"
         return
     fi
-    if [[ "$*" == migrations/**.sql || "$*" == queries/**.sql ]]; then
+    if [[ "$*" == *.sql ]]; then
         echo "skipping sql files"
         return
     fi

@@ -16,18 +16,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#[cfg(any(feature = "file-transfer", feature = "zbus"))]
-pub(crate) fn default_http_client_builder() -> Result<reqwest::ClientBuilder, rustls::Error> {
-    // TODO move tls initialization in the main function to keep a single instance
-    let tls = astarte_device_tls::config()?;
-    let client = reqwest::Client::builder()
-        .use_preconfigured_tls(tls)
-        .redirect(reqwest::redirect::Policy::limited(3))
-        .user_agent(concat!(
-            env!("CARGO_PKG_NAME"),
-            "/",
-            env!("CARGO_PKG_VERSION")
-        ));
-
-    Ok(client)
+fn main() {
+    // Used to re-run `diesel_migrations::embed_migrations!`, see the doc
+    println!("cargo:rerun-if-changed=migrations/runtime/");
+    #[cfg(feature = "containers")]
+    println!("cargo:rerun-if-changed=migrations/containers/");
 }

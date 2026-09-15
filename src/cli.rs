@@ -75,6 +75,7 @@ pub enum Command {
 pub struct SharedArgs {
     /// Directory containing the Astarte interfaces.
     #[arg(short, long, env = "EDGEHOG_INTERFACES_DIR")]
+    #[deprecated(note = "the interfaces are included in the binary")]
     pub interfaces_dir: Option<PathBuf>,
     /// Directory used to retain configurations and other persistent data.
     #[arg(short, long, env = "EDGEHOG_STORE_DIR")]

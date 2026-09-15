@@ -22,7 +22,7 @@ use edgehog_device_runtime::telemetry::TelemetryInterfaceConfig;
 use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions};
 use eyre::{OptionExt, ensure};
 use serde::Deserialize;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::cli::{Cli, Command, DeviceSdkArgs, OverrideOption};
 
@@ -47,6 +47,7 @@ pub struct Config {
     #[cfg(feature = "file-transfer")]
     pub file_transfer: Option<edgehog_device_runtime::file_transfer::config::FileTransferConfig>,
 
+    #[deprecated(note = "the interfaces are included in the binary")]
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
     pub download_directory: Option<PathBuf>,
@@ -90,6 +91,13 @@ impl TryFrom<Config> for DeviceManagerOptions {
                 &store_directory,
             );
 
+        #[expect(deprecated)]
+        if value.interfaces_directory.is_some() {
+            warn!(
+                "DEPRECATED: the interface directory is no longer used, the interfaces are included in the binary"
+            )
+        }
+
         Ok(Self {
             astarte_library,
             astarte_device_sdk,
@@ -103,7 +111,6 @@ impl TryFrom<Config> for DeviceManagerOptions {
             ota,
             #[cfg(feature = "file-transfer")]
             file_transfer,
-            interfaces_directory: value.interfaces_directory,
             store_directory,
             download_directory,
             telemetry_config: value.telemetry_config,
@@ -153,6 +160,7 @@ pub async fn read_options(cli: Cli) -> eyre::Result<DeviceManagerOptions> {
                 config.astarte_device_sdk = Some(device);
             }
 
+            #[expect(deprecated)]
             config.interfaces_directory.merge(shared.interfaces_dir);
             config.store_directory.merge(shared.store_dir);
         }
@@ -171,6 +179,7 @@ pub async fn read_options(cli: Cli) -> eyre::Result<DeviceManagerOptions> {
             }
 
             if let Some(shared) = cli.shared {
+                #[expect(deprecated)]
                 config.interfaces_directory.merge(shared.interfaces_dir);
                 config.store_directory.merge(shared.store_dir);
             }
@@ -183,6 +192,7 @@ pub async fn read_options(cli: Cli) -> eyre::Result<DeviceManagerOptions> {
                 config.astarte_message_hub = Some(msghub);
             }
 
+            #[expect(deprecated)]
             config.interfaces_directory.merge(shared.interfaces_dir);
             config.store_directory.merge(shared.store_dir);
         }
