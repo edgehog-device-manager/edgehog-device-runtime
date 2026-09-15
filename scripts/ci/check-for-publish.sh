@@ -54,7 +54,6 @@ pkgsFiles=$(
         <(listPackage "edgehog-device-runtime-forwarder") \
         <(listPackage "edgehog-device-runtime-service") \
         <(listPackage "edgehog-device-runtime-store") \
-        <(listPackage "edgehog-device-runtime-tls") \
         <(listPackage "edgehogctl") \
         <(listPackage "hardware-id-service") \
         <(listPackage "led-manager-service") \
