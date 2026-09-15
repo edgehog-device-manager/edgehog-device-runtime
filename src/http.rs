@@ -19,7 +19,7 @@
 #[cfg(any(feature = "file-transfer", feature = "zbus"))]
 pub(crate) fn default_http_client_builder() -> Result<reqwest::ClientBuilder, rustls::Error> {
     // TODO move tls initialization in the main function to keep a single instance
-    let tls = edgehog_tls::config()?;
+    let tls = astarte_device_tls::config()?;
     let client = reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .redirect(reqwest::redirect::Policy::limited(3))

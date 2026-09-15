@@ -415,7 +415,7 @@ impl HttpRequest {
         url.set_path(&path);
         url.set_query((!query_string.is_empty()).then_some(&query_string));
 
-        let tls = edgehog_tls::config().map_err(|error| {
+        let tls = astarte_device_tls::config().map_err(|error| {
             error!(%error, "couldn't configure TLS");
 
             ProtocolError::ReqBuild(", configure TLS")

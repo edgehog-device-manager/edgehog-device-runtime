@@ -249,7 +249,7 @@ impl Download {
         };
 
         let client = reqwest::Client::builder()
-            .use_preconfigured_tls(edgehog_tls::config()?)
+            .use_preconfigured_tls(astarte_device_tls::config()?)
             .build()?;
 
         let url = self
@@ -327,7 +327,7 @@ impl Upload {
         };
 
         let client = reqwest::Client::builder()
-            .use_preconfigured_tls(edgehog_tls::config()?)
+            .use_preconfigured_tls(astarte_device_tls::config()?)
             .build()?;
 
         let url = self
