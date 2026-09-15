@@ -306,7 +306,7 @@ impl<C> Runtime<C> {
         cancel: CancellationToken,
     ) -> eyre::Result<Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>>
     where
-        C: Client + Send + Sync + 'static,
+        C: Client + PropAccess + Send + Sync + 'static,
     {
         if !config.enabled {
             tracing::info!("container service not enabled");

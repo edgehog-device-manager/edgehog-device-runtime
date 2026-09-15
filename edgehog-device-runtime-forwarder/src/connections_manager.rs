@@ -100,7 +100,7 @@ impl ConnectionsManager {
     pub async fn connect(url: Url, secure: bool) -> Result<Self, Error> {
         // compute the TLS connector information or use a plain ws connection
         let connector = if secure {
-            let tls = edgehog_tls::config()?;
+            let tls = astarte_device_tls::config()?;
 
             Connector::Rustls(Arc::new(tls))
         } else {
@@ -331,7 +331,7 @@ impl ConnectionsManager {
         debug!("trying to reconnect");
 
         let connector = if self.secure {
-            let tls = edgehog_tls::config()?;
+            let tls = astarte_device_tls::config()?;
 
             Connector::Rustls(Arc::new(tls))
         } else {

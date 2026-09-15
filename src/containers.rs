@@ -18,6 +18,7 @@
 
 use std::{future::Future, sync::Arc, time::Duration};
 
+use astarte_device_sdk::prelude::PropAccess;
 use edgehog_containers::{
     Docker,
     events::RuntimeListener,
@@ -97,7 +98,7 @@ where
 
 impl<D> TryRun for &mut Service<D>
 where
-    D: Client + Sync + Send + 'static,
+    D: Client + PropAccess + Sync + Send + 'static,
 {
     type Out = ();
 
@@ -201,7 +202,7 @@ impl<D> ContainerService<D> {
         tasks: &mut JoinSet<eyre::Result<()>>,
     ) -> Result<Self, ServiceError>
     where
-        D: Client + Clone + Send + Sync + 'static,
+        D: Client + PropAccess + Clone + Send + Sync + 'static,
     {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 

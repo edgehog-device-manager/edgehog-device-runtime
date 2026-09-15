@@ -22,6 +22,7 @@ pub mod container;
 pub mod deployment;
 pub mod device_mapping;
 pub mod device_request;
+pub mod file_bind;
 pub mod image;
 pub mod network;
 pub mod volume;

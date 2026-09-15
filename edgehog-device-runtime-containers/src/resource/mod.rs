@@ -22,11 +22,12 @@
 
 use std::future::Future;
 
+use astarte_device_sdk::error::AstarteError;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
-    Docker,
+    Client as Docker,
     error::DockerError,
     properties::{Client, PropertyError},
     store::{StateStore, StoreError},
@@ -36,8 +37,11 @@ pub(crate) mod container;
 pub(crate) mod deployment;
 pub(crate) mod device_mapping;
 pub(crate) mod device_request;
+pub(crate) mod env_file;
+pub(crate) mod file_bind;
 pub(crate) mod image;
 pub(crate) mod network;
+pub(crate) mod utils;
 pub(crate) mod volume;
 
 /// Error returned from a Resource operation.
@@ -49,12 +53,23 @@ pub enum ResourceError {
     Store(#[from] StoreError),
     /// couldn't complete docker operation
     Docker(#[source] DockerError),
+    /// property operation failed
+    AstarteProperty(#[source] AstarteError),
     /// couldn't fetch the {resource} with id {id}
     Missing {
         /// Id of the resource
         id: Uuid,
         /// Type of the resource
         resource: &'static str,
+    },
+    /// invalid {resource} with id {id}, {ctx}
+    Invalid {
+        /// the id of the resource
+        id: Uuid,
+        /// The resource type
+        resource: &'static str,
+        /// Reason why the resource is invalid
+        ctx: &'static str,
     },
 }
 
@@ -91,6 +106,7 @@ pub(crate) trait Resource<D>: Sized
 where
     D: Client + Sync + 'static,
 {
+    /// Publish a resource status.
     fn publish(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 }
 

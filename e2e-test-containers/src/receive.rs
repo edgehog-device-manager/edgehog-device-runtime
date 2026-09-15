@@ -18,7 +18,7 @@
 
 use std::{path::Path, time::Duration};
 
-use astarte_device_sdk::{Client, FromEvent};
+use astarte_device_sdk::{Client, FromEvent, properties::PropAccess};
 use edgehog_containers::{
     Docker,
     events::RuntimeListener,
@@ -59,7 +59,7 @@ where
 
 async fn handle_events<D>(mut service: Service<D>) -> color_eyre::Result<()>
 where
-    D: Client + Clone + Send + Sync + 'static,
+    D: Client + PropAccess + Clone + Send + Sync + 'static,
 {
     service.init().await?;
 
@@ -95,7 +95,7 @@ where
 
 pub async fn receive<D>(device: D, store_path: &Path) -> color_eyre::Result<()>
 where
-    D: Client + Send + Sync + 'static,
+    D: Client + PropAccess + Send + Sync + 'static,
 {
     let client = Docker::connect().await?;
 
