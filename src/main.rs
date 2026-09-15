@@ -79,10 +79,6 @@ async fn main() -> eyre::Result<()> {
             .wrap_err("Unable to create store directory")?;
     }
 
-    if options.interfaces_directory.is_some() {
-        warn!("DEPRECATED: the interface directory is no longer used as the interfaces are bundled")
-    }
-
     info!(
         "Using {} as store directory",
         options.store_directory.display()

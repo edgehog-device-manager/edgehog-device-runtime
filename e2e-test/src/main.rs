@@ -151,7 +151,6 @@ async fn main() -> color_eyre::Result<()> {
         #[cfg(target_os = "linux")]
         ota: edgehog_device_runtime::ota::config::OtaConfig::default(),
         file_transfer: FileTransferArgs::with_store_dir(None, store_path.path()),
-        interfaces_directory: None,
     };
 
     let store = connect_store(store_path.path())
