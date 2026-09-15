@@ -102,7 +102,7 @@ impl StoredFile {
         &self.id
     }
 
-    pub(crate) async fn deleted<C, S>(id: S, device: &mut C)
+    pub(crate) async fn unset<C, S>(id: S, device: &mut C)
     where
         S: std::fmt::Display,
         C: astarte_device_sdk::Client + Send + Sync + 'static,
@@ -200,6 +200,6 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        StoredFile::deleted(uuid, &mut device).await;
+        StoredFile::unset(uuid, &mut device).await;
     }
 }

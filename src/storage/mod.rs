@@ -23,7 +23,7 @@ use edgehog_store::models::job::{Job, job_type::JobType, status::JobStatus};
 use eyre::{Context, eyre};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::{
     controller::actor::Persisted,
@@ -241,7 +241,7 @@ impl<C> StorageTask<C> {
     {
         Self::inner_delete(job.file_path, false).await?;
 
-        StoredFile::deleted(job.id, &mut self.device).await;
+        StoredFile::unset(job.id, &mut self.device).await;
 
         // Just delete the job since we don't need to do anything for completion
         self.queue
@@ -255,11 +255,11 @@ impl<C> StorageTask<C> {
     where
         C: Client + Send + Sync + 'static,
     {
-        let path = self.storage.file_path(&job.file_id);
+        let dir_path = self.storage.dir_path(&job.file_id);
 
-        Self::inner_delete(path, job.force).await?;
+        Self::inner_delete(dir_path, job.force).await?;
 
-        StoredFile::deleted(job.file_id, &mut self.device).await;
+        StoredFile::unset(job.file_id, &mut self.device).await;
 
         Ok(())
     }
@@ -268,10 +268,14 @@ impl<C> StorageTask<C> {
         let file_path = file_path.as_ref();
 
         if file_path.is_dir() {
+            trace!(path = %file_path.display(), "deleting dir");
+
             tokio::fs::remove_dir_all(&file_path)
                 .await
                 .wrap_err("couldn't remove directory")?;
         } else {
+            trace!(path = %file_path.display(), "deleting file");
+
             tokio::fs::remove_file(&file_path)
                 .await
                 .wrap_err("couldn't remove file")?;

@@ -29,7 +29,7 @@ use edgehog_store::models::job::status::JobStatus;
 use eyre::{Context, OptionExt, eyre};
 use minicbor::bytes::ByteVec;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
-use tracing::{instrument, warn};
+use tracing::{error, instrument, warn};
 use url::Url;
 use uuid::Uuid;
 
@@ -228,7 +228,10 @@ impl TryFrom<Job> for Download<'_> {
 #[repr(u8)]
 pub(crate) enum Destination<'a> {
     #[n(0)]
-    Storage,
+    Storage {
+        #[n(0)]
+        name: Cow<'a, Path>,
+    },
     #[n(1)]
     Stream,
     #[n(2)]
@@ -243,11 +246,19 @@ impl<'a> Destination<'a> {
     fn from_str(destination_type: &str, destination: &'a str) -> eyre::Result<Self> {
         match destination_type {
             STORAGE_TARGET => {
-                if !destination.is_empty() {
-                    warn!(destination, "storage destination should be empty");
+                let path = Path::new(destination);
+
+                if path.iter().count() > 1 {
+                    error!(destination, "storage destination should be a filename");
+                    eyre::bail!(
+                        "storage destination expects a relative filename {}",
+                        path.display()
+                    );
                 }
 
-                Ok(Destination::Storage)
+                Ok(Destination::Storage {
+                    name: Cow::Borrowed(path),
+                })
             }
             STREAMING_TARGET => {
                 if !destination.is_empty() {
@@ -268,6 +279,8 @@ impl<'a> Destination<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     use rstest::{Context, fixture, rstest};
@@ -299,7 +312,9 @@ mod tests {
                 user_id: Some(1000),
                 group_id: Some(100),
             },
-            destination: Destination::Storage,
+            destination: Destination::Storage {
+                name: Cow::Owned(PathBuf::from("testfile.txt")),
+            },
         }
     }
 
@@ -342,7 +357,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(("storage", ""), Destination::Storage)]
+    #[case(("storage", "testfile.txt"), Destination::Storage { name: Path::new("testfile.txt").into() })]
     #[case(("streaming", ""), Destination::Stream)]
     #[case(("filesystem", "/foo/bar"), Destination::FileSystem { path: Path::new("/foo/bar").into() })]
     fn destination_roundtrip(
