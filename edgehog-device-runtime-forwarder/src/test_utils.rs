@@ -74,6 +74,7 @@ fn proto_http_req(request_id: Vec<u8>, url: &Url, body: Vec<u8>) -> proto::Messa
                 body,
                 port: url.port().expect("nonexistent port").into(),
                 host: None,
+                insecure: false,
             })),
         })),
     }
@@ -122,6 +123,7 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> Result<TungMes
                 body: Vec::new(),
                 port,
                 host: None,
+                insecure: false,
             })),
         })),
     };

@@ -27,6 +27,8 @@ pub mod http {
         pub port: u32,
         #[prost(string, optional, tag = "7")]
         pub host: ::core::option::Option<::prost::alloc::string::String>,
+        #[prost(bool, tag = "8")]
+        pub insecure: bool,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Response {

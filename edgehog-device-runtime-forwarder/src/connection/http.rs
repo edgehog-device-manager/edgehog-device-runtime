@@ -33,7 +33,7 @@ impl TransportBuilder for HttpBuilder {
     async fn build(
         self,
         _id: &Id,
-        _tx_ws: Sender<ProtoMessage>,
+        _tx_ws: &Sender<ProtoMessage>,
     ) -> Result<Self::Connection, ConnectionError> {
         Ok(Http::new(self.request))
     }
