@@ -26,13 +26,17 @@ pub mod websocket;
 
 use std::ops::Deref;
 
+use ::http::{HeaderMap, StatusCode};
 use thiserror::Error as ThisError;
 use tokio::sync::mpsc::Sender;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_tungstenite::tungstenite::Error as TungError;
 use tracing::{error, instrument, trace};
 
-use crate::messages::{Id, ProtoMessage, ProtocolError, WebSocketMessage as ProtoWebSocketMessage};
+use crate::messages::{
+    Http, HttpMessage, HttpResponse, Id, ProtoMessage, ProtocolError,
+    WebSocketMessage as ProtoWebSocketMessage,
+};
 
 /// Size of the channel used to send messages from the [Connections Manager](crate::connections_manager::ConnectionsManager)
 /// to a device WebSocket connection
@@ -123,7 +127,7 @@ pub(crate) trait TransportBuilder {
     fn build(
         self,
         id: &Id,
-        tx_ws: Sender<ProtoMessage>,
+        tx_ws: &Sender<ProtoMessage>,
     ) -> impl Future<Output = Result<Self::Connection, ConnectionError>> + Send;
 }
 
@@ -150,7 +154,7 @@ impl<T> Connection<T> {
         <T as TransportBuilder>::Connection: Send,
     {
         // spawn a task responsible for notifying when new data is available
-        let handle = tokio::spawn(async move { self.spawn_inner().await });
+        let handle = tokio::spawn(self.spawn_inner());
 
         ConnectionHandle {
             handle,
@@ -164,28 +168,48 @@ impl<T> Connection<T> {
         T: TransportBuilder + Send + 'static,
         <T as TransportBuilder>::Connection: Send,
     {
-        if let Err(err) = self.task().await {
-            error!("connection task failed with error {err:?}");
+        if let Err(error) = Self::task(self.state, &self.id, &self.tx_ws).await {
+            error!(%error, "connection task failed");
+
+            let res = self
+                .tx_ws
+                .send(ProtoMessage::Http(Http {
+                    request_id: self.id.clone(),
+                    http_msg: Box::new(HttpMessage::Response(HttpResponse {
+                        status_code: StatusCode::BAD_GATEWAY,
+                        headers: HeaderMap::new(),
+                        body: b"Bad Gateway".to_vec(),
+                    })),
+                }))
+                .await;
+
+            if let Err(error) = res {
+                error!(%error, "couldn't send error response");
+            }
         }
     }
 
     /// Build the [`Transport`] and send protocol messages to the
     /// [ConnectionsManager](crate::connections_manager::ConnectionsManager).
     #[instrument(skip_all)]
-    pub(crate) async fn task(self) -> Result<(), ConnectionError>
+    pub(crate) async fn task(
+        state: T,
+        id: &Id,
+        tx_ws: &Sender<ProtoMessage>,
+    ) -> Result<(), ConnectionError>
     where
         T: TransportBuilder,
     {
         // create a connection (either HTTP or WebSocket) which implements the Transport trait
-        let mut connection = self.state.build(&self.id, self.tx_ws.clone()).await?;
-        trace!("connection {} created", self.id);
+        let mut connection = state.build(id, tx_ws).await?;
 
-        while let Some(proto_msg) = connection.next(&self.id).await? {
-            self.tx_ws.send(proto_msg).await.map_err(|_| {
-                ConnectionError::Channel(
-                    "error while sending generic message to the ConnectionsManager",
-                )
-            })?;
+        trace!("connection created");
+
+        while let Some(proto_msg) = connection.next(&id).await? {
+            tx_ws
+                .send(proto_msg)
+                .await
+                .map_err(|_| ConnectionError::Channel("couldn't send message"))?;
         }
 
         Ok(())
@@ -223,6 +247,7 @@ mod tests {
             body: Vec::new(),
             port: url.port().expect("nonexistent port"),
             host: None,
+            insecure: false,
         }
     }
 

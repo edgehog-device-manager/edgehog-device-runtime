@@ -22,11 +22,12 @@
 //! data representation.
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::num::TryFromIntError;
 use std::ops::Not;
+use std::str::FromStr;
 
+use http::{HeaderMap, HeaderName, HeaderValue, Uri};
 use thiserror::Error as ThisError;
 use tokio_tungstenite::tungstenite::{Bytes, Error as TungError, Message as TungMessage};
 use tracing::{debug, error, instrument, warn};
@@ -45,6 +46,9 @@ use edgehog_device_forwarder_proto::web_socket::{
 use edgehog_device_forwarder_proto::{
     Http as ProtobufHttp, Https as ProtobufHttps, WebSocket as ProtobufWebSocket,
 };
+
+/// Cookie set by Edgehog device forwarder
+pub const FORWARDER_SESSION_COOKIE: &str = "edgehog_forwarder_session";
 
 /// Errors occurring while handling [`protobuf`](https://protobuf.dev/overview/) messages
 #[derive(displaydoc::Display, ThisError, Debug)]
@@ -362,6 +366,8 @@ pub(crate) struct HttpRequest {
     pub(crate) body: Vec<u8>,
     /// Port on the device to which the request will be sent.
     pub(crate) port: u16,
+    /// Disable TLS certificate validation.
+    pub(crate) insecure: bool,
 }
 
 impl HttpRequest {
@@ -377,65 +383,71 @@ impl HttpRequest {
             body,
             port,
             host,
+            insecure,
         } = req;
+
+        let mut headers = HeaderMap::try_from(&headers)?;
+
+        filter_headers(&mut headers)?;
 
         Ok(Self {
             scheme,
             path,
             method: method.as_str().try_into()?,
             query_string,
-            headers: (&headers).try_into()?,
+            headers,
             body,
             port: port.try_into()?,
+            insecure,
             host,
         })
     }
 
-    /// Create a [`RequestBuilder`](reqwest::RequestBuilder) from an HTTP request message.
-    pub(crate) fn request_builder(self) -> Result<reqwest::RequestBuilder, ProtocolError> {
-        let HttpRequest {
-            scheme,
-            method,
-            host,
-            path,
-            query_string,
-            headers,
-            body,
-            port,
-        } = self;
-
+    fn url(&self) -> Result<Url, ProtocolError> {
         let origin = {
-            let host_str = host.as_deref().unwrap_or("127.0.0.1");
+            let host_str = self.host();
             let host = Host::parse(host_str)?;
 
-            Origin::Tuple(scheme.to_string(), host, port)
+            Origin::Tuple(self.scheme.to_string(), host, self.port)
         };
 
         let mut url = Url::parse(&origin.unicode_serialization())?;
-        url.set_path(&path);
-        url.set_query((!query_string.is_empty()).then_some(&query_string));
+        url.set_path(&self.path);
+        url.set_query((!self.query_string.is_empty()).then_some(&self.query_string));
 
-        let tls = astarte_device_tls::config().map_err(|error| {
+        Ok(url)
+    }
+
+    fn host(&self) -> &str {
+        self.host.as_deref().unwrap_or("127.0.0.1")
+    }
+
+    pub(crate) fn tls(&self) -> Result<rustls::ClientConfig, ProtocolError> {
+        let tls = if self.insecure {
+            astarte_device_tls::insecure::insecure()
+        } else {
+            astarte_device_tls::config()
+        }
+        .map_err(|error| {
             error!(%error, "couldn't configure TLS");
 
             ProtocolError::ReqBuild(", configure TLS")
         })?;
+        Ok(tls)
+    }
 
-        let mut http_builder = reqwest::Client::builder().use_preconfigured_tls(tls);
+    /// Create a [`RequestBuilder`](reqwest::RequestBuilder) from an HTTP request message.
+    pub(crate) fn request_builder(self) -> Result<reqwest::RequestBuilder, ProtocolError> {
+        let url = self.url()?;
 
-        // Resolve the host to localhost, this prevents making requests to other hosts.
-        if let Some(host) = host.as_ref() {
-            http_builder = http_builder.resolve(
-                host,
-                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)),
-            );
-        }
+        let tls = self.tls()?;
 
-        let http_builder = http_builder
+        let http_builder = reqwest::Client::builder()
+            .use_preconfigured_tls(tls)
             .build()?
-            .request(method, url)
-            .headers(headers)
-            .body(body);
+            .request(self.method, url)
+            .headers(self.headers)
+            .body(self.body);
 
         Ok(http_builder)
     }
@@ -448,22 +460,43 @@ impl HttpRequest {
     /// Convert an [`HttpRequest`] into an [`http::Request`](http::Request)
     #[instrument(skip_all)]
     pub(crate) fn ws_upgrade(mut self) -> Result<http::Request<()>, ProtocolError> {
-        let uri: http::Uri = format!(
-            "ws://localhost:{}/{}?{}",
-            self.port, self.path, self.query_string
-        )
-        .parse()?;
+        let mut url = self.url()?;
+
+        let scheme = match self.scheme.as_str() {
+            "https" => "wss",
+            "http" => "ws",
+            scheme => {
+                error!(scheme, "unexpected scheme");
+
+                return Err(ProtocolError::ReqBuild("unexpected request scheme"));
+            }
+        };
+
+        url.set_scheme(scheme)
+            .map_err(|()| ProtocolError::ReqBuild("invalid websocket scheme"))?;
+
+        let uri = Uri::from_str(url.as_str())?;
 
         // remove unsupported WebSocket headers
         self.remove_unsupported_ws_ext();
+
+        let host = HeaderValue::from_str(self.host()).map_err(|error| {
+            error!(%error, "invalid HOST header");
+
+            ProtocolError::ReqBuild("invalid host")
+        })?;
 
         // add method
         let mut req = http::request::Builder::new().uri(uri).method(self.method);
 
         // add the headers to the request
-        req.headers_mut()
-            .ok_or(ProtocolError::ReqBuild("getting headers"))?
-            .extend(self.headers);
+        let headers = req
+            .headers_mut()
+            .ok_or(ProtocolError::ReqBuild("getting headers"))?;
+        headers.extend(self.headers);
+
+        // Make sure the host is set
+        headers.entry(http::header::HOST).or_insert(host);
 
         // the body of an upgrade request should be empty.
         if !self.body.is_empty() {
@@ -489,6 +522,74 @@ impl HttpRequest {
     }
 }
 
+fn filter_headers(headers: &mut http::HeaderMap) -> Result<(), ProtocolError> {
+    const HEADERS_TO_REMOVE: [HeaderName; 1] = [http::header::HOST];
+
+    for header in HEADERS_TO_REMOVE {
+        if let http::header::Entry::Occupied(entry) = headers.entry(header) {
+            entry.remove_entry_mult();
+        }
+    }
+
+    if let http::header::Entry::Occupied(entry) = headers.entry(http::header::COOKIE) {
+        let (cookie, values) = entry.remove_entry_mult();
+
+        let cookie_values = values
+            .filter_map(|value| filter_cookies(value).transpose())
+            .collect::<Result<Vec<HeaderValue>, ProtocolError>>()?;
+
+        for value in cookie_values {
+            headers.append(cookie.clone(), value);
+        }
+    }
+
+    Ok(())
+}
+
+fn filter_cookies(value: HeaderValue) -> Result<Option<HeaderValue>, ProtocolError> {
+    let header_str = value.to_str().map_err(|error| {
+        error!(%error,"cookie is not UTF-8");
+
+        ProtocolError::ReqBuild("cookie is not UTF-8")
+    })?;
+
+    let mut iter = cookie::Cookie::split_parse(header_str).filter_map(|cookie| match cookie {
+        Ok(cookie) if cookie.name() == FORWARDER_SESSION_COOKIE => {
+            debug!("skipping forwarder session cookie");
+
+            None
+        }
+        Ok(cookie) => Some(Ok(cookie)),
+        Err(error) => {
+            error!(%error, "couldn't parse the cookie ");
+
+            Some(Err(ProtocolError::ReqBuild("couldn't parse cookie")))
+        }
+    });
+
+    let Some(first) = iter.next() else {
+        return Ok(None);
+    };
+
+    let mut buf = first?.to_string();
+
+    for cookie in iter {
+        let cookie = cookie?;
+
+        if let Err(error) = write!(buf, "; {cookie}") {
+            error!(%error, cookie = cookie.name(),"couln't encode cookie");
+
+            return Err(ProtocolError::ReqBuild("couln't write cookie"));
+        }
+    }
+
+    HeaderValue::from_str(&buf).map(Some).map_err(|error| {
+        error!(%error, "invalid cookie header value");
+
+        ProtocolError::ReqBuild("invalid cookie header")
+    })
+}
+
 impl From<HttpRequest> for ProtobufHttpRequest {
     fn from(http_req: HttpRequest) -> Self {
         Self {
@@ -499,6 +600,7 @@ impl From<HttpRequest> for ProtobufHttpRequest {
             body: http_req.body,
             port: http_req.port.into(),
             host: http_req.host,
+            insecure: http_req.insecure,
         }
     }
 }
@@ -723,6 +825,7 @@ mod tests {
             body: Vec::new(),
             port: 0,
             host: None,
+            insecure: false,
         })
     }
 
@@ -744,6 +847,7 @@ mod tests {
                 method: "GET".to_string(),
                 port: 0,
                 host: None,
+                insecure: false,
             })),
         }
     }
@@ -767,6 +871,7 @@ mod tests {
             body,
             port: 0,
             host: None,
+            insecure: false,
         }
     }
 

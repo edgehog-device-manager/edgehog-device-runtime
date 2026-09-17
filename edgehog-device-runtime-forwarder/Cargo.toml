@@ -31,6 +31,7 @@ description.workspace = true
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 astarte-device-tls.workspace = true
 backoff = { workspace = true, features = ["tokio"] }
+cookie.workspace = true
 displaydoc.workspace = true
 edgehog-device-forwarder-proto.workspace = true
 futures.workspace = true
