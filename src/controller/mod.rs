@@ -38,7 +38,6 @@ use self::event::RuntimeEvent;
 #[cfg(any(
     feature = "default",
     feature = "containers",
-    feature = "forwarder",
     feature = "file-transfer",
     all(feature = "zbus", target_os = "linux")
 ))]
@@ -62,7 +61,7 @@ pub struct Runtime<T> {
     #[cfg(feature = "containers")]
     containers_tx: Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>,
     #[cfg(feature = "forwarder")]
-    forwarder: crate::forwarder::Forwarder<T>,
+    forwarder: Option<mpsc::Sender<edgehog_forwarder::astarte::SessionInfo>>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     led_tx: mpsc::Sender<LedEvent>,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
@@ -162,7 +161,7 @@ impl<C> Runtime<C> {
 
         #[cfg(feature = "containers")]
         let containers_tx = Self::setup_containers(
-            client.clone(),
+            &client,
             opts.containers,
             &store,
             &container_handle,
@@ -183,9 +182,7 @@ impl<C> Runtime<C> {
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
-        let forwarder = crate::forwarder::Forwarder::init(client.clone())
-            .await
-            .wrap_err("couldn't initialize the forwarder")?;
+        let forwarder = Self::setup_forwarder(&client, opts.forwarder, tasks, cancel.child_token());
 
         Ok(Self {
             client,
@@ -296,7 +293,7 @@ impl<C> Runtime<C> {
 
     #[cfg(feature = "containers")]
     async fn setup_containers(
-        client: C,
+        client: &C,
         config: crate::containers::ContainersConfig,
         store: &edgehog_store::db::Handle,
         container_handle: &std::sync::Arc<
@@ -317,7 +314,7 @@ impl<C> Runtime<C> {
         let (container_tx, container_rx) = mpsc::channel(EVENT_BUFFER);
 
         let containers = crate::containers::ContainerService::new(
-            client,
+            client.clone(),
             config,
             store,
             container_handle,
@@ -329,6 +326,31 @@ impl<C> Runtime<C> {
         tasks.spawn(containers.run(container_rx, cancel));
 
         Ok(Some(container_tx))
+    }
+
+    #[cfg(feature = "forwarder")]
+    fn setup_forwarder(
+        client: &C,
+        config: crate::forwarder::ForwarderConfig,
+        tasks: &mut JoinSet<eyre::Result<()>>,
+        cancel: CancellationToken,
+    ) -> Option<mpsc::Sender<edgehog_forwarder::astarte::SessionInfo>>
+    where
+        C: Client + PropAccess + Send + Sync + 'static,
+    {
+        if !config.enabled {
+            tracing::info!("forwarder service not enabled");
+
+            return None;
+        }
+
+        let (forwarder_tx, forwarder_rx) = mpsc::channel(EVENT_BUFFER);
+
+        let forwarder = crate::forwarder::Forwarder::new(client.clone());
+
+        tasks.spawn(forwarder.run(forwarder_rx, cancel));
+
+        Some(forwarder_tx)
     }
 
     #[cfg(feature = "service")]
@@ -489,7 +511,13 @@ impl<C> Runtime<C> {
             }
             #[cfg(feature = "forwarder")]
             RuntimeEvent::Forwarder(event) => {
-                self.forwarder.handle_sessions(event);
+                if let Some(forwarder) = &self.forwarder {
+                    if forwarder.send(event).await.is_err() {
+                        error!("couldn't handle the forwarder event")
+                    }
+                } else {
+                    error!("received event on forwarder interface, but the service is disabled");
+                }
             }
         }
     }

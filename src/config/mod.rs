@@ -47,6 +47,9 @@ pub struct Config {
     #[cfg(feature = "file-transfer")]
     pub file_transfer: Option<edgehog_device_runtime::file_transfer::config::FileTransferConfig>,
 
+    #[cfg(feature = "forwarder")]
+    pub forwarder: Option<edgehog_device_runtime::forwarder::ForwarderConfig>,
+
     #[deprecated(note = "the interfaces are included in the binary")]
     pub interfaces_directory: Option<PathBuf>,
     pub store_directory: Option<PathBuf>,
@@ -111,6 +114,8 @@ impl TryFrom<Config> for DeviceManagerOptions {
             ota,
             #[cfg(feature = "file-transfer")]
             file_transfer,
+            #[cfg(feature = "forwarder")]
+            forwarder: value.forwarder.unwrap_or_default(),
             store_directory,
             download_directory,
             telemetry_config: value.telemetry_config,

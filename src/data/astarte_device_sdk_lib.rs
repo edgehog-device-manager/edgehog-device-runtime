@@ -29,6 +29,7 @@ use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 
+use crate::DeviceManagerOptions;
 use crate::repository::StateRepository;
 use crate::repository::file_state_repository::FileStateRepository;
 
@@ -95,18 +96,17 @@ impl AstarteDeviceSdkConfigOptions {
         Err(eyre!("missing credential secret and pairing token"))
     }
 
-    pub async fn connect<P>(
+    pub async fn connect(
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        store_dir: P,
-    ) -> eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>>
-    where
-        P: AsRef<Path>,
-    {
+        options: &DeviceManagerOptions,
+    ) -> eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>> {
         let device_id = self.device_id_or_from_dbus().await?;
 
-        let credentials_secret = self.credentials_secret(&device_id, &store_dir).await?;
+        let credentials_secret = self
+            .credentials_secret(&device_id, &options.store_directory)
+            .await?;
 
         let mut mqtt_cfg = MqttConfig::new(MqttArgs {
             realm: self.realm.clone(),
@@ -119,9 +119,9 @@ impl AstarteDeviceSdkConfigOptions {
             mqtt_cfg = mqtt_cfg.ignore_ssl_errors();
         }
 
-        let (client, connection) = add_interfaces(DeviceBuilder::new())
+        let (client, connection) = add_interfaces(DeviceBuilder::new(), options)
             .wrap_err("couldn't add interfaces")?
-            .writable_dir(store_dir)
+            .writable_dir(&options.store_directory)
             .store(store)
             .connection(mqtt_cfg)
             .build()

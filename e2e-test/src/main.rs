@@ -146,6 +146,8 @@ async fn main() -> color_eyre::Result<()> {
         astarte_message_hub: None,
         #[cfg(feature = "containers")]
         containers: edgehog_device_runtime::containers::ContainersConfig::default(),
+        #[cfg(feature = "forwarder")]
+        forwarder: edgehog_device_runtime::forwarder::ForwarderConfig::default(),
         #[cfg(feature = "service")]
         service: None,
         #[cfg(target_os = "linux")]
@@ -160,7 +162,7 @@ async fn main() -> color_eyre::Result<()> {
     let mut tasks = JoinSet::new();
 
     let client = astarte_options
-        .connect(&mut tasks, store, &device_options.store_directory)
+        .connect(&mut tasks, store, &device_options)
         .await
         .wrap_err("couldn't connect to astarte")?;
 

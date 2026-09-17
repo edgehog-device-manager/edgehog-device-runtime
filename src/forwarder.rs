@@ -28,10 +28,12 @@ use astarte_device_sdk::types::{AstarteData, TypeError};
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use reqwest::Url;
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
 use crate::Client;
+use crate::controller::actor::Actor;
 
 const FORWARDER_SESSION_STATE_INTERFACE: &str = "io.edgehog.devicemanager.ForwarderSessionState";
 
@@ -46,6 +48,20 @@ pub enum ForwarderError {
 
     /// Connections manager error
     ConnectionsManager(#[from] edgehog_forwarder::connections_manager::Error),
+}
+
+/// Configuration for the forwarder service.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct ForwarderConfig {
+    /// Flag to enable the forwarder
+    #[serde(default = "ForwarderConfig::default_enabled")]
+    pub(crate) enabled: bool,
+}
+
+impl ForwarderConfig {
+    const fn default_enabled() -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -142,26 +158,11 @@ pub struct Forwarder<C> {
 }
 
 impl<C> Forwarder<C> {
-    pub async fn init(mut client: C) -> Result<Self, ForwarderError>
-    where
-        C: Client + PropAccess + Send + Sync + 'static,
-    {
-        // unset all the existing sessions
-        debug!("unsetting ForwarderSessionState property");
-        for prop in client
-            .interface_props(FORWARDER_SESSION_STATE_INTERFACE)
-            .await?
-        {
-            debug!("unset {}", &prop.path);
-            client
-                .unset_property(FORWARDER_SESSION_STATE_INTERFACE, &prop.path)
-                .await?;
-        }
-
-        Ok(Self {
+    pub fn new(client: C) -> Self {
+        Self {
             client,
             tasks: HashMap::default(),
-        })
+        }
     }
 
     /// Start a device forwarder instance.
@@ -271,6 +272,40 @@ impl<C> Forwarder<C> {
                 .send(client)
                 .await?;
         }
+
+        Ok(())
+    }
+}
+
+impl<C> Actor for Forwarder<C>
+where
+    C: Client + PropAccess + Send + Sync + 'static,
+{
+    type Msg = SessionInfo;
+
+    fn task() -> &'static str {
+        "forwarder"
+    }
+
+    async fn init(&mut self) -> eyre::Result<()> {
+        // unset all the existing sessions
+        debug!("unsetting ForwarderSessionState property");
+        let sessions = self
+            .client
+            .interface_props(FORWARDER_SESSION_STATE_INTERFACE)
+            .await?;
+
+        for prop in sessions {
+            self.client
+                .unset_property(FORWARDER_SESSION_STATE_INTERFACE, &prop.path)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
+        self.handle_sessions(msg);
 
         Ok(())
     }
@@ -396,9 +431,10 @@ mod tests {
     async fn test_init_forwarder() {
         let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         mock_forwarder_init(&mut client);
-        let f = Forwarder::init(client).await;
+        let mut f = Forwarder::new(client);
+        let res = f.init().await;
 
-        assert!(f.is_ok());
+        assert!(res.is_ok());
     }
 
     fn mock_forwarder_init(pub_sub: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>) {

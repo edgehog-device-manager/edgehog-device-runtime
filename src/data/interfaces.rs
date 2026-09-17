@@ -20,6 +20,8 @@
 
 use astarte_device_sdk::builder::DeviceBuilder;
 
+use crate::DeviceManagerOptions;
+
 const BASE_IMAGE: &str =
     include_str!("../../deps/interfaces/io.edgehog.devicemanager.BaseImage.json");
 const BATTERY_STATUS: &str =
@@ -42,6 +44,16 @@ const CONFIG_TELEMETRY: &str =
 /// Add the enabled interfaces
 pub(crate) fn add_interfaces<C, S>(
     mut builder: DeviceBuilder<C, S>,
+    #[cfg_attr(
+        not(any(
+            feature = "zbus",
+            feature = "forwarder",
+            feature = "containers",
+            feature = "file-transfer"
+        )),
+        expect(unused)
+    )]
+    config: &DeviceManagerOptions,
 ) -> eyre::Result<DeviceBuilder<C, S>> {
     builder = builder
         .interface_str(BASE_IMAGE)?
@@ -60,11 +72,6 @@ pub(crate) fn add_interfaces<C, S>(
         builder = add_zbus_linux(builder)?;
     }
 
-    #[cfg(feature = "forwarder")]
-    {
-        builder = add_forwarder(builder)?;
-    }
-
     #[cfg(all(feature = "udev", target_os = "linux"))]
     {
         builder = add_udev_linux(builder)?;
@@ -75,14 +82,24 @@ pub(crate) fn add_interfaces<C, S>(
         builder = add_wifi_scan(builder)?;
     }
 
+    #[cfg(all(feature = "zbus", target_os = "linux"))]
+    {
+        builder = add_ota(builder, &config.ota)?;
+    }
+
+    #[cfg(feature = "forwarder")]
+    {
+        builder = add_forwarder(builder, &config.forwarder)?;
+    }
+
     #[cfg(feature = "containers")]
     {
-        builder = add_containers(builder)?;
+        builder = add_containers(builder, &config.containers)?;
     }
 
     #[cfg(feature = "file-transfer")]
     {
-        builder = add_file_transfer(builder)?;
+        builder = add_file_transfer(builder, &config.file_transfer)?;
     }
 
     Ok(builder)
@@ -91,15 +108,18 @@ pub(crate) fn add_interfaces<C, S>(
 #[cfg(feature = "forwarder")]
 fn add_forwarder<S, C>(
     mut builder: DeviceBuilder<C, S>,
+    config: &crate::forwarder::ForwarderConfig,
 ) -> Result<DeviceBuilder<C, S>, eyre::Error> {
     const FORWARDER_SESSION_REQUEST: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.ForwarderSessionRequest.json");
     const FORWARDER_SESSION_STATE: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.ForwarderSessionState.json");
 
-    builder = builder
-        .interface_str(FORWARDER_SESSION_REQUEST)?
-        .interface_str(FORWARDER_SESSION_STATE)?;
+    if config.enabled {
+        builder = builder
+            .interface_str(FORWARDER_SESSION_REQUEST)?
+            .interface_str(FORWARDER_SESSION_STATE)?;
+    }
 
     Ok(builder)
 }
@@ -118,18 +138,31 @@ fn add_zbus_linux<C, S>(
     );
     const LED_BEHAVIOR: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.LedBehavior.json");
-    const OTA_EVENT: &str =
-        include_str!("../../deps/interfaces/io.edgehog.devicemanager.OTAEvent.json");
-    const OTA_REQUEST: &str =
-        include_str!("../../deps/interfaces/io.edgehog.devicemanager.OTARequest.json");
 
     builder = builder
         .interface_str(CELLULAR_CONNECTION_PROPERTIES)?
         .interface_str(GEOLOCATION)?
         .interface_str(CELLULAR_CONNECTION_STATUS)?
-        .interface_str(LED_BEHAVIOR)?
-        .interface_str(OTA_EVENT)?
-        .interface_str(OTA_REQUEST)?;
+        .interface_str(LED_BEHAVIOR)?;
+
+    Ok(builder)
+}
+
+#[cfg(all(feature = "zbus", target_os = "linux"))]
+fn add_ota<C, S>(
+    mut builder: DeviceBuilder<C, S>,
+    config: &crate::ota::config::OtaConfig,
+) -> Result<DeviceBuilder<C, S>, eyre::Error> {
+    const OTA_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.OTAEvent.json");
+    const OTA_REQUEST: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.OTARequest.json");
+
+    if config.enabled {
+        builder = builder
+            .interface_str(OTA_EVENT)?
+            .interface_str(OTA_REQUEST)?;
+    }
 
     Ok(builder)
 }
@@ -162,6 +195,7 @@ fn add_wifi_scan<C, S>(
 #[cfg(feature = "containers")]
 fn add_containers<C, S>(
     mut builder: DeviceBuilder<C, S>,
+    config: &crate::containers::ContainersConfig,
 ) -> Result<DeviceBuilder<C, S>, eyre::Error> {
     const APPS_AVAILABLE_CONTAINERS: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableContainers.json"
@@ -227,31 +261,33 @@ fn add_containers<C, S>(
     const APPS_STATS_VOLUME_USAGE: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.stats.VolumeUsage.json");
 
-    builder = builder
-        .interface_str(APPS_AVAILABLE_CONTAINERS)?
-        .interface_str(APPS_AVAILABLE_DEPLOYMENTS)?
-        .interface_str(APPS_AVAILABLE_DEVICE_MAPPINGS)?
-        .interface_str(APPS_AVAILABLE_DEVICE_REQUESTS)?
-        .interface_str(APPS_AVAILABLE_IMAGES)?
-        .interface_str(APPS_AVAILABLE_NETWORKS)?
-        .interface_str(APPS_AVAILABLE_VOLUMES)?
-        .interface_str(APPS_CREATE_CONTAINER_REQUEST)?
-        .interface_str(APPS_CREATE_DEPLOYMENT_REQUEST)?
-        .interface_str(APPS_CREATE_DEVICE_MAPPING_REQUEST)?
-        .interface_str(APPS_CREATE_DEVICE_REQUEST)?
-        .interface_str(APPS_CREATE_IMAGE_REQUEST)?
-        .interface_str(APPS_CREATE_NETWORK_REQUEST)?
-        .interface_str(APPS_CREATE_VOLUME_REQUEST)?
-        .interface_str(APPS_DEPLOYMENT_COMMAND)?
-        .interface_str(APPS_DEPLOYMENT_EVENT)?
-        .interface_str(APPS_DEPLOYMENT_UPDATE)?
-        .interface_str(APPS_STATS_CONTAINER_BLKIO)?
-        .interface_str(APPS_STATS_CONTAINER_CPU)?
-        .interface_str(APPS_STATS_CONTAINER_MEMORY)?
-        .interface_str(APPS_STATS_CONTAINER_MEMORY_STATS)?
-        .interface_str(APPS_STATS_CONTAINER_NETWORKS)?
-        .interface_str(APPS_STATS_CONTAINER_PROCESSES)?
-        .interface_str(APPS_STATS_VOLUME_USAGE)?;
+    if config.enabled {
+        builder = builder
+            .interface_str(APPS_AVAILABLE_CONTAINERS)?
+            .interface_str(APPS_AVAILABLE_DEPLOYMENTS)?
+            .interface_str(APPS_AVAILABLE_DEVICE_MAPPINGS)?
+            .interface_str(APPS_AVAILABLE_DEVICE_REQUESTS)?
+            .interface_str(APPS_AVAILABLE_IMAGES)?
+            .interface_str(APPS_AVAILABLE_NETWORKS)?
+            .interface_str(APPS_AVAILABLE_VOLUMES)?
+            .interface_str(APPS_CREATE_CONTAINER_REQUEST)?
+            .interface_str(APPS_CREATE_DEPLOYMENT_REQUEST)?
+            .interface_str(APPS_CREATE_DEVICE_MAPPING_REQUEST)?
+            .interface_str(APPS_CREATE_DEVICE_REQUEST)?
+            .interface_str(APPS_CREATE_IMAGE_REQUEST)?
+            .interface_str(APPS_CREATE_NETWORK_REQUEST)?
+            .interface_str(APPS_CREATE_VOLUME_REQUEST)?
+            .interface_str(APPS_DEPLOYMENT_COMMAND)?
+            .interface_str(APPS_DEPLOYMENT_EVENT)?
+            .interface_str(APPS_DEPLOYMENT_UPDATE)?
+            .interface_str(APPS_STATS_CONTAINER_BLKIO)?
+            .interface_str(APPS_STATS_CONTAINER_CPU)?
+            .interface_str(APPS_STATS_CONTAINER_MEMORY)?
+            .interface_str(APPS_STATS_CONTAINER_MEMORY_STATS)?
+            .interface_str(APPS_STATS_CONTAINER_NETWORKS)?
+            .interface_str(APPS_STATS_CONTAINER_PROCESSES)?
+            .interface_str(APPS_STATS_VOLUME_USAGE)?;
+    }
 
     Ok(builder)
 }
@@ -259,6 +295,7 @@ fn add_containers<C, S>(
 #[cfg(feature = "file-transfer")]
 fn add_file_transfer<C, S>(
     mut builder: DeviceBuilder<C, S>,
+    config: &crate::file_transfer::config::FileTransferArgs,
 ) -> Result<DeviceBuilder<C, S>, eyre::Error> {
     const FILE_TRANSFER_CAPABILITIES: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.fileTransfer.Capabilities.json"
@@ -280,15 +317,17 @@ fn add_file_transfer<C, S>(
     const STORAGE_RESPONSE: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.storage.Response.json");
 
-    builder = builder
-        .interface_str(FILE_TRANSFER_CAPABILITIES)?
-        .interface_str(FILE_TRANSFER_DEVICE_TO_SERVER)?
-        .interface_str(FILE_TRANSFER_PROGRESS)?
-        .interface_str(FILE_TRANSFER_RESPONSE)?
-        .interface_str(FILE_TRANSFER_SERVER_TO_DEVICE)?
-        .interface_str(STORAGE_DELETE_FILE)?
-        .interface_str(STORAGE_FILE)?
-        .interface_str(STORAGE_RESPONSE)?;
+    if config.enabled {
+        builder = builder
+            .interface_str(FILE_TRANSFER_CAPABILITIES)?
+            .interface_str(FILE_TRANSFER_DEVICE_TO_SERVER)?
+            .interface_str(FILE_TRANSFER_PROGRESS)?
+            .interface_str(FILE_TRANSFER_RESPONSE)?
+            .interface_str(FILE_TRANSFER_SERVER_TO_DEVICE)?
+            .interface_str(STORAGE_DELETE_FILE)?
+            .interface_str(STORAGE_FILE)?
+            .interface_str(STORAGE_RESPONSE)?;
+    }
 
     Ok(builder)
 }

@@ -35,7 +35,7 @@ mod device;
 #[cfg(feature = "file-transfer")]
 pub mod file_transfer;
 #[cfg(feature = "forwarder")]
-mod forwarder;
+pub mod forwarder;
 pub(crate) mod http;
 #[cfg(feature = "file-transfer")]
 pub mod io;
@@ -74,6 +74,8 @@ pub struct DeviceManagerOptions {
     pub service: Option<edgehog_service::config::Config>,
     #[cfg(feature = "file-transfer")]
     pub file_transfer: self::file_transfer::config::FileTransferArgs,
+    #[cfg(feature = "forwarder")]
+    pub forwarder: self::forwarder::ForwarderConfig,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
     pub ota: self::ota::config::OtaConfig,
     pub store_directory: PathBuf,
