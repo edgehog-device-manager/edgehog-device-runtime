@@ -42,7 +42,7 @@ use url::{ParseError, Url};
 
 /// Build a listener on a free port.
 pub async fn bind_port() -> (TcpListener, u16) {
-    let listener = TcpListener::bind("localhost:0")
+    let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("failed to create a tcp listener");
 
@@ -74,6 +74,7 @@ fn proto_http_req(request_id: Vec<u8>, url: &Url, body: Vec<u8>) -> proto::Messa
                 body,
                 port: url.port().expect("nonexistent port").into(),
                 host: None,
+                insecure_tls_config: false,
             })),
         })),
     }
@@ -122,6 +123,7 @@ pub fn create_http_upgrade_req(request_id: Vec<u8>, url: &str) -> Result<TungMes
                 body: Vec::new(),
                 port,
                 host: None,
+                insecure_tls_config: false,
             })),
         })),
     };
@@ -260,7 +262,7 @@ impl TestConnections<MockWebSocket> {
         let mock_server = MockWebSocket::start().await;
 
         let (listener, port) = bind_port().await;
-        let url = format!("ws://localhost:{port}/remote-terminal?session=abcd");
+        let url = format!("ws://127.0.0.1:{port}/remote-terminal?session=abcd");
 
         Self {
             mock_server,

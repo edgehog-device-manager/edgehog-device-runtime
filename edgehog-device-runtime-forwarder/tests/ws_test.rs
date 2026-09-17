@@ -38,13 +38,14 @@ async fn test_internal_ws() {
 
     // Edgehog
     let mut ws_bridge = test_connections.mock_ws_server().await;
+
     // Device listener (waiting for Edgehog -> Device)
     let listener = test_connections.mock_server.device_listener().unwrap();
     let connection_handle = MockWebSocket::open_ws_device(listener);
 
     let request_id = "3647edbb-6747-4827-a3ef-dbb6239e3326".as_bytes().to_vec();
     let url = format!(
-        "ws://localhost:{}/remote-terminal?session=abcd",
+        "ws://127.0.0.1:{}/remote-terminal?session=abcd",
         test_connections.mock_server.port().unwrap()
     );
     let http_req = create_http_upgrade_req(request_id.clone(), &url)
@@ -59,7 +60,10 @@ async fn test_internal_ws() {
 
     // check if the response id is the same as the request one
     assert_eq!(request_id, socket_id);
-    assert!(is_ws_upgrade_response(protobuf_http));
+    assert!(
+        is_ws_upgrade_response(protobuf_http.clone()),
+        "{protobuf_http:?}"
+    );
 
     // retrieve the ID of the connection and try sending a WebSocket message
     test_connections.mock(connection_handle).await;
