@@ -19,6 +19,8 @@
 //! Structure to manage the service.
 
 use std::fmt::Display;
+#[cfg(unix)]
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -31,6 +33,9 @@ use tracing::info;
 
 use crate::config::ServiceArgs;
 
+use self::config::ConfigState;
+
+pub mod config;
 #[cfg(feature = "containers")]
 mod containers;
 
@@ -100,26 +105,25 @@ impl Display for Listener {
 #[derive(Debug)]
 pub struct EdgehogService {
     options: ServiceOptions,
+    config: ConfigState,
     #[cfg(feature = "containers")]
-    containers: Option<self::containers::SharedContainerHandle>,
+    containers: self::containers::SharedContainerHandle,
 }
 
 impl EdgehogService {
     /// Create a new instance of the service
-    pub fn new(options: ServiceOptions) -> Self {
+    pub fn new(options: ServiceOptions, config: ConfigState) -> Self {
         Self {
             options,
+            config,
             #[cfg(feature = "containers")]
-            containers: None,
+            containers: self::containers::SharedContainerHandle::default(),
         }
     }
 
     /// Sets the container handle
     #[cfg(feature = "containers")]
-    pub fn set_container_handle(
-        &mut self,
-        containers: Option<self::containers::SharedContainerHandle>,
-    ) {
+    pub fn set_container_handle(&mut self, containers: self::containers::SharedContainerHandle) {
         self.containers = containers;
     }
 
@@ -161,76 +165,90 @@ impl Drop for EdgehogService {
     fn drop(&mut self) {
         match &self.options.listener {
             #[cfg(unix)]
-            Listener::Unix(path_buf) => {
-                if path_buf.exists()
-                    && let Err(err) = std::fs::remove_file(path_buf)
-                {
+            Listener::Unix(path_buf) => match std::fs::remove_file(path_buf) {
+                Ok(()) => {}
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                Err(err) => {
                     tracing::error!(
                         error = format!("{:#}", eyre::Report::new(err)),
                         "couldn't remove unix socket"
                     );
                 }
-            }
+            },
             Listener::Socket(_) => {}
         }
     }
 }
 
-cfg_if! {
-    if #[cfg(feature = "containers")] {
-        async fn serve<S, IO>(
-            this: Arc<EdgehogService>,
-            cancel: CancellationToken,
-            incoming: S,
-        ) -> eyre::Result<()>
-        where
-            S: Stream<Item = std::io::Result<IO>>,
-            IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
-        {
-            use edgehog_proto::tonic::transport::Server;
+async fn serve<S, IO>(
+    this: Arc<EdgehogService>,
+    cancel: CancellationToken,
+    incoming: S,
+) -> eyre::Result<()>
+where
+    S: Stream<Item = std::io::Result<IO>>,
+    IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
+{
+    use edgehog_proto::tonic::transport::Server;
 
-            let mut builder = Server::builder();
+    let mut builder = Server::builder();
 
-            builder
-                .add_service(edgehog_proto::containers::latest::containers_service_server::ContainersServiceServer::from_arc(this))
-                .serve_with_incoming_shutdown(incoming, async {
-                    cancel.cancelled().await;
+    #[cfg(feature = "containers")]
+    let builder = builder.add_service(
+        edgehog_proto::containers::latest::containers_service_server::ContainersServiceServer::from_arc(
+            this.clone(),
+        ),
+    );
 
-                    info!("shutting down edgehog service")
-                })
-                .await?;
+    builder
+        .add_service(
+            edgehog_proto::config::v1::config_service_server::ConfigServiceServer::from_arc(this),
+        )
+        .serve_with_incoming_shutdown(incoming, async {
+            cancel.cancelled().await;
 
-            Ok(())
-        }
-    } else {
-        async fn serve<S, IO>(
-            _this: Arc<EdgehogService>,
-            _cancel: CancellationToken,
-            _incoming: S,
-        ) -> eyre::Result<()>
-        where
-            S: Stream<Item = std::io::Result<IO>>,
-            IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
-        {
-            unimplemented!("no service implemented");
-        }
-    }
+            info!("shutting down edgehog service")
+        })
+        .await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    use std::path::PathBuf;
+
+    #[cfg(feature = "containers")]
+    use tokio::sync::OnceCell;
+
     use super::*;
 
     #[cfg_attr(not(feature = "containers"), expect(dead_code))]
     pub(crate) fn mock_service(
         #[cfg(feature = "containers")] handle: edgehog_containers::local::MockContainerHandle,
     ) -> EdgehogService {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let config = ConfigState::new(PathBuf::from("/dev/null"), tx);
+
         EdgehogService {
+            config,
             options: ServiceOptions {
                 listener: Listener::Socket("0.0.0.0:0".parse().unwrap()),
             },
             #[cfg(feature = "containers")]
-            containers: Some(Arc::new(handle)),
+            containers: Arc::new(OnceCell::new_with(Some(handle))),
+        }
+    }
+
+    pub(crate) fn mock_service_with_config(config: ConfigState) -> EdgehogService {
+        EdgehogService {
+            config,
+            options: ServiceOptions {
+                listener: Listener::Socket("0.0.0.0:0".parse().unwrap()),
+            },
+            #[cfg(feature = "containers")]
+            containers: Arc::new(OnceCell::new()),
         }
     }
 }

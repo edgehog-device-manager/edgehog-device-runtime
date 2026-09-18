@@ -19,25 +19,26 @@
 use std::sync::Arc;
 
 use edgehog_proto::tonic::Status;
+use tokio::sync::OnceCell;
 use tracing::error;
 
 use super::EdgehogService;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
-        use edgehog_containers::local::MockContainerHandle as ContainerHandle;
+        pub(crate) use edgehog_containers::local::MockContainerHandle as ContainerHandle;
     } else {
-        use edgehog_containers::local::ContainerHandle;
+        pub(crate) use edgehog_containers::local::ContainerHandle;
     }
 }
 
-pub(crate) type SharedContainerHandle = Arc<ContainerHandle>;
+pub(crate) type SharedContainerHandle = Arc<OnceCell<ContainerHandle>>;
 
 mod v1;
 
 impl EdgehogService {
-    fn container_handle(&self) -> Result<&Arc<ContainerHandle>, Status> {
-        self.containers.as_ref().ok_or_else(|| {
+    fn container_handle(&self) -> Result<&ContainerHandle, Status> {
+        self.containers.get().ok_or_else(|| {
             error!("container service is not available");
 
             Status::unavailable("container service not available")
