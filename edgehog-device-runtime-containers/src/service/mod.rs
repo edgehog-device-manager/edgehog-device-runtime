@@ -964,7 +964,7 @@ mod tests {
     use super::*;
 
     async fn mock_service(
-        tempdir: &TempDir,
+        tempfile: &TempDir,
         client: Docker,
         device: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
     ) -> (
@@ -972,7 +972,7 @@ mod tests {
         ServiceHandle<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
         mpsc::Receiver<ContainerEvent>,
     ) {
-        let db_file = tempdir.path().join("state.db");
+        let db_file = tempfile.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
 
         let handle = db::Handle::open(db_file).await.unwrap();
@@ -1235,7 +1235,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_volume() {
-        let tempdir = TempDir::new().unwrap();
+        let tempfile = TempDir::new().unwrap();
 
         let deployment_id = Uuid::new_v4();
         let volume = create_volume_req(deployment_id);
@@ -1252,7 +1252,7 @@ mod tests {
 
         expect_volume(volume.id.0, &mut seq, &mut device, &mut client);
 
-        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempfile, client, device).await;
 
         let create_volume_req = create_volume_request_event(&volume);
 
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_network() {
-        let tempdir = TempDir::new().unwrap();
+        let tempfile = TempDir::new().unwrap();
 
         let deployment_id = Uuid::new_v4();
         let network = create_network_req(deployment_id);
@@ -1308,7 +1308,7 @@ mod tests {
 
         expect_network(network.id.0, &mut seq, &mut device, &mut client);
 
-        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempfile, client, device).await;
 
         let create_network_req = create_network_request_event(&network);
 
@@ -1342,7 +1342,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_add_a_container() {
-        let tempdir = TempDir::new().unwrap();
+        let tempfile = TempDir::new().unwrap();
         let cancel = CancellationToken::new();
 
         let deployment_id = Uuid::new_v4();
@@ -1393,7 +1393,7 @@ mod tests {
         );
         expect_container(container.id.0, &mut seq, &mut device, &mut client);
 
-        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempfile, client, device).await;
 
         // Image
         let create_image_req = create_image_request_event(&image);
@@ -1474,7 +1474,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_start_deployment() {
-        let tempdir = TempDir::new().unwrap();
+        let tempfile = TempDir::new().unwrap();
         let cancel = CancellationToken::new();
 
         let deployment_id = Uuid::new_v4();
@@ -1694,7 +1694,7 @@ mod tests {
             )
             .returning(|_, _, _| Ok(()));
 
-        let stored_file = tempdir.path().join("stored_file");
+        let stored_file = tempfile.path().join("stored_file");
         tokio::fs::write(&stored_file, "Hello world!")
             .await
             .unwrap();
@@ -1714,7 +1714,7 @@ mod tests {
                     )))
                 }
             });
-        let stored_env_file = tempdir.path().join("env_file");
+        let stored_env_file = tempfile.path().join("env_file");
         tokio::fs::write(&stored_env_file, "ENV_FILE_KEY=value")
             .await
             .unwrap();
@@ -1861,7 +1861,7 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempfile, client, device).await;
 
         // image
         let create_image_req = create_image_request_event(&image);
@@ -1943,7 +1943,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_delete_deployment_no_start() {
-        let tempdir = TempDir::new().unwrap();
+        let tempfile = TempDir::new().unwrap();
         let cancel = CancellationToken::new();
 
         let deployment_id = Uuid::new_v4();
@@ -2188,7 +2188,7 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempfile, client, device).await;
 
         // image
         let create_image_req = create_image_request_event(&image);

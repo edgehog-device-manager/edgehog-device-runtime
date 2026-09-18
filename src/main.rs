@@ -17,26 +17,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::io::IsTerminal;
-use std::time::Duration;
 
 use clap::Parser;
-use edgehog_device_runtime::AstarteOptions;
-use eyre::{OptionExt, WrapErr, eyre};
-use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
-use tracing::instrument;
+use edgehog_device_runtime::tasks::Tasks;
+use eyre::eyre;
 use tracing::level_filters::LevelFilter;
-use tracing::{debug, error, info, trace, warn};
 use tracing_error::ErrorLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use edgehog_device_runtime::cli::Cli;
-use edgehog_device_runtime::config::read_options;
-use edgehog_device_runtime::data::connect_store;
-
-const TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
@@ -61,88 +52,11 @@ async fn main() -> eyre::Result<()> {
 
     let cli = Cli::parse();
 
-    if cli.configuration_file.is_some() {
-        warn!("the option --configuration-file is deprecated, please use --config instead")
-    }
+    let mut tasks = Tasks::init(cli).await?;
 
-    let options = read_options(cli).await?.setup_dirs().await?;
-    let store = connect_store(&options.store_directory).await?;
+    tasks.spawn().await?;
 
-    let mut tasks = JoinSet::new();
-    let cancel = CancellationToken::new();
-
-    match &options.astarte_library {
-        AstarteOptions::Sdk(device_options) => {
-            let client = device_options.connect(&mut tasks, store, &options).await?;
-
-            let mut runtime = edgehog_device_runtime::Runtime::new(
-                &mut tasks,
-                options,
-                client.clone(),
-                cancel.clone(),
-            )
-            .await?;
-
-            tasks.spawn(async move {
-                runtime
-                    .run()
-                    .await
-                    .wrap_err("the Device Runtime encountered an unrecoverable error")
-            });
-
-            shutdown(&mut tasks, client, cancel.clone());
-        }
-        #[cfg(feature = "message-hub")]
-        AstarteOptions::MessageHub(msghub_options) => {
-            let client = msghub_options.connect(&mut tasks, store, &options).await?;
-
-            let mut runtime = edgehog_device_runtime::Runtime::new(
-                &mut tasks,
-                options,
-                client.clone(),
-                cancel.clone(),
-            )
-            .await?;
-
-            tasks.spawn(async move {
-                runtime
-                    .run()
-                    .await
-                    .wrap_err("the Device Runtime encountered an unrecoverable error")
-            });
-
-            shutdown(&mut tasks, client, cancel.clone());
-        }
-    };
-
-    while let Some(res) = tasks.join_next().await {
-        match res {
-            Ok(Ok(())) => {
-                trace!("task joined");
-            }
-            Ok(Err(err)) => {
-                error!(error = format!("{err:#}"), "task joined");
-
-                cancel.cancel();
-
-                wait_exit(&mut tasks).await?;
-
-                return Err(err);
-            }
-            Err(err) if err.is_cancelled() => {
-                debug!(error = %err, "task joined");
-            }
-            Err(err) => {
-                error!(error = %err, "task joined");
-
-                cancel.cancel();
-
-                wait_exit(&mut tasks).await?;
-
-                return Err(err).wrap_err("task failed");
-            }
-        }
-    }
+    tasks.join().await?;
 
     Ok(())
 }
@@ -197,94 +111,4 @@ fn systemd_panic_hook(panic_info: &std::panic::PanicHookInfo) {
 
     let status = format!("{message} {location}");
     systemd_wrapper::systemd_notify_errno_status(ENOTRECOVERABLE, &status);
-}
-
-#[instrument(skip_all)]
-fn shutdown<D>(tasks: &mut JoinSet<eyre::Result<()>>, mut client: D, cancel: CancellationToken)
-where
-    D: astarte_device_sdk::client::ClientConnection + Send + 'static,
-{
-    let shutdown = async {
-        #[cfg(unix)]
-        if cfg!(unix) {
-            use tokio::signal::unix::SignalKind;
-
-            let mut term = tokio::signal::unix::signal(SignalKind::terminate())
-                .wrap_err("couldn't create SIGTERM listener")?;
-            let mut int = tokio::signal::unix::signal(SignalKind::interrupt())
-                .wrap_err("couldn't create SIGTERM listener")?;
-
-            tokio::select! {
-                _ = term.recv() => {
-                    info!("SIGTERM received");
-                }
-                _ = int.recv() => {
-                    info!("SIGINT received");
-                }
-            };
-
-            return Ok::<(), eyre::Report>(());
-        }
-
-        tokio::signal::ctrl_c()
-            .await
-            .wrap_err("couldn't wait for CTRL-C signal")?;
-
-        Ok::<(), eyre::Report>(())
-    };
-
-    tasks.spawn(async move {
-        if let Some(res) = cancel.run_until_cancelled(shutdown).await {
-            res?;
-        }
-
-        info!("cancelling tasks");
-
-        cancel.cancel();
-
-        client.disconnect().await?;
-
-        Ok(())
-    });
-}
-
-async fn wait_exit(tasks: &mut JoinSet<eyre::Result<()>>) -> eyre::Result<()> {
-    info!(
-        timeout_secs = TASK_SHUTDOWN_TIMEOUT.as_secs(),
-        "waiting for tasks to join cleanly ",
-    );
-
-    // join all tasks with a global timeout
-    let deadline = tokio::time::Instant::now()
-        .checked_add(TASK_SHUTDOWN_TIMEOUT)
-        .ok_or_eyre("incorrect instant now")?;
-
-    let mut task_errors = false;
-
-    while let Some(join_res) = tokio::time::timeout_at(deadline, tasks.join_next())
-        .await
-        .wrap_err("timeout reached while waiting for tasks to shutdown cleanly")?
-    {
-        match join_res {
-            Ok(Ok(())) => {
-                debug!("task joined");
-            }
-            Ok(Err(error)) => {
-                error!(%error, "task exited with an error");
-
-                task_errors = true;
-            }
-            Err(error) => {
-                error!(%error, "couldn't join a task");
-
-                task_errors = true;
-            }
-        }
-    }
-
-    if !task_errors {
-        Ok(())
-    } else {
-        Err(eyre!("one or more task failed"))
-    }
 }

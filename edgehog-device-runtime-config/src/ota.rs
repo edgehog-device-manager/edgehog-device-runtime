@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::Mergiable;
 
 /// Edgehog OTA configuration.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OtaConfig {
     /// Enables the OTA service
     #[serde(skip_serializing_if = "Option::is_none")]

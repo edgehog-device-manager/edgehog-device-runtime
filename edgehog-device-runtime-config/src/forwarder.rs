@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::Mergiable;
 
 /// Configuration for the forwarder service.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForwarderConfig {
     /// Flag to enable the forwarder
     #[serde(skip_serializing_if = "Option::is_none")]

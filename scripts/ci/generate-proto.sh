@@ -49,4 +49,8 @@ mv -v \
     "$workingDir/runtime/edgehog.deviceruntime.containers.v1.rs" \
     "$root_dir/edgehog-device-runtime-proto/src/containers/v1.rs"
 
+mv -v \
+    "$workingDir/runtime/edgehog.deviceruntime.config.v1.rs" \
+    "$root_dir/edgehog-device-runtime-proto/src/config/v1.rs"
+
 cargo fmt

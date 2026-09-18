@@ -39,7 +39,7 @@ use uuid::Uuid;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 use crate::controller::actor::Actor;
 use crate::http::default_http_client_builder;
 use crate::ota::rauc::BundleInfo;
@@ -388,7 +388,7 @@ where
     U: StateRepository<PersistentState>,
 {
     pub fn new(
-        opts: &DeviceManagerOptions,
+        opts: &DeviceRuntimeOptions,
         tx_publisher: mpsc::Sender<OtaStatus>,
         flag: OtaInProgress,
         system_update: T,

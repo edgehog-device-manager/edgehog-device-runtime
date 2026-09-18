@@ -26,7 +26,7 @@ use tracing::{error, info, instrument, trace};
 use crate::commands::execute_command;
 use crate::telemetry::Telemetry;
 use crate::telemetry::event::TelemetryEvent;
-use crate::{Client, DeviceManagerOptions};
+use crate::{Client, DeviceRuntimeOptions};
 
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 use crate::led_behavior::{LedBlink, LedEvent};
@@ -72,7 +72,7 @@ pub struct Runtime<T> {
 impl<C> Runtime<C> {
     pub async fn new(
         tasks: &mut JoinSet<eyre::Result<()>>,
-        opts: DeviceManagerOptions,
+        opts: DeviceRuntimeOptions,
         client: C,
         cancel: CancellationToken,
     ) -> eyre::Result<Self>
@@ -174,15 +174,6 @@ impl<C> Runtime<C> {
 
             (storage_manager, file_transfer)
         };
-
-        #[cfg(feature = "service")]
-        Self::setup_service(
-            opts.service,
-            tasks,
-            cancel.child_token(),
-            #[cfg(feature = "containers")]
-            container_handle,
-        );
 
         #[cfg(feature = "forwarder")]
         // Initialize the forwarder instance
@@ -348,59 +339,6 @@ impl<C> Runtime<C> {
         tasks.spawn(forwarder.run(forwarder_rx, cancel));
 
         Some(forwarder_tx)
-    }
-
-    #[cfg(feature = "service")]
-    fn setup_service(
-        config: edgehog_service::config::ServiceArgs,
-        tasks: &mut JoinSet<eyre::Result<()>>,
-        cancel: CancellationToken,
-        #[cfg(feature = "containers")] container_handle: Option<
-            std::sync::Arc<crate::containers::ContainerHandle>,
-        >,
-    ) where
-        C: Client + Clone + Send + Sync + 'static,
-    {
-        if !config.enabled {
-            tracing::debug!("local service not enabled");
-
-            return;
-        }
-
-        let options = match edgehog_service::service::ServiceOptions::try_from(config) {
-            Ok(opt) => opt,
-            Err(err) => {
-                error!(error = format!("{err:#}"), "invalid service options");
-
-                return;
-            }
-        };
-
-        let service = edgehog_service::service::EdgehogService::new(options);
-
-        #[cfg(feature = "containers")]
-        let service = {
-            // The mock doesn't work properly in tests
-            cfg_if::cfg_if! {
-                if #[cfg(test)] {
-                    drop(container_handle);
-                } else {
-                    let mut service = service;
-
-                    service.set_container_handle(container_handle);
-                }
-            }
-
-            service
-        };
-
-        tasks.spawn(async {
-            info!("starting local service");
-
-            service.run(cancel).await?;
-
-            Ok(())
-        });
     }
 
     #[instrument(skip(self))]

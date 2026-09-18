@@ -1351,10 +1351,13 @@ name = "edgehog-device-runtime-config"
 version = "0.13.2"
 dependencies = [
  "astarte-test-utils",
+ "eyre",
  "insta",
  "pretty_assertions",
  "serde",
+ "tokio",
  "toml 1.2.0+spec-1.1.0",
+ "tracing",
  "url",
 ]
 
@@ -1431,20 +1434,25 @@ dependencies = [
 name = "edgehog-device-runtime-service"
 version = "0.13.2"
 dependencies = [
+ "astarte-test-utils",
  "async-trait",
  "cfg-if",
  "edgehog-device-runtime-config",
  "edgehog-device-runtime-containers",
  "edgehog-device-runtime-proto",
  "eyre",
+ "insta",
  "mockall",
  "pretty_assertions",
  "serde",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "toml 1.2.0+spec-1.1.0",
+ "tonic",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -1473,11 +1481,14 @@ name = "edgehogctl"
 version = "0.13.2"
 dependencies = [
  "astarte-device-tls",
+ "async-trait",
  "aws-lc-rs",
  "bytes",
  "clap",
  "color-eyre",
  "edgehog-device-runtime",
+ "edgehog-device-runtime-config",
+ "edgehog-device-runtime-proto",
  "edgehog-device-runtime-store",
  "eyre",
  "hex",
@@ -1485,7 +1496,9 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-error",
  "tracing-subscriber",
