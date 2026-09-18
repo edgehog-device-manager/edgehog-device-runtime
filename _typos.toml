@@ -25,3 +25,6 @@ eps_ue_mode_operation = "eps_ue_mode_operation"
 
 [default.extend-words]
 tung = "tung"
+
+[files]
+extend-exclude = ["deps/*"]
