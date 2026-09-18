@@ -25,9 +25,12 @@
     clippy::todo
 )]
 
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
+use eyre::Context;
 use serde::{Deserialize, Serialize};
+use tracing::{instrument, trace};
 
 use self::container::ContainersConfig;
 use self::file_transfer::FileTransferConfig;
@@ -46,7 +49,7 @@ pub mod service;
 pub mod telemetry;
 
 /// Configuration file
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigFile {
     /// Connection type to use to connect with Astarte.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +88,39 @@ pub struct ConfigFile {
     /// Configuration for the telemetries to send to Astarte.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub telemetry_config: Option<Vec<TelemetryInterfaceConfig>>,
+}
+
+impl ConfigFile {
+    /// Reads and parses the configuration file
+    #[instrument(skip_all, fields(path = %path.as_ref().display()))]
+    pub async fn read(path: impl AsRef<Path>) -> eyre::Result<Option<ConfigFile>> {
+        match tokio::fs::read_to_string(path).await {
+            Ok(content) => {
+                let config = toml::from_str(&content).wrap_err("couldn't parse the config file")?;
+
+                Ok(Some(config))
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                trace!("config file not found");
+
+                Ok(None)
+            }
+            Err(error) => Err(error).wrap_err("couldn't read the file"),
+        }
+    }
+
+    /// Reads and merges a configuration file
+    #[instrument]
+    pub async fn read_and_merge(&mut self, path: PathBuf) -> eyre::Result<()> {
+        match Self::read(path).await? {
+            Some(config) => {
+                self.merge(config);
+
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
 }
 
 impl Mergiable for ConfigFile {

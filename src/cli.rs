@@ -38,8 +38,16 @@ pub struct Cli {
     #[arg(hide = true, long, global = true)]
     pub configuration_file: Option<PathBuf>,
     /// Override configuration file path
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, conflicts_with = "config_dir")]
     pub config: Option<PathBuf>,
+
+    /// Path to a custom Edgehog Device Runtime configuration directory.
+    #[arg(long, global = true, conflicts_with = "config")]
+    pub config_dir: Option<PathBuf>,
+
+    /// Enables the local service
+    #[arg(long)]
+    pub service: Option<bool>,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -56,12 +64,20 @@ impl From<Cli> for ConfigFile {
         let Cli {
             configuration_file: _,
             config: _,
+            config_dir: _,
+            service,
             command,
             device,
             shared,
         } = value;
 
         let mut config = ConfigFile::default();
+
+        if let Some(service_enabled) = service {
+            let service = config.service.get_or_insert_default();
+
+            service.enabled = Some(service_enabled)
+        }
 
         if let Some(shared) = shared {
             let SharedArgs {

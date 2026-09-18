@@ -142,19 +142,23 @@ zbus = { version = "6.2.0", default-features = false }
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 astarte-device-tls = { workspace = true, default-features = false, optional = true }
 async-compression = { workspace = true, features = ["gzip", "tokio"], optional = true }
-async-tar = { workspace = true, default-features = false, features = ["runtime-tokio", "xattr"], optional = true }
+async-tar = { workspace = true, default-features = false, features = [
+  "runtime-tokio",
+  "xattr",
+], optional = true }
 aws-lc-rs.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
 diesel.workspace = true
+dirs.workspace = true
 displaydoc.workspace = true
 edgehog-config.workspace = true
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-service = { workspace = true, optional = true }
-edgehog-store.workspace = true
+edgehog-store = { workspace = true, optional = true }
 eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -167,7 +171,7 @@ serde_json.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
-tokio-stream = { workspace = true, features = ["sync"] }
+tokio-stream = { workspace = true, features = ["sync", "fs"] }
 tokio-util = { workspace = true, features = ["compat", "rt"] }
 toml.workspace = true
 tracing.workspace = true
@@ -206,14 +210,13 @@ tokio-stream = { workspace = true, features = ["net"] }
 [build-dependencies]
 rustc_version.workspace = true
 
-[target.'cfg(unix)'.dependencies]
+[target."cfg(unix)".dependencies]
 rustix = { workspace = true, features = ["fs"], optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 procfs.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-dirs = { workspace = true, optional = true }
 systemd = { workspace = true, optional = true }
 udev = { workspace = true, optional = true }
 
@@ -237,11 +240,12 @@ default = [
 # Recreates the C bindings at buildtime, requires cmake, clang, and  bindgen-cli
 bindgen = [
   "astarte-device-sdk/bindgen",
-  "edgehog-store/bindgen",
+  "edgehog-store?/bindgen",
 ]
 # Enable the container management service
 containers = [
   "dep:edgehog-containers",
+  "dep:edgehog-store",
   "edgehog-service?/containers",
 ]
 # Feature to make it easier to cross compile the runtime, it requires clang and cmake to be
@@ -252,7 +256,7 @@ file-transfer = [
   "dep:astarte-device-tls",
   "dep:async-compression",
   "dep:async-tar",
-  "dep:dirs",
+  "dep:edgehog-store",
   "dep:minicbor",
   "dep:minicbor-io",
   "dep:pin-project",
@@ -282,7 +286,7 @@ udev = ["dep:udev"]
 # Uses and compiles the vendored version of the C dependencies
 vendored = [
   "astarte-device-sdk/vendored",
-  "edgehog-store/vendored",
+  "edgehog-store?/vendored",
 ]
 # Uses the webpki-roots as a CA bundles
 webpki-roots = [

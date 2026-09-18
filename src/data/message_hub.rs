@@ -31,7 +31,7 @@ use tracing::warn;
 use url::Url;
 use uuid::{Uuid, uuid};
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 
 use super::interfaces::add_interfaces;
 
@@ -40,7 +40,7 @@ const DEVICE_RUNTIME_NODE_UUID: Uuid = uuid!("d72a6187-7cf1-44cc-87e8-e991936166
 const DEFAULT_MESSAGE_HUB_ENDPOINT: &str = "http://[::1]:50051";
 
 /// Struct containing the configuration options for the Astarte message hub.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct MessageHubOptions {
     /// The Endpoint of the Astarte Message Hub
     pub endpoint: Url,
@@ -51,7 +51,7 @@ impl MessageHubOptions {
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        options: &DeviceManagerOptions,
+        options: &DeviceRuntimeOptions,
     ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>> {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .wrap_err("invalid message-hub endpoint")?;

@@ -21,7 +21,7 @@
 use edgehog_config::service::{Listener, ServiceConfig};
 
 /// Configuration for the [`EdgehogService`](crate::service::EdgehogService)
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ServiceArgs {
     /// Flag to enable the service
     pub enabled: bool,

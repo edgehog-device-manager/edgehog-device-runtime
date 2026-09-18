@@ -40,12 +40,17 @@ serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["net", "fs"] }
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util.workspace = true
+toml.workspace = true
+tonic.workspace = true
 tracing.workspace = true
+url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 # Enable mocking for the tests
+astarte-test-utils.workspace = true
 edgehog-containers = { workspace = true, features = ["__mock"] }
+insta.workspace = true
 mockall.workspace = true
+tempfile.workspace = true
 pretty_assertions.workspace = true
-toml.workspace = true

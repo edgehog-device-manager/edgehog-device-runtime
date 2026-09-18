@@ -26,7 +26,11 @@ rust-version.workspace = true
 description.workspace = true
 
 [dependencies]
+eyre.workspace = true
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs"] }
+toml.workspace = true
+tracing.workspace = true
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]

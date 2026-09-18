@@ -28,11 +28,11 @@ use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 
 use super::interfaces::add_interfaces;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct DeviceSdkOptions {
     pub realm: String,
     pub device_id: String,
@@ -46,7 +46,7 @@ impl DeviceSdkOptions {
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        options: &DeviceManagerOptions,
+        options: &DeviceRuntimeOptions,
     ) -> eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>> {
         let mut mqtt_cfg = MqttConfig::new(MqttArgs {
             realm: self.realm.clone(),

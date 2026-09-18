@@ -23,7 +23,7 @@ use eyre::Context;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt, TryStreamExt, future, ready};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
@@ -204,8 +204,10 @@ impl SystemUpdate for OTARauc<'static> {
 }
 
 impl<'a> OTARauc<'a> {
-    #[instrument]
+    #[instrument(skip_all)]
     pub async fn connect(config: &OtaArgs) -> eyre::Result<OTARauc<'a>> {
+        trace!(?config);
+
         let connection = match &config.rauc.dbus_socket {
             RaucDbus::System => zbus::Connection::system().await?,
             RaucDbus::Session => zbus::Connection::session().await?,

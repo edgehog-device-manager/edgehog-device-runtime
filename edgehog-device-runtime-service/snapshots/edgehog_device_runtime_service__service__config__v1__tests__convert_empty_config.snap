@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-service/src/service/config/v1.rs
+expression: toml_str
+---
+

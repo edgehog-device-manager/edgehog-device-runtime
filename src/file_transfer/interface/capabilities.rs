@@ -19,7 +19,7 @@
 //! Capabilities for the Device.
 
 use astarte_device_sdk::Client;
-use tracing::{info, instrument};
+use tracing::{info, instrument, trace};
 
 use crate::data::set_property;
 
@@ -87,11 +87,13 @@ impl<const T: usize> Capabilities<T> {
     const DEVICE_TO_SERVER: &str = "deviceToServer";
     const SERVER_TO_DEVICE: &str = "serverToDevice";
 
-    #[instrument(skip(device))]
+    #[instrument(skip_all)]
     pub(crate) async fn send<D>(&self, device: &mut D)
     where
         D: Client,
     {
+        trace!(capabilities = ?self);
+
         set_property(
             device,
             INTERFACE,

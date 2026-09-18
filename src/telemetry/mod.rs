@@ -42,7 +42,7 @@ const TELEMETRY_PATH: &str = "telemetry.json";
 
 const DEFAULT_PERIOD: Duration = Duration::from_secs(60);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TelemetryInterfaceArgs<'a> {
     pub interface_name: Cow<'a, str>,
     #[serde(skip_serializing_if = "Option::is_none")]

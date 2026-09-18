@@ -52,7 +52,7 @@ pub enum ForwarderError {
 }
 
 /// Configuration for the forwarder service.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForwarderArgs {
     /// Flag to enable the forwarder
     pub(crate) enabled: bool,

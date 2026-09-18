@@ -59,17 +59,18 @@ pub mod repository;
 pub mod storage;
 #[cfg(all(feature = "systemd", target_os = "linux"))]
 pub mod systemd_wrapper;
+pub mod tasks;
 pub mod telemetry;
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub enum AstarteOptions {
     Sdk(DeviceSdkOptions),
     #[cfg(feature = "message-hub")]
     MessageHub(MessageHubOptions),
 }
 
-#[derive(Debug, Clone)]
-pub struct DeviceManagerOptions {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceRuntimeOptions {
     pub astarte_library: AstarteOptions,
     #[cfg(feature = "containers")]
     pub containers: containers::ContainersArgs,
@@ -86,7 +87,7 @@ pub struct DeviceManagerOptions {
     pub download_directory: PathBuf,
 }
 
-impl DeviceManagerOptions {
+impl DeviceRuntimeOptions {
     pub async fn setup_dirs(mut self) -> eyre::Result<Self> {
         tokio::fs::create_dir_all(&self.download_directory)
             .await
@@ -121,7 +122,7 @@ impl DeviceManagerOptions {
     }
 }
 
-impl TryFrom<ConfigFile> for DeviceManagerOptions {
+impl TryFrom<ConfigFile> for DeviceRuntimeOptions {
     type Error = eyre::Error;
 
     fn try_from(value: ConfigFile) -> Result<Self, Self::Error> {
@@ -163,6 +164,14 @@ impl TryFrom<ConfigFile> for DeviceManagerOptions {
 
                 AstarteOptions::MessageHub(options)
             }
+            #[cfg(not(feature = "message-hub"))]
+            AstarteLibrary::AstarteMessageHub => {
+                let _ = astarte_message_hub;
+
+                return Err(eyre::eyre!(
+                    "message-hub feature is disabled, you need to compile the runtime with the message-hub enable"
+                ));
+            }
         };
 
         let store_directory = store_directory.ok_or_eyre("config is missing store directory")?;
@@ -170,6 +179,8 @@ impl TryFrom<ConfigFile> for DeviceManagerOptions {
         let download_directory =
             download_directory.unwrap_or_else(|| store_directory.join("download"));
 
+        #[cfg(not(feature = "file-transfer"))]
+        let _ = file_transfer;
         #[cfg(feature = "file-transfer")]
         let file_transfer = self::file_transfer::config::FileTransferArgs::with_store_dir(
             file_transfer,
@@ -187,6 +198,15 @@ impl TryFrom<ConfigFile> for DeviceManagerOptions {
             .into_iter()
             .map(TelemetryInterfaceArgs::from)
             .collect();
+
+        #[cfg(not(feature = "containers"))]
+        let _ = containers;
+        #[cfg(not(feature = "forwarder"))]
+        let _ = forwarder;
+        #[cfg(not(feature = "service"))]
+        let _ = service;
+        #[cfg(not(feature = "zbus"))]
+        let _ = ota;
 
         Ok(Self {
             astarte_library,

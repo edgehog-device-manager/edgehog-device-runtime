@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::Mergiable;
 
 /// Enables a telemetry interface.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TelemetryInterfaceConfig {
     /// Name of the interface
     pub interface_name: String,

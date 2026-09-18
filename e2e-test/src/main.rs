@@ -41,7 +41,7 @@ use url::Url;
 
 use edgehog::data::connect_store;
 use edgehog::data::device_sdk::DeviceSdkOptions;
-use edgehog::{AstarteOptions, DeviceManagerOptions, Runtime};
+use edgehog::{AstarteOptions, DeviceRuntimeOptions, Runtime};
 
 #[derive(Serialize, Deserialize)]
 struct AstartePayload<T> {
@@ -136,7 +136,7 @@ async fn main() -> color_eyre::Result<()> {
         ignore_ssl: cli.ignore_ssl,
     };
 
-    let device_options = DeviceManagerOptions {
+    let device_options = DeviceRuntimeOptions {
         astarte_library: AstarteOptions::Sdk(astarte_options.clone()),
         store_directory: store_path.path().to_path_buf(),
         download_directory: store_path.path().join("downloads"),

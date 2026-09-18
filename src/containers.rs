@@ -51,7 +51,7 @@ pub const MAX_INIT_RETRIES: usize = 10;
 pub const CHANNEL_SIZE: usize = 64;
 
 /// Configuration for the container service.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContainersArgs {
     pub(crate) enabled: bool,
     /// Flag to make the container service is required
