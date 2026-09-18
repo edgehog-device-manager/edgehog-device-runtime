@@ -31,7 +31,7 @@ use tracing::warn;
 use url::Url;
 use uuid::{Uuid, uuid};
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 
 use super::interfaces::add_interfaces;
 
@@ -51,7 +51,7 @@ impl MessageHubOptions {
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        options: &DeviceManagerOptions,
+        options: &DeviceRuntimeOptions,
     ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>> {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .wrap_err("invalid message-hub endpoint")?;

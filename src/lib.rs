@@ -59,6 +59,7 @@ pub mod repository;
 pub mod storage;
 #[cfg(all(feature = "systemd", target_os = "linux"))]
 pub mod systemd_wrapper;
+pub mod tasks;
 pub mod telemetry;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -69,7 +70,7 @@ pub enum AstarteOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct DeviceManagerOptions {
+pub struct DeviceRuntimeOptions {
     pub astarte_library: AstarteOptions,
     #[cfg(feature = "containers")]
     pub containers: containers::ContainersArgs,
@@ -86,7 +87,7 @@ pub struct DeviceManagerOptions {
     pub download_directory: PathBuf,
 }
 
-impl DeviceManagerOptions {
+impl DeviceRuntimeOptions {
     pub async fn setup_dirs(mut self) -> eyre::Result<Self> {
         tokio::fs::create_dir_all(&self.download_directory)
             .await
@@ -121,7 +122,7 @@ impl DeviceManagerOptions {
     }
 }
 
-impl TryFrom<ConfigFile> for DeviceManagerOptions {
+impl TryFrom<ConfigFile> for DeviceRuntimeOptions {
     type Error = eyre::Error;
 
     fn try_from(value: ConfigFile) -> Result<Self, Self::Error> {
@@ -162,6 +163,12 @@ impl TryFrom<ConfigFile> for DeviceManagerOptions {
                 let options = MessageHubOptions::try_from(config)?;
 
                 AstarteOptions::MessageHub(options)
+            }
+            #[cfg(not(feature = "message-hub"))]
+            AstarteLibrary::AstarteMessageHub => {
+                return Err(eyre::eyre!(
+                    "message-hub feature is disabled, you need to compile the runtime with the message-hub enable"
+                ));
             }
         };
 

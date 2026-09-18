@@ -36,7 +36,7 @@ pub enum AstarteLibrary {
 }
 
 /// Configuration for the Astarte Device SDK
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSdkConfig {
     /// The Astarte realm the device belongs to.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -79,7 +79,7 @@ impl Mergiable for DeviceSdkConfig {
 }
 
 /// Configuration to connect to the message-hub.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageHubConfig {
     /// The Endpoint of the Astarte Message Hub to connect to
     #[serde(skip_serializing_if = "Option::is_none")]

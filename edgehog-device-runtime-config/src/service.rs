@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::Mergiable;
 
 /// Configuration for the Edgehog Local Service.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ServiceConfig {
     /// Flag to enable the service
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,7 +46,7 @@ impl Mergiable for ServiceConfig {
 }
 
 /// Listener for the service
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Listener {
     /// Unix domain socket
@@ -70,6 +70,21 @@ impl Default for Listener {
                 50052,
             )))
         }
+    }
+}
+
+/// Configuration for the Edgehog Local Service.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ConfigServiceCfg {
+    /// Waits for at least one config to be received before starting the edgehog-device-runtime.
+    pub wait_for_config: Option<bool>,
+}
+
+impl Mergiable for ConfigServiceCfg {
+    fn merge(&mut self, value: Self) {
+        let Self { wait_for_config } = value;
+
+        self.wait_for_config = wait_for_config.or(self.wait_for_config);
     }
 }
 

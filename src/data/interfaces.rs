@@ -20,7 +20,7 @@
 
 use astarte_device_sdk::builder::DeviceBuilder;
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 
 const BASE_IMAGE: &str =
     include_str!("../../deps/interfaces/io.edgehog.devicemanager.BaseImage.json");
@@ -53,7 +53,7 @@ pub(crate) fn add_interfaces<C, S>(
         )),
         expect(unused)
     )]
-    config: &DeviceManagerOptions,
+    config: &DeviceRuntimeOptions,
 ) -> eyre::Result<DeviceBuilder<C, S>> {
     builder = builder
         .interface_str(BASE_IMAGE)?

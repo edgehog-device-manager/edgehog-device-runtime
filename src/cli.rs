@@ -38,8 +38,12 @@ pub struct Cli {
     #[arg(hide = true, long, global = true)]
     pub configuration_file: Option<PathBuf>,
     /// Override configuration file path
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, conflicts_with = "config_dir")]
     pub config: Option<PathBuf>,
+
+    /// Path to a custom Edgehog Device Runtime configuration directory.
+    #[arg(long, global = true, conflicts_with = "config")]
+    pub config_dir: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -56,6 +60,7 @@ impl From<Cli> for ConfigFile {
         let Cli {
             configuration_file: _,
             config: _,
+            config_dir: _,
             command,
             device,
             shared,

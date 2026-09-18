@@ -1,0 +1,8 @@
+---
+source: edgehog-device-runtime-service/src/service/config/v1.rs
+expression: toml_str
+---
+astarte_library = "astarte-message-hub"
+
+[astarte_message_hub]
+endpoint = "http://localhost:8883/"
