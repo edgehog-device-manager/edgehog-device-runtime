@@ -187,13 +187,16 @@ impl OtaHandler {
                     current.ota_id, id,
                 );
 
-                let _ = self
+                let res = self
                     .publisher_tx
                     .send(OtaStatus::Failure(
                         OtaError::UpdateAlreadyInProgress,
                         Some(id.clone()),
                     ))
                     .await;
+                if let Err(error) = res {
+                    error!(%error, "couldn't publish ota event");
+                }
 
                 true
             }
@@ -353,7 +356,7 @@ where
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
+    async fn handle(&mut self, _cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
         if let Err(err) = self.send_ota_event(&msg).await {
             error!(
                 error = format!("{:#}", eyre::Report::new(err)),

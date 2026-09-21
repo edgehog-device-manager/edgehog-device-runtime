@@ -65,9 +65,7 @@ impl<C> Task<C> {
         cancel: CancellationToken,
         interface: TelemetryInterface,
         period: Duration,
-        #[cfg(feature = "containers")] containers: &std::sync::Arc<
-            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
-        >,
+        #[cfg(feature = "containers")] containers: &Option<edgehog_containers::stats::StatsMonitor>,
     ) where
         C: Client + Send + Sync + 'static,
     {
@@ -77,7 +75,7 @@ impl<C> Task<C> {
             interface,
             period,
             #[cfg(feature = "containers")]
-            edgehog_containers::stats::StatsMonitor::new(std::sync::Arc::clone(containers)),
+            containers.clone(),
         ));
     }
 
@@ -86,7 +84,7 @@ impl<C> Task<C> {
         cancel: CancellationToken,
         interface: TelemetryInterface,
         period: Duration,
-        #[cfg(feature = "containers")] containers: edgehog_containers::stats::StatsMonitor,
+        #[cfg(feature = "containers")] containers: Option<edgehog_containers::stats::StatsMonitor>,
     ) where
         C: Client + Send + Sync + 'static,
     {
@@ -209,13 +207,19 @@ impl<C> Task<C> {
     async fn container(
         self,
         interface: ContainerInterface,
-        #[cfg(feature = "containers")] containers: edgehog_containers::stats::StatsMonitor,
+        #[cfg(feature = "containers")] containers: Option<edgehog_containers::stats::StatsMonitor>,
     ) where
         C: Client + Send + Sync + 'static,
     {
         cfg_if::cfg_if! {
             if #[cfg(feature = "containers")] {
-                let telemetry = super::stats::container::ContainerTelemetry::new(interface, containers);
+                let Some(stats) = containers else {
+                    tracing::warn!("the {interface} telemetry interface couldn't start because stats client is not connected");
+
+                    return;
+                };
+
+                let telemetry = super::stats::container::ContainerTelemetry::new(interface, stats);
 
                 self.run(telemetry).await;
             } else {
