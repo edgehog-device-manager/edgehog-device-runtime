@@ -30,6 +30,7 @@ use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use reqwest::Url;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::Client;
@@ -166,7 +167,7 @@ impl<C> Forwarder<C> {
     }
 
     /// Start a device forwarder instance.
-    pub fn handle_sessions(&mut self, sinfo: SessionInfo)
+    pub fn handle_sessions(&mut self, cancel: &CancellationToken, sinfo: SessionInfo)
     where
         C: Client + 'static + Send + Sync,
     {
@@ -186,12 +187,17 @@ impl<C> Forwarder<C> {
         let publisher = self.client.clone();
         self.get_running(sinfo).or_insert_with(|| {
             info!("opening a new session");
+
+            let cancel = cancel.child_token();
+
             // spawn a new task responsible for handling the remote terminal operations
             tokio::spawn(async move {
-                if let Err(err) =
-                    Self::handle_session(edgehog_url, session_token, secure, publisher).await
-                {
-                    error!("session failed, {err}");
+                let res =
+                    Self::handle_session(edgehog_url, session_token, secure, publisher, &cancel)
+                        .await;
+
+                if let Err(error) = res {
+                    error!(%error, "session failed");
                 }
             })
         });
@@ -211,6 +217,7 @@ impl<C> Forwarder<C> {
         session_token: String,
         secure: bool,
         mut client: C,
+        cancel: &CancellationToken,
     ) -> Result<(), ForwarderError>
     where
         C: Client + Send + Sync + 'static,
@@ -220,8 +227,14 @@ impl<C> Forwarder<C> {
             .send(&mut client)
             .await?;
 
-        if let Err(err) =
-            Self::connect(edgehog_url, session_token.clone(), secure, &mut client).await
+        if let Err(err) = Self::connect(
+            edgehog_url,
+            session_token.clone(),
+            secure,
+            &mut client,
+            cancel,
+        )
+        .await
         {
             error!("failed to connect, {err}");
         }
@@ -241,6 +254,7 @@ impl<C> Forwarder<C> {
         session_token: String,
         secure: bool,
         client: &mut C,
+        cancel: &CancellationToken,
     ) -> Result<(), ForwarderError>
     where
         C: Client + Send + Sync + 'static,
@@ -253,7 +267,7 @@ impl<C> Forwarder<C> {
             .await?;
 
         // handle the connections
-        while let Err(Disconnected(err)) = con_manager.handle_connections().await {
+        while let Err(Disconnected(err)) = con_manager.handle_connections(cancel).await {
             error!("WebSocket disconnected, {err}");
 
             // in case of a websocket error, the connection has been lost, so update the session
@@ -304,8 +318,8 @@ where
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
-        self.handle_sessions(msg);
+    async fn handle(&mut self, cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
+        self.handle_sessions(cancel, msg);
 
         Ok(())
     }
@@ -505,6 +519,6 @@ mod tests {
         let session = SessionInfo::from_event(astarte_event).unwrap();
 
         // the test is successful once handle_sessions terminates
-        f.handle_sessions(session);
+        f.handle_sessions(&CancellationToken::new(), session);
     }
 }

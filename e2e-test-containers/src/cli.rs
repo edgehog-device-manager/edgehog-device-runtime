@@ -46,7 +46,6 @@ pub enum Command {
         /// Path to a json file containing the data to send.
         data: PathBuf,
     },
-    Receive,
 }
 
 #[derive(Debug, Clone, Args)]

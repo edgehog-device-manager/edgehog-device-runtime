@@ -26,7 +26,6 @@ use astarte_device_sdk::chrono::{DateTime, Utc};
 use bollard::models::ContainerStatsResponse;
 use edgehog_store::models::containers::container::ContainerStatus;
 use edgehog_store::models::containers::volume::VolumeStatus;
-use tokio::sync::OnceCell;
 use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 
@@ -51,41 +50,28 @@ mod procs;
 mod volume;
 
 /// Handles the events received from the container runtime
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StatsMonitor {
-    handle: Arc<OnceCell<ContainerHandle>>,
+    handle: Arc<ContainerHandle>,
 }
 
 impl StatsMonitor {
     /// Creates a new instance.
-    pub fn new(handle: Arc<OnceCell<ContainerHandle>>) -> Self {
+    pub fn new(handle: Arc<ContainerHandle>) -> Self {
         Self { handle }
     }
 
     /// Creates an initialized instance.
     pub fn with_handle(client: Docker, store: StateStore) -> Self {
         Self {
-            handle: Arc::new(OnceCell::const_new_with(ContainerHandle::new(
-                client, store,
-            ))),
+            handle: Arc::new(ContainerHandle::new(client, store)),
         }
-    }
-
-    fn get_handle(&self) -> Option<&ContainerHandle> {
-        let handle = self.handle.get();
-
-        if handle.is_none() {
-            debug!("handle not yet initialized");
-        }
-
-        handle
     }
 
     /// Loads the container ids from the storage
     async fn load_container_ids(&self) -> Option<Vec<ContainerId>> {
-        let handle = self.get_handle()?;
-
-        let containers: Vec<ContainerId> = handle
+        let containers: Vec<ContainerId> = self
+            .handle
             .store
             .load_containers_in_state(vec![ContainerStatus::Stopped, ContainerStatus::Running])
             .await
@@ -106,9 +92,7 @@ impl StatsMonitor {
         &self,
         container: &ContainerId,
     ) -> Option<(ContainerStatsResponse, DateTime<Utc>)> {
-        let handle = self.handle.get()?;
-
-        let stats = match container.stats(&handle.client).await {
+        let stats = match container.stats(&self.handle.client).await {
             Ok(Some(stats)) => stats,
             Ok(None) => {
                 debug!("missing stats for container");
@@ -306,11 +290,8 @@ impl StatsMonitor {
     where
         D: Client + Send + Sync + 'static,
     {
-        let Some(handle) = self.get_handle() else {
-            return;
-        };
-
-        let volumes: Vec<VolumeId> = handle
+        let volumes: Vec<VolumeId> = self
+            .handle
             .store
             .load_volumes_in_state(VolumeStatus::Created)
             .await
@@ -323,7 +304,7 @@ impl StatsMonitor {
         trace!(len = volumes.len(), "loaded volumes from store");
 
         for volume in volumes {
-            match volume.inspect(&handle.client).await {
+            match volume.inspect(&self.handle.client).await {
                 Ok(Some(info)) => {
                     VolumeUsage::from(info)
                         .send(&volume.name, device, &Utc::now())

@@ -241,12 +241,12 @@ impl ContainersService for EdgehogService {
 
         let (tx, rx) = tokio::sync::mpsc::channel(4);
         let mut interval = tokio::time::interval(Duration::from_secs(interval));
-        let containers = self.containers.clone();
+        let containers = self.container_handle()?;
 
         let sender = StatsSender {
             tx,
             ids,
-            containers,
+            containers: containers.clone(),
         };
 
         tokio::spawn(async move {

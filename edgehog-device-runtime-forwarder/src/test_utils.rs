@@ -37,6 +37,7 @@ use tokio::time::timeout;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 use url::{ParseError, Url};
 
@@ -59,7 +60,9 @@ pub async fn con_manager(url: String, secure: bool) -> Result<(), Disconnected> 
     let mut con_manager = ConnectionsManager::connect(url.as_str().try_into().unwrap(), secure)
         .await
         .expect("failed to connect connections manager");
-    con_manager.handle_connections().await
+    con_manager
+        .handle_connections(&CancellationToken::new())
+        .await
 }
 
 fn proto_http_req(request_id: Vec<u8>, url: &Url, body: Vec<u8>) -> proto::Message {

@@ -41,6 +41,7 @@ rustls.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite = { workspace = true, features = ["__rustls-tls", "tokio-rustls", "url"] }
+tokio-util.workspace = true
 tracing = { workspace = true, features = ["log"] }
 url.workspace = true
 

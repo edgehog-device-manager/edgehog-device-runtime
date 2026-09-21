@@ -21,16 +21,29 @@
 use eyre::Context;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 
+/// Trait to start a task.
 pub trait Actor: Sized {
+    /// Message received from the task.
     type Msg: Send + 'static;
 
+    /// Task name.
     fn task() -> &'static str;
 
+    /// Flag to make the task fail on initialization.
+    fn required(&self) -> bool {
+        false
+    }
+
+    /// Called at the beginning.
     fn init(&mut self) -> impl Future<Output = eyre::Result<()>> + Send;
 
-    fn handle(&mut self, msg: Self::Msg) -> impl Future<Output = eyre::Result<()>> + Send;
+    fn handle(
+        &mut self,
+        cancel: &CancellationToken,
+        msg: Self::Msg,
+    ) -> impl Future<Output = eyre::Result<()>> + Send;
 
     #[instrument(skip_all, fields(task = Self::task()))]
     async fn run(
@@ -38,12 +51,24 @@ pub trait Actor: Sized {
         mut channel: mpsc::Receiver<Self::Msg>,
         cancel: CancellationToken,
     ) -> eyre::Result<()> {
-        self.init().await.wrap_err("init task failed")?;
+        let res = self.init().await.wrap_err("init task failed");
+
+        if let Err(error) = res {
+            error!(%error, "couldn't initialize task");
+
+            if self.required() {
+                return Err(error);
+            } else {
+                error!("service degrated, non required task could't initialize");
+
+                return Ok(());
+            }
+        }
 
         while let Some(msg) = cancel.run_until_cancelled(channel.recv()).await.flatten() {
             trace!("message received");
 
-            self.handle(msg).await.wrap_err("handle failed")?;
+            self.handle(&cancel, msg).await.wrap_err("handle failed")?;
         }
 
         debug!("task disconnected, closing");
@@ -90,7 +115,7 @@ pub trait Persisted: Sized {
         let job = match self.validate_job(&msg).await {
             Ok(job) => job,
             Err(error) => {
-                tracing::error!(%error, "couldn't queue the job");
+                error!(%error, "couldn't queue the job");
 
                 self.fail_job(&msg, error).await;
 
@@ -99,7 +124,7 @@ pub trait Persisted: Sized {
         };
 
         if let Err(error) = self.queue().insert_job(job).await {
-            tracing::error!(%error, "couldn't queue the job");
+            error!(%error, "couldn't queue the job");
 
             // TODO: time-out
             self.handle_backpressure(&msg).await;

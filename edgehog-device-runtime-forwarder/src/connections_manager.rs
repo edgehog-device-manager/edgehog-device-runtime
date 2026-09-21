@@ -32,6 +32,7 @@ use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, tungstenite::Error as TungError,
     tungstenite::Message as TungMessage,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, instrument, trace, warn};
 use url::Url;
 
@@ -174,9 +175,12 @@ impl ConnectionsManager {
 
     /// Manage the reception and transmission of data between the WebSocket and each device connection.
     #[instrument(skip_all)]
-    pub async fn handle_connections(&mut self) -> Result<(), Disconnected> {
+    pub async fn handle_connections(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<(), Disconnected> {
         loop {
-            match self.event_loop().await {
+            match self.event_loop(cancel).await {
                 Ok(ControlFlow::Continue(())) => {}
                 // if a close frame has been received or the closing handshake is correctly
                 // terminated, the manager terminates the handling of the connections
@@ -207,14 +211,21 @@ impl ConnectionsManager {
     /// * Receiving data from the Edgehog-device WebSocket connection,
     /// * Receiving data from one of the device connections (e.g., between the device and TTYD).
     #[instrument(skip_all)]
-    pub(crate) async fn event_loop(&mut self) -> Result<ControlFlow<()>, TungError> {
-        let event = self.select_ws_event().await;
+    pub(crate) async fn event_loop(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<ControlFlow<()>, TungError> {
+        let Some(event) = cancel.run_until_cancelled(self.select_ws_event()).await else {
+            debug!("cancelled, exiting");
+
+            return Ok(ControlFlow::Break(()));
+        };
 
         match event {
             // receive data from Edgehog
             WebSocketEvents::Receive(msg) => {
                 future::ready(msg)
-                    .and_then(|msg| self.handle_tung_msg(msg))
+                    .and_then(|msg| self.handle_tung_msg(msg, cancel))
                     .await
             }
             // receive data from a device connection (e.g., TTYD)
@@ -227,9 +238,7 @@ impl ConnectionsManager {
                     }
                 };
 
-                self.send_to_ws(msg)
-                    .await
-                    .map(|_| ControlFlow::Continue(()))
+                self.send_to_ws(cancel, msg).await
             }
         }
     }
@@ -262,8 +271,23 @@ impl ConnectionsManager {
 
     /// Send a [`Tungstenite message`](tokio_tungstenite::tungstenite::Message) through the WebSocket toward Edgehog.
     #[instrument(skip_all)]
-    pub(crate) async fn send_to_ws(&mut self, tung_msg: TungMessage) -> Result<(), TungError> {
-        self.ws_stream.send(tung_msg).await
+    pub(crate) async fn send_to_ws(
+        &mut self,
+        cancel: &CancellationToken,
+        tung_msg: TungMessage,
+    ) -> Result<ControlFlow<()>, TungError> {
+        let Some(res) = cancel
+            .run_until_cancelled(self.ws_stream.send(tung_msg))
+            .await
+        else {
+            debug!("cancelled, exiting");
+
+            return Ok(ControlFlow::Break(()));
+        };
+
+        res?;
+
+        Ok(ControlFlow::Continue(()))
     }
 
     /// Handle a single WebSocket [`Tungstenite message`](tokio_tungstenite::tungstenite::Message).
@@ -271,41 +295,61 @@ impl ConnectionsManager {
     pub(crate) async fn handle_tung_msg(
         &mut self,
         msg: TungMessage,
+        cancel: &CancellationToken,
     ) -> Result<ControlFlow<()>, TungError> {
         match msg {
             TungMessage::Ping(data) => {
                 debug!("received ping, sending pong");
                 let msg = TungMessage::Pong(data);
-                self.send_to_ws(msg).await?;
+
+                self.send_to_ws(cancel, msg).await
             }
-            TungMessage::Pong(_) => debug!("received pong"),
+            TungMessage::Pong(_) => {
+                debug!("received pong");
+
+                Ok(ControlFlow::Continue(()))
+            }
             TungMessage::Close(close_frame) => {
                 debug!("received close frame {close_frame:?}, closing active connections");
+
                 self.disconnect();
+
                 info!("closed every connection");
+
                 return Ok(ControlFlow::Break(()));
             }
             // text frames should never be sent
-            TungMessage::Text(data) => warn!("received Text WebSocket frame, {data}"),
+            TungMessage::Text(data) => {
+                warn!("received Text WebSocket frame, {data}");
+
+                Ok(ControlFlow::Continue(()))
+            }
             TungMessage::Binary(bytes) => {
                 match ProtoMessage::decode(&bytes) {
                     // handle the actual protocol message
                     Ok(proto_msg) => {
-                        trace!("message received from Edgehog: {proto_msg:?}");
+                        trace!(?proto_msg, "message received from Edgehog");
+
                         if let Err(err) = self.handle_proto_msg(proto_msg).await {
                             error!("failed to handle protobuf message due to {err:?}");
                         }
+
+                        Ok(ControlFlow::Continue(()))
                     }
                     Err(err) => {
                         error!("failed to decode protobuf message due to {err:?}");
+
+                        Ok(ControlFlow::Continue(()))
                     }
                 }
             }
             // wrong Message type
-            TungMessage::Frame(_) => error!("unhandled message type: {msg:?}"),
-        }
+            TungMessage::Frame(_) => {
+                error!("unhandled message type: {msg:?}");
 
-        Ok(ControlFlow::Continue(()))
+                Ok(ControlFlow::Continue(()))
+            }
+        }
     }
 
     /// Handle a [`protocol message`](ProtoMessage).
