@@ -29,7 +29,7 @@ set: [errexit, nounset, pipefail]
 vars:
   MAIN_CRATE: edgehog-device-runtime
   LIBRARY: false
-  MSRV: 1.88
+  MSRV: 1.89
 
 env:
   RUSTFLAGS: -D warnings

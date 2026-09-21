@@ -18,7 +18,6 @@
 
 use std::{env::VarError, path::PathBuf};
 
-use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
 use clap::Parser;
 use eyre::eyre;
 use reqwest::Url;

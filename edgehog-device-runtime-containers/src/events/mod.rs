@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,16 +38,12 @@ pub(crate) mod deployment;
 pub struct RuntimeListener {
     client: Docker,
     store: StateStore,
-    tx: mpsc::UnboundedSender<ContainerEvent>,
+    tx: mpsc::Sender<ContainerEvent>,
 }
 
 impl RuntimeListener {
     /// Creates a new instance.
-    pub fn new(
-        client: Docker,
-        store: StateStore,
-        tx: mpsc::UnboundedSender<ContainerEvent>,
-    ) -> Self {
+    pub fn new(client: Docker, store: StateStore, tx: mpsc::Sender<ContainerEvent>) -> Self {
         Self { client, store, tx }
     }
 
@@ -88,6 +84,7 @@ impl RuntimeListener {
     async fn refresh(&self, id: Id) -> eyre::Result<()> {
         self.tx
             .send(ContainerEvent::Refresh(id))
+            .await
             .wrap_err("couldn't send refresh event")?;
 
         Ok(())

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2025 SECO Mind Srl
+// Copyright 2025, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,6 +16,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use edgehog_proto::tonic::Status;
 use tracing::error;
 
@@ -23,19 +25,19 @@ use super::EdgehogService;
 
 cfg_if::cfg_if! {
     if #[cfg(test)] {
-        pub use edgehog_containers::local::MockContainerHandle as ContainerHandle;
+        use edgehog_containers::local::MockContainerHandle as ContainerHandle;
     } else {
-        pub use edgehog_containers::local::ContainerHandle;
+        use edgehog_containers::local::ContainerHandle;
     }
 }
 
-pub(crate) type SharedContainerHandle = std::sync::Arc<tokio::sync::OnceCell<ContainerHandle>>;
+pub(crate) type SharedContainerHandle = Arc<ContainerHandle>;
 
 mod v1;
 
 impl EdgehogService {
-    fn container_handle(&self) -> Result<&ContainerHandle, Status> {
-        self.containers.get().ok_or_else(|| {
+    fn container_handle(&self) -> Result<&Arc<ContainerHandle>, Status> {
+        self.containers.as_ref().ok_or_else(|| {
             error!("container service is not available");
 
             Status::unavailable("container service not available")

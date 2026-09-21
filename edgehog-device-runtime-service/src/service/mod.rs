@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -99,20 +99,26 @@ impl Display for Listener {
 pub struct EdgehogService {
     options: ServiceOptions,
     #[cfg(feature = "containers")]
-    containers: self::containers::SharedContainerHandle,
+    containers: Option<self::containers::SharedContainerHandle>,
 }
 
 impl EdgehogService {
     /// Create a new instance of the service
-    pub fn new(
-        options: ServiceOptions,
-        #[cfg(feature = "containers")] containers: self::containers::SharedContainerHandle,
-    ) -> Self {
+    pub fn new(options: ServiceOptions) -> Self {
         Self {
             options,
             #[cfg(feature = "containers")]
-            containers,
+            containers: None,
         }
+    }
+
+    /// Sets the container handle
+    #[cfg(feature = "containers")]
+    pub fn set_container_handle(
+        &mut self,
+        containers: Option<self::containers::SharedContainerHandle>,
+    ) {
+        self.containers = containers;
     }
 
     /// Starts the service with the given options
@@ -222,7 +228,7 @@ pub(crate) mod tests {
                 listener: Listener::Socket("0.0.0.0:0".parse().unwrap()),
             },
             #[cfg(feature = "containers")]
-            containers: Arc::new(tokio::sync::OnceCell::const_new_with(handle)),
+            containers: Some(Arc::new(handle)),
         }
     }
 }
