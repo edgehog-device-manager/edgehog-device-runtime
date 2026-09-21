@@ -101,7 +101,7 @@ procfs = "0.18.0"
 prost = "0.14.4"
 prost-build = "0.14.4"
 reqwest = { version = "0.13.1", default-features = false }
-rstest = "0.26.1"
+rstest = "0.27.0"
 # Version required by diesel
 rusqlite = "0.39.0"
 rustc_version = "0.4.1"
