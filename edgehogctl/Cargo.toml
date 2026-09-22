@@ -27,19 +27,18 @@ rust-version.workspace = true
 description.workspace = true
 
 [dependencies]
+astarte-device-tls.workspace = true
 aws-lc-rs.workspace = true
 bytes.workspace = true
 clap = { workspace = true, features = ["derive"] }
 color-eyre.workspace = true
 edgehog.workspace = true
 edgehog-store.workspace = true
-edgehog-tls.workspace = true
 eyre.workspace = true
 hex.workspace = true
 rustls.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-tempdir.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 tracing-error.workspace = true
