@@ -154,6 +154,10 @@ async fn main() -> color_eyre::Result<()> {
         ota: edgehog_device_runtime::ota::config::OtaConfig::default(),
         file_transfer: FileTransferArgs::with_store_dir(None, store_path.path()),
     };
+    let device_options = device_options
+        .setup_dirs()
+        .await
+        .wrap_err("error while setting up directories")?;
 
     let store = connect_store(store_path.path())
         .await

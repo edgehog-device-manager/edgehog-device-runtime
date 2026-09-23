@@ -72,8 +72,6 @@ impl<F> FileStorage<F> {
     pub(crate) async fn init(&self, queue: &Queue) -> io::Result<()> {
         trace!(dir = %self.dir.display(), "initialazing store directories");
 
-        tokio::fs::create_dir_all(&self.dir).await?;
-
         self.cleanup(queue).await?;
 
         Ok(())
