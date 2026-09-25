@@ -35,6 +35,9 @@ struct Cli {
     /// Output directory for the generated files.
     #[arg(short, long)]
     output: PathBuf,
+    /// Whether to generate the gRPC files
+    #[arg(long, default_value_t = false)]
+    with_tonic: bool,
 }
 
 fn main() -> eyre::Result<()> {
@@ -73,10 +76,17 @@ fn main() -> eyre::Result<()> {
         })?;
     }
 
-    prost_build::Config::new()
-        .out_dir(&cli.output)
-        .compile_protos(&protos, &[protos_path])
-        .wrap_err("couldn't compile proto definitions")?;
+    if cli.with_tonic {
+        tonic_prost_build::configure()
+            .out_dir(&cli.output)
+            .compile_protos(&protos, &[protos_path])
+            .wrap_err("couldn't compile proto definitions")?;
+    } else {
+        prost_build::Config::new()
+            .out_dir(&cli.output)
+            .compile_protos(&protos, &[protos_path])
+            .wrap_err("couldn't compile proto definitions")?;
+    }
 
     info!("gRPC and Protobuf file compiled");
 

@@ -1,6 +1,6 @@
 # This file is part of Edgehog.
 #
-# Copyright 2026 SECO Mind Srl
+# Copyright 2025, 2026 SECO Mind Srl
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,15 +16,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-[submodule "deps/forwarder-proto"]
-	path = deps/forwarder-proto
-	url = https://github.com/edgehog-device-manager/edgehog-device-forwarder-proto.git
-	branch = main
-[submodule "deps/interfaces"]
-	path = deps/interfaces
-	url = https://github.com/edgehog-device-manager/edgehog-astarte-interfaces.git
-	branch = main
-[submodule "deps/runtime-proto"]
-	path = deps/runtime-proto
-	url = https://github.com/edgehog-device-manager/edgehog-device-runtime-proto.git
-	branch = main
+[package]
+name = "edgehog-device-runtime-proto"
+version.workspace = true
+categories = ["api-bindings"]
+edition.workspace = true
+keywords = ["astarte", "protobuf", "iot"]
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Edgehog device runtime gRPC services and messages"
+
+[dependencies]
+chrono.workspace = true
+prost.workspace = true
+prost-types = { workspace = true, features = ["chrono"] }
+tonic.workspace = true
+tonic-prost.workspace = true

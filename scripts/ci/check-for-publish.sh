@@ -52,6 +52,7 @@ pkgsFiles=$(
         <(listPackage "edgehog-device-forwarder-proto") \
         <(listPackage "edgehog-device-runtime-containers") \
         <(listPackage "edgehog-device-runtime-forwarder") \
+        <(listPackage "edgehog-device-runtime-proto") \
         <(listPackage "edgehog-device-runtime-service") \
         <(listPackage "edgehog-device-runtime-store") \
         <(listPackage "edgehogctl") \

@@ -29,8 +29,24 @@ target_dir=$(echo "$manifest" | jq '.target_directory' --raw-output)
 workingDir="$target_dir/edgehog-protos"
 
 rm -rf "$workingDir" || true
-mkdir -p "$workingDir"
+mkdir -p "$workingDir/forwarder"
+mkdir -p "$workingDir/runtime"
 
-cargo run -p proto-codegen --locked -- --protos ./deps/forwarder-proto/proto/ --output "$workingDir"
+cargo run -p proto-codegen --locked -- \
+    --protos ./deps/forwarder-proto/proto/ \
+    --output "$workingDir/forwarder"
 
-mv "$workingDir/edgehog.device.forwarder.rs" "$root_dir/edgehog-device-forwarder-proto/src/proto.rs"
+mv -v \
+    "$workingDir/forwarder/edgehog.device.forwarder.rs" \
+    "$root_dir/edgehog-device-forwarder-proto/src/proto.rs"
+
+cargo run -p proto-codegen --locked -- \
+    --with-tonic \
+    --protos ./deps/runtime-proto/proto/ \
+    --output "$workingDir/runtime"
+
+mv -v \
+    "$workingDir/runtime/edgehog.deviceruntime.containers.v1.rs" \
+    "$root_dir/edgehog-device-runtime-proto/src/containers/v1.rs"
+
+cargo fmt
