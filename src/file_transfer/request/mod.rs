@@ -224,7 +224,10 @@ mod tests {
         pub(crate) fn target(&self) -> String {
             match self {
                 Request::Download(download) => match &download.destination {
-                    download::Destination::Storage => String::new(),
+                    download::Destination::Storage { name } => name
+                        .as_deref()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default(),
                     download::Destination::Stream => String::new(),
                     download::Destination::FileSystem { path } => {
                         path.to_string_lossy().to_string()

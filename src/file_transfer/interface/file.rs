@@ -18,15 +18,11 @@
 
 //! Astarte properties sent to list the local stored files.
 
-use std::{
-    borrow::Cow,
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, path::PathBuf};
 
-use astarte_device_sdk::{AstarteData, prelude::PropAccess};
-use eyre::Context;
-use tracing::{error, instrument, warn};
+use astarte_device_sdk::prelude::PropAccess;
+use eyre::{Context, OptionExt};
+use tracing::{error, instrument, trace};
 
 #[derive(Debug, Clone)]
 pub(crate) struct StoredFile {
@@ -48,6 +44,35 @@ impl StoredFile {
         }
     }
 
+    fn path_endpoint(id: &str) -> String {
+        format!("/{}{}", id, Self::PATH_ENDPOINT)
+    }
+
+    fn size_endpoint(id: &str) -> String {
+        format!("/{}{}", id, Self::SIZE_ENDPOINT)
+    }
+
+    #[instrument]
+    fn endpoint_id(path: &str) -> Option<&str> {
+        trace!("extracting id");
+
+        path.split('/').nth(1)
+    }
+
+    pub(crate) async fn fetch_path<C>(device: &C, id: &str) -> eyre::Result<PathBuf>
+    where
+        C: PropAccess,
+    {
+        let stored = device
+            .property(Self::INTERFACE, &Self::path_endpoint(id))
+            .await?
+            .ok_or_eyre("no path property found")?;
+
+        let path = String::try_from(stored).wrap_err("unexpected data type")?;
+
+        Ok(PathBuf::from(path))
+    }
+
     pub(crate) async fn fetch_paths<C>(device: &C) -> eyre::Result<HashSet<String>>
     where
         C: PropAccess + Send + Sync + 'static,
@@ -60,14 +85,7 @@ impl StoredFile {
         let set: HashSet<String> = previous
             .into_iter()
             .filter(|p| p.path.ends_with(Self::PATH_ENDPOINT))
-            .filter_map(|p| match p.value {
-                AstarteData::String(path) => Self::file_name_from_path(&path).map(|s| s.into()),
-                d => {
-                    warn!("expecting string in '{}' got {:?}", p.path, d);
-
-                    None
-                }
-            })
+            .filter_map(|p| Self::endpoint_id(&p.path).map(|s| s.into()))
             .collect();
 
         Ok(set)
@@ -81,17 +99,13 @@ impl StoredFile {
         let path = self.path.to_string_lossy().to_string();
 
         device
-            .set_property(
-                Self::INTERFACE,
-                &format!("/{}{}", self.id, Self::PATH_ENDPOINT),
-                path.into(),
-            )
+            .set_property(Self::INTERFACE, &Self::path_endpoint(&self.id), path.into())
             .await?;
 
         device
             .set_property(
                 Self::INTERFACE,
-                &format!("/{}{}", self.id, Self::SIZE_ENDPOINT),
+                &Self::size_endpoint(&self.id),
                 self.size.into(),
             )
             .await
@@ -102,35 +116,23 @@ impl StoredFile {
         &self.id
     }
 
-    pub(crate) async fn deleted<C, S>(id: S, device: &mut C)
+    pub(crate) async fn unset<C, S>(id: S, device: &mut C)
     where
         S: std::fmt::Display,
         C: astarte_device_sdk::Client + Send + Sync + 'static,
     {
         if let Err(error) = device
-            .unset_property(Self::INTERFACE, &format!("/{}{}", id, Self::PATH_ENDPOINT))
+            .unset_property(Self::INTERFACE, &Self::path_endpoint(&id.to_string()))
             .await
         {
             error!(%error, "can't send unset to astarte");
         }
 
         if let Err(error) = device
-            .unset_property(Self::INTERFACE, &format!("/{}{}", id, Self::SIZE_ENDPOINT))
+            .unset_property(Self::INTERFACE, &Self::size_endpoint(&id.to_string()))
             .await
         {
             error!(%error, "can't send unset to astarte");
-        }
-    }
-
-    fn file_name_from_path<'a>(path: &'a str) -> Option<Cow<'a, str>> {
-        let path = Path::new(path);
-        let file_name = path.file_name();
-
-        if let Some(file_name) = file_name {
-            Some(file_name.to_string_lossy())
-        } else {
-            warn!("invalid path stored in properties");
-            None
         }
     }
 }
@@ -141,7 +143,11 @@ mod tests {
     use astarte_device_sdk::{AstarteData, store::SqliteStore, transport::mqtt::Mqtt};
     use astarte_device_sdk_mock::MockDeviceClient;
     use mockall::predicate::eq;
+    use rstest::Context;
+    use rstest::rstest;
     use uuid::Uuid;
+
+    use crate::tests::with_insta;
 
     use super::*;
 
@@ -200,6 +206,37 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        StoredFile::deleted(uuid, &mut device).await;
+        StoredFile::unset(uuid, &mut device).await;
+    }
+
+    #[test]
+    fn test_path_endpoint() {
+        let endpoint = StoredFile::path_endpoint("testfile.txt");
+
+        with_insta!({
+            insta::assert_snapshot!(endpoint);
+        });
+    }
+
+    #[test]
+    fn test_size_endpoint() {
+        let endpoint = StoredFile::size_endpoint("testfile.txt");
+
+        with_insta!({
+            insta::assert_snapshot!(endpoint);
+        });
+    }
+
+    #[rstest]
+    #[case(StoredFile::size_endpoint("testfile.txt"))]
+    #[case(StoredFile::path_endpoint("testfile2.txt"))]
+    fn test_endpoint_get_id(#[context] ctx: Context, #[case] endpoint: String) {
+        let id = StoredFile::endpoint_id(&endpoint).unwrap();
+
+        with_insta!({
+            let name = format!("{}_{}", ctx.name, ctx.case.unwrap());
+
+            insta::assert_snapshot!(name, id);
+        });
     }
 }

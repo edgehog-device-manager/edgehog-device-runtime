@@ -43,7 +43,7 @@ AstarteObject {
         (
             "destination",
             String(
-                "",
+                "testfile.txt",
             ),
         ),
         (
