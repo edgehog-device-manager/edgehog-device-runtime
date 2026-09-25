@@ -23,7 +23,7 @@ use crate::{
     properties::{AvailableProp, Client, network::AvailableNetwork},
 };
 
-use super::{Context, Create, Resource, Result, State};
+use super::{Context, Create, Resource, ResourceError, Result, State};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NetworkResource {
@@ -66,7 +66,12 @@ where
             return Ok(None);
         };
 
-        let created = resource.network.inspect(ctx.client).await?.is_some();
+        let created = resource
+            .network
+            .inspect(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?
+            .is_some();
 
         AvailableNetwork::new(&ctx.id)
             .send(ctx.device, created)
@@ -84,7 +89,10 @@ where
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.network.create(ctx.client).await?;
+        self.network
+            .create(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         ctx.store
             .update_network_local_id(ctx.id, self.network.id.id.clone())
@@ -102,7 +110,10 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.network.remove(ctx.client).await?;
+        self.network
+            .remove(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         Ok(())
     }

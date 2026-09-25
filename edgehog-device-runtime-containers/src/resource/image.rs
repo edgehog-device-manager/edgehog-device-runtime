@@ -24,7 +24,7 @@ use crate::{
     properties::{AvailableProp, Client, image::AvailableImage},
 };
 
-use super::{Context, Create, Resource, Result, State};
+use super::{Context, Create, Resource, ResourceError, Result, State};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImageResource {
@@ -65,7 +65,12 @@ where
             return Ok(None);
         };
 
-        let pulled = resource.image.inspect(ctx.client).await?.is_some();
+        let pulled = resource
+            .image
+            .inspect(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?
+            .is_some();
 
         AvailableImage::new(&ctx.id)
             .send(ctx.device, pulled)
@@ -83,7 +88,10 @@ where
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.image.pull(ctx.client).await?;
+        self.image
+            .pull(ctx.client)
+            .await
+            .map_err(ResourceError::docker)?;
 
         ctx.store
             .update_image_local_id(ctx.id, self.image.id.clone())
@@ -110,7 +118,7 @@ where
                 );
             }
             Err(err) => {
-                return Err(err.into());
+                return Err(ResourceError::docker(err));
             }
         }
 
