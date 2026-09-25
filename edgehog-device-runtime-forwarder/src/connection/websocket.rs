@@ -4,9 +4,11 @@
 //! Define the necessary structs and traits to represent a WebSocket connection.
 
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
 use http::Request;
+use rustls::ClientConfig;
 use tokio::select;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio_tungstenite::tungstenite::Utf8Bytes;
@@ -32,6 +34,7 @@ use crate::messages::{
 #[derive(Debug)]
 pub(crate) struct WebSocketBuilder {
     request: Request<()>,
+    tls: ClientConfig,
     rx_con: Receiver<ProtoWebSocketMessage>,
 }
 
@@ -40,13 +43,22 @@ impl WebSocketBuilder {
     pub(crate) fn with_handle(
         http_req: ProtoHttpRequest,
     ) -> Result<(Self, WriteHandle), ConnectionError> {
+        let tls = http_req.tls()?;
         let request = http_req.ws_upgrade()?;
+
         trace!("HTTP request upgraded");
 
         // this channel will be used to send data from the manager to the WebSocket connection
         let (tx_con, rx_con) = channel::<ProtoWebSocketMessage>(WS_CHANNEL_SIZE);
 
-        Ok((Self { request, rx_con }, WriteHandle::Ws(tx_con)))
+        Ok((
+            Self {
+                request,
+                tls,
+                rx_con,
+            },
+            WriteHandle::Ws(tx_con),
+        ))
     }
 }
 
@@ -57,13 +69,19 @@ impl TransportBuilder for WebSocketBuilder {
     async fn build(
         self,
         id: &Id,
-        tx_ws: Sender<ProtoMessage>,
+        tx_ws: &Sender<ProtoMessage>,
     ) -> Result<Self::Connection, ConnectionError> {
         // establish a WebSocket connection
-        let (ws_stream, http_res) = tokio_tungstenite::connect_async(self.request)
-            .await
-            .map_err(Box::new)?;
-        trace!("WebSocket stream for ID {id} created");
+        let (ws_stream, http_res) = tokio_tungstenite::connect_async_tls_with_config(
+            self.request,
+            None,
+            true,
+            Some(tokio_tungstenite::Connector::Rustls(Arc::new(self.tls))),
+        )
+        .await
+        .map_err(Box::new)?;
+
+        trace!("WebSocket stream for created");
 
         // send a protocol message with the HTTP response to the connections manager
         let proto_msg = ProtoMessage::Http(ProtoHttp::new(
