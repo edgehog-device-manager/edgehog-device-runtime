@@ -18,8 +18,6 @@
 
 //! Contains the implementation for the Astarte message hub node.
 
-use std::path::Path;
-
 use astarte_device_sdk::DeviceClient;
 use astarte_device_sdk::builder::DeviceBuilder;
 use astarte_device_sdk::prelude::*;
@@ -30,6 +28,8 @@ use serde::Deserialize;
 use tokio::task::JoinSet;
 use url::Url;
 use uuid::{Uuid, uuid};
+
+use crate::DeviceManagerOptions;
 
 use super::interfaces::add_interfaces;
 
@@ -44,21 +44,18 @@ pub struct AstarteMessageHubOptions {
 }
 
 impl AstarteMessageHubOptions {
-    pub async fn connect<P>(
+    pub async fn connect(
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        store_dir: P,
-    ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>>
-    where
-        P: AsRef<Path>,
-    {
+        config: &DeviceManagerOptions,
+    ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>> {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .wrap_err("invalid message-hub endpoint")?;
 
-        let (device, connection) = add_interfaces(DeviceBuilder::new())
+        let (device, connection) = add_interfaces(DeviceBuilder::new(), config)
             .wrap_err("couldn't add interfaces")?
-            .writable_dir(store_dir)
+            .writable_dir(&config.store_directory)
             .store(store)
             .connection(grpc_cfg)
             .build()

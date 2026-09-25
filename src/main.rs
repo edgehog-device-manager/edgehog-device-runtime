@@ -97,7 +97,7 @@ async fn main() -> eyre::Result<()> {
                 .ok_or_eyre("couldn't get astarte options")?;
 
             let client = astarte_sdk_options
-                .connect(&mut tasks, store, &options.store_directory)
+                .connect(&mut tasks, store, &options)
                 .await?;
 
             let mut runtime =
@@ -118,7 +118,7 @@ async fn main() -> eyre::Result<()> {
                 .ok_or_eyre("couldn't get MessageHub options")?;
 
             let client = astarte_message_hub_options
-                .connect(&mut tasks, store, &options.store_directory)
+                .connect(&mut tasks, store, &options)
                 .await?;
 
             let mut runtime =

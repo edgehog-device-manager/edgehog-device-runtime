@@ -45,7 +45,6 @@ pub const MAX_INIT_RETRIES: usize = 10;
 
 /// Configuration for the container service.
 #[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ContainersConfig {
     #[serde(default = "ContainersConfig::default_enabled")]
     pub(crate) enabled: bool,
