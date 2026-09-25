@@ -27,23 +27,21 @@ rust-version.workspace = true
 
 [dependencies]
 astarte-device-sdk.workspace = true
+aws-lc-rs.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
 edgehog-containers.workspace = true
 edgehog-store.workspace = true
 eyre.workspace = true
+rustls.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "signal"] }
+toml.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dependencies.reqwest]
 workspace = true
 default-features = false
-features = [
-  "charset",
-  "http2",
-  "system-proxy",
-  "rustls-no-provider",
-]
+features = ["charset", "http2", "system-proxy", "rustls-no-provider", "json"]

@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024 SECO Mind Srl
+// Copyright 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,11 +24,12 @@ use color_eyre::{
     eyre::{WrapErr, eyre},
     owo_colors::OwoColorize,
 };
+use eyre::OptionExt;
 use reqwest::{Url, header};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::cli::AstarteConfig;
+use crate::Config;
 
 #[derive(Debug)]
 pub struct ApiClient {
@@ -37,16 +38,27 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
-    pub fn new(
-        astarte: &AstarteConfig,
-        token: String,
-        appengine_url: String,
-    ) -> color_eyre::Result<Self> {
-        let url = format!(
-            "{}/v1/{}/devices/{}/interfaces",
-            appengine_url, astarte.realm, astarte.device_id
-        )
-        .parse()?;
+    pub fn new(config: Config, token: String) -> color_eyre::Result<Self> {
+        let config = config
+            .astarte_device_sdk
+            .ok_or_eyre("missing astarte configuration")?;
+
+        let realm = config.realm.ok_or_eyre("missing realm")?;
+        let device_id = config.device_id.ok_or_eyre("missing device id")?;
+
+        let mut url = config.pairing_url.ok_or_eyre("missing pairing url")?;
+        url.path_segments_mut()
+            .map_err(|()| eyre!("invalid url"))?
+            // Remove pairing
+            .pop()
+            .extend([
+                "appengine",
+                "v1",
+                &realm,
+                "devices",
+                &device_id,
+                "interfaces",
+            ]);
 
         Ok(Self { token, url })
     }
@@ -65,7 +77,7 @@ impl ApiClient {
         let url = self.interface_url(interface, path)?;
 
         let res = reqwest::Client::new()
-            .post(url)
+            .post(url.clone())
             .bearer_auth(&self.token)
             .header(header::ACCEPT, "application/json")
             .json(&Data { data: &data })
@@ -74,12 +86,13 @@ impl ApiClient {
 
         let status = res.status();
 
-        let text = res.text().await.wrap_err("couldn't get response body")?;
+        let text: serde_json::Value = res.json().await.wrap_err("couldn't get response body")?;
 
         if !status.is_success() {
             let err = eyre!("HTTP status {status} for ({interface}{path})")
+                .with_section(move || format!("{}", url).header("Url:"))
                 .with_section(move || format!("{:#?}", data.dimmed()).header("Request:"))
-                .with_section(move || format!("{}", text.red()).header("Response:"));
+                .with_section(move || format!("{:#}", text.red()).header("Response:"));
 
             return Err(err);
         }
