@@ -24,7 +24,7 @@ documentation = "https://docs.rs/edgehog-device-forwarder-proto"
 edition.workspace = true
 keywords = ["protobuf", "iot", "edgehog"]
 license.workspace = true
-repository = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
+repository.workspace = true
 rust-version.workspace = true
 description = "Protobuf messages for the Edgehog Device Forwarder"
 

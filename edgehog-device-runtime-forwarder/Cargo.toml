@@ -20,8 +20,8 @@
 name = "edgehog-device-runtime-forwarder"
 version.workspace = true
 edition.workspace = true
-homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description.workspace = true
 
@@ -41,6 +41,7 @@ rustls.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-tungstenite = { workspace = true, features = ["__rustls-tls", "tokio-rustls", "url"] }
+tokio-util.workspace = true
 tracing = { workspace = true, features = ["log"] }
 url.workspace = true
 

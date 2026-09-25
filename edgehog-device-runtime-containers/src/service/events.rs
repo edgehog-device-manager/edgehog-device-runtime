@@ -23,6 +23,7 @@
 
 use edgehog_store::models::containers::deployment::DeploymentStatus;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument};
 use uuid::Uuid;
 
@@ -49,18 +50,14 @@ use super::{CommandValue, Id, ResourceType};
 #[derive(Debug)]
 pub struct ServiceHandle<D> {
     /// Queue of events received from Astarte.
-    events: mpsc::UnboundedSender<ContainerEvent>,
+    events: mpsc::Sender<ContainerEvent>,
     device: D,
     store: StateStore,
 }
 
 impl<D> ServiceHandle<D> {
     /// Create the handle from the [channel](mpsc::UnboundedSender) shared with the [`Service`](super::Service).
-    pub fn new(
-        device: D,
-        store: StateStore,
-        events: mpsc::UnboundedSender<ContainerEvent>,
-    ) -> Self {
+    pub fn new(device: D, store: StateStore, events: mpsc::Sender<ContainerEvent>) -> Self {
         Self {
             events,
             device,
@@ -70,7 +67,11 @@ impl<D> ServiceHandle<D> {
 
     /// Handles an event from the image.
     #[instrument(skip_all)]
-    pub async fn on_event(&mut self, request: ContainerRequest) -> Result<(), EventError>
+    pub async fn on_event(
+        &mut self,
+        cancel: &CancellationToken,
+        request: ContainerRequest,
+    ) -> Result<(), EventError>
     where
         D: Client + Sync + 'static,
     {
@@ -80,7 +81,11 @@ impl<D> ServiceHandle<D> {
 
         self.persist_request(deployment_id, request).await;
 
-        self.events.send(event).map_err(|_err| {
+        let Some(res) = cancel.run_until_cancelled(self.events.send(event)).await else {
+            return Ok(());
+        };
+
+        res.map_err(|_err| {
             error!("the container service disconnected");
 
             EventError::Disconnected

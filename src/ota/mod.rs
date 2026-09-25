@@ -348,6 +348,10 @@ where
         "ota"
     }
 
+    fn required(&self) -> bool {
+        true
+    }
+
     async fn init(&mut self) -> eyre::Result<()> {
         if self.state_repository.exists().await {
             self.ota_status = OtaStatus::Rebooted;
@@ -362,7 +366,8 @@ where
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
+    // TODO: this should be used with the cancel token from the message
+    async fn handle(&mut self, _cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
         if self.ota_status != OtaStatus::Idle {
             error!("ota request already in progress");
 

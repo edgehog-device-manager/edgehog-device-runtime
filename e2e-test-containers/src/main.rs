@@ -18,59 +18,16 @@
 
 use std::env::VarError;
 
-use astarte_device_sdk::{
-    DeviceClient, EventLoop,
-    builder::DeviceBuilder,
-    pairing::api::PairingApi,
-    rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs,
-    store::SqliteStore,
-    transport::mqtt::{Credential, Mqtt, MqttArgs, MqttConfig},
-};
+use astarte_device_sdk::rumqttc::tokio_rustls::rustls::crypto::aws_lc_rs;
 use clap::Parser;
-use cli::AstarteConfig;
-use eyre::{WrapErr, eyre};
-use receive::receive;
-use tokio::task::JoinSet;
+use eyre::eyre;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use self::cli::Cli;
 use self::send::ApiClient;
 
 mod cli;
-mod receive;
 mod send;
-
-async fn connect(
-    astarte: &AstarteConfig,
-    tasks: &mut JoinSet<color_eyre::Result<()>>,
-) -> color_eyre::Result<DeviceClient<Mqtt<SqliteStore, PairingApi>>> {
-    let mqtt_config = MqttConfig::new(MqttArgs {
-        realm: astarte.realm.clone(),
-        device_id: astarte.device_id.clone(),
-        credential: Credential::secret(astarte.credentials_secret.clone()),
-        pairing_url: astarte.pairing_url.clone(),
-    })
-    .ignore_ssl_errors();
-
-    let store = SqliteStore::options()
-        .with_writable_dir(&astarte.store_dir)
-        .await?;
-
-    let (client, connection) = DeviceBuilder::new()
-        .interface_directory(&astarte.interfaces_dir)?
-        .writable_dir(&astarte.store_dir)
-        .store(store)
-        .connection(mqtt_config)
-        .build()
-        .await?;
-
-    tasks.spawn(async move {
-        connection.handle_events().await?;
-        Ok(())
-    });
-
-    Ok(client)
-}
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
@@ -108,33 +65,6 @@ async fn main() -> color_eyre::Result<()> {
                 client.print_curl(data).await?;
             } else {
                 client.read(data).await?;
-            }
-        }
-        cli::Command::Receive => {
-            let mut tasks = JoinSet::new();
-
-            let client = connect(&cli.astarte, &mut tasks).await?;
-
-            tasks.spawn(async move { receive(client, &cli.astarte.store_dir).await });
-
-            tasks.spawn(async {
-                tokio::signal::ctrl_c().await?;
-
-                Ok(())
-            });
-
-            while let Some(res) = tasks.join_next().await {
-                match res {
-                    Err(err) if !err.is_cancelled() => {
-                        return Err(err).wrap_err("tsak failed ");
-                    }
-                    Err(_cancel) => {}
-                    Ok(res) => {
-                        return res.wrap_err("task returned an error");
-                    }
-                }
-
-                tasks.abort_all();
             }
         }
     }

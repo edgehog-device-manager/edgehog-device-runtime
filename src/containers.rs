@@ -16,32 +16,38 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use edgehog_containers::{
-    Docker,
-    events::RuntimeListener,
-    local::ContainerHandle,
-    requests::ContainerRequest,
-    service::{
-        Service, ServiceError,
-        events::{EventError, ServiceHandle},
-    },
-    store::StateStore,
-};
-use edgehog_store::db::{self};
+use edgehog_containers::requests::ContainerRequest;
+use edgehog_containers::service::Service;
+use edgehog_containers::service::events::{ContainerEvent, EventError, ServiceHandle};
+use edgehog_containers::store::StateStore;
+use edgehog_containers::{Docker, events::RuntimeListener};
+use edgehog_store::db;
 use eyre::WrapErr;
 use eyre::eyre;
-use futures::TryFutureExt;
 use serde::Deserialize;
-use tokio::{sync::OnceCell, task::JoinSet};
-use tracing::error;
+use tokio::sync::mpsc;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
+
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        pub(crate) use edgehog_containers::local::MockContainerHandle as ContainerHandle;
+    } else {
+        pub(crate) use edgehog_containers::local::ContainerHandle;
+    }
+}
 
 use crate::Client;
+use crate::controller::EVENT_BUFFER;
 use crate::controller::actor::Actor;
 
 /// Maximum number of retries for the initialization of the service
 pub const MAX_INIT_RETRIES: usize = 10;
+/// Max number of events
+pub const CHANNEL_SIZE: usize = 64;
 
 /// Configuration for the container service.
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -75,111 +81,99 @@ impl Default for ContainersConfig {
     }
 }
 
-/// Trait used since a FnMut is not enough to return a Future for the `service.init` case
-trait TryRun {
-    type Out;
-
-    fn run(&mut self) -> impl Future<Output = eyre::Result<Self::Out>> + Send;
-}
-
-impl<F, Fut, O> TryRun for F
-where
-    F: FnMut() -> Fut + Send,
-    Fut: Future<Output = eyre::Result<O>> + Send,
-{
-    type Out = O;
-
-    async fn run(&mut self) -> eyre::Result<Self::Out> {
-        (self)().await
-    }
-}
-
-impl<D> TryRun for &mut Service<D>
-where
-    D: Client + Sync + Send + 'static,
-{
-    type Out = ();
-
-    async fn run(&mut self) -> eyre::Result<()> {
-        self.init().await?;
-
-        Ok(())
-    }
-}
-
-impl TryRun for &mut RuntimeListener {
-    type Out = ();
-
-    async fn run(&mut self) -> eyre::Result<()> {
-        self.handle_events().await?;
-
-        Ok(())
-    }
-}
-
-async fn retry<S, O>(config: &ContainersConfig, mut init: S) -> eyre::Result<Option<O>>
-where
-    S: TryRun<Out = O>,
-    O: 'static,
-{
-    let mut timeout = Duration::from_secs(2);
-
-    // retry with an exponential back off
-    for _ in 0..config.max_retries {
-        let res = init.run().await;
-        let err = match res {
-            Ok(out) => return Ok(Some(out)),
-            Err(err) => err,
-        };
-
-        error!(
-            error = format!("{err:#}"),
-            "couldn't init container service"
-        );
-
-        tokio::time::sleep(timeout).await;
-
-        // Exponential
-        timeout = Duration::from_secs(timeout.as_secs().saturating_mul(2));
-    }
-
-    error!("retried too many times, returning");
-
-    if config.required {
-        return Err(
-            eyre!("couldn't initialize the container service").wrap_err(eyre!(
-                "tried to start the runtime {} times",
-                config.max_retries
-            )),
-        );
-    }
-
-    Ok(None)
-}
-
-#[cfg(not(test))]
-fn spawn_listener(
+// Setups the containers
+pub(crate) async fn setup<D>(
+    tasks: &mut JoinSet<eyre::Result<()>>,
     config: ContainersConfig,
-    store: &StateStore,
-    tx: tokio::sync::mpsc::UnboundedSender<edgehog_containers::service::events::ContainerEvent>,
+    device: &D,
+    store: &db::Handle,
+    cancel: CancellationToken,
+) -> eyre::Result<Option<(mpsc::Sender<Box<ContainerRequest>>, Arc<ContainerHandle>)>>
+where
+    D: Client + Clone + Send + Sync + 'static,
+{
+    // Try to connect to docker or fail.
+    let client = match Docker::connect().await {
+        Ok(client) => client,
+        Err(error) => {
+            error!(%error, "couldn't connect to container runtime");
+
+            if config.required {
+                return Err(eyre!("container runtime is required, but couldn't connect"));
+            } else {
+                debug!("container runtime not required in config");
+
+                return Ok(None);
+            }
+        }
+    };
+
+    let (tx, rx) = mpsc::channel(EVENT_BUFFER);
+    let (contaienr_tx, container_rx) = tokio::sync::mpsc::channel(CHANNEL_SIZE);
+
+    let store = StateStore::new(store.clone());
+
+    // fixes an issue with features normalization when testing with `--all-features --workspace`
+    spawn_listener(
+        tasks,
+        &config,
+        &store,
+        &client,
+        contaienr_tx.clone(),
+        &cancel,
+    );
+
+    let service = ContainerService {
+        config,
+        service: Service::new(client.clone(), device.clone(), store.clone()),
+    };
+    let receiver = ContainerReceiver {
+        handle: ServiceHandle::new(device.clone(), store.clone(), contaienr_tx),
+    };
+
+    tasks.spawn(service.run(container_rx, cancel.clone()));
+    tasks.spawn(receiver.run(rx, cancel.clone()));
+
+    let container_handle = Arc::new(ContainerHandle::new(client, store));
+
+    Ok(Some((tx, container_handle)))
+}
+
+fn spawn_listener(
     tasks: &mut JoinSet<Result<(), eyre::Error>>,
+    config: &ContainersConfig,
+    store: &StateStore,
+    client: &Docker,
+    tx: tokio::sync::mpsc::Sender<ContainerEvent>,
+    cancel: &CancellationToken,
 ) {
-    use tracing::warn;
+    if cfg!(test) {
+        return;
+    }
 
-    // Use a lazy clone since the handle will only write to the database
-    let store_cl = store.clone();
+    let mut listener = RuntimeListener::new(client.clone(), store.clone(), tx);
+
+    let cancel = cancel.clone();
+    let max_retries = config.max_retries;
+    let required = config.required;
+
     tasks.spawn(async move {
-        let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
-        let Some(client) = maybe_client else {
-            return Ok(());
-        };
+        let mut retries = 0;
 
-        let mut listener = RuntimeListener::new(client, store_cl, tx);
+        while let Some(res) = cancel.run_until_cancelled(listener.handle_events()).await {
+            if let Err(error) = res {
+                error!(%error, "couldn't handle container listener events");
 
-        // TODO: the retry should have a reset time
-        let should_exit = retry(&config, &mut listener).await?.is_none();
-        if should_exit {
-            warn!("listener retry limit reached");
+                retries += 1;
+            }
+
+            if retries >= max_retries {
+                if required {
+                    return Err(eyre!("container listener max retries reached"));
+                } else {
+                    break;
+                }
+            }
         }
 
         Ok(())
@@ -187,83 +181,66 @@ fn spawn_listener(
 }
 
 #[derive(Debug)]
-pub(crate) struct ContainerService<D> {
+pub(crate) struct ContainerReceiver<D> {
     handle: ServiceHandle<D>,
 }
 
-impl<D> ContainerService<D> {
-    pub(crate) async fn new(
-        device: D,
-        config: ContainersConfig,
-        store: &db::Handle,
-        container_handle: &Arc<OnceCell<ContainerHandle>>,
-        tasks: &mut JoinSet<eyre::Result<()>>,
-    ) -> Result<Self, ServiceError>
-    where
-        D: Client + Clone + Send + Sync + 'static,
-    {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let store = StateStore::new(store.clone());
-
-        // fixes an issue with features normalization when testing with `--all-features --workspace`
-        #[cfg(not(test))]
-        spawn_listener(config, &store, tx.clone(), tasks);
-
-        // Use a lazy clone since the handle will only write to the database
-        let store_cl = store.clone();
-        let device_cl = device.clone();
-        let container_handle = Arc::clone(container_handle);
-        tasks.spawn(async move {
-            let maybe_client = retry(&config, || Docker::connect().map_err(Into::into)).await?;
-            let Some(client) = maybe_client else {
-                return Ok(());
-            };
-
-            container_handle
-                .set(ContainerHandle::new(client.clone(), store_cl.clone()))
-                .wrap_err("couldn't initialize container handle")?;
-
-            let mut service = Service::new(client, device_cl, rx, store_cl);
-
-            let should_exit = retry(&config, &mut service).await?.is_none();
-            if should_exit {
-                return Ok(());
-            };
-
-            service.handle_events().await;
-
-            Ok(())
-        });
-
-        let handle = ServiceHandle::new(device, store, tx);
-
-        Ok(Self { handle })
-    }
-}
-
-impl<D> Actor for ContainerService<D>
+impl<D> Actor for ContainerReceiver<D>
 where
     D: Client + Send + Sync + 'static,
 {
     type Msg = Box<ContainerRequest>;
 
     fn task() -> &'static str {
-        "containers"
+        "container_receiver"
     }
 
     async fn init(&mut self) -> eyre::Result<()> {
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
-        let res = self.handle.on_event(*msg).await;
+    async fn handle(&mut self, cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
+        let res = self.handle.on_event(cancel, *msg).await;
+
         match res {
             Ok(()) => {}
             Err(EventError::Disconnected) => {
                 return res.wrap_err("couldn't handle container event");
             }
         }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct ContainerService<D> {
+    config: ContainersConfig,
+    service: Service<D>,
+}
+
+impl<D> Actor for ContainerService<D>
+where
+    D: Client + Send + Sync + 'static,
+{
+    type Msg = ContainerEvent;
+
+    fn task() -> &'static str {
+        "container_service"
+    }
+
+    fn required(&self) -> bool {
+        self.config.required
+    }
+
+    async fn init(&mut self) -> eyre::Result<()> {
+        self.service.initialize().await?;
+
+        Ok(())
+    }
+
+    async fn handle(&mut self, _cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
+        self.service.on_event(msg).await;
 
         Ok(())
     }

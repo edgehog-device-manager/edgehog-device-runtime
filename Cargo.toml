@@ -20,8 +20,8 @@
 name = "edgehog-device-runtime"
 version.workspace = true
 edition.workspace = true
-homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description.workspace = true
 
@@ -35,6 +35,7 @@ members = [
   "edgehog-device-forwarder-proto",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
+  "edgehog-device-runtime-proto",
   "edgehog-device-runtime-service",
   "edgehog-device-runtime-store",
   "edgehogctl",
@@ -46,9 +47,9 @@ members = [
 [workspace.package]
 version = "0.12.2"
 edition = "2024"
-homepage = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
 license = "Apache-2.0"
-rust-version = "1.88"
+repository = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
+rust-version = "1.89"
 description = "Edgehog Device Runtime is a portable middleware, that enables remote device management on Linux-based systems."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -66,6 +67,7 @@ base64 = "0.23.0"
 bollard = "0.21.0"
 bytes = "1.10.1"
 cfg-if = "1.0.3"
+chrono = "0.4.45"
 clap = "4.5.60"
 color-eyre = "0.6.5"
 deadpool = { version = "0.13.0", default-features = false }
@@ -77,7 +79,7 @@ edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.12.2" 
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.12.2" }
 edgehog-device-forwarder-proto = { path = "./edgehog-device-forwarder-proto/", version = "=0.12.2" }
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.12.2" }
-edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
+edgehog-proto = { package = "edgehog-device-runtime-proto", path = "./edgehog-device-runtime-proto/", version = "=0.12.2" }
 edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.12.2" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.12.2" }
 eyre = "0.6.12"
@@ -98,6 +100,7 @@ pretty_assertions = "1.4.1"
 procfs = "0.18.0"
 prost = "0.14.4"
 prost-build = "0.14.4"
+prost-types = "0.14.4"
 reqwest = { version = "0.13.1", default-features = false }
 rstest = "0.27.0"
 # Version required by diesel
@@ -117,6 +120,9 @@ tokio-stream = "0.1.17"
 tokio-tungstenite = "0.30.0"
 tokio-util = "0.7.16"
 toml = "1.1.2"
+tonic = "0.14.4"
+tonic-prost = "0.14.4"
+tonic-prost-build = "0.14.4"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 tracing-journald = "0.3.2"

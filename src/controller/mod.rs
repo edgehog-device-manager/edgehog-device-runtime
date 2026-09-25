@@ -46,7 +46,8 @@ use eyre::Context;
 pub mod actor;
 pub mod event;
 
-const EVENT_BUFFER: usize = 8;
+/// Buffered Astarte events
+pub(crate) const EVENT_BUFFER: usize = 8;
 
 #[derive(Debug)]
 pub struct Runtime<T> {
@@ -99,9 +100,6 @@ impl<C> Runtime<C> {
             jobs
         };
 
-        #[cfg(feature = "containers")]
-        let container_handle = std::sync::Arc::new(tokio::sync::OnceCell::new());
-
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let ota_handler = if opts.ota.enabled {
             let handle = OtaHandler::start(tasks, cancel.child_token(), client.clone(), &opts)
@@ -112,6 +110,17 @@ impl<C> Runtime<C> {
         } else {
             None
         };
+
+        #[cfg(feature = "containers")]
+        let (containers_tx, container_handle) = Self::setup_containers(
+            &client,
+            opts.containers,
+            &store,
+            tasks,
+            cancel.child_token(),
+        )
+        .await
+        .wrap_err("couldn't setup the container task")?;
 
         #[cfg(all(feature = "zbus", target_os = "linux"))]
         let led_tx = {
@@ -126,10 +135,17 @@ impl<C> Runtime<C> {
             client.clone(),
             &opts.telemetry_config.unwrap_or_default(),
             opts.store_directory.clone(),
-            #[cfg(feature = "containers")]
-            std::sync::Arc::clone(&container_handle),
         )
         .await;
+
+        #[cfg(feature = "containers")]
+        let telemetry = {
+            let mut telemetry = telemetry;
+
+            telemetry.set_container_stats(container_handle.clone());
+
+            telemetry
+        };
 
         tasks.spawn(telemetry.run(telemetry_rx, cancel.child_token()));
 
@@ -159,25 +175,13 @@ impl<C> Runtime<C> {
             (storage_manager, file_transfer)
         };
 
-        #[cfg(feature = "containers")]
-        let containers_tx = Self::setup_containers(
-            &client,
-            opts.containers,
-            &store,
-            &container_handle,
-            tasks,
-            cancel.child_token(),
-        )
-        .await
-        .wrap_err("couldn't setup the container task")?;
-
         #[cfg(feature = "service")]
         Self::setup_service(
             opts.service.unwrap_or_default(),
-            #[cfg(feature = "containers")]
-            &container_handle,
             tasks,
             cancel.child_token(),
+            #[cfg(feature = "containers")]
+            container_handle,
         );
 
         #[cfg(feature = "forwarder")]
@@ -293,39 +297,32 @@ impl<C> Runtime<C> {
 
     #[cfg(feature = "containers")]
     async fn setup_containers(
-        client: &C,
+        device: &C,
         config: crate::containers::ContainersConfig,
         store: &edgehog_store::db::Handle,
-        container_handle: &std::sync::Arc<
-            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
-        >,
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
-    ) -> eyre::Result<Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>>
+    ) -> eyre::Result<(
+        Option<mpsc::Sender<Box<edgehog_containers::requests::ContainerRequest>>>,
+        Option<std::sync::Arc<crate::containers::ContainerHandle>>,
+    )>
     where
         C: Client + Send + Sync + 'static,
     {
         if !config.enabled {
             tracing::info!("container service not enabled");
 
-            return Ok(None);
+            return Ok((None, None));
         }
 
-        let (container_tx, container_rx) = mpsc::channel(EVENT_BUFFER);
+        let containers = crate::containers::setup(tasks, config, device, store, cancel)
+            .await
+            .wrap_err("couldn't create container service")?;
 
-        let containers = crate::containers::ContainerService::new(
-            client.clone(),
-            config,
-            store,
-            container_handle,
-            tasks,
-        )
-        .await
-        .wrap_err("couldn't create container service")?;
-
-        tasks.spawn(containers.run(container_rx, cancel));
-
-        Ok(Some(container_tx))
+        match containers {
+            Some((tx, handle)) => Ok((Some(tx), Some(handle))),
+            None => Ok((None, None)),
+        }
     }
 
     #[cfg(feature = "forwarder")]
@@ -356,11 +353,11 @@ impl<C> Runtime<C> {
     #[cfg(feature = "service")]
     fn setup_service(
         config: edgehog_service::config::Config,
-        #[cfg(feature = "containers")] container_handle: &std::sync::Arc<
-            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
-        >,
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
+        #[cfg(feature = "containers")] container_handle: Option<
+            std::sync::Arc<crate::containers::ContainerHandle>,
+        >,
     ) where
         C: Client + Clone + Send + Sync + 'static,
     {
@@ -379,11 +376,23 @@ impl<C> Runtime<C> {
             }
         };
 
-        let service = edgehog_service::service::EdgehogService::new(
-            options,
-            #[cfg(feature = "containers")]
-            std::sync::Arc::clone(container_handle),
-        );
+        let service = edgehog_service::service::EdgehogService::new(options);
+
+        #[cfg(feature = "containers")]
+        let service = {
+            // The mock doesn't work properly in tests
+            cfg_if::cfg_if! {
+                if #[cfg(test)] {
+                    drop(container_handle);
+                } else {
+                    let mut service = service;
+
+                    service.set_container_handle(container_handle);
+                }
+            }
+
+            service
+        };
 
         tasks.spawn(async {
             info!("starting local service");

@@ -175,7 +175,7 @@ pub struct Telemetry<C> {
     tasks: TelemetryTasks,
     file_state: FileStateRepository<Vec<TelemetryInterfaceConfig<'static>>>,
     #[cfg(feature = "containers")]
-    containers: std::sync::Arc<tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>>,
+    containers: Option<edgehog_containers::stats::StatsMonitor>,
 }
 
 impl<C> Telemetry<C> {
@@ -183,9 +183,6 @@ impl<C> Telemetry<C> {
         client: C,
         configs: &[TelemetryInterfaceConfig<'_>],
         store_directory: PathBuf,
-        #[cfg(feature = "containers")] containers: std::sync::Arc<
-            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
-        >,
     ) -> Self {
         let configs = configs
             .iter()
@@ -209,12 +206,28 @@ impl<C> Telemetry<C> {
             tasks: TelemetryTasks::new(),
             file_state: FileStateRepository::new(&store_directory, TELEMETRY_PATH),
             #[cfg(feature = "containers")]
-            containers,
+            containers: None,
         };
 
         telemetry.read_filestate().await;
 
         telemetry
+    }
+
+    /// Sets the containers stats client
+    #[cfg(feature = "containers")]
+    pub(crate) fn set_container_stats(
+        &mut self,
+        containers: Option<std::sync::Arc<crate::containers::ContainerHandle>>,
+    ) {
+        // The mock handle doesn't well in tests
+        cfg_if::cfg_if! {
+            if #[cfg(test)] {
+                drop(containers);
+            } else {
+                self.containers = containers.map(edgehog_containers::stats::StatsMonitor::new);
+            }
+        }
     }
 
     async fn read_filestate(&mut self) {
@@ -324,7 +337,7 @@ where
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
+    async fn handle(&mut self, _cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
         let interface = match TelemetryInterface::from_str(&msg.interface) {
             Ok(itf) => itf,
             Err(err) => {
@@ -389,9 +402,7 @@ impl TelemetryTasks {
         client: &C,
         t_itf: TelemetryInterface,
         task_config: TaskConfig,
-        #[cfg(feature = "containers")] containers: &std::sync::Arc<
-            tokio::sync::OnceCell<edgehog_containers::local::ContainerHandle>,
-        >,
+        #[cfg(feature = "containers")] containers: &Option<edgehog_containers::stats::StatsMonitor>,
     ) where
         C: Client + Sync + Send + 'static,
     {
@@ -476,7 +487,7 @@ pub(crate) mod tests {
                 tasks: TelemetryTasks::new(),
                 file_state: FileStateRepository::new(&path, TELEMETRY_PATH),
                 #[cfg(feature = "containers")]
-                containers: std::sync::Arc::default(),
+                containers: None,
             },
             dir,
         )
@@ -495,14 +506,7 @@ pub(crate) mod tests {
 
         let client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
-        let tel = Telemetry::from_config(
-            client,
-            &configs,
-            t_dir,
-            #[cfg(feature = "containers")]
-            std::sync::Arc::default(),
-        )
-        .await;
+        let tel = Telemetry::from_config(client, &configs, t_dir).await;
 
         let system_status_config = tel.configs.get(&TelemetryInterface::SystemStatus).unwrap();
 
@@ -523,14 +527,7 @@ pub(crate) mod tests {
 
         let client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
-        let mut tel = Telemetry::from_config(
-            client,
-            &configs,
-            t_dir.clone(),
-            #[cfg(feature = "containers")]
-            std::sync::Arc::default(),
-        )
-        .await;
+        let mut tel = Telemetry::from_config(client, &configs, t_dir.clone()).await;
 
         let events = [
             TelemetryEvent {
@@ -543,8 +540,10 @@ pub(crate) mod tests {
             },
         ];
 
+        let cancel = CancellationToken::new();
+
         for e in events {
-            tel.handle(e).await.unwrap();
+            tel.handle(&cancel, e).await.unwrap();
         }
 
         let config = tel.configs.get(&TelemetryInterface::SystemStatus).unwrap();
@@ -583,14 +582,7 @@ pub(crate) mod tests {
             .in_sequence(&mut seq)
             .returning(MockDeviceClient::new);
 
-        let mut tel = Telemetry::from_config(
-            client,
-            &configs,
-            t_dir.clone(),
-            #[cfg(feature = "containers")]
-            std::sync::Arc::default(),
-        )
-        .await;
+        let mut tel = Telemetry::from_config(client, &configs, t_dir.clone()).await;
 
         let events = [
             TelemetryEvent {
@@ -603,8 +595,10 @@ pub(crate) mod tests {
             },
         ];
 
+        let cancel = CancellationToken::new();
+
         for e in events {
-            tel.handle(e).await.unwrap();
+            tel.handle(&cancel, e).await.unwrap();
         }
 
         let config = tel.configs.get(&TelemetryInterface::SystemStatus).unwrap();
