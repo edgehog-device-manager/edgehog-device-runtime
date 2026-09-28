@@ -149,7 +149,7 @@ impl From<DeviceToServer> for AstarteObject {
 
 fn to_i64(unsigned: u64) -> i64 {
     i64::try_from(unsigned)
-        .inspect_err(|error| warn!(%error, "progress bytes overflow"))
+        .inspect_err(|error| warn!(%error, "size bytes overflow"))
         .unwrap_or(i64::MAX)
 }
 
@@ -199,7 +199,7 @@ pub(crate) mod tests {
             user_id: Some(1000),
             group_id: Some(100),
             destination_type: "storage".to_string(),
-            destination: String::new(),
+            destination: "testfile.txt".to_string(),
         }
     }
 

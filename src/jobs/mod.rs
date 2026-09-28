@@ -382,7 +382,7 @@ pub(crate) mod tests {
         }
     }
 
-    async fn queue(prefix: &str) -> (Queue, TempDir) {
+    pub(crate) async fn queue(prefix: &str) -> (Queue, TempDir) {
         let dir = TempDir::new(prefix).unwrap();
 
         let db = Handle::open(dir.path().join("database.db")).await.unwrap();

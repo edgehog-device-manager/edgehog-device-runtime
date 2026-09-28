@@ -241,7 +241,7 @@ impl<C> StorageTask<C> {
     {
         Self::inner_delete(job.file_path, false).await?;
 
-        StoredFile::deleted(job.id, &mut self.device).await;
+        StoredFile::unset(job.id, &mut self.device).await;
 
         // Just delete the job since we don't need to do anything for completion
         self.queue
@@ -255,11 +255,11 @@ impl<C> StorageTask<C> {
     where
         C: Client + Send + Sync + 'static,
     {
-        let path = self.storage.file_path(&job.file_id);
+        let dir_path = self.storage.dir_path(&job.file_id);
 
-        Self::inner_delete(path, job.force).await?;
+        Self::inner_delete(dir_path, job.force).await?;
 
-        StoredFile::deleted(job.file_id, &mut self.device).await;
+        StoredFile::unset(job.file_id, &mut self.device).await;
 
         Ok(())
     }
@@ -366,6 +366,7 @@ impl TryFrom<i32> for StorageJobTag {
 #[cfg(test)]
 mod tests {
     use crate::{
+        file_transfer::file_system::WriteHandle,
         storage::{interface::ActionType, request::Delete},
         tests::with_insta,
     };
@@ -447,8 +448,9 @@ mod tests {
         let mut storage = mk_storage(dir.path(), device).await;
 
         let store_dir = dir.path().join("file-store");
-        let file_path = store_dir.join(file_id.to_string());
-        tokio::fs::create_dir_all(store_dir).await.unwrap();
+        let file_dir = store_dir.join(file_id.to_string());
+        let file_path = file_dir.join(WriteHandle::DEFAULT_FILE_NAME);
+        tokio::fs::create_dir_all(file_dir).await.unwrap();
         let mut file = OpenOptions::new()
             .create(true)
             .truncate(false)
