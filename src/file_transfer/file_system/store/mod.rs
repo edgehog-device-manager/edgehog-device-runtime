@@ -35,7 +35,7 @@ use uuid::Uuid;
 use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
 use crate::file_transfer::interface::file::StoredFile;
-use crate::file_transfer::request::{FileDigest, TransferJobTag};
+use crate::file_transfer::request::{Encoding, FileDigest, TransferJobTag};
 use crate::jobs::Queue;
 
 use super::{FileOptions, WriteHandle};
@@ -178,15 +178,23 @@ impl<F> FileStorage<F> {
         self.dir.join(partial_file_name)
     }
 
-    pub(crate) fn file_path(&self, id: &Uuid, name: Option<&Path>) -> PathBuf {
-        if let Some(name) = name {
-            self.dir_path(id).join(name)
+    pub(crate) fn target_path(
+        &self,
+        id: &Uuid,
+        file_name: Option<&Path>,
+        encoding: Option<Encoding>,
+    ) -> PathBuf {
+        if encoding.is_some_and(|e| e.is_target_directory()) {
+            self.dir_path(id)
         } else {
-            // when the name is empty use the default migration file name
-            self.dir_path(id).join(WriteHandle::DEFAULT_FILE_NAME)
+            match file_name {
+                Some(name) => self.dir_path(id).join(name),
+                None => self.dir_path(id).join(WriteHandle::DEFAULT_FILE_NAME),
+            }
         }
     }
 
+    /// returns Ok(true) if the file exists and should not be downloaded again
     #[instrument(skip(self), ret)]
     pub(crate) async fn file_exists(
         &self,
@@ -194,10 +202,11 @@ impl<F> FileStorage<F> {
         file_name: Option<&Path>,
         alg: FileDigest,
         digest: &[u8],
+        opts: &FileOptions,
     ) -> eyre::Result<bool> {
-        let path = self.file_path(id, file_name);
+        let path = self.target_path(id, file_name, opts.compression);
 
-        WriteHandle::try_exists(&path, alg, digest)
+        WriteHandle::try_exists(&path, alg, digest, opts.compression)
             .await
             .wrap_err_with(|| format!("couldn't access file: {}", path.display()))
     }
@@ -236,16 +245,16 @@ impl<F> FileStorage<F> {
         Ok(file)
     }
 
-    #[instrument(skip_all, fields(id = %opt.id, ?name))]
+    #[instrument(skip_all, fields(id = %opt.id, ?file_name))]
     pub(crate) async fn create_write_handle(
         &mut self,
-        name: Option<&Path>,
+        file_name: Option<&Path>,
         opt: &FileOptions,
     ) -> io::Result<WriteHandle>
     where
         F: Space,
     {
-        let file = self.file_path(&opt.id, name);
+        let file = self.target_path(&opt.id, file_name, opt.compression);
         let partial = self.partial_path(&opt.id);
         let handle = WriteHandle::open(file, partial, opt).await?;
 
@@ -497,7 +506,19 @@ pub(crate) mod tests {
         let dir_path = dir.path().join(id.to_string());
         let file_path = dir.path().join(id.to_string()).join(file_name);
 
-        assert_eq!(store.file_path(&id, Some(file_name)), file_path);
+        assert_eq!(store.target_path(&id, Some(file_name), None), file_path);
+        assert_eq!(
+            store.target_path(&id, None, None),
+            dir_path.join(WriteHandle::DEFAULT_FILE_NAME)
+        );
+        assert_eq!(
+            store.target_path(&id, Some(file_name), Some(Encoding::Tar)),
+            dir_path
+        );
+        assert_eq!(
+            store.target_path(&id, None, Some(Encoding::TarGz)),
+            dir_path
+        );
 
         tokio::fs::create_dir_all(dir_path).await.unwrap();
         tokio::fs::write(&file_path, "test").await.unwrap();

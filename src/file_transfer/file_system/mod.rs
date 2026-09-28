@@ -76,11 +76,13 @@ impl WriteHandle {
         0o600 | mode
     }
 
+    // this function checks whether a file should be downloaded
     #[instrument]
     pub(crate) async fn try_exists(
         path: &Path,
         alg: FileDigest,
         digest: &[u8],
+        encoding: Option<Encoding>,
     ) -> io::Result<bool> {
         trace!("testing if file exists");
 
@@ -96,6 +98,46 @@ impl WriteHandle {
             }
         };
 
+        match encoding {
+            Some(e) if e.is_target_directory() => Self::check_dir(path).await,
+            // currently can't check the digest of compressed files
+            Some(_) => Ok(false),
+            None => Self::check_uncompressed_file(file, alg, digest).await,
+        }
+    }
+
+    #[instrument]
+    async fn check_dir(path: &Path) -> io::Result<bool> {
+        let partial = Self::partial_path(path);
+        let _partial_file = match File::open(partial).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                // the partial file does not exist
+                // this means the directory was fully extracted
+                return Ok(true);
+            }
+            Err(error) => {
+                error!(%error, "couldn't check if file existed");
+
+                return Err(error);
+            }
+        };
+
+        // TODO should check the complete directory digest
+
+        // if the partial file exist we assume decompression has been
+        // prematurely stopped and we should redownload the file from
+        // where we left off
+        Ok(false)
+    }
+
+    // if there is no compression we can check the digest
+    #[instrument]
+    async fn check_uncompressed_file(
+        file: File,
+        alg: FileDigest,
+        digest: &[u8],
+    ) -> io::Result<bool> {
         let meta = file.metadata().await?;
 
         let file = Digest::from_read(file, alg, meta.len()).await?;
@@ -122,10 +164,15 @@ impl WriteHandle {
         file_options
     }
 
-    pub(crate) async fn with_path(file_path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
-        let mut partial = file_path.clone().into_os_string();
+    fn partial_path(file_path: &Path) -> PathBuf {
+        let mut partial = file_path.to_owned().into_os_string();
         partial.push(Self::PARTIAL_EXT);
-        let partial = PathBuf::from(partial);
+
+        PathBuf::from(partial)
+    }
+
+    pub(crate) async fn with_path(file_path: PathBuf, opt: &FileOptions) -> io::Result<Self> {
+        let partial = Self::partial_path(&file_path);
 
         Self::open(file_path, partial, opt).await
     }
@@ -354,7 +401,7 @@ mod tests {
 
         tokio::fs::write(&path, &content).await.unwrap();
 
-        let exists = WriteHandle::try_exists(&path, alg, digest.as_ref())
+        let exists = WriteHandle::try_exists(&path, alg, digest.as_ref(), None)
             .await
             .unwrap();
 
@@ -376,8 +423,28 @@ mod tests {
 
         tokio::fs::write(&path, &content).await.unwrap();
 
-        WriteHandle::try_exists(&path, alg, digest.as_ref())
+        WriteHandle::try_exists(&path, alg, digest.as_ref(), None)
             .await
             .unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn no_check_digest_with_encoding() {
+        let dir = TempDir::new("try_exists").unwrap();
+
+        let content = Uuid::new_v4().to_string();
+
+        let alg = FileDigest::Sha256;
+        let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, content.as_bytes());
+
+        let path = dir.path().join("file.txt");
+
+        tokio::fs::write(&path, &content).await.unwrap();
+
+        let tar = WriteHandle::try_exists(&path, alg, digest.as_ref(), Some(Encoding::Gz))
+            .await
+            .unwrap();
+
+        assert!(!tar);
     }
 }
