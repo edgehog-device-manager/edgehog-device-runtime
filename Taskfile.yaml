@@ -33,6 +33,8 @@ env:
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
   MAIN_CRATE: "{{ .MAIN_CRATE }}"
+  SEMVER_RELEASE_TYPE:
+    sh: if [[ "${GITHUB_BASE_REF:-}" =~ release-[0-9]+\.[0-9]+ ]]; then echo patch; else echo minor; fi
 
 tasks:
   ci:
@@ -110,7 +112,7 @@ tasks:
   cargo-semver-checks:
     desc: "Check if the minimal versiosn are correct"
     if: "{{ .LIBRARY }}"
-    cmd: cargo semver-checks check-release
+    cmd: cargo semver-checks check-release --release-type "$SEMVER_RELEASE_TYPE"
 
   coverage:
     desc: "Generate the test coverage"
