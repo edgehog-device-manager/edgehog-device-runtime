@@ -34,24 +34,29 @@ use edgehog_store::models::containers::container::{
 use edgehog_store::models::containers::container::{ContainerStatus, ContainerUlimit};
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
 use edgehog_store::models::containers::device_request::DeviceRequest;
+use edgehog_store::models::containers::file_bind::{EnvFile, FileBind};
 use edgehog_store::schema::containers::{
     container_add_capabilities, container_binds, container_blkio_device_read_bps,
     container_blkio_device_read_iops, container_blkio_device_write_bps,
     container_blkio_device_write_iops, container_blkio_weight_device, container_cmds,
     container_device_cgroup_rules, container_device_mappings, container_device_requests,
     container_dns, container_dns_options, container_dns_search, container_drop_capabilities,
-    container_entrypoints, container_env, container_exposed_ports, container_extra_hosts,
-    container_group_add, container_healthcheck_test, container_labels, container_log_config,
-    container_masked_paths, container_missing_device_mappings, container_missing_device_requests,
-    container_missing_networks, container_missing_volumes, container_networks,
-    container_port_bindings, container_readonly_paths, container_securityopts,
-    container_storage_options, container_sysctls, container_tmpfs, container_ulimits, containers,
-    device_requests, images,
+    container_entrypoints, container_env, container_env_files, container_exposed_ports,
+    container_extra_hosts, container_file_binds, container_group_add, container_healthcheck_test,
+    container_labels, container_log_config, container_masked_paths,
+    container_missing_device_mappings, container_missing_device_requests,
+    container_missing_env_files, container_missing_file_binds, container_missing_networks,
+    container_missing_volumes, container_networks, container_port_bindings,
+    container_readonly_paths, container_securityopts, container_storage_options, container_sysctls,
+    container_tmpfs, container_ulimits, containers, device_requests, images,
 };
 use tracing::{debug, instrument};
 use uuid::Uuid;
 
-use crate::docker::container::Container as ContainerResource;
+use crate::docker::container::Container as RuntimeContainer;
+use crate::resource::container::ContainerResource;
+use crate::resource::env_file::EnvFileResource;
+use crate::resource::file_bind::FileBindResource;
 use crate::store::device_request::load_stored_device_request;
 
 use super::{Result, StateStore};
@@ -178,7 +183,7 @@ impl StateStore {
     }
 
     /// Fetches an container by id, only if all the resources are present
-    #[instrument(skip(self))]
+    #[instrument(skip(self,))]
     pub(crate) async fn find_container(&self, id: Uuid) -> Result<Option<ContainerResource>> {
         let container = self
             .handle
@@ -194,16 +199,41 @@ impl StateStore {
                     return Ok(None);
                 };
 
-                // Image is missing, we cannot continue
                 let Some(image_id) = container.image_id else {
                     debug!("container is missing the image");
 
                     return Ok(None);
                 };
-                debug_assert!(!has_missing_networks(reader, &id).unwrap());
-                debug_assert!(!has_missing_volumes(reader, &id).unwrap());
-                debug_assert!(!has_missing_device_mappings(reader, &id).unwrap());
-                debug_assert!(!has_missing_device_requests(reader, &id).unwrap());
+                if has_missing_networks(reader, &id)? {
+                    debug!("container is missing networks");
+
+                    return Ok(None);
+                }
+                if has_missing_volumes(reader, &id)? {
+                    debug!("container is missing volumes");
+
+                    return Ok(None);
+                }
+                if has_missing_device_mappings(reader, &id)? {
+                    debug!("container is missing device mappings");
+
+                    return Ok(None);
+                }
+                if has_missing_device_requests(reader, &id)? {
+                    debug!("container is missing device_request");
+
+                    return Ok(None);
+                }
+                if has_missing_file_binds(reader, &id)? {
+                    debug!("container is missing file binds");
+
+                    return Ok(None);
+                }
+                if has_missing_env_files(reader, &id)? {
+                    debug!("container is missing env files");
+
+                    return Ok(None);
+                }
 
                 // Error if not found (foreign key constraint is broken).
                 let image = images::table
@@ -212,7 +242,7 @@ impl StateStore {
                     .first::<String>(reader)?;
 
                 let mut resource =
-                    ContainerResource::try_from(container).map_err(HandleError::from_app)?;
+                    RuntimeContainer::try_from(container).map_err(HandleError::from_app)?;
                 resource.add_image(image);
 
                 let network_ids: Vec<SqlUuid> = container_networks::table
@@ -418,8 +448,24 @@ impl StateStore {
                     .load(reader)?;
                 resource.add_read_only_paths(read_only_paths);
 
+                // Need an async function to have the full information.
+                let file_binds_res = FileBind::query()
+                    .inner_join(container_file_binds::table)
+                    .filter(container_file_binds::container_id.eq(&id))
+                    .load_iter::<FileBind, _>(reader)?
+                    .map(|r| r.map(FileBindResource::new))
+                    .collect::<QueryResult<Vec<FileBindResource>>>()?;
+                let env_files_res = EnvFile::query()
+                    .inner_join(container_env_files::table)
+                    .filter(container_env_files::container_id.eq(&id))
+                    .load_iter::<EnvFile, _>(reader)?
+                    .map(|r| r.map(EnvFileResource::new))
+                    .collect::<QueryResult<Vec<EnvFileResource>>>()?;
+
                 // Validate and normalize the resource
                 resource.normalize();
+
+                let resource = ContainerResource::new(resource, file_binds_res, env_files_res);
 
                 Ok(Some(resource))
             })
@@ -495,6 +541,28 @@ fn has_missing_device_requests(
     .map_err(HandleError::from)
 }
 
+fn has_missing_file_binds(
+    connection: &mut SqliteConnection,
+    container_id: &SqlUuid,
+) -> std::result::Result<bool, HandleError> {
+    select(exists(container_missing_file_binds::table.filter(
+        container_missing_file_binds::container_id.eq(container_id),
+    )))
+    .get_result::<bool>(connection)
+    .map_err(HandleError::from)
+}
+
+fn has_missing_env_files(
+    connection: &mut SqliteConnection,
+    container_id: &SqlUuid,
+) -> std::result::Result<bool, HandleError> {
+    select(exists(container_missing_env_files::table.filter(
+        container_missing_env_files::container_id.eq(container_id),
+    )))
+    .get_result::<bool>(connection)
+    .map_err(HandleError::from)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use edgehog_store::db;
@@ -504,6 +572,8 @@ pub(crate) mod tests {
     use crate::requests::container::tests::create_container_req;
     use crate::requests::device_mapping::tests::create_device_mapping_req;
     use crate::requests::device_request::tests::create_device_request;
+    use crate::requests::env_file::tests::create_env_file_req;
+    use crate::requests::file_bind::tests::create_file_bind_req;
     use crate::requests::image::tests::create_image_req;
     use crate::requests::network::tests::create_network_req;
     use crate::requests::volume::tests::create_volume_req;
@@ -541,6 +611,8 @@ pub(crate) mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(
             deployment_id,
             &image,
@@ -548,6 +620,8 @@ pub(crate) mod tests {
             &network,
             &device_mapping,
             &device_request,
+            &file_bind,
+            &env_file,
         );
 
         let mut exp = stored_container_full(container.id.0, &image);
@@ -586,6 +660,8 @@ pub(crate) mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(
             deployment_id,
             &image,
@@ -593,6 +669,8 @@ pub(crate) mod tests {
             &network,
             &device_mapping,
             &device_request,
+            &file_bind,
+            &env_file,
         );
 
         let exp = stored_container_full(container.id.0, &image);
@@ -630,6 +708,8 @@ pub(crate) mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(
             deployment_id,
             &image,
@@ -637,6 +717,8 @@ pub(crate) mod tests {
             &network,
             &device_mapping,
             &device_request,
+            &file_bind,
+            &env_file,
         );
 
         let exp = stored_container_full(container.id.0, &image);
