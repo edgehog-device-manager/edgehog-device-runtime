@@ -20,11 +20,11 @@
 
 use std::fmt::{Debug, Display};
 
+use astarte_device_sdk::astarte_device_error::Error;
 use astarte_device_sdk::event::FromEventError;
-use astarte_device_sdk::{astarte_device_error::Error, properties::PropAccess};
+use astarte_device_sdk::properties::PropAccess;
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::models::containers::deployment::DeploymentStatus;
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::Uuid;
 
@@ -88,25 +88,16 @@ where
 pub struct Service<D> {
     client: Docker,
     device: D,
-    /// Queue of events received from Astarte.
-    events: mpsc::UnboundedReceiver<ContainerEvent>,
     store: StateStore,
 }
 
 impl<D> Service<D> {
     /// Create a new service
-    #[doc(hidden)]
     #[must_use]
-    pub fn new(
-        client: Docker,
-        device: D,
-        events: mpsc::UnboundedReceiver<ContainerEvent>,
-        store: StateStore,
-    ) -> Self {
+    pub fn new(client: Docker, device: D, store: StateStore) -> Self {
         Self {
             client,
             device,
-            events,
             store,
         }
     }
@@ -122,7 +113,7 @@ impl<D> Service<D> {
 
     /// Initialize the service, it will load all the already stored properties
     #[instrument(skip_all)]
-    pub async fn init(&mut self) -> Result<()>
+    pub async fn initialize(&mut self) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
@@ -251,21 +242,9 @@ impl<D> Service<D> {
         Ok(())
     }
 
-    /// Blocking call that will handle the events from Astarte and the containers.
+    /// Call that will handle the events from Astarte and the containers.
     #[instrument(skip_all)]
-    pub async fn handle_events(&mut self)
-    where
-        D: Client + PropAccess + Send + Sync + 'static,
-    {
-        while let Some(event) = self.events.recv().await {
-            self.on_event(event).await;
-        }
-
-        info!("event receiver disconnected");
-    }
-
-    #[instrument(skip_all)]
-    async fn on_event(&mut self, event: ContainerEvent)
+    pub async fn on_event(&mut self, event: ContainerEvent)
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
@@ -942,6 +921,8 @@ mod tests {
     use mockall::predicate;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
 
     use crate::container::tests::create_container_resource;
     use crate::image::Image;
@@ -983,6 +964,7 @@ mod tests {
     ) -> (
         Service<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
         ServiceHandle<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
+        mpsc::Receiver<ContainerEvent>,
     ) {
         let db_file = tempdir.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
@@ -990,12 +972,12 @@ mod tests {
         let handle = db::Handle::open(db_file).await.unwrap();
         let store = StateStore::new(handle);
 
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
 
         let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
-        let service = Service::new(client, device, rx, store);
+        let service = Service::new(client, device, store);
 
-        (service, handle)
+        (service, handle, rx)
     }
 
     fn expect_image(
@@ -1224,15 +1206,18 @@ mod tests {
             &mut client,
         );
 
-        let (mut service, mut handle) = mock_service(&tmpdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tmpdir, client, device).await;
 
         let create_image_req = create_image_request_event(&image);
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
 
-        handle.on_event(req).await.unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
 
-        let event = service.events.recv().await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         let resource = service.store.find_image(image.id.0).await.unwrap().unwrap();
@@ -1261,14 +1246,17 @@ mod tests {
 
         expect_volume(volume.id.0, &mut seq, &mut device, &mut client);
 
-        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
 
         let create_volume_req = create_volume_request_event(&volume);
 
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
 
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         let resource = service
@@ -1314,15 +1302,18 @@ mod tests {
 
         expect_network(network.id.0, &mut seq, &mut device, &mut client);
 
-        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
 
         let create_network_req = create_network_request_event(&network);
 
         let req = ContainerRequest::from_event(create_network_req).unwrap();
 
-        handle.on_event(req).await.unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
 
-        let event = service.events.recv().await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         let resource = service
@@ -1346,6 +1337,7 @@ mod tests {
     #[tokio::test]
     async fn should_add_a_container() {
         let tempdir = TempDir::new().unwrap();
+        let cancel = CancellationToken::new();
 
         let deployment_id = Uuid::new_v4();
         let image = create_image_req(deployment_id);
@@ -1395,63 +1387,63 @@ mod tests {
         );
         expect_container(container.id.0, &mut seq, &mut device, &mut client);
 
-        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
 
         // Image
         let create_image_req = create_image_request_event(&image);
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Network
         let create_network_req = create_network_request_event(&network);
         let req = ContainerRequest::from_event(create_network_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Volume
         let create_volume_req = create_volume_request_event(&volume);
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Device mapping
         let create_device_mapping_req = create_device_mapping_request_event(&device_mapping);
         let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Device request
         let create_device_request_req = create_device_request_event(&device_request);
         let req = ContainerRequest::from_event(create_device_request_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // File bind
         let create_file_bind_req = create_file_bind_event(&file_bind);
         let req = ContainerRequest::from_event(create_file_bind_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Env file
         let create_env_file_req = create_env_file_event(&env_file);
         let req = ContainerRequest::from_event(create_env_file_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Container
         let create_container_req = create_container_request_event(&container);
         let req = ContainerRequest::from_event(create_container_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         let resource = service
@@ -1477,6 +1469,7 @@ mod tests {
     #[tokio::test]
     async fn should_start_deployment() {
         let tempdir = TempDir::new().unwrap();
+        let cancel = CancellationToken::new();
 
         let deployment_id = Uuid::new_v4();
         let image = create_image_req(deployment_id);
@@ -1862,63 +1855,63 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
 
         // image
         let create_image_req = create_image_request_event(&image);
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Network
         let create_network_req = create_network_request_event(&network);
         let req = ContainerRequest::from_event(create_network_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Volume
         let create_volume_req = create_volume_request_event(&volume);
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Device mapping
         let create_device_mapping_req = create_device_mapping_request_event(&device_mapping);
         let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Device request
         let create_device_request_req = create_device_request_event(&device_request);
         let req = ContainerRequest::from_event(create_device_request_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // File bind
         let create_file_bind_req = create_file_bind_event(&file_bind);
         let req = ContainerRequest::from_event(create_file_bind_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Env file
         let create_env_file_req = create_env_file_event(&env_file);
         let req = ContainerRequest::from_event(create_env_file_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Container
         let create_container_req = create_container_request_event(&container);
         let req = ContainerRequest::from_event(create_container_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Deployment
@@ -1933,18 +1926,19 @@ mod tests {
             id: deployment_id,
             command: CommandValue::Start,
         });
-        handle.on_event(deployment_req).await.unwrap();
-        handle.on_event(start).await.unwrap();
+        handle.on_event(&cancel, deployment_req).await.unwrap();
+        handle.on_event(&cancel, start).await.unwrap();
 
-        let deployment_event = service.events.recv().await.unwrap();
+        let deployment_event = events.recv().await.unwrap();
         service.on_event(deployment_event).await;
-        let start_event = service.events.recv().await.unwrap();
+        let start_event = events.recv().await.unwrap();
         service.on_event(start_event).await;
     }
 
     #[tokio::test]
     async fn should_delete_deployment_no_start() {
         let tempdir = TempDir::new().unwrap();
+        let cancel = CancellationToken::new();
 
         let deployment_id = Uuid::new_v4();
         let image = create_image_req(deployment_id);
@@ -2148,56 +2142,56 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        let (mut service, mut handle) = mock_service(&tempdir, client, device).await;
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
 
         // image
         let create_image_req = create_image_request_event(&image);
 
         let req = ContainerRequest::from_event(create_image_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Network
         let create_network_req = create_network_request_event(&network);
         let req = ContainerRequest::from_event(create_network_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Volume
         let create_volume_req = create_volume_request_event(&volume);
         let req = ContainerRequest::from_event(create_volume_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Device mapping
         let create_device_mapping_req = create_device_mapping_request_event(&device_mapping);
         let req = ContainerRequest::from_event(create_device_mapping_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Device request
         let create_device_request_req = create_device_request_event(&device_request);
         let req = ContainerRequest::from_event(create_device_request_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // File bind
         let create_file_bind_req = create_file_bind_event(&file_bind);
         let req = ContainerRequest::from_event(create_file_bind_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Env file
         let create_env_file_req = create_env_file_event(&env_file);
         let req = ContainerRequest::from_event(create_env_file_req).unwrap();
-        handle.on_event(req).await.unwrap();
-        let event = service.events.recv().await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         // Container
@@ -2205,9 +2199,9 @@ mod tests {
 
         let req = ContainerRequest::from_event(create_container_req).unwrap();
 
-        handle.on_event(req).await.unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
 
-        let event = service.events.recv().await.unwrap();
+        let event = events.recv().await.unwrap();
         service.on_event(event).await;
 
         let create_deployment_req = create_deployment_request_event(
@@ -2222,12 +2216,12 @@ mod tests {
             command: CommandValue::Delete,
         });
 
-        handle.on_event(deployment_req).await.unwrap();
-        handle.on_event(delete).await.unwrap();
+        handle.on_event(&cancel, deployment_req).await.unwrap();
+        handle.on_event(&cancel, delete).await.unwrap();
 
-        let deployment_event = service.events.recv().await.unwrap();
+        let deployment_event = events.recv().await.unwrap();
         service.on_event(deployment_event).await;
-        let delete_event = service.events.recv().await.unwrap();
+        let delete_event = events.recv().await.unwrap();
         service.on_event(delete_event).await;
     }
 }

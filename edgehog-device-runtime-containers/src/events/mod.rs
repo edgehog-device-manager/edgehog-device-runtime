@@ -38,16 +38,12 @@ pub(crate) mod deployment;
 pub struct RuntimeListener {
     client: Docker,
     store: StateStore,
-    tx: mpsc::UnboundedSender<ContainerEvent>,
+    tx: mpsc::Sender<ContainerEvent>,
 }
 
 impl RuntimeListener {
     /// Creates a new instance.
-    pub fn new(
-        client: Docker,
-        store: StateStore,
-        tx: mpsc::UnboundedSender<ContainerEvent>,
-    ) -> Self {
+    pub fn new(client: Docker, store: StateStore, tx: mpsc::Sender<ContainerEvent>) -> Self {
         Self { client, store, tx }
     }
 
@@ -88,6 +84,7 @@ impl RuntimeListener {
     async fn refresh(&self, id: Id) -> eyre::Result<()> {
         self.tx
             .send(ContainerEvent::Refresh(id))
+            .await
             .wrap_err("couldn't send refresh event")?;
 
         Ok(())
