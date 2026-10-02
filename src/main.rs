@@ -65,25 +65,7 @@ async fn main() -> eyre::Result<()> {
         warn!("the option --configuration-file is deprecated, please use --config instead")
     }
 
-    let options = read_options(cli).await?;
-
-    if !options.download_directory.exists() {
-        tokio::fs::create_dir_all(&options.download_directory)
-            .await
-            .wrap_err("Unable to create OTA download directory.")?;
-    }
-
-    if !options.store_directory.exists() {
-        tokio::fs::create_dir_all(&options.store_directory)
-            .await
-            .wrap_err("Unable to create store directory")?;
-    }
-
-    info!(
-        "Using {} as store directory",
-        options.store_directory.display()
-    );
-
+    let options = read_options(cli).await?.setup_dirs().await?;
     let store = connect_store(&options.store_directory).await?;
 
     let mut tasks = JoinSet::new();

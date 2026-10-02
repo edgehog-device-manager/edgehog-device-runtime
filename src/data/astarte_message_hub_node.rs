@@ -48,14 +48,14 @@ impl AstarteMessageHubOptions {
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        config: &DeviceManagerOptions,
+        options: &DeviceManagerOptions,
     ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>> {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .wrap_err("invalid message-hub endpoint")?;
 
-        let (device, connection) = add_interfaces(DeviceBuilder::new(), config)
+        let (device, connection) = add_interfaces(DeviceBuilder::new(), options)
             .wrap_err("couldn't add interfaces")?
-            .writable_dir(&config.store_directory)
+            .writable_dir(&options.store_directory)
             .store(store)
             .connection(grpc_cfg)
             .build()

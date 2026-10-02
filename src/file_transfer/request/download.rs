@@ -19,6 +19,7 @@
 //! File Transfer download request
 
 use std::borrow::Cow;
+use std::path::Component::{self, ParentDir};
 use std::path::Path;
 use std::time::Duration;
 
@@ -29,7 +30,7 @@ use edgehog_store::models::job::status::JobStatus;
 use eyre::{Context, OptionExt, eyre};
 use minicbor::bytes::ByteVec;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
-use tracing::{error, instrument, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 use uuid::Uuid;
 
@@ -246,24 +247,33 @@ impl<'a> Destination<'a> {
     fn from_str(destination_type: &str, destination: &'a str) -> eyre::Result<Self> {
         match destination_type {
             STORAGE_TARGET => {
-                if destination.is_empty() {
-                    warn!("destination for storage target is empty");
-                    return Ok(Destination::Storage { name: None });
-                }
-
                 let path = Path::new(destination);
+                let mut components = path.components();
 
-                if path.iter().count() > 1 {
-                    error!(destination, "storage destination should be a filename");
-                    eyre::bail!(
-                        "storage destination expects a relative filename {}",
-                        path.display()
-                    );
+                let name = match components.next() {
+                    None => {
+                        debug!("destination for storage target is empty");
+                        None
+                    }
+                    Some(Component::Normal(component)) => {
+                        trace!("got destination name {}", component.display());
+                        Some(Cow::Borrowed(Path::new(component)))
+                    }
+                    Some(ParentDir)
+                    | Some(Component::CurDir)
+                    | Some(Component::Prefix(..))
+                    | Some(Component::RootDir) => {
+                        error!("single component expected");
+                        eyre::bail!("parent dir in destination {}", path.display());
+                    }
+                };
+
+                if components.next().is_some() {
+                    error!("got more than one components");
+                    eyre::bail!("more than one component in destination {}", path.display());
                 }
 
-                Ok(Destination::Storage {
-                    name: Some(Cow::Borrowed(path)),
-                })
+                Ok(Destination::Storage { name })
             }
             STREAMING_TARGET => {
                 if !destination.is_empty() {

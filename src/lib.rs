@@ -18,7 +18,9 @@
 
 use std::path::PathBuf;
 
+use eyre::Context;
 use serde::Deserialize;
+use tracing::info;
 
 pub use self::controller::Runtime;
 use self::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
@@ -81,6 +83,41 @@ pub struct DeviceManagerOptions {
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
     pub telemetry_config: Option<Vec<TelemetryInterfaceConfig<'static>>>,
+}
+
+impl DeviceManagerOptions {
+    pub async fn setup_dirs(mut self) -> eyre::Result<Self> {
+        tokio::fs::create_dir_all(&self.download_directory)
+            .await
+            .wrap_err("unable to create OTA download directory.")?;
+        let download = tokio::fs::canonicalize(&self.download_directory).await?;
+
+        tokio::fs::create_dir_all(&self.store_directory)
+            .await
+            .wrap_err("unable to create store directory")?;
+        let store = tokio::fs::canonicalize(&self.store_directory).await?;
+
+        info!(store = %store.display(), download = %download.display(), "using store directories");
+
+        #[cfg(feature = "file-transfer")]
+        {
+            self.file_transfer.storage_dir = {
+                let ft_dir = &self.file_transfer.storage_dir;
+
+                tokio::fs::create_dir_all(ft_dir).await?;
+                let ft_dir = tokio::fs::canonicalize(ft_dir).await?;
+
+                info!(file_transfer = %ft_dir.display(), "using file transfer directory");
+
+                ft_dir
+            };
+        }
+
+        self.store_directory = store;
+        self.download_directory = download;
+
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
