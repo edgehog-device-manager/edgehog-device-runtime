@@ -40,7 +40,7 @@ impl RuntimeInfo<'static> {
     pub const fn read() -> Self {
         Self {
             name: Cow::Borrowed(env!("CARGO_PKG_NAME")),
-            url: Cow::Borrowed(env!("CARGO_PKG_HOMEPAGE")),
+            url: Cow::Borrowed(env!("CARGO_PKG_REPOSITORY")),
             version: Cow::Borrowed(env!("CARGO_PKG_VERSION")),
             environment: Cow::Borrowed(env!("EDGEHOG_RUSTC_VERSION")),
         }
