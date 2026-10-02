@@ -323,6 +323,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
         C: Client + Send + Sync + 'static,
         F: Space,
     {
+        let opt = FileOptions::from(download);
+
         let exists = self
             .storage
             .file_exists(
@@ -330,6 +332,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
                 file_name.as_deref(),
                 download.digest_type,
                 &download.digest,
+                &opt,
             )
             .await?;
 
@@ -342,8 +345,6 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
             return Ok(());
         }
-
-        let opt = FileOptions::from(download);
 
         let mut file = self
             .storage
@@ -448,13 +449,21 @@ impl<F, S, C> FileTransfer<F, S, C> {
     where
         F: Space,
     {
-        if WriteHandle::try_exists(&path, download.digest_type, &download.digest).await? {
+        let opt = FileOptions::from(download);
+
+        let exists = WriteHandle::try_exists(
+            &path,
+            download.digest_type,
+            &download.digest,
+            opt.compression,
+        )
+        .await?;
+
+        if exists {
             info!("file already exists");
 
             return Ok(());
         }
-
-        let opt = FileOptions::from(download);
 
         let mut file = WriteHandle::with_path(path, &opt).await?;
 
@@ -1275,6 +1284,121 @@ mod tests {
         let content = tokio::fs::read(complete_file).await.unwrap();
 
         assert_eq!(content, mock_download_event.content);
+    }
+
+    #[tokio::test]
+    async fn should_download_tar() {
+        let server = MockServer::start_async().await;
+
+        let content1 = "file 1 content";
+        let content2 = "nested file 2 content";
+        let content3 = "file 3 content";
+
+        let mut builder = async_tar::Builder::new(Vec::new());
+
+        let mut header1 = async_tar::Header::new_gnu();
+        header1.set_path("file1.txt").unwrap();
+        header1.set_size(content1.len() as u64);
+        header1.set_mode(0o644);
+        header1.set_cksum();
+        builder.append(&header1, content1.as_bytes()).await.unwrap();
+
+        let mut header2 = async_tar::Header::new_gnu();
+        header2.set_path("nested/file2.txt").unwrap();
+        header2.set_size(content2.len() as u64);
+        header2.set_mode(0o644);
+        header2.set_cksum();
+        builder.append(&header2, content2.as_bytes()).await.unwrap();
+
+        let mut header3 = async_tar::Header::new_gnu();
+        header3.set_path("file3.txt").unwrap();
+        header3.set_size(content3.len() as u64);
+        header3.set_mode(0o644);
+        header3.set_cksum();
+        builder.append(&header3, content3.as_bytes()).await.unwrap();
+
+        builder.finish().await.unwrap();
+        let tar_bytes = builder.into_inner().await.unwrap();
+
+        let url = server.url("/bundle.tar");
+        let headers = mk_headers();
+
+        let call_get = server
+            .mock_async(|mut when, then| {
+                when = when.method(GET).path("/bundle.tar").header_missing("range");
+
+                headers.iter().fold(when, |when, (n, s)| {
+                    when.header_includes(n.as_str(), s.to_str().unwrap())
+                });
+
+                then.status(reqwest::StatusCode::OK)
+                    .header("Content-Length", tar_bytes.len().to_string())
+                    .body(&tar_bytes);
+            })
+            .await;
+
+        let mut digest = digest::Context::new(&digest::SHA256);
+        digest.update(&tar_bytes);
+        let digest = digest.finish();
+
+        let id = Uuid::new_v4();
+        let req = Request::Download(Download {
+            id,
+            url: url.parse().unwrap(),
+            headers,
+            progress: true,
+            digest_type: FileDigest::Sha256,
+            digest: ByteVec::from(digest.as_ref().to_vec()),
+            ttl: Some(Duration::from_secs(60)),
+            encoding: Some(Encoding::Tar),
+            file_size: tar_bytes.len().try_into().unwrap(),
+            permission: FilePermissions::default(),
+            destination: Destination::Storage {
+                name: Some(Cow::Owned(PathBuf::from("bundle.tar"))),
+            },
+        });
+
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        add_download_ok_expect(&mut device, &mut seq, id);
+
+        let (mut transfer, dir) = mk_def_transfer("should_download_tar", device).await;
+
+        transfer.handle(req).await.unwrap();
+
+        call_get.assert_async().await;
+
+        let uuid_dir = dir.path().join(id.to_string());
+        assert!(tokio::fs::try_exists(&uuid_dir).await.unwrap());
+
+        let file1_path = uuid_dir.join("file1.txt");
+        let file2_path = uuid_dir.join("nested/file2.txt");
+        let file3_path = uuid_dir.join("file3.txt");
+
+        assert_eq!(
+            tokio::fs::read_to_string(&file1_path).await.unwrap(),
+            content1
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&file2_path).await.unwrap(),
+            content2
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&file3_path).await.unwrap(),
+            content3
+        );
+
+        // Verify that files are directly under the uuid path without intermediate components
+        assert!(
+            !tokio::fs::try_exists(uuid_dir.join("bundle.tar"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !tokio::fs::try_exists(uuid_dir.join(WriteHandle::DEFAULT_FILE_NAME))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
