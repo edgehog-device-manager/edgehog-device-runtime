@@ -160,6 +160,7 @@ where
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use tempfile::TempDir;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -167,7 +168,7 @@ mod tests {
 
     #[tokio::test]
     async fn read() {
-        let dir = tempdir::TempDir::new("read").unwrap();
+        let dir = TempDir::with_prefix("read").unwrap();
 
         let content = "content to be hashed";
         let path = dir.path().join("file.txt");
@@ -189,7 +190,7 @@ mod tests {
 
     #[tokio::test]
     async fn write() {
-        let dir = tempdir::TempDir::new("write").unwrap();
+        let dir = TempDir::with_prefix("write").unwrap();
 
         let content = "content to be hashed";
         let path = dir.path().join("file.txt");
@@ -216,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn existing() {
-        let dir = tempdir::TempDir::new("write").unwrap();
+        let dir = TempDir::with_prefix("write").unwrap();
 
         let content = "content to be hashed";
         let path = dir.path().join("file.txt");

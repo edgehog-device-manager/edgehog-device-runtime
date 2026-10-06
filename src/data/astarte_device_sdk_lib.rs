@@ -151,7 +151,7 @@ pub async fn hardware_id_from_dbus() -> eyre::Result<Option<String>> {
 mod tests {
     use super::*;
 
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn device_id_test() {
@@ -170,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn credentials_secret_test() {
-        let _dir = TempDir::new("sdk_cred").unwrap();
+        let _dir = TempDir::with_prefix("sdk_cred").unwrap();
         let path = _dir.path().to_owned();
 
         let options = AstarteDeviceSdkConfigOptions {
@@ -189,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn credentials_pairing_token() {
-        let _dir = TempDir::new("sdk_cred").unwrap();
+        let _dir = TempDir::with_prefix("sdk_cred").unwrap();
         let path = _dir.path().to_owned();
 
         let options = AstarteDeviceSdkConfigOptions {
@@ -208,7 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn not_enough_arguments_credentials_secret_test() {
-        let _dir = TempDir::new("sdk_cred").unwrap();
+        let _dir = TempDir::with_prefix("sdk_cred").unwrap();
         let path = _dir.path().to_owned();
 
         let options = AstarteDeviceSdkConfigOptions {
@@ -227,7 +227,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_credentials_secret_persistence_fail() {
-        let _dir = TempDir::new("sdk_cred").unwrap();
+        let _dir = TempDir::with_prefix("sdk_cred").unwrap();
         let path = _dir.path().to_owned();
 
         let device_id = "device_id";
@@ -251,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_credentials_secret_persistence_success() {
-        let _dir = TempDir::new("sdk_cred").unwrap();
+        let _dir = TempDir::with_prefix("sdk_cred").unwrap();
         let path = _dir.path().to_owned();
 
         let device_id = "device_id";

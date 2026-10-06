@@ -105,11 +105,12 @@ pub(crate) async fn set_property<C>(
 pub mod tests {
     use super::*;
 
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     /// Create tmp store and store dir.
     pub async fn create_tmp_store() -> (SqliteStore, TempDir) {
-        let tmp_dir = TempDir::new("edgehog-tmp-store").expect("failed to create tmp store dir");
+        let tmp_dir =
+            TempDir::with_prefix("edgehog-tmp-store").expect("failed to create tmp store dir");
         let store = connect_store(tmp_dir.path())
             .await
             .expect("failed to connect store");

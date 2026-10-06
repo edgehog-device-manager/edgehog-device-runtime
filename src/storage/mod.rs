@@ -378,7 +378,7 @@ mod tests {
     use edgehog_store::db::Handle;
     use mockall::predicate;
     use rstest::{Context, rstest};
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::{fs::OpenOptions, io::AsyncWriteExt};
     use uuid::Uuid;
 
@@ -413,7 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_job() {
-        let dir = TempDir::new("delete_job").unwrap();
+        let dir = TempDir::with_prefix("delete_job").unwrap();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
 
         let request_id = Uuid::new_v4();

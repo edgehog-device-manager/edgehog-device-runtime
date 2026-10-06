@@ -33,7 +33,7 @@ edgehog-device-runtime = { path = ".." }
 eyre.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempdir.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-util.workspace = true
 tracing.workspace = true

@@ -210,7 +210,7 @@ mod tests {
     use async_tar::Archive;
     use futures::StreamExt;
     use rstest::rstest;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::{
         fs::File,
         io::{AsyncWriteExt, BufReader},
@@ -257,7 +257,7 @@ mod tests {
             .await
             .unwrap();
 
-        let out = TempDir::new("out").unwrap();
+        let out = TempDir::with_prefix("out").unwrap();
 
         let file = File::open(&path).await.unwrap();
 

@@ -68,7 +68,7 @@ impl OtaHandler {
         state_repository: MockStateRepository<PersistentState>,
         prefix: &str,
         publisher_tx: mpsc::Sender<OtaStatus>,
-    ) -> (Self, tempdir::TempDir) {
+    ) -> (Self, tempfile::TempDir) {
         let (ota, dir) =
             Ota::mock_new_with_path(system_update, state_repository, prefix, publisher_tx);
 
