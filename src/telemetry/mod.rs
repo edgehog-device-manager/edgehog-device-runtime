@@ -19,6 +19,7 @@
 use std::str::FromStr;
 use std::{borrow::Cow, collections::HashMap, ops::Deref, path::PathBuf};
 
+use edgehog_config::telemetry::TelemetryInterfaceConfig;
 use event::{TelemetryConfig, TelemetryEvent};
 use serde::{Deserialize, Serialize};
 use tokio::time::Duration;
@@ -26,11 +27,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::Client;
-
-use crate::{
-    controller::actor::Actor,
-    repository::{StateRepository, file_state_repository::FileStateRepository},
-};
+use crate::controller::actor::Actor;
+use crate::repository::{StateRepository, file_state_repository::FileStateRepository};
 
 use self::sender::Task;
 use self::stats::TelemetryInterface;
@@ -45,7 +43,7 @@ const TELEMETRY_PATH: &str = "telemetry.json";
 const DEFAULT_PERIOD: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryInterfaceConfig<'a> {
+pub struct TelemetryInterfaceArgs<'a> {
     pub interface_name: Cow<'a, str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
@@ -53,7 +51,23 @@ pub struct TelemetryInterfaceConfig<'a> {
     pub period: Option<u64>,
 }
 
-impl TelemetryInterfaceConfig<'_> {
+impl From<TelemetryInterfaceConfig> for TelemetryInterfaceArgs<'static> {
+    fn from(value: TelemetryInterfaceConfig) -> Self {
+        let TelemetryInterfaceConfig {
+            interface_name,
+            enabled,
+            period,
+        } = value;
+
+        Self {
+            interface_name: interface_name.into(),
+            enabled,
+            period,
+        }
+    }
+}
+
+impl TelemetryInterfaceArgs<'_> {
     fn period_duration(&self) -> Option<Duration> {
         self.period.map(Duration::from_secs)
     }
@@ -68,7 +82,7 @@ pub struct TaskConfig {
 
 impl TaskConfig {
     /// Creates a tasks configuration from the one from the file.
-    fn from_config(config: &TelemetryInterfaceConfig) -> Self {
+    fn from_config(config: &TelemetryInterfaceArgs) -> Self {
         Self {
             enabled: Overridable::new(config.enabled.unwrap_or_default()),
             period: Overridable::new(config.period_duration().unwrap_or(DEFAULT_PERIOD)),
@@ -76,7 +90,7 @@ impl TaskConfig {
     }
 
     /// Creates a task config from the override, with default defaults
-    fn from_override(over: &TelemetryInterfaceConfig) -> Option<Self> {
+    fn from_override(over: &TelemetryInterfaceArgs) -> Option<Self> {
         if over.enabled.is_none() && over.period.is_none() {
             return None;
         }
@@ -173,7 +187,7 @@ pub struct Telemetry<C> {
     client: C,
     configs: HashMap<TelemetryInterface, TaskConfig>,
     tasks: TelemetryTasks,
-    file_state: FileStateRepository<Vec<TelemetryInterfaceConfig<'static>>>,
+    file_state: FileStateRepository<Vec<TelemetryInterfaceArgs<'static>>>,
     #[cfg(feature = "containers")]
     containers: Option<edgehog_containers::stats::StatsMonitor>,
 }
@@ -181,7 +195,7 @@ pub struct Telemetry<C> {
 impl<C> Telemetry<C> {
     pub async fn from_config(
         client: C,
-        configs: &[TelemetryInterfaceConfig<'_>],
+        configs: &[TelemetryInterfaceArgs<'_>],
         store_directory: PathBuf,
     ) -> Self {
         let configs = configs
@@ -302,7 +316,7 @@ impl<C> Telemetry<C> {
             .iter()
             .filter_map(|(interface, cfg)| {
                 if cfg.enabled.is_overwritten() || cfg.period.is_overwritten() {
-                    Some(TelemetryInterfaceConfig {
+                    Some(TelemetryInterfaceArgs {
                         interface_name: Cow::Borrowed(interface.as_interface()),
                         enabled: cfg.enabled.get_override().copied(),
                         period: cfg.period.get_override().map(Duration::as_secs),
@@ -496,7 +510,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn telemetry_default_test() {
         let interface = "io.edgehog.devicemanager.SystemStatus";
-        let configs = vec![TelemetryInterfaceConfig {
+        let configs = vec![TelemetryInterfaceArgs {
             interface_name: std::borrow::Cow::Borrowed(interface),
             enabled: Some(true),
             period: Some(10),
@@ -517,7 +531,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn telemetry_set_test() {
         let interface = "io.edgehog.devicemanager.SystemStatus";
-        let configs = vec![TelemetryInterfaceConfig {
+        let configs = vec![TelemetryInterfaceArgs {
             interface_name: interface.into(),
             enabled: Some(true),
             period: Some(10),
@@ -554,7 +568,7 @@ pub(crate) mod tests {
         assert_eq!(*config.period.get(), Duration::from_secs(30));
 
         let telemetry_repo = FileStateRepository::new(&t_dir, TELEMETRY_PATH);
-        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
+        let saved_config: Vec<TelemetryInterfaceArgs> = telemetry_repo.read().await.unwrap();
 
         assert_eq!(saved_config.len(), 1);
 
@@ -566,7 +580,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn telemetry_unset_test() {
         let interface = "io.edgehog.devicemanager.SystemStatus";
-        let configs = vec![TelemetryInterfaceConfig {
+        let configs = vec![TelemetryInterfaceArgs {
             interface_name: interface.into(),
             enabled: Some(true),
             period: Some(10),
@@ -609,7 +623,7 @@ pub(crate) mod tests {
         assert_eq!(*config.period.get(), Duration::from_secs(10));
 
         let telemetry_repo = FileStateRepository::new(&t_dir, TELEMETRY_PATH);
-        let saved_config: Vec<TelemetryInterfaceConfig> = telemetry_repo.read().await.unwrap();
+        let saved_config: Vec<TelemetryInterfaceArgs> = telemetry_repo.read().await.unwrap();
 
         assert!(saved_config.is_empty());
     }

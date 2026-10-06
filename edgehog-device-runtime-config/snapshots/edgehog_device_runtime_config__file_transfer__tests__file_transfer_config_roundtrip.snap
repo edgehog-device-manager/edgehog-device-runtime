@@ -1,0 +1,7 @@
+---
+source: edgehog-device-runtime-config/src/file_transfer.rs
+expression: toml_str
+---
+enabled = true
+storage_dir = "/foo/bar"
+storage_reserved = 42

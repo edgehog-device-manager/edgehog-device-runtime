@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-config/src/forwarder.rs
+expression: toml_str
+---
+enabled = true

@@ -1,0 +1,47 @@
+---
+source: edgehog-device-runtime-config/src/lib.rs
+expression: toml_str
+---
+astarte_library = "astarte-device-sdk"
+store_directory = "/var/lib/edgehog"
+download_directory = "/var/lib/edgehog/download"
+
+[astarte_device_sdk]
+realm = "test-realm"
+device_id = "device_id"
+credentials_secret = "credentials_secret"
+pairing_token = "pairing_token"
+pairing_url = "https://api.astarte.example.com/pairing"
+ignore_ssl = false
+
+[containers]
+enabled = true
+required = true
+max_retries = 3
+
+[service]
+enabled = true
+
+[service.listener]
+unix = "/tmp/edgehog-device-runtime.sock"
+
+[ota]
+enabled = true
+reboot = "external"
+streaming = true
+
+[ota.rauc]
+dbus_socket = "system"
+
+[file_transfer]
+enabled = true
+storage_dir = "/foo/bar"
+storage_reserved = 42
+
+[forwarder]
+enabled = true
+
+[[telemetry_config]]
+interface_name = "io.edgehog.devicemanager.SystemStatus"
+enabled = true
+period = 60
