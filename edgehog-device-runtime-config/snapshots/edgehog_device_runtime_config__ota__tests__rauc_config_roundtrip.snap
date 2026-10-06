@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-config/src/ota.rs
+expression: toml_str
+---
+dbus_socket = "system"

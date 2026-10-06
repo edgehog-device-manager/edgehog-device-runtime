@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-config/src/sdk.rs
+expression: toml_str
+---
+endpoint = "http://[::1]:50051/"
