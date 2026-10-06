@@ -21,9 +21,8 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
-use eyre::OptionExt;
-use serde::Deserialize;
+use edgehog_config::sdk::{AstarteLibrary, DeviceSdkConfig};
+use edgehog_config::{ConfigFile, Mergiable};
 use url::Url;
 
 #[derive(Debug, Parser)]
@@ -52,6 +51,74 @@ pub struct Cli {
     pub shared: Option<SharedArgs>,
 }
 
+impl From<Cli> for ConfigFile {
+    fn from(value: Cli) -> Self {
+        let Cli {
+            configuration_file: _,
+            config: _,
+            command,
+            device,
+            shared,
+        } = value;
+
+        let mut config = ConfigFile::default();
+
+        if let Some(shared) = shared {
+            let SharedArgs {
+                #[expect(deprecated)]
+                interfaces_dir,
+                store_dir,
+            } = shared;
+
+            config.store_directory = store_dir.or(config.store_directory.take());
+            #[expect(deprecated)]
+            {
+                config.interfaces_directory = interfaces_dir.or(config.interfaces_directory.take());
+            }
+        }
+
+        let shared = match command {
+            Some(Command::DeviceSdk { device, shared }) => {
+                config.astarte_library = Some(AstarteLibrary::AstarteDeviceSdk);
+                config.astarte_device_sdk = Some(DeviceSdkConfig::from(device));
+
+                Some(shared)
+            }
+            #[cfg(feature = "message-hub")]
+            Some(Command::MsgHub { msghub, shared }) => {
+                config.astarte_library = Some(AstarteLibrary::AstarteMessageHub);
+                config.astarte_message_hub =
+                    Some(edgehog_config::sdk::MessageHubConfig::from(msghub));
+
+                Some(shared)
+            }
+            None => None,
+        };
+
+        if let Some(shared) = shared {
+            let SharedArgs {
+                #[expect(deprecated)]
+                interfaces_dir,
+                store_dir,
+            } = shared;
+
+            config.store_directory = store_dir.or(config.store_directory.take());
+            #[expect(deprecated)]
+            {
+                config.interfaces_directory = interfaces_dir.or(config.interfaces_directory.take());
+            }
+        }
+
+        if let Some(device) = device {
+            config
+                .astarte_device_sdk
+                .merge(Some(DeviceSdkConfig::from(device)));
+        }
+
+        config
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Connects to Astarte directly using the Device SDK
@@ -65,7 +132,7 @@ pub enum Command {
     /// Connects to Astarte through the Message Hub
     MsgHub {
         #[command(flatten)]
-        msghub: MsgHubArgs,
+        msghub: self::message_hub::MsgHubArgs,
         #[command(flatten)]
         shared: SharedArgs,
     },
@@ -82,7 +149,7 @@ pub struct SharedArgs {
     pub store_dir: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Args, Deserialize)]
+#[derive(Debug, Clone, Args)]
 #[command(next_help_heading = "Device SDK Options")]
 pub struct DeviceSdkArgs {
     /// The Astarte realm the device belongs to.
@@ -113,76 +180,47 @@ pub struct DeviceSdkArgs {
     pub ignore_ssl: Option<bool>,
 }
 
-impl TryFrom<DeviceSdkArgs> for AstarteDeviceSdkConfigOptions {
-    type Error = eyre::Error;
-
-    fn try_from(value: DeviceSdkArgs) -> Result<Self, Self::Error> {
-        let realm = value.realm.ok_or_eyre("config is missing the realm")?;
-        let pairing_url = value
-            .pairing_url
-            .ok_or_eyre("config is missing the pairing_url")?;
-
-        Ok(Self {
+impl From<DeviceSdkArgs> for DeviceSdkConfig {
+    fn from(value: DeviceSdkArgs) -> Self {
+        let DeviceSdkArgs {
             realm,
-            device_id: value.device_id,
-            credentials_secret: value.credentials_secret,
+            device_id,
+            credentials_secret,
+            pairing_token,
             pairing_url,
-            pairing_token: value.pairing_token,
-            ignore_ssl: value.ignore_ssl.unwrap_or_default(),
-        })
-    }
-}
+            ignore_ssl,
+        } = value;
 
-impl DeviceSdkArgs {
-    pub fn merge(&mut self, other: Self) {
-        self.realm.merge(other.realm);
-        self.device_id.merge(other.device_id);
-        self.credentials_secret.merge(other.credentials_secret);
-        self.pairing_token.merge(other.pairing_token);
-        self.pairing_url.merge(other.pairing_url);
-        self.ignore_ssl.merge(other.ignore_ssl);
-    }
-}
-
-#[cfg(feature = "message-hub")]
-#[derive(Debug, Clone, Args, Deserialize)]
-#[command(next_help_heading = "Message Hub Options")]
-pub struct MsgHubArgs {
-    /// The Endpoint of the Astarte Message Hub to connect to
-    #[arg(long, short, env = "EDGEHOG_MSGHUB_ENDPOINT")]
-    endpoint: Option<Url>,
-}
-
-#[cfg(feature = "message-hub")]
-impl MsgHubArgs {
-    pub fn merge(&mut self, other: Self) {
-        self.endpoint.merge(other.endpoint);
+        DeviceSdkConfig {
+            realm,
+            device_id,
+            credentials_secret,
+            pairing_token,
+            pairing_url,
+            ignore_ssl,
+        }
     }
 }
 
 #[cfg(feature = "message-hub")]
-impl TryFrom<MsgHubArgs>
-    for edgehog_device_runtime::data::astarte_message_hub_node::AstarteMessageHubOptions
-{
-    type Error = eyre::Error;
+pub mod message_hub {
+    use edgehog_config::sdk::MessageHubConfig;
 
-    fn try_from(value: MsgHubArgs) -> Result<Self, Self::Error> {
-        let endpoint = value
-            .endpoint
-            .ok_or_eyre("config is missing the endpoint")?;
+    use super::*;
 
-        Ok(Self { endpoint })
+    #[derive(Debug, Clone, Args)]
+    #[command(next_help_heading = "Message Hub Options")]
+    pub struct MsgHubArgs {
+        /// The Endpoint of the Astarte Message Hub to connect to
+        #[arg(long, short, env = "EDGEHOG_MSGHUB_ENDPOINT")]
+        endpoint: Option<Url>,
     }
-}
 
-pub trait OverrideOption {
-    fn merge(&mut self, value: Self);
-}
+    impl From<MsgHubArgs> for MessageHubConfig {
+        fn from(value: MsgHubArgs) -> Self {
+            let MsgHubArgs { endpoint } = value;
 
-impl<T> OverrideOption for Option<T> {
-    fn merge(&mut self, value: Self) {
-        if value.is_some() {
-            *self = value;
+            MessageHubConfig { endpoint }
         }
     }
 }
