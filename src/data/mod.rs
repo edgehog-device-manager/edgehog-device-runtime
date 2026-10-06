@@ -27,10 +27,10 @@ use tracing::{debug, error, info};
 
 use crate::Client;
 
-pub mod astarte_device_sdk_lib;
-#[cfg(feature = "message-hub")]
-pub mod astarte_message_hub_node;
+pub mod device_sdk;
 pub(crate) mod interfaces;
+#[cfg(feature = "message-hub")]
+pub mod message_hub;
 
 /// Connect to the store.
 pub async fn connect_store<P>(store_dir: P) -> Result<SqliteStore, Error<SqliteError>>
