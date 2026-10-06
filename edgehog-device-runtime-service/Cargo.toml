@@ -32,6 +32,7 @@ containers = ["dep:edgehog-containers"]
 [dependencies]
 async-trait.workspace = true
 cfg-if.workspace = true
+edgehog-config.workspace = true
 edgehog-containers = { workspace = true, optional = true }
 edgehog-proto.workspace = true
 eyre.workspace = true
