@@ -17,11 +17,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use eyre::Context;
-use tokio::net::windows::named_pipe::{
-    ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
-};
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
+
+use std::path::PathBuf;
 
 use crate::file_transfer::FileOptions;
 
@@ -31,29 +31,34 @@ use super::Pipe;
 pub(crate) struct MakeNamedPipe {}
 
 impl MakeNamedPipe {
-    fn pipe_name(&self, id: &Uuid) -> String {
-        format!(r"\\.\pipe\edgehog-device-runtime-stream-{id}")
+    fn pipe_name(&self, id: &Uuid) -> PathBuf {
+        PathBuf::from(format!(r"\\.\pipe\edgehog-device-runtime-stream-{id}"))
     }
 }
 
 impl Pipe for MakeNamedPipe {
-    type Writer = NamedPipeClient;
+    type Writer = NamedPipeServer;
     type Reader = NamedPipeServer;
 
     fn new() -> Self {
         Self {}
     }
 
+    fn get_path(&self, id: &Uuid) -> PathBuf {
+        self.pipe_name(id)
+    }
+
     #[instrument(skip_all, fields(id = %opt.id))]
     async fn open_writer(&self, opt: &FileOptions) -> eyre::Result<Self::Writer> {
         let pipe_name = self.pipe_name(&opt.id);
 
-        trace!(pipe_name, "opening client");
+        trace!(pipe_name = %pipe_name.display(), "opening server to write");
 
-        let tx = ClientOptions::new()
-            .read(false)
-            .open(pipe_name)
-            .wrap_err("couldn't open client")?;
+        let tx = ServerOptions::new()
+            .access_outbound(false)
+            .first_pipe_instance(true)
+            .create(pipe_name)
+            .wrap_err("couldn't create server")?;
 
         info!("named pipe opened");
 
@@ -64,7 +69,7 @@ impl Pipe for MakeNamedPipe {
     async fn create_reader(&self, id: &Uuid) -> eyre::Result<Self::Reader> {
         let pipe_name = self.pipe_name(id);
 
-        trace!(pipe_name, "opening server");
+        trace!(pipe_name = %pipe_name.display(), "opening server to read");
 
         let rx = ServerOptions::new()
             .access_outbound(false)

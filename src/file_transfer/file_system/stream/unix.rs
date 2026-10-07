@@ -33,13 +33,17 @@ pub(crate) struct MakeFifo {
 }
 
 impl MakeFifo {
+    fn pipe_path(&self, id: &Uuid) -> PathBuf {
+        self.dir.join(id.to_string())
+    }
+
     #[instrument(skip(self))]
-    async fn pipe_path(&self, id: &Uuid) -> eyre::Result<PathBuf> {
+    async fn mk_pipe_path(&self, id: &Uuid) -> eyre::Result<PathBuf> {
         tokio::fs::create_dir_all(&self.dir)
             .await
             .wrap_err("couldn't create streaming directory")?;
 
-        Ok(self.dir.join(id.to_string()))
+        Ok(self.pipe_path(id))
     }
 }
 
@@ -59,9 +63,13 @@ impl Pipe for MakeFifo {
         Self { dir }
     }
 
+    fn get_path(&self, id: &Uuid) -> PathBuf {
+        self.pipe_path(id)
+    }
+
     #[instrument(skip_all, fields(id = %opt.id))]
     async fn open_writer(&self, opt: &FileOptions) -> eyre::Result<Self::Writer> {
-        let path = self.pipe_path(&opt.id).await?;
+        let path = self.mk_pipe_path(&opt.id).await?;
 
         trace!(fifo = %path.display(), "opening fifo");
 
@@ -78,7 +86,7 @@ impl Pipe for MakeFifo {
 
     #[instrument(skip(self))]
     async fn create_reader(&self, id: &Uuid) -> eyre::Result<Self::Reader> {
-        let path = self.pipe_path(id).await?;
+        let path = self.mk_pipe_path(id).await?;
 
         let dir = tokio::fs::File::open(&self.dir)
             .await
@@ -108,7 +116,7 @@ impl Pipe for MakeFifo {
 
     #[instrument(skip_all)]
     async fn remove_reader(&self, id: &Uuid) -> eyre::Result<()> {
-        let path = self.pipe_path(id).await?;
+        let path = self.mk_pipe_path(id).await?;
 
         tokio::fs::remove_file(path).await?;
 
@@ -154,7 +162,7 @@ mod tests {
 
         let id = Uuid::new_v4();
 
-        mk.pipe_path(&id).await.unwrap();
+        mk.mk_pipe_path(&id).await.unwrap();
 
         let meta = tokio::fs::metadata(pipe_dir).await.unwrap();
 

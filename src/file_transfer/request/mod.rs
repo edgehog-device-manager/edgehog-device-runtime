@@ -16,10 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::borrow::Cow;
+use std::process::Stdio;
 use std::str::FromStr;
+use std::time::Duration;
 
 use edgehog_store::models::job::Job;
 use eyre::{Context, eyre};
+use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::file_transfer::interface::capabilities::{GZ, TAR, TAR_GZ};
@@ -217,6 +221,86 @@ where
         Some(value) if value == default => Ok(None),
         Some(value) => U::try_from(value).map(Some),
         None => Ok(None),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
+pub(crate) struct CommandHook<'a> {
+    #[n(0)]
+    program: Cow<'a, str>,
+    #[n(1)]
+    args: Vec<Cow<'a, str>>,
+    #[n(2)]
+    uid: Option<u32>,
+    #[n(3)]
+    gid: Option<u32>,
+    #[n(4)]
+    timeout: Duration,
+}
+
+impl<'a> CommandHook<'a> {
+    const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn new(
+        cmd: &'a [String],
+        uid: Option<i64>,
+        gid: Option<i64>,
+        timeout: Option<i32>,
+    ) -> eyre::Result<Option<Self>> {
+        let Some((program, args)) = cmd.split_first() else {
+            return Ok(None);
+        };
+
+        let program = Cow::from(program);
+        let args = args.iter().map(Cow::from).collect();
+        let uid = uid
+            .map(u32::try_from)
+            .transpose()
+            .wrap_err("uid value out of range")?;
+        let gid = gid
+            .map(u32::try_from)
+            .transpose()
+            .wrap_err("gid value out of range")?;
+        let timeout = timeout
+            .map(u64::try_from)
+            .transpose()
+            .wrap_err("timeout value out of range")?
+            .map(Duration::from_secs)
+            .unwrap_or(Self::DEFAULT_TIMEOUT);
+
+        Ok(Some(Self {
+            program,
+            args,
+            uid,
+            gid,
+            timeout,
+        }))
+    }
+
+    pub(crate) fn command(&self) -> Command {
+        let mut cmd = Command::new(self.program.as_ref());
+        cmd.args(self.args.iter().map(|s| s.as_ref()));
+
+        #[cfg(unix)]
+        if let Some(id) = self.uid {
+            cmd.uid(id);
+        }
+        #[cfg(unix)]
+        if let Some(id) = self.gid {
+            cmd.gid(id);
+        }
+
+        // null stdin
+        cmd.stdin(Stdio::null())
+            // pipe output to us so that it's readable
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        cmd
+    }
+
+    pub(crate) fn timeout(&self) -> Duration {
+        self.timeout
     }
 }
 
