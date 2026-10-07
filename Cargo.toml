@@ -214,7 +214,7 @@ systemd = { workspace = true, optional = true }
 udev = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"], optional = true }
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_System_Console"], optional = true }
 
 [features]
 default = [
