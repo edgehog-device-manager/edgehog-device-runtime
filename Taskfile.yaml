@@ -52,6 +52,7 @@ tasks:
       # - check-copyright
       - check-spelling
       - check-for-publish
+      - check-no-yml
       - cargo-fmt
       - cargo-clippy
       - cargo-docs-rs
@@ -76,6 +77,10 @@ tasks:
   check-spelling:
     desc: "Check for spelling errors"
     cmd: typos
+
+  check-no-yml:
+    desc: "Check that there are no `.yml` instead of `.yaml`"
+    cmd: ./scripts/ci/no-yml-files.sh
 
   check-for-publish:
     if: '[[ "$IS_CRATE" = "true" ]]'
