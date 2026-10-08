@@ -1,12 +1,29 @@
-// Copyright 2024 SECO Mind Srl
+// This file is part of Edgehog.
+//
+// Copyright 2024, 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
 // SPDX-License-Identifier: Apache-2.0
 
 //! Define the necessary structs and traits to represent a WebSocket connection.
 
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
 use http::Request;
+use rustls::ClientConfig;
 use tokio::select;
 use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio_tungstenite::tungstenite::Utf8Bytes;
@@ -32,6 +49,7 @@ use crate::messages::{
 #[derive(Debug)]
 pub(crate) struct WebSocketBuilder {
     request: Request<()>,
+    tls: ClientConfig,
     rx_con: Receiver<ProtoWebSocketMessage>,
 }
 
@@ -40,13 +58,22 @@ impl WebSocketBuilder {
     pub(crate) fn with_handle(
         http_req: ProtoHttpRequest,
     ) -> Result<(Self, WriteHandle), ConnectionError> {
+        let tls = http_req.tls()?;
         let request = http_req.ws_upgrade()?;
+
         trace!("HTTP request upgraded");
 
         // this channel will be used to send data from the manager to the WebSocket connection
         let (tx_con, rx_con) = channel::<ProtoWebSocketMessage>(WS_CHANNEL_SIZE);
 
-        Ok((Self { request, rx_con }, WriteHandle::Ws(tx_con)))
+        Ok((
+            Self {
+                request,
+                tls,
+                rx_con,
+            },
+            WriteHandle::Ws(tx_con),
+        ))
     }
 }
 
@@ -57,13 +84,19 @@ impl TransportBuilder for WebSocketBuilder {
     async fn build(
         self,
         id: &Id,
-        tx_ws: Sender<ProtoMessage>,
+        tx_ws: &Sender<ProtoMessage>,
     ) -> Result<Self::Connection, ConnectionError> {
         // establish a WebSocket connection
-        let (ws_stream, http_res) = tokio_tungstenite::connect_async(self.request)
-            .await
-            .map_err(Box::new)?;
-        trace!("WebSocket stream for ID {id} created");
+        let (ws_stream, http_res) = tokio_tungstenite::connect_async_tls_with_config(
+            self.request,
+            None,
+            true,
+            Some(tokio_tungstenite::Connector::Rustls(Arc::new(self.tls))),
+        )
+        .await
+        .map_err(Box::new)?;
+
+        trace!("WebSocket stream for created");
 
         // send a protocol message with the HTTP response to the connections manager
         let proto_msg = ProtoMessage::Http(ProtoHttp::new(
