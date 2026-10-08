@@ -53,16 +53,19 @@ tasks:
       - check-spelling
       - check-for-publish
       - check-no-yml
+      - check-prettier
+      - check-shell
+      - check-shfmt
       - cargo-fmt
-      - cargo-clippy
-      - cargo-docs-rs
-      - cargo-features
-      - cargo-test
-      - cargo-semver-checks
     cmds:
-      - task: cargo-msrv
-      - task: cargo-minimal-versions
+      - task: cargo-clippy
+      - task: cargo-test
+      - task: cargo-semver-checks
       - task: coverage
+      - task: cargo-docs-rs
+      - task: cargo-minimal-versions
+      - task: cargo-features
+      - task: cargo-msrv
 
   reuse-lint:
     desc: "Check for files missing the copyright"
@@ -81,6 +84,18 @@ tasks:
   check-no-yml:
     desc: "Check that there are no `.yml` instead of `.yaml`"
     cmd: ./scripts/ci/no-yml-files.sh
+
+  check-prettier:
+    desc: "Format files with prettier"
+    cmd: prettier --check --write .
+
+  check-shell:
+    desc: "Check statically all the shell files with shellcheck"
+    cmd: find . -name '*.sh' | xargs shellcheck
+
+  check-shfmt:
+    desc: "Format all the shell files with shfmt"
+    cmd: find . -name '*.sh' | xargs shfmt -w -d -i 4
 
   check-for-publish:
     if: '[[ "$IS_CRATE" = "true" ]]'
