@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +15,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [project]
-name = "@MAIN_CRATE@"
+# @MAIN_CRATE@
+name = "embedded-repo-templates"
 version = "0.1.0"
 description = "Python dependencies for scripts and tools"
 readme = "README.md"
@@ -24,5 +25,5 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "reuse>=6.2.0",
+  "reuse>=6.2.0",
 ]

@@ -26,15 +26,19 @@ set: [errexit, nounset, pipefail]
 
 vars:
   MAIN_CRATE: "@MAIN_CRATE@"
-  LIBRARY: "@IS_LIBRARY@"
   MSRV: 1.88
 
 env:
+  IS_CRATE:
+    sh: test -f ./Cargo.toml && echo true || echo false
+  # @IS_LIBRARY@
+  IS_LIBRARY: false
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
   MAIN_CRATE: "{{ .MAIN_CRATE }}"
   SEMVER_RELEASE_TYPE:
-    sh: if [[ "${GITHUB_BASE_REF:-}" =~ release-[0-9]+\.[0-9]+ ]]; then echo patch; else echo minor; fi
+    sh: |
+      [[ "${GITHUB_BASE_REF:-}" =~ release-[0-9]+\.[0-9]+ ]] && echo patch || echo minor
 
 tasks:
   ci:
@@ -74,50 +78,59 @@ tasks:
     cmd: typos
 
   check-for-publish:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check that the crate can be published"
     cmd: ./scripts/ci/check-for-publish.sh
 
   cargo-fmt:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check cargo fmt"
     cmd: cargo fmt --check --all
 
   cargo-clippy:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check cargo clippy"
     cmd: cargo clippy --locked --all-targets --all-features --workspace
 
   cargo-docs-rs:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check that the doc build on docs.rs"
     cmd: cargo +nightly docs-rs --locked -p '{{ .MAIN_CRATE }}'
 
   cargo-features:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run the test for each features"
     cmd: cargo hack --each-feature test --locked -p  '{{ .MAIN_CRATE }}'
 
   cargo-test:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run all the unit test"
     cmds:
       - cargo nextest run --locked --all-features --workspace
       - cargo test --locked --all-features --doc --workspace
 
   cargo-msrv:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run check with the msrv {{ .MSRV }}"
     cmds:
       - cargo '+{{ .MSRV }}' hack --no-dev-deps check --all-features -p '{{ .MAIN_CRATE }}'
 
   cargo-minimal-versions:
     desc: "Check if the minimal versiosn are correct"
-    if: "{{ .LIBRARY }}"
+    if: '[[ "$IS_LIBRARY" = "true" ]]'
     cmd: cargo minimal-versions check --workspace --ignore-private --detach-path-deps=skip-exact --direct
 
   cargo-semver-checks:
     desc: "Check if the minimal versiosn are correct"
-    if: "{{ .LIBRARY }}"
+    if: '[[ "$IS_LIBRARY" = "true" ]]'
     cmd: cargo semver-checks check-release --release-type "$SEMVER_RELEASE_TYPE"
 
   coverage:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Generate the test coverage"
     cmd: ./scripts/ci/coverage.sh
 
   e2e-test:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run the e2e-test with Astarte"
     cmd: ./scripts/ci/e2e-test.sh
