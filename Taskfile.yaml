@@ -66,7 +66,7 @@ tasks:
 
   reuse-lint:
     desc: "Check for files missing the copyright"
-    cmd: uv run reuse lint
+    cmd: reuse lint
 
   check-copyright:
     desc: "Check that the copyright on changed files is up to date"
