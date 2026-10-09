@@ -914,7 +914,7 @@ mod tests {
     use mockall::{Sequence, predicate};
     use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
     use rstest::rstest;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use uuid::Uuid;
 
     use super::file_system::store::tests::TEST_RESERVED_PERCENTAGE;
@@ -941,7 +941,7 @@ mod tests {
         FileTransfer<Fs, SysPipe, MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
         TempDir,
     ) {
-        let dir = TempDir::new(prefix).unwrap();
+        let dir = TempDir::with_prefix(prefix).unwrap();
 
         (mk_transfer_with_dir(device, tracker, &dir).await, dir)
     }
@@ -1469,7 +1469,7 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_upload_event = mk_upload(&server).await;
         let target = mock_upload_event.req.target();
-        let dir = TempDir::new("upload").unwrap();
+        let dir = TempDir::with_prefix("upload").unwrap();
         let dir_path = dir.path().join(mock_upload_event.req.target());
         let file_path = dir_path.join(WriteHandle::DEFAULT_FILE_NAME);
         let file_path_str = file_path.to_str().unwrap().to_string();
@@ -1513,7 +1513,7 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_upload_event = mk_upload(&server).await;
         let target = mock_upload_event.req.target();
-        let dir = TempDir::new("upload").unwrap();
+        let dir = TempDir::with_prefix("upload").unwrap();
         let file_path = dir.path().join(mock_upload_event.req.target());
         let file_path_str = file_path.to_str().unwrap().to_string();
 
@@ -1556,7 +1556,7 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_upload_event = mk_large_upload(&server).await;
         let target = mock_upload_event.req.target();
-        let dir = TempDir::new("upload").unwrap();
+        let dir = TempDir::with_prefix("upload").unwrap();
         let dir_path = dir.path().join(mock_upload_event.req.target());
         let file_path = dir_path.join(WriteHandle::DEFAULT_FILE_NAME);
         let file_path_str = file_path.to_str().unwrap().to_string();
@@ -1727,7 +1727,7 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock_upload_event = mk_upload(&server).await;
         let target = mock_upload_event.req.target();
-        let dir = TempDir::new("upload").unwrap();
+        let dir = TempDir::with_prefix("upload").unwrap();
         let dir_path = dir.path().join(mock_upload_event.req.target());
         let file_path = dir_path.join(WriteHandle::DEFAULT_FILE_NAME);
         let file_path_str = file_path.to_str().unwrap().to_string();

@@ -119,7 +119,7 @@ impl Pipe for MakeFifo {
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use uuid::Uuid;
 
@@ -130,7 +130,7 @@ mod tests {
     use super::*;
 
     fn mkf() -> (MakeFifo, TempDir) {
-        let dir = TempDir::new("mk_fifo").unwrap();
+        let dir = TempDir::with_prefix("mk_fifo").unwrap();
 
         let mk = MakeFifo {
             dir: dir.path().to_path_buf(),

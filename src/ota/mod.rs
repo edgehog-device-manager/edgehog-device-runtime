@@ -1013,7 +1013,7 @@ mod tests {
     use httpmock::prelude::*;
     use mockall::{Sequence, predicate};
     use pretty_assertions::assert_eq;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
@@ -1030,7 +1030,7 @@ mod tests {
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
     fn temp_dir(prefix: &str) -> (TempDir, PathBuf) {
-        let dir = TempDir::new(&format!("edgehog-{prefix}")).unwrap();
+        let dir = TempDir::with_prefix(format!("edgehog-{prefix}")).unwrap();
         let path = dir.path().to_owned();
 
         (dir, path)

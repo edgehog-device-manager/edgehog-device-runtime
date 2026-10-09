@@ -458,7 +458,7 @@ pub(crate) mod tests {
     use astarte_device_sdk_mock::MockDeviceClient;
     use event::TelemetryPeriod;
     use mockall::{Sequence, predicate};
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     use super::status::runtime_info::tests::mock_runtime_info_telemetry;
 
@@ -466,7 +466,7 @@ pub(crate) mod tests {
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
     fn temp_dir() -> (TempDir, PathBuf) {
-        let dir = TempDir::new("edgehog-telemetry").unwrap();
+        let dir = TempDir::with_prefix("edgehog-telemetry").unwrap();
         let path = dir.path().to_owned();
 
         (dir, path)

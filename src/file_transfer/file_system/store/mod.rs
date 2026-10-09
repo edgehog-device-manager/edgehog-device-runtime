@@ -428,7 +428,7 @@ pub(crate) mod tests {
     use std::os::unix::fs::MetadataExt;
 
     use mockall::{Sequence, predicate};
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
     #[cfg(unix)]
@@ -475,7 +475,7 @@ pub(crate) mod tests {
     pub(crate) const TEST_RESERVED_PERCENTAGE: Percentage = Percentage::new(10).unwrap();
 
     pub(crate) fn fs_storage() -> (FileStorage<Fs>, TempDir) {
-        let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
+        let dir = TempDir::with_prefix("fs_storage").expect("couldn't create temp directory");
 
         (
             FileStorage::with_reserved(dir.path().to_path_buf(), TEST_RESERVED_PERCENTAGE),
@@ -484,7 +484,7 @@ pub(crate) mod tests {
     }
 
     fn mock_fs_storage(mock: MockSpace) -> (FileStorage<MockSpace>, TempDir) {
-        let dir = TempDir::new("fs_storage").expect("couldn't create temp directory");
+        let dir = TempDir::with_prefix("fs_storage").expect("couldn't create temp directory");
 
         (
             FileStorage {

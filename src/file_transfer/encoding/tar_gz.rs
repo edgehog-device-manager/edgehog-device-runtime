@@ -96,7 +96,7 @@ mod tests {
     use std::path::PathBuf;
 
     use rstest::rstest;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use tokio::fs::File;
     use tokio::io::{AsyncWriteExt, BufReader};
 
@@ -140,7 +140,7 @@ mod tests {
             .await
             .unwrap();
 
-        let out = TempDir::new("out").unwrap();
+        let out = TempDir::with_prefix("out").unwrap();
 
         let file = File::open(&path).await.unwrap();
 

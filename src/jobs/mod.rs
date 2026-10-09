@@ -343,7 +343,7 @@ pub(crate) mod tests {
     use edgehog_store::models::job::status::JobStatus;
     use pretty_assertions::assert_eq;
     use rstest::{fixture, rstest};
-    use tempdir::TempDir;
+    use tempfile::TempDir;
     use uuid::Uuid;
 
     use crate::file_transfer::request::TransferJobTag;
@@ -383,7 +383,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn queue(prefix: &str) -> (Queue, TempDir) {
-        let dir = TempDir::new(prefix).unwrap();
+        let dir = TempDir::with_prefix(prefix).unwrap();
 
         let db = Handle::open(dir.path().join("database.db")).await.unwrap();
 

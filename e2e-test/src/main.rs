@@ -28,7 +28,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::time::Duration;
-use tempdir::TempDir;
+use tempfile::TempDir;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
@@ -125,7 +125,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let pairing_url = cli.pairing_url()?;
 
-    let store_path = TempDir::new("e2e-test").wrap_err("couldn't create temp directory")?;
+    let store_path = TempDir::with_prefix("e2e-test").wrap_err("couldn't create temp directory")?;
 
     let astarte_options = AstarteDeviceSdkConfigOptions {
         realm: cli.realm.clone(),

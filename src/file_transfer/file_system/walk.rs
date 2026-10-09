@@ -94,13 +94,13 @@ pub(crate) mod tests {
 
     use futures::StreamExt;
     use rstest::{fixture, rstest};
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     use super::*;
 
     #[fixture]
     pub(crate) async fn mk_dir_structure() -> TempDir {
-        let dir = TempDir::new("mk_dir_structure").unwrap();
+        let dir = TempDir::with_prefix("mk_dir_structure").unwrap();
 
         let files = [
             "foo/root.txt",
@@ -124,7 +124,7 @@ pub(crate) mod tests {
 
     #[fixture]
     pub(crate) async fn mk_empty_dir() -> TempDir {
-        let dir = TempDir::new("mk_empty_dir").unwrap();
+        let dir = TempDir::with_prefix("mk_empty_dir").unwrap();
 
         let path = dir.path().join("empty");
 
@@ -191,7 +191,7 @@ pub(crate) mod tests {
     #[timeout(Duration::from_secs(2))]
     #[tokio::test]
     async fn path_to_file() {
-        let dir = TempDir::new("path_to_file").unwrap();
+        let dir = TempDir::with_prefix("path_to_file").unwrap();
 
         let path = dir.path().join("file.txt");
         tokio::fs::write(&path, "file").await.unwrap();

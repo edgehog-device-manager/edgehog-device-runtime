@@ -384,13 +384,13 @@ impl AsyncSeek for WriteHandle {
 
 #[cfg(test)]
 mod tests {
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     use super::*;
 
     #[tokio::test]
     async fn try_exists() {
-        let dir = TempDir::new("try_exists").unwrap();
+        let dir = TempDir::with_prefix("try_exists").unwrap();
 
         let content = Uuid::new_v4().to_string();
 
@@ -410,7 +410,7 @@ mod tests {
 
     #[tokio::test]
     async fn mismatched_digest() {
-        let dir = TempDir::new("try_exists").unwrap();
+        let dir = TempDir::with_prefix("try_exists").unwrap();
 
         let content = Uuid::new_v4().to_string();
 
@@ -430,7 +430,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_check_digest_with_encoding() {
-        let dir = TempDir::new("try_exists").unwrap();
+        let dir = TempDir::with_prefix("try_exists").unwrap();
 
         let content = Uuid::new_v4().to_string();
 
