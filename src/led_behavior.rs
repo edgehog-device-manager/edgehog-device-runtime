@@ -22,7 +22,8 @@ use astarte_device_sdk::{
     AstarteData, DeviceEvent, FromEvent, event::FromEventError, types::TypeError,
 };
 use tokio::time::{Duration, Instant, sleep};
-use tracing::error;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error};
 use zbus::proxy;
 
 use crate::controller::actor::Actor;
@@ -201,10 +202,21 @@ impl Actor for LedBlink {
         Ok(())
     }
 
-    async fn handle(&mut self, msg: Self::Msg) -> eyre::Result<()> {
+    async fn handle(&mut self, cancel: &CancellationToken, msg: Self::Msg) -> eyre::Result<()> {
         match msg.behavior {
             LedBehavior::Behavior(blink) => {
-                BlinkConf::from(blink).blink(msg.led_id).await?;
+                let blink_conf = BlinkConf::from(blink);
+
+                let Some(res) = cancel
+                    .run_until_cancelled(blink_conf.blink(msg.led_id))
+                    .await
+                else {
+                    debug!("cancelled");
+
+                    return Ok(());
+                };
+
+                res?;
             }
         }
 
@@ -232,12 +244,11 @@ mod tests {
         for step in steps {
             tokio::time::advance(Duration::from_secs(42)).await;
 
-            led.handle(LedEvent {
+            let msg = LedEvent {
                 led_id: "led_1".to_string(),
                 behavior: LedBehavior::Behavior(step),
-            })
-            .await
-            .unwrap()
+            };
+            led.handle(&CancellationToken::new(), msg).await.unwrap()
         }
 
         tokio::time::resume();
