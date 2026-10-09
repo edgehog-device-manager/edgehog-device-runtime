@@ -37,6 +37,8 @@ jobs:
   e2e-test:
     runs-on: ubuntu-26.04
     timeout-minutes: 20
+    # Astarte requires too many resources for a private repo runner
+    if: "!github.event.repository.private"
     steps:
       - uses: actions/checkout@v7
         with:
