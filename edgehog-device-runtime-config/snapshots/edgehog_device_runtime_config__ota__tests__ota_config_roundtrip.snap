@@ -1,0 +1,10 @@
+---
+source: edgehog-device-runtime-config/src/ota.rs
+expression: toml_str
+---
+enabled = true
+reboot = "external"
+streaming = true
+
+[rauc]
+dbus_socket = "system"
