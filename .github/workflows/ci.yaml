@@ -23,9 +23,19 @@ on:
       - master
       - main
       - release-[0-9]+.[0-9]+
+
+# Spend CI time only on latest ref
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
-  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
 env:
   CI: "true"
   CARGO_TERM_COLOR: always
@@ -36,64 +46,68 @@ env:
   NEXTEST_PROFILE: "ci"
   MAIN_CRATE: "@MAIN_CRATE@"
   EXPORT_FOR_CI: "true"
-# Spend CI time only on latest ref
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
-defaults:
-  run:
-    shell: bash
+
 jobs:
   dco:
-    uses: ./.github/workflows/dco.yaml
+    uses: $/.github/workflows/dco.yaml
     permissions:
-      checks: read
-      contents: read
-      actions: read
-      pull-requests: read
+      contents: read # clones the repo
+      actions: read # checks the action rollup
+      checks: read # checks the action rollup
+      pull-requests: read # checks the action rollup
     with:
       pr: ${{ github.event.pull_request.number }}
+
   common:
-    uses: ./.github/workflows/common.yaml
+    uses: $/.github/workflows/common.yaml
+
   e2e-test:
-    uses: ./.github/workflows/e2e-test.yaml
+    uses: $/.github/workflows/e2e-test.yaml
+
   multi-platform:
-    uses: ./.github/workflows/multi-platform.yaml
+    uses: $/.github/workflows/multi-platform.yaml
+
   check:
+    name: check
     runs-on: ubuntu-26.04
+    permissions:
+      contents: read # clones the repository
+      id-token: write # authenticates with codecov
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
+          persist-credentials: false
       - name: Set up Homebrew
         id: set-up-homebrew
         uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Cache Homebrew Bundler RubyGems
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      - name: install rust toolchain
+        # zizmor: ignore[cache-poisoning] we release and publish in another job without cache
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
-          path: ${{ steps.set-up-homebrew.outputs.gems-path }}
-          key: homebrew-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
-          restore-keys: homebrew-rubygems-
-      - name: install brew bundle
-        run: |
-          brew bundle install
-      - uses: ./.github/actions/install-deps
-      - uses: go-task/setup-task@v2.2.0
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
-      - uses: mozilla-actions/sccache-action@v0.0.11
-      - uses: taiki-e/install-action@v2.87.26
-        with:
-          tool: |
-            cargo-docs-rs
-            cargo-minimal-versions
-            cargo-semver-checks
-            rustfilt
+          cache: true
+      - parallel:
+          - name: Cache Homebrew prefix from Brewfile
+            uses: Homebrew/actions/cache-homebrew-prefix@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
+            with:
+              brewfile: true
+          - uses: $/.github/actions/install-deps
+          - name: install sccache
+            # zizmor: ignore[cache-poisoning] we release and publish in another job without cache
+            uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+          - uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
+            with:
+              tool: |
+                cargo-docs-rs
+                cargo-minimal-versions
+                cargo-semver-checks
+                rustfilt
       - run: |
           task ci
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v7.1.1
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
           fail_ci_if_error: false

@@ -33,18 +33,8 @@ runs:
       shell: bash
       run: |
         echo "nothing to install"
-      # Setup vcpkg binary cache
-      # https://learn.microsoft.com/en-us/vcpkg/users/binarycaching#gha-quickstart
-    - uses: actions/github-script@v9
-      if: ${{ startsWith(inputs.for-image, 'windows-') }}
-      with:
-        script: |
-          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
     - name: Install Windows system dependencies
       if: ${{ startsWith(inputs.for-image, 'windows-') }}
       shell: bash
       run: |
-        echo 'VCPKG_BINARY_SOURCES="clear;x-gha,readwrite"' >>"$GITHUB_ENV"
-        echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >>"$GITHUB_ENV"
         echo "nothing to install"

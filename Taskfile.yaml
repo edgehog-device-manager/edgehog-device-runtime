@@ -57,6 +57,7 @@ tasks:
       - check-shell
       - check-shfmt
       - cargo-fmt
+      - check-zizmor
     cmds:
       - task: cargo-clippy
       - task: cargo-test
@@ -106,6 +107,13 @@ tasks:
     if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check cargo fmt"
     cmd: cargo fmt --check --all
+
+  check-zizmor:
+    desc: "Check the Github Action CI"
+    env:
+      OUT_FORMAT:
+        sh: "[[ $CI = true ]] && echo github || echo plain"
+    cmd: zizmor --format "$OUT_FORMAT" ./
 
   cargo-clippy:
     if: '[[ "$IS_CRATE" = "true" ]]'

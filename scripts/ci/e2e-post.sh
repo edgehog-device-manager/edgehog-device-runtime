@@ -26,7 +26,7 @@ if [[ -n ${RUNNER_DEBUG:-} ]]; then
     set -x
 fi
 
-NAMESPACE="$1"
+NAMESPACE="${1:-astarte}"
 
 describe_namespace() {
     local namespace=$1

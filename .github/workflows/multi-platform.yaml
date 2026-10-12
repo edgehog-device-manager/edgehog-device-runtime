@@ -19,11 +19,19 @@ name: multi-platform
 on:
   workflow_call:
   workflow_dispatch:
+
+# Spend CI time only on latest ref
+concurrency:
+  group: multi-platform-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+
 defaults:
   run:
     shell: bash
+
 env:
   CI: "true"
   CARGO_TERM_COLOR: always
@@ -34,6 +42,7 @@ env:
   NEXTEST_PROFILE: "ci"
   MAIN_CRATE: "@MAIN_CRATE@"
   EXPORT_FOR_CI: "true"
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -45,18 +54,20 @@ jobs:
           - windows-latest
           - ubuntu-26.04-arm
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
-      - uses: ./.github/actions/install-deps
-        with:
-          for-image: "${{ matrix.os }}"
-      - uses: go-task/setup-task@v2.2.0
-      - uses: actions-rust-lang/setup-rust-toolchain@v2.0.0
-      - uses: mozilla-actions/sccache-action@v0.0.11
-      - uses: taiki-e/install-action@v2.87.26
-        with:
-          tool: cargo-nextest
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+      - parallel:
+          - uses: $/.github/actions/install-deps
+            with:
+              for-image: "${{ matrix.os }}"
+          - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+          - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+          - uses: taiki-e/install-action@861a07ce7084f55488e375df125cdc99bba60eb7 # v2.87.23
+            with:
+              tool: cargo-nextest
       - name: cargo nextest run
         run: |
           task cargo-test
