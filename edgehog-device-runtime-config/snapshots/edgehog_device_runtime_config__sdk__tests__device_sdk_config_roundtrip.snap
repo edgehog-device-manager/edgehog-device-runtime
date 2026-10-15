@@ -1,0 +1,10 @@
+---
+source: edgehog-device-runtime-config/src/sdk.rs
+expression: toml_str
+---
+realm = "test-realm"
+device_id = "device_id"
+credentials_secret = "credentials_secret"
+pairing_token = "pairing_token"
+pairing_url = "https://api.astarte.example.com/pairing"
+ignore_ssl = false
