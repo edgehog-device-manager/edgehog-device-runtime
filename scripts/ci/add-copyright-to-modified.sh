@@ -26,12 +26,15 @@ if [[ -n ${RUNNER_DEBUG:-} ]]; then
     set -x
 fi
 
-if [ $# != 2 ]; then
-    base=${BASE_REF:-main}
-    head=${HEAD_REF:-HEAD}
-else
+if [ $# == 2 ]; then
     base=$1
     head=$2
+elif [[ $# == 1 ]]; then
+    base=$1
+    head=${HEAD_REF:-HEAD}
+else
+    base=$BASE_REF
+    head=${HEAD_REF:-HEAD}
 fi
 
 git_file_names() {
