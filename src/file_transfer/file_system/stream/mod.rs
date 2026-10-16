@@ -18,6 +18,8 @@
 
 //! Stream the bytes to a named pipe or unix socket.
 
+use std::path::PathBuf;
+
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::instrument;
 use uuid::Uuid;
@@ -56,6 +58,11 @@ impl<S> Streaming<S>
 where
     S: Pipe,
 {
+    #[instrument(skip_all, fields(%id), ret)]
+    pub(crate) fn get_path(&self, id: &Uuid) -> PathBuf {
+        self.sys.get_path(id)
+    }
+
     #[instrument(skip_all, fields(id = %opt.id))]
     pub(crate) async fn open_writer(&self, opt: &FileOptions) -> eyre::Result<S::Writer> {
         self.sys.open_writer(opt).await
@@ -83,6 +90,8 @@ pub(crate) trait Pipe {
     type Writer: AsyncWrite + Unpin + Send;
 
     fn new() -> Self;
+
+    fn get_path(&self, id: &Uuid) -> PathBuf;
 
     fn open_writer(
         &self,

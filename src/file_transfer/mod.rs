@@ -44,6 +44,7 @@ use uuid::Uuid;
 use crate::controller::actor::Persisted;
 use crate::file_transfer::encoding::tar_gz::TarGzEncoding;
 use crate::file_transfer::encoding::{EncoderBuilder, TarEncoding};
+use crate::file_transfer::hooks::HookExecutor;
 use crate::file_transfer::http::FtHttpClient;
 use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::interface::request::FileTransferRequest;
@@ -72,6 +73,7 @@ pub mod config;
 mod encoding;
 pub(crate) mod errno;
 pub(crate) mod file_system;
+mod hooks;
 pub(crate) mod http;
 pub(crate) mod interface;
 pub mod request;
@@ -351,6 +353,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .create_write_handle(file_name.as_deref(), &opt)
             .await?;
 
+        let mut hook_executor = HookExecutor::with_write_handle(&file, download);
+
+        hook_executor.pre(&mut self.device).await?;
+
         if let Err(error) = self.download_to_write_handle(download, &mut file).await {
             error!(%error, "error while downloading to write handle, cleaning up file");
             file.cleanup().await?;
@@ -370,6 +376,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             error!(%error, "can't send stored file to astarte");
         }
 
+        hook_executor.post(&mut self.device).await?;
+
         if let Some(ttl) = download.ttl {
             self.queue_cleanup(download, ttl).await?;
         }
@@ -380,11 +388,16 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all)]
     async fn download_stream(&mut self, download: &Download<'_>) -> eyre::Result<()>
     where
+        C: Client + Send + Sync + 'static,
         F: Space,
         S: Pipe,
     {
         let opt = FileOptions::from(download);
         let pipe = self.stream.open_writer(&opt).await?;
+        let mut hook_executor =
+            HookExecutor::with_path_size_download(self.stream.get_path(&opt.id), None, download);
+
+        hook_executor.pre(&mut self.device).await?;
 
         let mut response = self
             .client
@@ -437,6 +450,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .await
             .wrap_err("error while writing footer")?;
 
+        hook_executor.post(&mut self.device).await?;
+
         Ok(())
     }
 
@@ -448,6 +463,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     ) -> eyre::Result<()>
     where
         F: Space,
+        C: Client + Send + Sync + 'static,
     {
         let opt = FileOptions::from(download);
 
@@ -467,6 +483,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let mut file = WriteHandle::with_path(path, &opt).await?;
 
+        let mut hook_executor = HookExecutor::with_write_handle(&file, download);
+
+        hook_executor.pre(&mut self.device).await?;
+
         if let Err(error) = self.download_to_write_handle(download, &mut file).await {
             error!(%error, "error while downloading to write handle, cleaning up file");
             file.cleanup().await?;
@@ -478,6 +498,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             file.cleanup().await?;
             return Err(eyre!(error));
         }
+
+        hook_executor.post(&mut self.device).await?;
 
         Ok(())
     }
@@ -550,7 +572,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     async fn upload(&mut self, req: &Upload<'_>) -> eyre::Result<()>
     where
         S: Pipe,
-        C: PropAccess,
+        C: PropAccess + Client + Send + Sync + 'static,
     {
         match &req.source {
             Source::Storage { id } => self.upload_store(id, req).await,
@@ -562,50 +584,64 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all, fields(%id))]
     async fn upload_store(&mut self, id: &Uuid, req: &Upload<'_>) -> eyre::Result<()>
     where
-        C: PropAccess,
+        C: PropAccess + Client + Send + Sync + 'static,
     {
+        let path = StoredFile::fetch_path(&self.device, &id.to_string()).await?;
+        let mut hook_executor = HookExecutor::with_path_upload(path.clone().into(), req);
+
+        hook_executor.pre(&mut self.device).await?;
+
         match req.encoding {
             Some(Encoding::Gz) => {
-                let path = StoredFile::fetch_path(&self.device, &id.to_string()).await?;
-                let reader = self.storage.open_read(id, path).await?;
-                self.upload_gz(req, reader).await
+                let reader = self.storage.open_read(id, path.into()).await?;
+                self.upload_gz(req, reader).await?;
             }
             Some(Encoding::TarGz) => {
-                let paths = self.storage.find_paths(id).await?;
-                self.upload_tar(req, paths, TarGzEncoding).await
+                let paths = self.storage.find_paths(path).await?;
+                self.upload_tar(req, paths, TarGzEncoding).await?;
             }
             Some(Encoding::Tar) => {
-                let paths = self.storage.find_paths(id).await?;
-                self.upload_tar(req, paths, TarEncoding).await
+                let paths = self.storage.find_paths(path).await?;
+                self.upload_tar(req, paths, TarEncoding).await?;
             }
             None => {
-                let path = StoredFile::fetch_path(&self.device, &id.to_string()).await?;
-                let reader = self.storage.open_read(id, path).await?;
-                self.upload_file(req, reader).await
+                let reader = self.storage.open_read(id, path.into()).await?;
+                self.upload_file(req, reader).await?;
             }
         }
+
+        hook_executor.post(&mut self.device).await
     }
 
     #[instrument(skip_all, fields(path = %path.display()))]
-    async fn upload_filesystem(&mut self, path: &Path, req: &Upload<'_>) -> eyre::Result<()> {
+    async fn upload_filesystem(&mut self, path: &Path, req: &Upload<'_>) -> eyre::Result
+    where
+        C: Client + Send + Sync + 'static,
+    {
+        let mut hook_executor = HookExecutor::with_path_upload(path.to_path_buf(), req);
+
+        hook_executor.pre(&mut self.device).await?;
+
         match req.encoding {
             Some(Encoding::Gz) => {
                 let reader = tokio::fs::File::open(path).await?;
-                self.upload_gz(req, reader).await
+                self.upload_gz(req, reader).await?;
             }
             Some(Encoding::TarGz) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
-                self.upload_tar(req, paths, TarGzEncoding).await
+                self.upload_tar(req, paths, TarGzEncoding).await?;
             }
             Some(Encoding::Tar) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
-                self.upload_tar(req, paths, TarEncoding).await
+                self.upload_tar(req, paths, TarEncoding).await?;
             }
             None => {
                 let reader = tokio::fs::File::open(path).await?;
-                self.upload_file(req, reader).await
+                self.upload_file(req, reader).await?;
             }
         }
+
+        hook_executor.post(&mut self.device).await
     }
 
     #[instrument(skip_all)]
@@ -670,9 +706,16 @@ impl<F, S, C> FileTransfer<F, S, C> {
     async fn upload_stream(&mut self, req: &Upload<'_>) -> eyre::Result<()>
     where
         S: Pipe,
+        C: Client + Send + Sync + 'static,
     {
+        let path = self.stream.get_path(&req.id);
+
         self.stream
             .with_reader(&req.id, |reader| async {
+                let mut hook_executor = HookExecutor::with_path_upload(path, req);
+
+                hook_executor.pre(&mut self.device).await?;
+
                 let reader = PipeStreamReader::new(reader)
                     .read_header()
                     .await
@@ -697,6 +740,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
                     .expect_footer()
                     .await?
                     .check_status()?;
+
+                hook_executor.post(&mut self.device).await?;
 
                 Ok(())
             })
@@ -983,6 +1028,8 @@ mod tests {
             destination: Destination::Storage {
                 name: Some(Cow::Owned(Path::new("test.txt").to_owned())),
             },
+            pre_hook: None,
+            post_hook: None,
         })
     }
 
@@ -1141,6 +1188,8 @@ mod tests {
             progress: true,
             encoding: None,
             source: Source::Storage { id: Uuid::new_v4() },
+            pre_hook: None,
+            post_hook: None,
         })
     }
 
@@ -1230,6 +1279,10 @@ mod tests {
         seq: &mut Sequence,
         id: Uuid,
     ) {
+        device
+            .expect_clone()
+            .in_sequence(seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_set_property()
             .with(
@@ -1356,6 +1409,8 @@ mod tests {
             destination: Destination::Storage {
                 name: Some(Cow::Owned(PathBuf::from("bundle.tar"))),
             },
+            pre_hook: None,
+            post_hook: None,
         });
 
         let mut seq = Sequence::new();
@@ -1485,6 +1540,10 @@ mod tests {
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
         device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+        device
             .expect_send_object()
             .with(
                 eq("io.edgehog.devicemanager.fileTransfer.Response"),
@@ -1527,6 +1586,10 @@ mod tests {
             )
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
@@ -1571,6 +1634,10 @@ mod tests {
             )
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
@@ -1646,6 +1713,10 @@ mod tests {
 
         let mut seq = Sequence::new();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
@@ -1742,6 +1813,10 @@ mod tests {
             )
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
