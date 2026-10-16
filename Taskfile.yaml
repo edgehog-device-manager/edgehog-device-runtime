@@ -74,8 +74,11 @@ tasks:
 
   check-copyright:
     desc: "Check that the copyright on changed files is up to date"
+    requires:
+      vars:
+        - BASE_REF
     cmds:
-      - ./scripts/ci/add-copyright-to-modified.sh
+      - ./scripts/ci/add-copyright-to-modified.sh  "{{ .BASE_REF }}"
       - git diff --exit-code --name-only
 
   check-spelling:
