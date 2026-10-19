@@ -43,11 +43,11 @@ listPackage() {
 pkgsFiles=$(
     cat <(cargo package --allow-dirty -l -p "@MAIN_CRATE@") \
         <(listPackage "@CRATE@") |
-        sort -h |
+        sort -i |
         uniq
 )
 localFiles=$(
-    git ls-files --recurse-submodules --cached --no-deleted | sort -h | uniq
+    git ls-files --recurse-submodules --cached --no-deleted | sort -i | uniq
 )
 
 # List files unique to localFiles and not present in pkgsFiles
