@@ -38,6 +38,7 @@ git_release_enable = true
 [changelog]
 trim = false
 protect_breaking_commits = true
+# @CHANGELOG@
 header = """<!--
 Copyright 2025, 2026 SECO Mind Srl
 
@@ -103,9 +104,4 @@ commit_parsers = [
   { message = "^security", group = "Security" },
   { message = ".*forward port", group = "other" },
   { message = "^.*", skip = true },
-]
-
-postprocessors = [
-  # Format the rendered changelog using `dprint`
-  { pattern = ".*", replace = "prettier --stdin-filepath CHANGELOG.md" }
 ]
