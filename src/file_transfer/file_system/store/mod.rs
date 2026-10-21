@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
-use crate::file_transfer::interface::file::StoredFile;
+use crate::file_transfer::interface::file::{StoredFile, StoredFilePath};
 use crate::file_transfer::request::{Encoding, FileDigest, TransferJobTag};
 use crate::jobs::Queue;
 
@@ -210,10 +210,8 @@ impl<F> FileStorage<F> {
     }
 
     #[instrument(skip(self))]
-    pub(crate) async fn find_paths(&self, id: &Uuid) -> io::Result<Paths> {
-        let path = self.dir_path(id);
-
-        Paths::read(path).await
+    pub(crate) async fn find_paths(&self, path: StoredFilePath) -> io::Result<Paths> {
+        Paths::read(path.into()).await
     }
 
     #[instrument(skip(self))]

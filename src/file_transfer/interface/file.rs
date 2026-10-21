@@ -18,11 +18,29 @@
 
 //! Astarte properties sent to list the local stored files.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use astarte_device_sdk::prelude::PropAccess;
 use eyre::{Context, OptionExt};
 use tracing::{error, instrument, trace};
+
+#[derive(Debug, Clone)]
+pub(crate) struct StoredFilePath(PathBuf);
+
+impl AsRef<Path> for StoredFilePath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl From<StoredFilePath> for PathBuf {
+    fn from(value: StoredFilePath) -> Self {
+        value.0
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct StoredFile {
@@ -59,7 +77,7 @@ impl StoredFile {
         path.split('/').nth(1)
     }
 
-    pub(crate) async fn fetch_path<C>(device: &C, id: &str) -> eyre::Result<PathBuf>
+    pub(crate) async fn fetch_path<C>(device: &C, id: &str) -> eyre::Result<StoredFilePath>
     where
         C: PropAccess,
     {
@@ -70,7 +88,7 @@ impl StoredFile {
 
         let path = String::try_from(stored).wrap_err("unexpected data type")?;
 
-        Ok(PathBuf::from(path))
+        Ok(StoredFilePath(PathBuf::from(path)))
     }
 
     pub(crate) async fn fetch_paths<C>(device: &C) -> eyre::Result<HashSet<String>>
