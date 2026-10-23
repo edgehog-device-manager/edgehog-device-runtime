@@ -16,7 +16,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use edgehog_store::models::containers::image::ImageStatus;
+use edgehog_store::models::containers::image::{ImageStatus, PullPolicy};
 use tracing::warn;
 
 use crate::{
@@ -29,11 +29,12 @@ use super::{Context, Create, Resource, ResourceError, Result, State};
 #[derive(Debug, Clone)]
 pub(crate) struct ImageResource {
     pub(crate) image: Image,
+    pub(crate) pull_policy: PullPolicy,
 }
 
 impl ImageResource {
-    pub(crate) fn new(image: Image) -> Self {
-        Self { image }
+    pub(crate) fn new(image: Image, pull_policy: PullPolicy) -> Self {
+        Self { image, pull_policy }
     }
 }
 
@@ -88,7 +89,10 @@ where
                 .update_image_local_id(ctx.id, resource.image.id.clone())
                 .await?;
 
-            Ok(Some((State::Created, resource)))
+            match resource.pull_policy {
+                PullPolicy::Always => Ok(Some((State::Recreatable, resource))),
+                PullPolicy::IfNotPresent => Ok(Some((State::Existing, resource))),
+            }
         } else {
             Ok(Some((State::Missing, resource)))
         }

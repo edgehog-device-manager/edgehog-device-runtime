@@ -16,30 +16,34 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+use std::str::FromStr;
+
 use diesel::{ExpressionMethods, OptionalExtension, RunQueryDsl, delete, insert_or_ignore_into};
 use diesel::{QueryDsl, update};
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::QueryModel;
-use edgehog_store::models::containers::image::ImageStatus;
+use edgehog_store::models::containers::image::{ImageStatus, PullPolicy};
 use edgehog_store::{
     models::containers::{container::ContainerMissingImage, image::Image},
     schema::containers::{container_missing_images, containers, images},
 };
-use tracing::instrument;
+use tracing::{instrument, trace};
 use uuid::Uuid;
 
 use crate::docker::image::Image as ContainerImage;
 use crate::requests::image::CreateImage;
 use crate::resource::image::ImageResource;
 
-use super::{Result, StateStore};
+use super::{Result, StateStore, StoreError};
 
 impl StateStore {
     /// Stores the image received from the CreateRequest
     #[instrument(skip_all, fields(%image.id))]
     pub(crate) async fn create_image(&self, image: CreateImage) -> Result<()> {
-        let image = Image::from(image);
+        let image = Image::try_from(image)?;
+
+        trace!("storing the image");
 
         self.handle
             .for_write(move |writer| {
@@ -134,7 +138,12 @@ impl StateStore {
                 Ok(image)
             })
             .await?
-            .map(|img| ImageResource::new(ContainerImage::from(img)));
+            .map(|img| {
+                let pull_policy = img.pull_policy;
+                let img = ContainerImage::from(img);
+
+                ImageResource::new(img, pull_policy)
+            });
 
         Ok(image)
     }
@@ -153,7 +162,6 @@ impl StateStore {
                 Ok(images)
             })
             .await?;
-
         Ok(image)
     }
 
@@ -182,24 +190,33 @@ impl StateStore {
     }
 }
 
-impl From<CreateImage> for Image {
-    fn from(
-        CreateImage {
+impl TryFrom<CreateImage> for Image {
+    type Error = StoreError;
+    fn try_from(value: CreateImage) -> std::result::Result<Self, Self::Error> {
+        let CreateImage {
             id,
             deployment_id: _,
             reference,
             registry_auth,
-        }: CreateImage,
-    ) -> Self {
+            pull_policy,
+        } = value;
         let registry_auth = registry_auth.filter(|s| !s.is_empty());
+        let pull_policy = pull_policy
+            .filter(|s| !s.is_empty())
+            .map(|pull_policy| {
+                PullPolicy::from_str(&pull_policy).map_err(|ctx| StoreError::Conversion { ctx })
+            })
+            .transpose()?
+            .unwrap_or_default();
 
-        Self {
+        Ok(Self {
             id: SqlUuid::new(id),
             local_id: None,
             status: ImageStatus::default(),
             reference,
             registry_auth,
-        }
+            pull_policy,
+        })
     }
 }
 
@@ -248,6 +265,7 @@ pub(crate) mod tests {
             deployment_id: ReqUuid(deployment_id),
             reference: "postgres:15".to_string(),
             registry_auth: None,
+            pull_policy: Some("Always".to_string()),
         };
         store.create_image(image).await.unwrap();
 
@@ -259,6 +277,7 @@ pub(crate) mod tests {
             status: ImageStatus::Received,
             reference: "postgres:15".to_string(),
             registry_auth: None,
+            pull_policy: PullPolicy::Always,
         };
 
         assert_eq!(res, exp)
@@ -280,6 +299,7 @@ pub(crate) mod tests {
             deployment_id: ReqUuid(deployment_id),
             reference: "postgres:15".to_string(),
             registry_auth: None,
+            pull_policy: Some("Always".to_string()),
         };
         store.create_image(image).await.unwrap();
         store
@@ -300,6 +320,7 @@ pub(crate) mod tests {
             status: ImageStatus::Published,
             reference: "postgres:15".to_string(),
             registry_auth: None,
+            pull_policy: PullPolicy::Always,
         };
 
         assert_eq!(res, exp)
@@ -322,6 +343,7 @@ pub(crate) mod tests {
             deployment_id: ReqUuid(deployment_id),
             reference: reference.clone(),
             registry_auth: None,
+            pull_policy: Some("Always".to_string()),
         };
         store.create_image(image).await.unwrap();
         let local_id = Uuid::new_v4().to_string();
@@ -337,5 +359,25 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(res, (image_id, reference))
+    }
+
+    #[rstest::rstest]
+    #[case(Some("IfNotPresent".to_string()), PullPolicy::IfNotPresent)]
+    #[case(Some("Always".to_string()), PullPolicy::Always)]
+    #[case(Some("".to_string()), PullPolicy::IfNotPresent)]
+    #[case(None, PullPolicy::IfNotPresent)]
+    fn convert_pull_policy(#[case] pull_policy: Option<String>, #[case] exp: PullPolicy) {
+        let image_id = Uuid::new_v4();
+        let deployment_id = Uuid::new_v4();
+        let create_image = CreateImage {
+            id: ReqUuid(image_id),
+            deployment_id: ReqUuid(deployment_id),
+            reference: "postgres:15".to_string(),
+            registry_auth: None,
+            pull_policy,
+        };
+
+        let image = Image::try_from(create_image).unwrap();
+        assert_eq!(image.pull_policy, exp);
     }
 }

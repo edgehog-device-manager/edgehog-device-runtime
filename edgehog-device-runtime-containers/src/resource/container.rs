@@ -251,7 +251,7 @@ where
                 .update_container_local_id(ctx.id, this.container.id.id.clone())
                 .await?;
 
-            Ok(Some((State::Created, this)))
+            Ok(Some((State::Existing, this)))
         } else {
             Ok(Some((State::Missing, this)))
         }
