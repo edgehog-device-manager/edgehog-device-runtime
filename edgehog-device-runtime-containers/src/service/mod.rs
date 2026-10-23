@@ -137,7 +137,6 @@ impl<D> Service<D> {
     {
         for id in self.store.load_images_to_publish().await? {
             let mut context = self.context(id);
-
             ImageResource::publish(&mut context).await?;
         }
 
@@ -510,7 +509,7 @@ impl<D> Service<D> {
 
                     continue;
                 }
-                State::Created => {}
+                State::Recreatable | State::Existing => {}
             }
 
             container.stop(ctx).await?;
@@ -813,7 +812,7 @@ impl<D> Service<D> {
 
                     continue;
                 }
-                State::Created => {}
+                State::Recreatable | State::Existing => {}
             }
 
             container.start(ctx).await?;
