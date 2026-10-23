@@ -20,6 +20,7 @@
 //!
 //! Handles and generalizes the operation on the various type of resources.
 
+use std::fmt::Display;
 use std::future::Future;
 
 use astarte_device_sdk::error::AstarteError;
@@ -96,8 +97,20 @@ pub(crate) struct Context<'a, D> {
 pub(crate) enum State {
     // The resource was published and saved to the state file
     Missing,
-    // The resource was created
-    Created,
+    // The resource is already present on the device
+    Existing,
+    // The resource was created and could be recreated again
+    Recreatable,
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::Missing => write!(f, "Missing"),
+            State::Existing => write!(f, "Existing"),
+            State::Recreatable => write!(f, "Recreatable"),
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, ResourceError>;
@@ -145,13 +158,13 @@ where
         })?;
 
         match state {
-            State::Missing => {
-                debug!("resource missing, creating it");
+            State::Recreatable | State::Missing => {
+                debug!(%state, "resource creatable, creating it");
 
                 resource.create(&mut ctx).await?;
             }
-            State::Created => {
-                debug!("resource already created");
+            State::Existing => {
+                debug!(%state, "resource already created");
             }
         }
 
@@ -168,10 +181,10 @@ where
 
         match state {
             State::Missing => {
-                debug!("resource already missing");
+                debug!(%state, "resource already missing");
             }
-            State::Created => {
-                debug!("resource found, deleting it");
+            State::Existing | State::Recreatable => {
+                debug!(%state, "resource found, deleting it");
 
                 resource.delete(&mut ctx).await?
             }

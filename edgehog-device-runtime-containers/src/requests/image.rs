@@ -38,6 +38,7 @@ pub struct CreateImage {
     #[mapping(required)]
     pub(crate) reference: String,
     pub(crate) registry_auth: Option<String>,
+    pub(crate) pull_policy: Option<String>,
 }
 
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub(crate) mod tests {
             deployment_id: ReqUuid(deployment_id),
             reference: "postgres:15".to_string(),
             registry_auth: None,
+            pull_policy: Some("Always".to_string()),
         }
     }
 
@@ -72,6 +74,12 @@ pub(crate) mod tests {
             fields.insert(
                 "registryAuth".to_string(),
                 AstarteData::String(retrystry_auth.clone()),
+            );
+        }
+        if let Some(pull_policy) = &image.pull_policy {
+            fields.insert(
+                "pullPolicy".to_string(),
+                AstarteData::String(pull_policy.clone()),
             );
         }
 
@@ -93,7 +101,6 @@ pub(crate) mod tests {
         let event = create_image_request_event(&image);
 
         let request = CreateImage::from_event(event).unwrap();
-
         assert_eq!(request, image);
     }
 }

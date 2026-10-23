@@ -26,7 +26,10 @@ rust-version.workspace = true
 description.workspace = true
 
 [dependencies]
-deadpool = { workspace = true, default-features = false, features = ["rt_tokio_1", "managed"] }
+deadpool = { workspace = true, default-features = false, features = [
+    "rt_tokio_1",
+    "managed",
+] }
 diesel = { workspace = true, features = ["sqlite", "uuid", "64-column-tables"] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 displaydoc.workspace = true
@@ -42,6 +45,7 @@ insta.workspace = true
 pretty_assertions.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 
 [features]
 # Enables the models to persist the state of the containers
