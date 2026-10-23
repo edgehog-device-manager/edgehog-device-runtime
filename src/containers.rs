@@ -19,6 +19,7 @@
 use std::sync::Arc;
 
 use astarte_device_sdk::prelude::PropAccess;
+use edgehog_config::container::ContainersConfig;
 use edgehog_containers::requests::ContainerRequest;
 use edgehog_containers::service::Service;
 use edgehog_containers::service::events::{ContainerEvent, EventError, ServiceHandle};
@@ -27,7 +28,6 @@ use edgehog_containers::{Docker, events::RuntimeListener};
 use edgehog_store::db;
 use eyre::WrapErr;
 use eyre::eyre;
-use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -51,33 +51,40 @@ pub const MAX_INIT_RETRIES: usize = 10;
 pub const CHANNEL_SIZE: usize = 64;
 
 /// Configuration for the container service.
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub struct ContainersConfig {
-    #[serde(default = "ContainersConfig::default_enabled")]
+#[derive(Debug, Clone, Copy)]
+pub struct ContainersArgs {
     pub(crate) enabled: bool,
     /// Flag to make the container service is required
-    #[serde(default)]
     required: bool,
     /// Maximum number of retries for the initialization of the service
-    #[serde(default = "ContainersConfig::default_max_retries")]
     max_retries: usize,
 }
 
-impl ContainersConfig {
-    const fn default_enabled() -> bool {
-        true
-    }
-    const fn default_max_retries() -> usize {
-        MAX_INIT_RETRIES
-    }
-}
-
-impl Default for ContainersConfig {
+impl Default for ContainersArgs {
     fn default() -> Self {
         Self {
             enabled: true,
             required: false,
-            max_retries: Self::default_max_retries(),
+            max_retries: MAX_INIT_RETRIES,
+        }
+    }
+}
+
+impl From<Option<ContainersConfig>> for ContainersArgs {
+    fn from(value: Option<ContainersConfig>) -> Self {
+        let Some(ContainersConfig {
+            enabled,
+            required,
+            max_retries,
+        }) = value
+        else {
+            return Self::default();
+        };
+
+        Self {
+            enabled: enabled.unwrap_or(true),
+            required: required.unwrap_or(false),
+            max_retries: max_retries.unwrap_or(MAX_INIT_RETRIES),
         }
     }
 }
@@ -85,7 +92,7 @@ impl Default for ContainersConfig {
 // Setups the containers
 pub(crate) async fn setup<D>(
     tasks: &mut JoinSet<eyre::Result<()>>,
-    config: ContainersConfig,
+    config: ContainersArgs,
     device: &D,
     store: &db::Handle,
     cancel: CancellationToken,
@@ -142,7 +149,7 @@ where
 
 fn spawn_listener(
     tasks: &mut JoinSet<Result<(), eyre::Error>>,
-    config: &ContainersConfig,
+    config: &ContainersArgs,
     store: &StateStore,
     client: &Docker,
     tx: tokio::sync::mpsc::Sender<ContainerEvent>,
@@ -216,7 +223,7 @@ where
 
 #[derive(Debug)]
 struct ContainerService<D> {
-    config: ContainersConfig,
+    config: ContainersArgs,
     service: Service<D>,
 }
 
