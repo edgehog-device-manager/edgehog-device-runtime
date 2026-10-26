@@ -159,15 +159,23 @@ where
         });
         let (state, mut resource) = Self::handle_error(&mut ctx, res).await?;
 
-        match state {
+        let result = match state {
             State::Missing => {
                 debug!("resource missing, creating it");
 
-                resource.create(&mut ctx).await?;
+                resource.create(&mut ctx).await
             }
             State::Created => {
                 debug!("resource already created");
+
+                return Ok(resource);
             }
+        };
+
+        if let Err(error) = result {
+            Self::on_error(&mut ctx, &error).await;
+
+            return Err(error);
         }
 
         Ok(resource)

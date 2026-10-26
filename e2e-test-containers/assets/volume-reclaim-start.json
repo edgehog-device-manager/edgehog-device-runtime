@@ -1,0 +1,74 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateDeploymentRequest",
+      "path": "/deployment",
+      "data": {
+        "id": "7d5bc98f-cbfd-47e0-9258-dd8317de0308",
+        "containers": ["d12bb5d2-1aa8-44da-90f9-cb6b97f98c3c"]
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateImageRequest",
+      "path": "/image",
+      "data": {
+        "id": "e29e941a-a5e1-4e0c-a4dc-fe8bbb7c61c9",
+        "deploymentId": "7d5bc98f-cbfd-47e0-9258-dd8317de0308",
+        "reference": "docker.io/library/nginx:stable-alpine-slim",
+        "registryAuth": ""
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateVolumeRequest",
+      "path": "/volume",
+      "data": {
+        "id": "b5796ba7-c58b-4bcb-8c27-99c2eb687632",
+        "deploymentId": "7d5bc98f-cbfd-47e0-9258-dd8317de0308",
+        "driver": "local",
+        "options": [],
+        "reclaimPolicy": "Retain"
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
+      "path": "/container",
+      "data": {
+        "id": "d12bb5d2-1aa8-44da-90f9-cb6b97f98c3c",
+        "deploymentId": "7d5bc98f-cbfd-47e0-9258-dd8317de0308",
+        "imageId": "e29e941a-a5e1-4e0c-a4dc-fe8bbb7c61c9",
+        "networkIds": [],
+        "volumeIds": ["b5796ba7-c58b-4bcb-8c27-99c2eb687632"],
+        "deviceMappingIds": [],
+        "hostname": "",
+        "restartPolicy": "",
+        "env": [],
+        "binds": ["b5796ba7-c58b-4bcb-8c27-99c2eb687632:/var"],
+        "portBindings": ["8087:80"],
+        "networkMode": "bridge",
+        "extraHosts": ["host.docker.internal:host-gateway"],
+        "capAdd": ["CAP_CHOWN"],
+        "capDrop": ["CAP_KILL"],
+        "cpuPeriod": -1,
+        "cpuQuota": -1,
+        "cpuRealtimePeriod": -1,
+        "cpuRealtimeRuntime": -1,
+        "memory": -1,
+        "memoryReservation": -2,
+        "memorySwap": -2,
+        "memorySwappiness": -1,
+        "volumeDriver": "local",
+        "storageOptKeys": [],
+        "storageOptValues": [],
+        "readOnlyRootfs": false,
+        "tmpfsPaths": [],
+        "tmpfsOptions": [],
+        "privileged": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/7d5bc98f-cbfd-47e0-9258-dd8317de0308/command",
+      "data": "Start"
+    }
+  ]
+}

@@ -18,8 +18,11 @@
 
 //! Available [`Image`](crate::docker::image::Image) property.
 
+use astarte_device_sdk::AstarteData;
 use astarte_device_sdk::Client;
 use uuid::Uuid;
+
+use std::fmt::Display;
 
 use super::AvailableProp;
 
@@ -32,13 +35,55 @@ pub(crate) struct AvailableVolume<'a> {
 }
 
 impl<'a> AvailableVolume<'a> {
+    const PRESENT_ENDPOINT: &str = "created";
+    const STATUS_ENDPOINT: &str = "status";
+
     pub(crate) fn new(id: &'a Uuid) -> Self {
         Self { id }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AvailableVolumeStatus {
+    Received,
+    Missing,
+    Present,
+    Deleting,
+    Error,
+}
+
+impl AvailableVolumeStatus {
+    pub(crate) fn is_present(&self) -> bool {
+        match self {
+            AvailableVolumeStatus::Present => true,
+            AvailableVolumeStatus::Received => false,
+            AvailableVolumeStatus::Missing => false,
+            AvailableVolumeStatus::Error => false,
+            AvailableVolumeStatus::Deleting => false,
+        }
+    }
+}
+
+impl Display for AvailableVolumeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AvailableVolumeStatus::Received => f.write_str("Received"),
+            AvailableVolumeStatus::Present => f.write_str("Present"),
+            AvailableVolumeStatus::Missing => f.write_str("Missing"),
+            AvailableVolumeStatus::Error => f.write_str("Error"),
+            AvailableVolumeStatus::Deleting => f.write_str("Deleting"),
+        }
+    }
+}
+
+impl From<AvailableVolumeStatus> for AstarteData {
+    fn from(value: AvailableVolumeStatus) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
 impl AvailableProp for AvailableVolume<'_> {
-    type Data = bool;
+    type Data = AvailableVolumeStatus;
 
     fn interface() -> &'static str {
         INTERFACE
@@ -63,14 +108,16 @@ impl AvailableProp for AvailableVolume<'_> {
     where
         D: Client + Send + Sync + 'static,
     {
-        Self::send_field(self.id(), device, "created", data).await
+        Self::send_field(self.id(), device, Self::STATUS_ENDPOINT, data).await?;
+        Self::send_field(self.id(), device, Self::PRESENT_ENDPOINT, data.is_present()).await
     }
 
     async fn unset<D>(&self, device: &mut D) -> Result<(), super::PropertyError>
     where
         D: Client + Send + Sync + 'static,
     {
-        Self::unset_field(self.id(), device, "created").await
+        Self::unset_field(self.id(), device, Self::STATUS_ENDPOINT).await?;
+        Self::unset_field(self.id(), device, Self::PRESENT_ENDPOINT).await
     }
 }
 
@@ -101,12 +148,25 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{id}/status")),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Present)),
+            )
+            .returning(|_, _, _| Ok(()));
+        client
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
                 predicate::eq(format!("/{id}/created")),
                 predicate::eq(AstarteData::Boolean(true)),
             )
             .returning(|_, _, _| Ok(()));
 
-        volume.send(&mut client, true).await.unwrap();
+        volume
+            .send(&mut client, AvailableVolumeStatus::Present)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -118,6 +178,15 @@ mod tests {
         let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
+        client
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{id}/status")),
+            )
+            .returning(|_, _| Ok(()));
         client
             .expect_unset_property()
             .once()

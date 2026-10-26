@@ -284,7 +284,7 @@ impl StatsMonitor {
         }
     }
 
-    /// Sends the voulume usage stats
+    /// Sends the volume usage stats
     #[instrument(skip(self, device))]
     pub async fn volumes<D>(&mut self, device: &mut D)
     where

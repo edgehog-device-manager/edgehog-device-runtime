@@ -61,7 +61,7 @@ impl FromEvent for DeploymentCommand {
             .ok_or_else(|| {
                 Error::with(
                     FromEventError::Interface(astarte_device_sdk::error::InterfaceError::Path),
-                    "not a valid deployment command path path",
+                    "not a valid deployment command path",
                 )
             })?;
 
