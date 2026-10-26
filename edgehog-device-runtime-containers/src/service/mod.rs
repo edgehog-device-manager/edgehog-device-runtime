@@ -31,7 +31,10 @@ use uuid::Uuid;
 use crate::{
     Docker,
     error::DockerError,
-    events::deployment::{DeploymentEvent, EventStatus},
+    events::{
+        DatastreamEvent,
+        deployment::{DeploymentEvent, DeploymentEventStatus},
+    },
     properties::{AvailableProp, Client, deployment::AvailableDeployment},
     requests::{
         ReqError,
@@ -311,7 +314,7 @@ impl<D> Service<D> {
             let error = eyre::Report::new(err);
             error!(error = format!("{:#}", error), "failed to create resource");
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&deployment_id, &mut self.device)
                 .await;
         }
@@ -332,9 +335,12 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &mut self.device)
-                    .await;
+                DeploymentEvent::with_message(
+                    DeploymentEventStatus::Error,
+                    format!("{id} not found"),
+                )
+                .send(&id, &mut self.device)
+                .await;
 
                 return;
             }
@@ -345,7 +351,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -355,7 +361,7 @@ impl<D> Service<D> {
 
         info!("starting deployment");
 
-        DeploymentEvent::with_message(EventStatus::Starting, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Starting, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -367,7 +373,7 @@ impl<D> Service<D> {
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
@@ -376,7 +382,7 @@ impl<D> Service<D> {
 
         crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
 
-        DeploymentEvent::with_message(EventStatus::Started, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Started, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -439,9 +445,12 @@ impl<D> Service<D> {
             Ok(None) => {
                 error!("{id} not found");
 
-                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &mut self.device)
-                    .await;
+                DeploymentEvent::with_message(
+                    DeploymentEventStatus::Error,
+                    format!("{id} not found"),
+                )
+                .send(&id, &mut self.device)
+                .await;
 
                 return;
             }
@@ -450,7 +459,7 @@ impl<D> Service<D> {
 
                 error!(error = format!("{:#}", error), "couldn't start deployment");
 
-                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -460,7 +469,7 @@ impl<D> Service<D> {
 
         info!("stopping deployment");
 
-        DeploymentEvent::with_message(EventStatus::Stopping, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Stopping, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -471,14 +480,14 @@ impl<D> Service<D> {
 
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
 
-        DeploymentEvent::with_message(EventStatus::Stopped, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Stopped, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -544,9 +553,12 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &mut self.device)
-                    .await;
+                DeploymentEvent::with_message(
+                    DeploymentEventStatus::Error,
+                    format!("{id} not found"),
+                )
+                .send(&id, &mut self.device)
+                .await;
 
                 return;
             }
@@ -557,7 +569,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -567,7 +579,7 @@ impl<D> Service<D> {
 
         info!("deleting deployment");
 
-        DeploymentEvent::with_message(EventStatus::Deleting, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Deleting, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -578,7 +590,7 @@ impl<D> Service<D> {
 
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
@@ -652,7 +664,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, msg)
+                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
                     .send(&bundle.from, &mut self.device)
                     .await;
 
@@ -665,7 +677,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
                     .send(&bundle.from, &mut self.device)
                     .await;
 
@@ -681,7 +693,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, msg)
+                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
                     .send(&bundle.to, &mut self.device)
                     .await;
 
@@ -694,7 +706,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
                     .send(&bundle.to, &mut self.device)
                     .await;
 
@@ -704,7 +716,7 @@ impl<D> Service<D> {
 
         info!("updating deployment");
 
-        DeploymentEvent::with_message(EventStatus::Updating, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Updating, "")
             .send(&bundle.from, &mut self.device)
             .await;
 
@@ -719,7 +731,7 @@ impl<D> Service<D> {
 
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
                 .send(&bundle.from, &mut self.device)
                 .await;
 

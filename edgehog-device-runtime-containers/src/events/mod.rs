@@ -18,50 +18,146 @@
 
 //! Send events to Astarte
 
+use astarte_device_sdk::aggregate::AstarteObject;
+use astarte_device_sdk::chrono::{DateTime, Utc};
+use astarte_device_sdk::types::TypeError;
+use astarte_device_sdk::{Client, astarte_device_error};
 use bollard::models::EventMessageTypeEnum;
 use eyre::Context;
-use futures::{TryStreamExt, future};
+use futures::TryStreamExt;
 use tokio::sync::mpsc;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, trace};
 use uuid::Uuid;
 
-use crate::{
-    Docker,
-    service::{Id, ResourceType, events::ContainerEvent},
-    store::StateStore,
-};
+use crate::Docker;
+use crate::event::ContainerRuntimeEvent;
+use crate::service::{Id, ResourceType, events::ContainerEvent};
+use crate::store::StateStore;
 
+use self::container::ContainerEvent as DatastreamContainerEvent;
+use self::image::ImageEvent;
+use self::network::NetworkEvent;
+use self::volume::VolumeEvent;
+
+pub(crate) mod container;
 pub(crate) mod deployment;
+pub(crate) mod env_file;
+pub(crate) mod file_bind;
+pub(crate) mod image;
+pub(crate) mod network;
+pub(crate) mod volume;
+
+/// Sends a datastream of a container envet.
+pub(crate) trait DatastreamEvent:
+    TryInto<AstarteObject, Error = astarte_device_error::Error<TypeError>>
+{
+    const INTERFACE: &str;
+
+    type Status;
+
+    fn new(status: Self::Status, message: impl Into<String>, add_info: Vec<String>) -> Self;
+
+    fn with_status(status: Self::Status) -> Self {
+        Self::new(status, String::new(), Vec::new())
+    }
+
+    fn with_message(status: Self::Status, message: impl Into<String>) -> Self {
+        Self::new(status, message, Vec::new())
+    }
+
+    fn with_error(status: Self::Status, error: &dyn std::error::Error) -> Self {
+        let message = error.to_string();
+
+        let add_info: Vec<String> = std::iter::successors(error.source(), |prev| prev.source())
+            .map(|e| e.to_string())
+            .collect();
+
+        Self::new(status, message, add_info)
+    }
+
+    async fn send<D>(self, id: &Uuid, device: &mut D)
+    where
+        D: Client + Sync + 'static,
+    {
+        self.send_with_timestamp(id, device, None).await
+    }
+
+    #[instrument(skip_all, fields(%id))]
+    async fn send_with_timestamp<D>(self, id: &Uuid, device: &mut D, ts: Option<DateTime<Utc>>)
+    where
+        D: Client + Sync + 'static,
+    {
+        let data: AstarteObject = match self.try_into() {
+            Ok(data) => data,
+            Err(error) => {
+                error!(%error, interface = Self::INTERFACE, "couldn't convert to Astarte object");
+
+                return;
+            }
+        };
+
+        let ts = ts.unwrap_or_else(Utc::now);
+
+        let res = device
+            .send_object_with_timestamp(Self::INTERFACE, &format!("/{id}"), data, ts)
+            .await;
+
+        if let Err(error) = res {
+            error!(%error, interface = Self::INTERFACE, "couldn't send event");
+        }
+    }
+}
 
 /// Handles the events received from the container runtime
 #[derive(Debug)]
-pub struct RuntimeListener {
+pub struct RuntimeListener<C> {
+    device: C,
     client: Docker,
     store: StateStore,
     tx: mpsc::Sender<ContainerEvent>,
 }
 
-impl RuntimeListener {
+impl<C> RuntimeListener<C>
+where
+    C: Client + Sync + 'static,
+{
     /// Creates a new instance.
-    pub fn new(client: Docker, store: StateStore, tx: mpsc::Sender<ContainerEvent>) -> Self {
-        Self { client, store, tx }
+    pub fn new(
+        device: C,
+        client: Docker,
+        store: StateStore,
+        tx: mpsc::Sender<ContainerEvent>,
+    ) -> Self {
+        Self {
+            device,
+            client,
+            store,
+            tx,
+        }
     }
 
     /// Handles events of the container runtime and sends the telemetry to Astarte.
     #[instrument(skip(self))]
     pub async fn handle_events(&mut self) -> eyre::Result<()> {
-        let mut stream = self.client.events().try_filter_map(|event| {
-            let type_id = event.typ.zip(event.actor.and_then(|actor| actor.id));
+        let mut stream = self.client.events();
 
-            future::ok(type_id)
-        });
+        while let Some(event) = stream.try_next().await? {
+            let Some(typ) = event.get_type() else {
+                trace!("missing event type");
 
-        while let Some((typ, local_id)) = stream.try_next().await? {
+                continue;
+            };
+            let Some(local_id) = event.get_local_id() else {
+                trace!("missing local id");
+
+                continue;
+            };
+
             let res = match typ {
-                EventMessageTypeEnum::CONTAINER => self.handle_container(local_id).await,
-                EventMessageTypeEnum::IMAGE => self.handle_image(local_id).await,
-                EventMessageTypeEnum::NETWORK => self.handle_network(local_id).await,
-                EventMessageTypeEnum::VOLUME => self.handle_volume(local_id).await,
+                EventMessageTypeEnum::CONTAINER => self.handle_container(local_id, &event).await,
+                EventMessageTypeEnum::IMAGE => self.handle_image(local_id, &event).await,
+                EventMessageTypeEnum::NETWORK => self.handle_network(local_id, &event).await,
+                EventMessageTypeEnum::VOLUME => self.handle_volume(local_id, &event).await,
                 _ => {
                     debug!(%typ, "skipping event");
 
@@ -91,16 +187,26 @@ impl RuntimeListener {
     }
 
     #[instrument(skip(self))]
-    async fn handle_container(&mut self, local_id: String) -> eyre::Result<()> {
+    async fn handle_container(
+        &mut self,
+        local_id: &str,
+        event: &ContainerRuntimeEvent,
+    ) -> eyre::Result<()> {
         let Some(id) = self
             .store
-            .find_container_by_local_id(local_id.clone())
+            .find_container_by_local_id(local_id.to_string())
             .await?
         else {
-            debug!("couldn't find container");
+            trace!("couldn't find container");
 
             return Ok(());
         };
+
+        if let Some(status) = event.container_action() {
+            DatastreamContainerEvent::with_status(status)
+                .send_with_timestamp(&id, &mut self.device, event.timestamp())
+                .await;
+        }
 
         self.refresh(Id::new(ResourceType::Container, id)).await?;
 
@@ -108,12 +214,26 @@ impl RuntimeListener {
     }
 
     #[instrument(skip(self))]
-    async fn handle_image(&mut self, local_id: String) -> eyre::Result<()> {
-        let Some((id, _)) = self.store.find_image_by_local_id(local_id.clone()).await? else {
-            debug!("couldn't find image");
+    async fn handle_image(
+        &mut self,
+        local_id: &str,
+        event: &ContainerRuntimeEvent,
+    ) -> eyre::Result<()> {
+        let Some((id, _)) = self
+            .store
+            .find_image_by_local_id(local_id.to_string())
+            .await?
+        else {
+            trace!("couldn't find image");
 
             return Ok(());
         };
+
+        if let Some(status) = event.image_action() {
+            ImageEvent::with_status(status)
+                .send_with_timestamp(&id, &mut self.device, event.timestamp())
+                .await;
+        }
 
         self.refresh(Id::new(ResourceType::Image, id)).await?;
 
@@ -121,14 +241,24 @@ impl RuntimeListener {
     }
 
     #[instrument(skip(self))]
-    async fn handle_volume(&mut self, name: String) -> eyre::Result<()> {
-        let id = Uuid::try_parse(&name).wrap_err("couldn't parse the uuid")?;
+    async fn handle_volume(
+        &mut self,
+        name: &str,
+        event: &ContainerRuntimeEvent,
+    ) -> eyre::Result<()> {
+        let id = Uuid::try_parse(name).wrap_err("couldn't parse the uuid")?;
 
         if !self.store.check_volume_exists(id).await? {
-            debug!("couldn't find volume");
+            trace!("couldn't find volume");
 
             return Ok(());
         };
+
+        if let Some(status) = event.volume_action() {
+            VolumeEvent::with_status(status)
+                .send_with_timestamp(&id, &mut self.device, event.timestamp())
+                .await;
+        }
 
         self.refresh(Id::new(ResourceType::Volume, id)).await?;
 
@@ -136,16 +266,26 @@ impl RuntimeListener {
     }
 
     #[instrument(skip(self))]
-    async fn handle_network(&mut self, local_id: String) -> eyre::Result<()> {
+    async fn handle_network(
+        &mut self,
+        local_id: &str,
+        event: &ContainerRuntimeEvent,
+    ) -> eyre::Result<()> {
         let Some(id) = self
             .store
-            .find_network_by_local_id(local_id.clone())
+            .find_network_by_local_id(local_id.to_string())
             .await?
         else {
-            debug!("couldn't find network");
+            trace!("couldn't find network");
 
             return Ok(());
         };
+
+        if let Some(status) = event.network_action() {
+            NetworkEvent::with_status(status)
+                .send_with_timestamp(&id, &mut self.device, event.timestamp())
+                .await;
+        }
 
         self.refresh(Id::new(ResourceType::Network, id)).await?;
 

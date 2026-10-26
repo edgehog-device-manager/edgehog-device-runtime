@@ -20,77 +20,29 @@
 
 use std::fmt::Display;
 
-use astarte_device_sdk::aggregate::AstarteObject;
-use astarte_device_sdk::chrono::Utc;
 use astarte_device_sdk::{AstarteData, IntoAstarteObject};
-use tracing::error;
-use uuid::Uuid;
 
-use crate::properties::Client;
-
-const INTERFACE: &str = "io.edgehog.devicemanager.apps.DeploymentEvent";
+use super::DatastreamEvent;
 
 /// Deployment status event
 #[derive(Debug, Clone, IntoAstarteObject)]
 #[astarte_object(rename_all = "camelCase")]
 pub(crate) struct DeploymentEvent {
-    pub(crate) status: EventStatus,
+    pub(crate) status: DeploymentEventStatus,
     pub(crate) message: String,
     pub(crate) add_info: Vec<String>,
 }
 
-impl DeploymentEvent {
-    pub(crate) fn new(
-        status: EventStatus,
-        message: impl Into<String>,
-        add_info: Vec<String>,
-    ) -> Self {
+impl DatastreamEvent for DeploymentEvent {
+    const INTERFACE: &str = "io.edgehog.devicemanager.apps.DeploymentEvent";
+
+    type Status = DeploymentEventStatus;
+
+    fn new(status: Self::Status, message: impl Into<String>, add_info: Vec<String>) -> Self {
         Self {
             status,
             message: message.into(),
             add_info,
-        }
-    }
-
-    pub(crate) fn with_message(status: EventStatus, message: impl Into<String>) -> Self {
-        Self::new(status, message, Vec::new())
-    }
-
-    pub(crate) fn with_error(status: EventStatus, error: &dyn std::error::Error) -> Self {
-        let message = error.to_string();
-
-        let add_info: Vec<String> = std::iter::successors(error.source(), |prev| prev.source())
-            .map(|e| e.to_string())
-            .collect();
-
-        Self::new(status, message, add_info)
-    }
-
-    pub(crate) async fn send<D>(self, id: &Uuid, device: &mut D)
-    where
-        D: Client + Sync + 'static,
-    {
-        let data: AstarteObject = match self.clone().try_into() {
-            Ok(data) => data,
-            Err(err) => {
-                error!(
-                    error = format!("{:#}", eyre::Report::new(err)),
-                    "couldn't convert {self}, with id {id}"
-                );
-
-                return;
-            }
-        };
-
-        let res = device
-            .send_object_with_timestamp(INTERFACE, &format!("/{id}"), data, Utc::now())
-            .await;
-
-        if let Err(err) = res {
-            error!(
-                error = format!("{:#}", eyre::Report::new(err)),
-                "couldn't send {self}, with id {id}"
-            )
         }
     }
 }
@@ -106,7 +58,7 @@ impl Display for DeploymentEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EventStatus {
+pub(crate) enum DeploymentEventStatus {
     Starting,
     Started,
     Stopping,
@@ -116,34 +68,36 @@ pub(crate) enum EventStatus {
     Error,
 }
 
-impl Display for EventStatus {
+impl Display for DeploymentEventStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EventStatus::Starting => write!(f, "Starting"),
-            EventStatus::Started => write!(f, "Started"),
-            EventStatus::Stopping => write!(f, "Stopping"),
-            EventStatus::Stopped => write!(f, "Stopped"),
-            EventStatus::Updating => write!(f, "Updating"),
-            EventStatus::Deleting => write!(f, "Deleting"),
-            EventStatus::Error => write!(f, "Error"),
+            DeploymentEventStatus::Starting => write!(f, "Starting"),
+            DeploymentEventStatus::Started => write!(f, "Started"),
+            DeploymentEventStatus::Stopping => write!(f, "Stopping"),
+            DeploymentEventStatus::Stopped => write!(f, "Stopped"),
+            DeploymentEventStatus::Updating => write!(f, "Updating"),
+            DeploymentEventStatus::Deleting => write!(f, "Deleting"),
+            DeploymentEventStatus::Error => write!(f, "Error"),
         }
     }
 }
 
-impl From<EventStatus> for AstarteData {
-    fn from(value: EventStatus) -> Self {
+impl From<DeploymentEventStatus> for AstarteData {
+    fn from(value: DeploymentEventStatus) -> Self {
         AstarteData::String(value.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::aggregate::AstarteObject;
     use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::MockDeviceClient;
     use astarte_device_sdk_mock::mockall::Sequence;
     use mockall::predicate;
+    use uuid::Uuid;
 
     use super::*;
 
@@ -174,7 +128,7 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        let event = DeploymentEvent::with_message(EventStatus::Starting, "");
+        let event = DeploymentEvent::with_message(DeploymentEventStatus::Starting, "");
 
         event.send(&id, &mut client).await;
     }

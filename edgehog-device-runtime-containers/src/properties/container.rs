@@ -55,16 +55,16 @@ impl AvailableProp for AvailableContainer<'_> {
     }
 }
 
-/// Enum of the container status.
+/// Enum of the [`Container`](crate::container::Container) status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ContainerStatus {
     /// Received and stored the CreateContainer.
     Received,
-    /// The [`Container`](crate::container::Container) has been created.
+    /// The container  has been created.
     Created,
-    /// The [`Container`](crate::container::Container) is running.
+    /// The container is running.
     Running,
-    /// The [`Container`](crate::container::Container) was stopped or crashed.
+    /// The container was stopped or crashed.
     Stopped,
 }
 

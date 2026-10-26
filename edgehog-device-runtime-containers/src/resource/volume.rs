@@ -17,8 +17,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use edgehog_store::models::containers::volume::VolumeStatus;
+use tracing::instrument;
 
 use crate::{
+    events::{
+        DatastreamEvent,
+        volume::{VolumeEvent, VolumeEventStatus},
+    },
     properties::{AvailableProp, Client, volume::AvailableVolume},
     volume::Volume,
 };
@@ -89,6 +94,13 @@ where
         } else {
             Ok(Some((State::Missing, resource)))
         }
+    }
+
+    #[instrument(skip_all)]
+    async fn on_error(ctx: &mut Context<'_, D>, error: &(dyn std::error::Error + Send + Sync)) {
+        VolumeEvent::with_error(VolumeEventStatus::Error, error)
+            .send(&ctx.id, ctx.device)
+            .await;
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
