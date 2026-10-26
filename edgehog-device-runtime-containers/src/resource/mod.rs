@@ -137,25 +137,40 @@ where
         ctx: &mut Context<'_, D>,
     ) -> impl Future<Output = Result<Option<(State, Self)>>> + Send;
 
+    /// Set the resource into an error state and send the event to the cloud.
+    fn on_error(
+        ctx: &mut Context<'_, D>,
+        error: &(dyn std::error::Error + Send + Sync),
+    ) -> impl Future<Output = ()> + Send;
+
     fn create(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
     fn delete(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
     async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
-        if Self::fetch(ctx).await?.is_none() {
-            warn!("couldn't find {}", Self::RESOURCE_NAME);
+        match Self::fetch(ctx).await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                warn!("couldn't find {}", Self::RESOURCE_NAME);
+            }
+            Err(error) => {
+                Self::on_error(ctx, &error).await;
+
+                return Err(error);
+            }
         }
 
         Ok(())
     }
 
     async fn up(mut ctx: Context<'_, D>) -> Result<Self> {
-        let (state, mut resource) = Self::fetch(&mut ctx).await.and_then(|opt| {
+        let res = Self::fetch(&mut ctx).await.and_then(|opt| {
             opt.ok_or(ResourceError::Missing {
                 id: ctx.id,
                 resource: Self::RESOURCE_NAME,
             })
-        })?;
+        });
+        let (state, mut resource) = Self::handle_error(&mut ctx, res).await?;
 
         match state {
             State::Recreatable | State::Missing => {
@@ -172,12 +187,13 @@ where
     }
 
     async fn down(mut ctx: Context<'_, D>) -> Result<()> {
-        let (state, mut resource) = Self::fetch(&mut ctx).await.and_then(|opt| {
+        let res = Self::fetch(&mut ctx).await.and_then(|opt| {
             opt.ok_or(ResourceError::Missing {
                 id: ctx.id,
                 resource: Self::RESOURCE_NAME,
             })
-        })?;
+        });
+        let (state, mut resource) = Self::handle_error(&mut ctx, res).await?;
 
         match state {
             State::Missing => {
@@ -186,12 +202,26 @@ where
             State::Existing | State::Recreatable => {
                 debug!(%state, "resource found, deleting it");
 
-                resource.delete(&mut ctx).await?
+                let res = resource.delete(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
             }
         }
 
         Self::unset(&mut ctx).await?;
 
         Ok(())
+    }
+
+    /// Utility to handle an error in an operation
+    #[inline]
+    async fn handle_error<T>(ctx: &mut Context<'_, D>, res: Result<T>) -> Result<T> {
+        match res {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                Self::on_error(ctx, &error).await;
+
+                Err(error)
+            }
+        }
     }
 }
