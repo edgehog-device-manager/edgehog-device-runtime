@@ -36,6 +36,7 @@ use crate::{
     requests::{
         ReqError,
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
+        volume::{self, VolumeCommand},
     },
     resource::{
         Context, Create, Resource, ResourceError, State, container::ContainerResource,
@@ -279,6 +280,36 @@ impl<D> Service<D> {
             ContainerEvent::Refresh(id) => {
                 self.refresh(id).await;
             }
+            ContainerEvent::VolumeCmd(cmd) => self.handle_volume_command(cmd).await,
+        }
+    }
+
+    #[instrument(skip_all)]
+    async fn handle_volume_command(&mut self, cmd: VolumeCommand)
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        match cmd.command {
+            volume::CommandValue::Delete => self.delete_volume(cmd.volume_id).await,
+        }
+    }
+
+    /// Call that will handle the events from Astarte and the containers.
+    #[instrument(skip_all)]
+    async fn delete_volume(&mut self, volume_id: Uuid)
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        let res = VolumeResource::down(self.context(volume_id)).await;
+
+        if let Err(err) = res {
+            let error = eyre::Report::new(err);
+
+            error!(error = format!("{:#}", error), "couldn't delete deployment");
+
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
+
+            return;
         }
     }
 
@@ -600,7 +631,7 @@ impl<D> Service<D> {
         }
 
         for id in deployment.volumes {
-            VolumeResource::down(self.context(id)).await?;
+            VolumeResource::reclaim(self.context(id)).await?;
         }
 
         for id in deployment.networks {
@@ -929,6 +960,7 @@ mod tests {
     use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
+    use crate::properties::volume::AvailableVolumeStatus;
     use crate::requests::ContainerRequest;
     use crate::requests::container::tests::{create_container_req, create_container_request_event};
     use crate::requests::deployment::tests::create_deployment_request_event;
@@ -1025,6 +1057,18 @@ mod tests {
         client: &mut Docker,
     ) {
         let endpoint = format!("/{id}/created");
+        let endpoint_status = format!("/{id}/status");
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint_status.clone()),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Received)),
+            )
+            .returning(|_, _, _| Ok(()));
         device
             .expect_set_property()
             .once()
@@ -1043,6 +1087,16 @@ mod tests {
             .with(predicate::eq(id.to_string()))
             .returning(|_| Err(not_found_response()));
 
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint_status.clone()),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
         device
             .expect_set_property()
             .once()
@@ -1278,6 +1332,7 @@ mod tests {
                 ]
                 .map(|(k, v)| (k.to_string(), v.to_string())),
             ),
+            reclaim_policy: edgehog_store::models::containers::volume::ReclaimPolicy::Delete,
         };
 
         assert_eq!(resource.volume, exp);
@@ -1623,6 +1678,16 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
                 predicate::eq(format!("/{}/created", volume.id)),
                 predicate::eq(AstarteData::from(false)),
             )
@@ -1638,6 +1703,16 @@ mod tests {
             })
             .returning(|_| Ok(Default::default()));
 
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Present)),
+            )
+            .returning(|_, _, _| Ok(()));
         device
             .expect_set_property()
             .once()
@@ -2061,11 +2136,30 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
                 predicate::eq(format!("/{}/created", volume.id)),
                 predicate::eq(AstarteData::Boolean(false)),
             )
             .returning(|_, _, _| Ok(()));
 
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+            )
+            .returning(|_, _| Ok(()));
         device
             .expect_unset_property()
             .once()
@@ -2221,6 +2315,9 @@ mod tests {
 
         let deployment_event = events.recv().await.unwrap();
         service.on_event(deployment_event).await;
+
+        info!("delete event");
+
         let delete_event = events.recv().await.unwrap();
         service.on_event(delete_event).await;
     }

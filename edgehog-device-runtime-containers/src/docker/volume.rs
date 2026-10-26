@@ -28,6 +28,7 @@ use std::{
 use bollard::errors::Error as BollardError;
 use bollard::models::{Volume as DockerVolume, VolumeCreateRequest};
 use bollard::query_parameters::RemoveVolumeOptions;
+use edgehog_store::models::containers::volume::ReclaimPolicy;
 use tracing::{debug, error, instrument, trace, warn};
 use uuid::Uuid;
 
@@ -160,15 +161,25 @@ pub(crate) struct Volume {
     ///
     /// These options are passed directly to the driver and are driver specific.
     pub(crate) driver_opts: HashMap<String, String>,
+    /// Volume reclaim policy.
+    ///
+    /// How deletion is handled on the device.
+    pub(crate) reclaim_policy: ReclaimPolicy,
 }
 
 impl Volume {
     /// Create a new volume.
-    pub fn new(name: Uuid, driver: String, driver_opts: HashMap<String, String>) -> Self {
+    pub fn new(
+        name: Uuid,
+        driver: String,
+        driver_opts: HashMap<String, String>,
+        reclaim_policy: ReclaimPolicy,
+    ) -> Self {
         Self {
             id: VolumeId::new(name),
             driver,
             driver_opts,
+            reclaim_policy,
         }
     }
 
@@ -250,7 +261,12 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name, "local".to_string(), HashMap::new());
+        let volume = Volume::new(
+            name,
+            "local".to_string(),
+            HashMap::new(),
+            ReclaimPolicy::default(),
+        );
         volume.create(&docker).await.unwrap();
     }
 
@@ -288,7 +304,12 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name, "local".to_string(), HashMap::new());
+        let volume = Volume::new(
+            name,
+            "local".to_string(),
+            HashMap::new(),
+            ReclaimPolicy::default(),
+        );
 
         volume.create(&docker).await.unwrap();
         let v = volume.inspect(&docker).await.unwrap().unwrap();
@@ -313,7 +334,12 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name, "local".to_string(), HashMap::new());
+        let volume = Volume::new(
+            name,
+            "local".to_string(),
+            HashMap::new(),
+            ReclaimPolicy::default(),
+        );
 
         let res = volume.inspect(&docker).await.unwrap();
 
@@ -353,7 +379,12 @@ mod tests {
             mock
         });
 
-        let volume = Volume::new(name, "local".to_string(), HashMap::new());
+        let volume = Volume::new(
+            name,
+            "local".to_string(),
+            HashMap::new(),
+            ReclaimPolicy::default(),
+        );
         volume.create(&docker).await.unwrap();
         volume.remove(&docker).await.unwrap();
 
