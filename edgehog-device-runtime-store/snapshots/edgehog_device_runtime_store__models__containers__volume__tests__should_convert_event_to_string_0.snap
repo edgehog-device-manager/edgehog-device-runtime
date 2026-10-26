@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-store/src/models/containers/volume.rs
+expression: "format!(\"{status:?} = {value}\")"
+---
+Delete = 0
