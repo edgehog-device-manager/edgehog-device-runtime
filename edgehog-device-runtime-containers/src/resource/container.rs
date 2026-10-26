@@ -21,7 +21,7 @@ use std::ops::ControlFlow;
 use astarte_device_sdk::properties::PropAccess;
 use bollard::models::ContainerStateStatusEnum;
 use edgehog_store::models::containers::container::ContainerStatus;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 use crate::container::Container;
 use crate::events::DatastreamEvent;
@@ -58,41 +58,25 @@ impl ContainerResource {
         }
     }
 
-    async fn mark_missing<D>(&self, ctx: Context<'_, D>) -> Result<std::convert::Infallible>
+    pub(crate) async fn start_container<D>(&mut self, ctx: &mut Context<'_, D>) -> Result<()>
     where
         D: Client + Send + Sync + 'static,
     {
         AvailableContainer::new(&ctx.id)
-            .send(ctx.device, PropertyStatus::Received)
+            .send_status(ctx.device, PropertyStatus::Starting)
             .await?;
 
-        ctx.store
-            .update_container_status(ctx.id, ContainerStatus::Published)
-            .await?;
-
-        Err(ResourceError::Missing {
-            id: ctx.id,
-            resource: "container",
-        })
-    }
-
-    pub(crate) async fn start<D>(&mut self, ctx: Context<'_, D>) -> Result<()>
-    where
-        D: Client + Send + Sync + 'static,
-    {
-        let container = self
-            .container
+        self.container
             .start(ctx.client)
             .await
             .map_err(ResourceError::docker)?;
 
-        if container.is_none() {
-            return self.mark_missing(ctx).await.map(|_| ());
+        if !self.update_status(ctx).await? {
+            return Err(ResourceError::Missing {
+                id: ctx.id,
+                resource: "container",
+            });
         }
-
-        AvailableContainer::new(&ctx.id)
-            .send(ctx.device, PropertyStatus::Running)
-            .await?;
 
         ctx.store
             .update_container_status(ctx.id, ContainerStatus::Running)
@@ -101,23 +85,20 @@ impl ContainerResource {
         Ok(())
     }
 
-    pub(crate) async fn stop<D>(&mut self, ctx: Context<'_, D>) -> Result<()>
+    pub(crate) async fn stop_container<D>(&mut self, ctx: &mut Context<'_, D>) -> Result<()>
     where
         D: Client + Send + Sync + 'static,
     {
-        let container = self
-            .container
+        AvailableContainer::new(&ctx.id)
+            .send_status(ctx.device, PropertyStatus::Stopping)
+            .await?;
+
+        self.container
             .stop(ctx.client)
             .await
             .map_err(ResourceError::docker)?;
 
-        if container.is_none() {
-            return self.mark_missing(ctx).await.map(|_| ());
-        }
-
-        AvailableContainer::new(&ctx.id)
-            .send(ctx.device, PropertyStatus::Stopped)
-            .await?;
+        self.update_status(ctx).await?;
 
         ctx.store
             .update_container_status(ctx.id, ContainerStatus::Stopped)
@@ -126,6 +107,7 @@ impl ContainerResource {
         Ok(())
     }
 
+    /// Returns true if the container exists
     async fn update_status<D>(&mut self, ctx: &mut Context<'_, D>) -> Result<bool>
     where
         D: Client + Send + Sync + 'static,
@@ -140,13 +122,13 @@ impl ContainerResource {
             debug!("container deleted");
 
             AvailableContainer::new(&ctx.id)
-                .send(ctx.device, PropertyStatus::Received)
+                .send(ctx.device, PropertyStatus::Missing)
                 .await?;
 
             return Ok(false);
         };
 
-        let Some(container_state) = inspect.state.and_then(|state| state.status) else {
+        let Some(container_state) = inspect.state.as_ref().and_then(|state| state.status) else {
             warn!("couldn't find status in inspect container response");
 
             return Ok(false);
@@ -157,10 +139,11 @@ impl ContainerResource {
             ContainerStateStatusEnum::RUNNING | ContainerStateStatusEnum::RESTARTING => {
                 (PropertyStatus::Running, true)
             }
-            ContainerStateStatusEnum::REMOVING => (PropertyStatus::Received, false),
-            ContainerStateStatusEnum::STOPPING
-            | ContainerStateStatusEnum::EXITED
-            | ContainerStateStatusEnum::DEAD => (PropertyStatus::Stopped, true),
+            ContainerStateStatusEnum::REMOVING => (PropertyStatus::Deleting, false),
+            ContainerStateStatusEnum::STOPPING => (PropertyStatus::Stopping, true),
+            ContainerStateStatusEnum::EXITED | ContainerStateStatusEnum::DEAD => {
+                (PropertyStatus::Stopped, true)
+            }
             ContainerStateStatusEnum::PAUSED | ContainerStateStatusEnum::EMPTY => {
                 debug!(%container_state, "weird state");
 
@@ -168,7 +151,13 @@ impl ContainerResource {
             }
         };
 
-        AvailableContainer::new(&ctx.id)
+        if exists {
+            ctx.store
+                .update_container_local_id(ctx.id, self.container.id.id.clone())
+                .await?;
+        }
+
+        AvailableContainer::with_inspect(&ctx.id, inspect)
             .send(ctx.device, status)
             .await?;
 
@@ -202,6 +191,69 @@ impl ContainerResource {
                     self.container
                         .add_env_vars(std::iter::once(env.to_string()));
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn start<D>(mut ctx: Context<'_, D>) -> Result<()>
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        let res = Self::fetch(&mut ctx).await.and_then(|opt| {
+            opt.ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: "container",
+            })
+        });
+        let (state, mut resource) = Self::handle_error(&mut ctx, res).await?;
+
+        match state {
+            State::Missing => {
+                warn!("resource is missing, creating it");
+
+                let res = resource.create(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
+
+                let res = resource.start_container(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
+            }
+            State::Created => {
+                debug!("resource found, starting it");
+
+                let res = resource.start_container(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn stop<D>(mut ctx: Context<'_, D>) -> Result<()>
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        let res = Self::fetch(&mut ctx).await.and_then(|opt| {
+            opt.ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: "container",
+            })
+        });
+        let (state, mut resource) = Self::handle_error(&mut ctx, res).await?;
+
+        match state {
+            State::Missing => {
+                warn!("resource is missing, creating it");
+
+                let res = resource.create(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
+            }
+            State::Created => {
+                debug!("resource found, stopping it");
+
+                let res = resource.stop_container(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
             }
         }
 
@@ -250,10 +302,6 @@ where
         let exists = this.update_status(ctx).await?;
 
         if exists {
-            ctx.store
-                .update_container_local_id(ctx.id, this.container.id.id.clone())
-                .await?;
-
             Ok(Some((State::Created, this)))
         } else {
             Ok(Some((State::Missing, this)))
@@ -265,9 +313,20 @@ where
         ContainerEvent::with_error(ContainerEventStatus::Error, error)
             .send(&ctx.id, ctx.device)
             .await;
+
+        if let Err(error) = AvailableContainer::new(&ctx.id)
+            .send_status(ctx.device, PropertyStatus::Error)
+            .await
+        {
+            error!(%error, "couldn't set container state to error");
+        }
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableContainer::new(&ctx.id)
+            .send(ctx.device, PropertyStatus::Creating)
+            .await?;
+
         self.fetch_props(ctx).await?;
 
         self.container
@@ -275,13 +334,7 @@ where
             .await
             .map_err(ResourceError::docker)?;
 
-        ctx.store
-            .update_container_local_id(ctx.id, self.container.id.id.clone())
-            .await?;
-
-        AvailableContainer::new(&ctx.id)
-            .send(ctx.device, PropertyStatus::Created)
-            .await?;
+        self.update_status(ctx).await?;
 
         ctx.store
             .update_container_status(ctx.id, ContainerStatus::Stopped)
@@ -291,10 +344,18 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableContainer::new(&ctx.id)
+            .send_status(ctx.device, PropertyStatus::Stopping)
+            .await?;
+
         self.container
             .stop(ctx.client)
             .await
             .map_err(ResourceError::docker)?;
+
+        AvailableContainer::new(&ctx.id)
+            .send_status(ctx.device, PropertyStatus::Deleting)
+            .await?;
 
         self.container
             .remove(ctx.client)
