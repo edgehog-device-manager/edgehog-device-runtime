@@ -12,6 +12,17 @@
       }
     },
     {
+      "interface": "io.edgehog.devicemanager.apps.CreateVolumeRequest",
+      "path": "/volume",
+      "data": {
+        "id": "b5796ba7-c58b-4bcb-8c27-99c2eb687632",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "driver": "local",
+        "options": [],
+        "reclaimPolicy": "Retain"
+      }
+    },
+    {
       "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
       "path": "/container",
       "data": {
@@ -19,12 +30,12 @@
         "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
         "imageId": "4f3279aa-b8ba-45ca-bc1c-57b7adb9adeb",
         "networkIds": [],
-        "volumeIds": [],
+        "volumeIds": ["b5796ba7-c58b-4bcb-8c27-99c2eb687632"],
         "deviceMappingIds": [],
         "hostname": "",
         "restartPolicy": "",
         "env": [],
-        "binds": [],
+        "binds": ["b5796ba7-c58b-4bcb-8c27-99c2eb687632:/var"],
         "portBindings": ["9000:80"],
         "networkMode": "bridge",
         "extraHosts": ["host.docker.internal:host-gateway"],
