@@ -16,10 +16,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use edgehog_store::models::containers::volume::VolumeStatus;
+use edgehog_store::models::containers::volume::{ReclaimPolicy, VolumeStatus};
+use tracing::{debug, instrument};
 
 use crate::{
-    properties::{AvailableProp, Client, volume::AvailableVolume},
+    properties::{
+        AvailableProp, Client,
+        volume::{AvailableVolume, AvailableVolumeStatus},
+    },
     volume::Volume,
 };
 
@@ -34,6 +38,43 @@ impl VolumeResource {
     pub(crate) fn new(volume: Volume) -> Self {
         Self { volume }
     }
+
+    fn should_retain(&self) -> bool {
+        self.volume.reclaim_policy == ReclaimPolicy::Retain
+    }
+
+    #[instrument(skip_all, fields(id = %ctx.id))]
+    pub(crate) async fn reclaim<D>(mut ctx: Context<'_, D>) -> Result<()>
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        let (state, mut resource) = Self::fetch(&mut ctx).await.and_then(|opt| {
+            opt.ok_or(ResourceError::Missing {
+                id: ctx.id,
+                resource: <Self as Create<D>>::RESOURCE_NAME,
+            })
+        })?;
+
+        if resource.should_retain() {
+            debug!("retaining volume");
+            return Ok(());
+        }
+
+        match state {
+            State::Missing => {
+                debug!("resource already missing");
+            }
+            State::Created => {
+                debug!("resource found, deleting it");
+
+                resource.delete(&mut ctx).await?
+            }
+        }
+
+        resource.unset(&mut ctx).await?;
+
+        Ok(())
+    }
 }
 
 impl<D> Resource<D> for VolumeResource
@@ -42,7 +83,7 @@ where
 {
     async fn publish(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableVolume::new(&ctx.id)
-            .send(ctx.device, false)
+            .send(ctx.device, AvailableVolumeStatus::Missing)
             .await?;
 
         ctx.store
@@ -66,18 +107,19 @@ where
             return Ok(None);
         };
 
-        let exists = resource
+        let status = resource
             .volume
             .inspect(ctx.client)
             .await
             .map_err(ResourceError::docker)?
-            .is_some();
+            .map(|_| AvailableVolumeStatus::Present)
+            .unwrap_or(AvailableVolumeStatus::Missing);
 
         AvailableVolume::new(&ctx.id)
-            .send(ctx.device, exists)
+            .send(ctx.device, status)
             .await?;
 
-        if exists {
+        if status.is_present() {
             Ok(Some((State::Created, resource)))
         } else {
             Ok(Some((State::Missing, resource)))
@@ -90,7 +132,9 @@ where
             .await
             .map_err(ResourceError::docker)?;
 
-        AvailableVolume::new(&ctx.id).send(ctx.device, true).await?;
+        AvailableVolume::new(&ctx.id)
+            .send(ctx.device, AvailableVolumeStatus::Present)
+            .await?;
 
         ctx.store
             .update_volume_status(ctx.id, VolumeStatus::Created)
@@ -100,6 +144,10 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableVolume::new(&ctx.id)
+            .send(ctx.device, AvailableVolumeStatus::Deleting)
+            .await?;
+
         self.volume
             .remove(ctx.client)
             .await

@@ -36,6 +36,7 @@ use crate::{
     requests::{
         ReqError,
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
+        volume::{self, VolumeCommand},
     },
     resource::{
         Context, Create, Resource, ResourceError, State, container::ContainerResource,
@@ -279,6 +280,36 @@ impl<D> Service<D> {
             ContainerEvent::Refresh(id) => {
                 self.refresh(id).await;
             }
+            ContainerEvent::VolumeCmd(cmd) => self.handle_volume_command(cmd).await,
+        }
+    }
+
+    #[instrument(skip_all)]
+    async fn handle_volume_command(&mut self, cmd: VolumeCommand)
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        match cmd.command {
+            volume::CommandValue::Delete => self.delete_volume(cmd.volume_id).await,
+        }
+    }
+
+    /// Call that will handle the events from Astarte and the containers.
+    #[instrument(skip_all)]
+    async fn delete_volume(&mut self, volume_id: Uuid)
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        let res = VolumeResource::down(self.context(volume_id)).await;
+
+        if let Err(err) = res {
+            let error = eyre::Report::new(err);
+
+            error!(error = format!("{:#}", error), "couldn't delete deployment");
+
+            crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
+
+            return;
         }
     }
 
@@ -600,7 +631,7 @@ impl<D> Service<D> {
         }
 
         for id in deployment.volumes {
-            VolumeResource::down(self.context(id)).await?;
+            VolumeResource::reclaim(self.context(id)).await?;
         }
 
         for id in deployment.networks {
@@ -1278,6 +1309,7 @@ mod tests {
                 ]
                 .map(|(k, v)| (k.to_string(), v.to_string())),
             ),
+            reclaim_policy: edgehog_store::models::containers::volume::ReclaimPolicy::Delete,
         };
 
         assert_eq!(resource.volume, exp);

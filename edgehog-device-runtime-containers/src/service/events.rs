@@ -21,7 +21,7 @@
 //! When an event is received it will be handled by storing it to the [`StateStore`] and then the
 //! [Service](super::Service) will be notified.
 
-use edgehog_store::models::containers::deployment::DeploymentStatus;
+use edgehog_store::models::containers::{deployment::DeploymentStatus, volume::VolumeStatus};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument};
@@ -32,7 +32,15 @@ use crate::{
     properties::Client,
     requests::{
         ContainerRequest,
-        deployment::{DeploymentCommand, DeploymentUpdate},
+        container::CreateContainer,
+        deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate},
+        device_mapping::CreateDeviceMapping,
+        device_request::CreateDeviceRequest,
+        env_file::CreateEnvFile,
+        file_bind::CreateFileBind,
+        image::CreateImage,
+        network::CreateNetwork,
+        volume::{self, CreateVolume, VolumeCommand},
     },
     store::StateStore,
 };
@@ -45,6 +53,102 @@ pub enum EventError {
 }
 
 use super::{CommandValue, Id, ResourceType};
+
+enum PersistRequest {
+    Deployment(DeploymentRequest),
+    Volume(VolumeRequest),
+}
+
+impl From<ContainerRequest> for PersistRequest {
+    fn from(value: ContainerRequest) -> Self {
+        match value {
+            ContainerRequest::Image(create_image) => {
+                Self::Deployment(DeploymentRequest::Image(create_image))
+            }
+            ContainerRequest::Volume(create_volume) => {
+                Self::Deployment(DeploymentRequest::Volume(create_volume))
+            }
+            ContainerRequest::Network(create_network) => {
+                Self::Deployment(DeploymentRequest::Network(create_network))
+            }
+            ContainerRequest::DeviceMapping(create_device_mapping) => {
+                Self::Deployment(DeploymentRequest::DeviceMapping(create_device_mapping))
+            }
+            ContainerRequest::DeviceRequest(create_device_request) => {
+                Self::Deployment(DeploymentRequest::DeviceRequest(create_device_request))
+            }
+            ContainerRequest::FileBind(create_file_bind) => {
+                Self::Deployment(DeploymentRequest::FileBind(create_file_bind))
+            }
+            ContainerRequest::EnvFile(create_env_file) => {
+                Self::Deployment(DeploymentRequest::EnvFile(create_env_file))
+            }
+            ContainerRequest::Container(create_container) => {
+                Self::Deployment(DeploymentRequest::Container(create_container))
+            }
+            ContainerRequest::Deployment(create_deployment) => {
+                Self::Deployment(DeploymentRequest::Deployment(create_deployment))
+            }
+            ContainerRequest::DeploymentCommand(deployment_command) => {
+                Self::Deployment(DeploymentRequest::DeploymentCommand(deployment_command))
+            }
+            ContainerRequest::DeploymentUpdate(deployment_update) => {
+                Self::Deployment(DeploymentRequest::DeploymentUpdate(deployment_update))
+            }
+            ContainerRequest::VolumeCommand(volume_command) => {
+                Self::Volume(VolumeRequest::VolumeCommand(volume_command))
+            }
+        }
+    }
+}
+
+enum DeploymentRequest {
+    /// Request to create an image.
+    Image(CreateImage),
+    /// Request to create a volume.
+    Volume(CreateVolume),
+    /// Request to create a network.
+    Network(CreateNetwork),
+    /// Request to create a device mapping.
+    DeviceMapping(CreateDeviceMapping),
+    /// Request to create a device request.
+    DeviceRequest(CreateDeviceRequest),
+    /// Request to create a file bind.
+    FileBind(CreateFileBind),
+    /// Request to create an env file.
+    EnvFile(CreateEnvFile),
+    /// Request to create a container.
+    Container(Box<CreateContainer>),
+    /// Request to create a deployment.
+    Deployment(CreateDeployment),
+    /// Command for a deployment
+    DeploymentCommand(DeploymentCommand),
+    /// Update between two deployments
+    DeploymentUpdate(DeploymentUpdate),
+}
+
+impl DeploymentRequest {
+    pub(crate) fn deployment_id(&self) -> Uuid {
+        match self {
+            DeploymentRequest::Image(value) => value.deployment_id.0,
+            DeploymentRequest::Volume(value) => value.deployment_id.0,
+            DeploymentRequest::Network(value) => value.deployment_id.0,
+            DeploymentRequest::Container(value) => value.deployment_id.0,
+            DeploymentRequest::DeviceMapping(value) => value.deployment_id.0,
+            DeploymentRequest::DeviceRequest(value) => value.deployment_id.0,
+            DeploymentRequest::FileBind(value) => value.deployment_id.0,
+            DeploymentRequest::EnvFile(value) => value.deployment_id.0,
+            DeploymentRequest::Deployment(create_deployment) => create_deployment.id.0,
+            DeploymentRequest::DeploymentCommand(deployment_command) => deployment_command.id,
+            DeploymentRequest::DeploymentUpdate(deployment_update) => deployment_update.from,
+        }
+    }
+}
+
+enum VolumeRequest {
+    /// Request to execute a command on a volume
+    VolumeCommand(VolumeCommand),
+}
 
 /// Handle to the [container service](super::Service).
 #[derive(Debug)]
@@ -77,9 +181,7 @@ impl<D> ServiceHandle<D> {
     {
         let event = ContainerEvent::from(&request);
 
-        let deployment_id = request.deployment_id();
-
-        self.persist_request(deployment_id, request).await;
+        self.persist_request(request.into()).await;
 
         let Some(res) = cancel.run_until_cancelled(self.events.send(event)).await else {
             return Ok(());
@@ -95,46 +197,63 @@ impl<D> ServiceHandle<D> {
     }
 
     #[instrument(skip_all, fields(deployment_id))]
-    async fn persist_request(&mut self, deployment_id: Uuid, request: ContainerRequest)
+    async fn persist_request(&mut self, request: PersistRequest)
     where
         D: Client + Sync + 'static,
     {
-        let res = match request {
-            ContainerRequest::Image(create_image) => self.store.create_image(create_image).await,
-            ContainerRequest::Volume(create_volume) => {
+        match request {
+            PersistRequest::Deployment(deployment_request) => {
+                self.persist_deployment_request(deployment_request).await
+            }
+            PersistRequest::Volume(volume_request) => {
+                self.persist_volume_request(volume_request).await
+            }
+        }
+    }
+
+    #[instrument(skip_all)]
+    async fn persist_deployment_request(&mut self, deployment_request: DeploymentRequest)
+    where
+        D: Client + Sync + 'static,
+    {
+        let deployment_id = deployment_request.deployment_id();
+
+        let res = match deployment_request {
+            DeploymentRequest::Image(create_image) => self.store.create_image(create_image).await,
+            DeploymentRequest::Volume(create_volume) => {
                 self.store.create_volume(create_volume).await
             }
-            ContainerRequest::Network(create_network) => {
+            DeploymentRequest::Network(create_network) => {
                 self.store.create_network(create_network).await
             }
-            ContainerRequest::DeviceMapping(create_device_mapping) => {
+            DeploymentRequest::DeviceMapping(create_device_mapping) => {
                 self.store
                     .create_device_mapping(create_device_mapping)
                     .await
             }
-            ContainerRequest::DeviceRequest(create_device_request) => {
+            DeploymentRequest::DeviceRequest(create_device_request) => {
                 self.store
                     .create_device_request(create_device_request)
                     .await
             }
-            ContainerRequest::FileBind(create_file_bind) => {
+            DeploymentRequest::FileBind(create_file_bind) => {
                 self.store.create_file_bind(create_file_bind).await
             }
-            ContainerRequest::EnvFile(create_env_file) => {
+            DeploymentRequest::EnvFile(create_env_file) => {
                 self.store.create_env_file(create_env_file).await
             }
-            ContainerRequest::Container(create_container) => {
+            DeploymentRequest::Container(create_container) => {
                 self.store.create_container(create_container).await
             }
-            ContainerRequest::Deployment(create_deployment) => {
+            DeploymentRequest::Deployment(create_deployment) => {
                 self.store.create_deployment(create_deployment).await
             }
-            ContainerRequest::DeploymentCommand(DeploymentCommand { id, command }) => {
+            DeploymentRequest::DeploymentCommand(DeploymentCommand { id, command }) => {
                 self.store
                     .update_deployment_status(id, command.into())
                     .await
             }
-            ContainerRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
+            DeploymentRequest::DeploymentUpdate(DeploymentUpdate { from, to }) => {
                 self.store.deployment_update(from, to).await
             }
         };
@@ -147,6 +266,27 @@ impl<D> ServiceHandle<D> {
             DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
                 .send(&deployment_id, &mut self.device)
                 .await;
+        }
+    }
+
+    async fn persist_volume_request(&mut self, volume_request: VolumeRequest)
+    where
+        D: Client + Sync + 'static,
+    {
+        let res = match volume_request {
+            VolumeRequest::VolumeCommand(VolumeCommand {
+                volume_id, command, ..
+            }) => {
+                self.store
+                    .update_volume_status(volume_id, command.into())
+                    .await
+            }
+        };
+
+        if let Err(err) = res {
+            let error = eyre::Report::new(err);
+
+            error!(%error, "couldn't store volume command");
         }
     }
 }
@@ -165,6 +305,8 @@ pub enum ContainerEvent {
     DeploymentCmd(DeploymentCommand),
     /// Deployment update event.
     DeploymentUpdate(DeploymentUpdate),
+    /// Volume command event
+    VolumeCmd(VolumeCommand),
     /// Container runtime event happened.
     ///
     /// We need to handle deletion or a container stopped outside of Edgehog.
@@ -248,6 +390,7 @@ impl From<&ContainerRequest> for ContainerEvent {
             }
             ContainerRequest::DeploymentCommand(cmd) => Self::DeploymentCmd(*cmd),
             ContainerRequest::DeploymentUpdate(update) => Self::DeploymentUpdate(*update),
+            ContainerRequest::VolumeCommand(cmd) => Self::VolumeCmd(*cmd),
         }
     }
 }
@@ -258,6 +401,14 @@ impl From<CommandValue> for DeploymentStatus {
             CommandValue::Start => Self::Started,
             CommandValue::Stop => Self::Stopped,
             CommandValue::Delete => Self::Deleted,
+        }
+    }
+}
+
+impl From<volume::CommandValue> for VolumeStatus {
+    fn from(value: volume::CommandValue) -> Self {
+        match value {
+            volume::CommandValue::Delete => Self::Deleting,
         }
     }
 }

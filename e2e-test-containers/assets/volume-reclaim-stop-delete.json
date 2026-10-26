@@ -1,0 +1,14 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/7d5bc98f-cbfd-47e0-9258-dd8317de0308/command",
+      "data": "Stop"
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.DeploymentCommand",
+      "path": "/7d5bc98f-cbfd-47e0-9258-dd8317de0308/command",
+      "data": "Delete"
+    }
+  ]
+}

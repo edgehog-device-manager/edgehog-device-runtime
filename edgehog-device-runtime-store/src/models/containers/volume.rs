@@ -50,6 +50,86 @@ pub struct Volume {
     pub status: VolumeStatus,
     /// Driver to use for the volume.
     pub driver: String,
+    /// Reclaim policy of the volume.
+    pub reclaim_policy: Option<ReclaimPolicy>,
+}
+
+/// Container reclaim policy
+///
+/// Controls how the volume should be reclaimed when the deployment gets deleted.
+/// If the policy is set to [`ReclaimPolicy::Retain`] it won't be deleted.
+/// To delete a volume with a retain policy an explicit delete command is required.
+#[repr(u8)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, FromSqlRow, AsExpression,
+)]
+#[diesel(sql_type = Integer)]
+pub enum ReclaimPolicy {
+    /// Delete the volume together with the deployment.
+    #[default]
+    Delete,
+    /// Keep the volume even when the deployment gets deleted.
+    Retain,
+}
+
+impl Display for ReclaimPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Delete => write!(f, "Delete"),
+            Self::Retain => write!(f, "Retain"),
+        }
+    }
+}
+
+impl TryFrom<String> for ReclaimPolicy {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "Delete" => Ok(Self::Delete),
+            "Retain" => Ok(Self::Retain),
+            _ => Err("unrecognize ReclaimPolicy command value".to_string()),
+        }
+    }
+}
+
+impl From<ReclaimPolicy> for i32 {
+    fn from(value: ReclaimPolicy) -> Self {
+        (value as u8).into()
+    }
+}
+
+impl TryFrom<i32> for ReclaimPolicy {
+    type Error = String;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(ReclaimPolicy::Delete),
+            1 => Ok(ReclaimPolicy::Retain),
+            _ => Err(format!("unrecognized status value {value}")),
+        }
+    }
+}
+
+impl FromSql<Integer, Sqlite> for ReclaimPolicy {
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> diesel::deserialize::Result<Self> {
+        let value = i32::from_sql(bytes)?;
+
+        Self::try_from(value).map_err(Into::into)
+    }
+}
+
+impl ToSql<Integer, Sqlite> for ReclaimPolicy {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, Sqlite>,
+    ) -> diesel::serialize::Result {
+        let val = i32::from(*self);
+
+        out.set_value(val);
+
+        Ok(IsNull::No)
+    }
 }
 
 impl QueryModel for Volume {
@@ -92,6 +172,8 @@ pub enum VolumeStatus {
     Published = 1,
     /// Created on the runtime.
     Created = 2,
+    /// The volume has to be deleted.
+    Deleting = 3,
 }
 
 impl Display for VolumeStatus {
@@ -100,6 +182,7 @@ impl Display for VolumeStatus {
             VolumeStatus::Received => write!(f, "Received"),
             VolumeStatus::Published => write!(f, "Published"),
             VolumeStatus::Created => write!(f, "Created"),
+            VolumeStatus::Deleting => write!(f, "Deleting"),
         }
     }
 }
@@ -118,6 +201,7 @@ impl TryFrom<i32> for VolumeStatus {
             0 => Ok(VolumeStatus::Received),
             1 => Ok(VolumeStatus::Published),
             2 => Ok(VolumeStatus::Created),
+            3 => Ok(VolumeStatus::Deleting),
             _ => Err(format!("unrecognized status value {value}")),
         }
     }
@@ -154,6 +238,7 @@ mod tests {
             VolumeStatus::Received,
             VolumeStatus::Published,
             VolumeStatus::Created,
+            VolumeStatus::Deleting,
         ];
 
         for exp in variants {
