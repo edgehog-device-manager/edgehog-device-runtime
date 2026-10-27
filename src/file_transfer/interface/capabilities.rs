@@ -40,6 +40,7 @@ pub(crate) const FILESYSTEM_TARGET: &str = "filesystem";
 /// Capabilities of the device
 pub(crate) const CAPABILITIES: Capabilities<3> = Capabilities {
     unix_permissions: true,
+    hook_support: true,
     upload: [
         TargetCapability {
             target: STORAGE_TARGET,
@@ -73,6 +74,7 @@ pub(crate) const CAPABILITIES: Capabilities<3> = Capabilities {
 #[derive(Debug, Clone)]
 pub(crate) struct Capabilities<const T: usize> {
     unix_permissions: bool,
+    hook_support: bool,
     upload: [TargetCapability; T],
     download: [TargetCapability; T],
 }
@@ -97,6 +99,13 @@ impl<const T: usize> Capabilities<T> {
             INTERFACE,
             "/transfer/unixPermissions",
             self.unix_permissions,
+        )
+        .await;
+        set_property(
+            device,
+            INTERFACE,
+            "/transfer/hookSupport",
+            self.hook_support,
         )
         .await;
 
@@ -210,6 +219,16 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
                 predicate::eq("/transfer/unixPermissions"),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_set_property()
+            .once()
+            .with(
+                predicate::eq("io.edgehog.devicemanager.fileTransfer.Capabilities"),
+                predicate::eq("/transfer/hookSupport"),
                 predicate::eq(AstarteData::Boolean(true)),
             )
             .returning(|_, _, _| Ok(()));

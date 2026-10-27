@@ -17,7 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::borrow::Cow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::models::job::Job;
@@ -35,6 +35,7 @@ use crate::file_transfer::interface::capabilities::{
     FILESYSTEM_TARGET, STORAGE_TARGET, STREAMING_TARGET,
 };
 use crate::file_transfer::interface::status::{FileTransferId, TransferDirection};
+use crate::file_transfer::request::CommandHook;
 use crate::jobs::derive;
 
 #[derive(Debug, Clone, PartialEq, minicbor::Encode, minicbor::Decode)]
@@ -51,6 +52,10 @@ pub(crate) struct Upload<'a> {
     pub(crate) encoding: Option<Encoding>,
     #[n(4)]
     pub(crate) source: Source<'a>,
+    #[n(5)]
+    pub(crate) pre_hook: Option<CommandHook<'a>>,
+    #[n(6)]
+    pub(crate) post_hook: Option<CommandHook<'a>>,
 }
 
 impl<'a> Upload<'a> {
@@ -77,6 +82,12 @@ impl<'a> TryFrom<&'a DeviceToServer> for Upload<'a> {
             progress,
             source_type,
             source,
+            pre_hook,
+            post_hook,
+            hook_uid,
+            hook_gid,
+            pre_hook_timeout,
+            post_hook_timeout,
         } = value;
 
         let headers = http_header_keys
@@ -102,6 +113,15 @@ impl<'a> TryFrom<&'a DeviceToServer> for Upload<'a> {
 
         let source = Source::from_str(source_type, source)?;
 
+        let pre_hook = pre_hook
+            .as_deref()
+            .and_then(|s| CommandHook::new(s, *hook_uid, *hook_gid, *pre_hook_timeout).transpose())
+            .transpose()?;
+        let post_hook = post_hook
+            .as_deref()
+            .and_then(|s| CommandHook::new(s, *hook_uid, *hook_gid, *post_hook_timeout).transpose())
+            .transpose()?;
+
         Ok(Self {
             id: id.parse()?,
             url: url.parse()?,
@@ -109,6 +129,8 @@ impl<'a> TryFrom<&'a DeviceToServer> for Upload<'a> {
             encoding: compression,
             progress: progress.unwrap_or(false),
             source,
+            pre_hook,
+            post_hook,
         })
     }
 }
@@ -175,6 +197,22 @@ pub(crate) enum Source<'a> {
 }
 
 impl<'a> Source<'a> {
+    pub(crate) fn target_name(&self) -> &str {
+        match self {
+            Source::Storage { .. } => "storage",
+            Source::Stream => "stream",
+            Source::FileSystem { .. } => "file_system",
+        }
+    }
+
+    pub(crate) fn target_value(&self) -> Option<Cow<'a, Path>> {
+        match self {
+            Source::Storage { id } => Some(Cow::Owned(PathBuf::from(id.to_string()))),
+            Source::Stream => None,
+            Source::FileSystem { path } => Some(path.clone()),
+        }
+    }
+
     #[instrument]
     fn from_str(source_type: &str, source: &'a str) -> eyre::Result<Self> {
         match source_type {
@@ -221,6 +259,8 @@ pub(crate) mod tests {
             source: Source::Storage {
                 id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".parse().unwrap(),
             },
+            pre_hook: None,
+            post_hook: None,
         }
     }
 

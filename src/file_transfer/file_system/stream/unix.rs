@@ -23,8 +23,6 @@ use rustix::fs::Mode;
 use tracing::{debug, info, instrument, trace};
 use uuid::Uuid;
 
-use crate::file_transfer::FileOptions;
-
 use super::Pipe;
 
 #[derive(Debug, Clone)]
@@ -33,13 +31,40 @@ pub(crate) struct MakeFifo {
 }
 
 impl MakeFifo {
+    fn pipe_path(&self, id: &Uuid) -> PathBuf {
+        self.dir.join(id.to_string())
+    }
+
     #[instrument(skip(self))]
-    async fn pipe_path(&self, id: &Uuid) -> eyre::Result<PathBuf> {
+    async fn mk_pipe_path(&self, id: &Uuid) -> eyre::Result<PathBuf> {
         tokio::fs::create_dir_all(&self.dir)
             .await
             .wrap_err("couldn't create streaming directory")?;
 
-        Ok(self.dir.join(id.to_string()))
+        Ok(self.pipe_path(id))
+    }
+
+    #[instrument(skip(self))]
+    async fn create_fifo(&self, id: &Uuid) -> eyre::Result<PathBuf> {
+        let path = self.mk_pipe_path(id).await?;
+
+        let dir = tokio::fs::File::open(&self.dir)
+            .await
+            .wrap_err("failed to open directory")?
+            .into_std()
+            .await;
+
+        trace!(fifo = %path.display(), "opening fifo");
+
+        tokio::task::spawn_blocking({
+            let path = path.clone();
+
+            move || rustix::fs::mkfifoat(dir, path, Mode::RUSR | Mode::WUSR)
+        })
+        .await?
+        .wrap_err("couldn't make fifo")?;
+
+        Ok(path)
     }
 }
 
@@ -59,56 +84,41 @@ impl Pipe for MakeFifo {
         Self { dir }
     }
 
-    #[instrument(skip_all, fields(id = %opt.id))]
-    async fn open_writer(&self, opt: &FileOptions) -> eyre::Result<Self::Writer> {
-        let path = self.pipe_path(&opt.id).await?;
+    fn get_path(&self, id: &Uuid) -> PathBuf {
+        self.pipe_path(id)
+    }
 
-        trace!(fifo = %path.display(), "opening fifo");
+    #[instrument(skip_all, fields(%id))]
+    async fn create_writer(&self, id: &Uuid) -> eyre::Result<Self::Writer> {
+        let path = self.create_fifo(id).await?;
 
-        // TODO: try multiple times to open the fifo before giving up, since the reader could not
-        //       have had the time to open the pipe
         let tx = tokio::net::unix::pipe::OpenOptions::new()
+            .read_write(true)
             .open_sender(&path)
             .wrap_err("couldn't open sender")?;
 
-        info!("fifo opened");
+        info!("fifo opened for write");
 
         Ok(tx)
     }
 
     #[instrument(skip(self))]
     async fn create_reader(&self, id: &Uuid) -> eyre::Result<Self::Reader> {
-        let path = self.pipe_path(id).await?;
-
-        let dir = tokio::fs::File::open(&self.dir)
-            .await
-            .wrap_err("failed to open directory")?
-            .into_std()
-            .await;
-
-        trace!(fifo = %path.display(), "opening fifo");
-
-        tokio::task::spawn_blocking({
-            let path = path.clone();
-
-            move || rustix::fs::mkfifoat(dir, path, Mode::RUSR | Mode::WUSR)
-        })
-        .await?
-        .wrap_err("couldn't make fifo")?;
+        let path = self.create_fifo(id).await?;
 
         let rx = tokio::net::unix::pipe::OpenOptions::new()
             .unchecked(true)
             .open_receiver(&path)
             .wrap_err("couldn't open sender")?;
 
-        info!("fifo opened");
+        info!("fifo opened for read");
 
         Ok(rx)
     }
 
     #[instrument(skip_all)]
-    async fn remove_reader(&self, id: &Uuid) -> eyre::Result<()> {
-        let path = self.pipe_path(id).await?;
+    async fn remove_pipe(&self, id: &Uuid) -> eyre::Result<()> {
+        let path = self.mk_pipe_path(id).await?;
 
         tokio::fs::remove_file(path).await?;
 
@@ -154,7 +164,7 @@ mod tests {
 
         let id = Uuid::new_v4();
 
-        mk.pipe_path(&id).await.unwrap();
+        mk.mk_pipe_path(&id).await.unwrap();
 
         let meta = tokio::fs::metadata(pipe_dir).await.unwrap();
 
@@ -162,7 +172,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn make_pipe() {
+    async fn make_pipe_reader() {
         let (mk, _dir) = mkf();
 
         let exp = b"Hello, World!";
@@ -180,16 +190,57 @@ mod tests {
         };
 
         let rx = mk.create_reader(&opt.id).await.unwrap();
-        let mut tx = mk.open_writer(&opt).await.unwrap();
+        let mut tx = tokio::net::unix::pipe::OpenOptions::new()
+            .open_sender(mk.pipe_path(&opt.id))
+            .unwrap();
 
         let mut buf = vec![0; exp.len()];
-
-        let written = tx.write(exp).await.unwrap();
-        assert_eq!(written, exp.len());
-
         let mut take = rx.take(opt.file_size);
 
-        take.read_exact(&mut buf).await.unwrap();
+        let write = tx.write(exp);
+        let read = take.read(&mut buf);
+
+        let (written, read) = tokio::try_join!(write, read).unwrap();
+
+        assert_eq!(written, exp.len());
+        assert_eq!(read, exp.len());
+
+        assert_eq!(buf, exp);
+    }
+
+    #[tokio::test]
+    async fn make_pipe_writer() {
+        let (mk, _dir) = mkf();
+
+        let exp = b"Hello, World!";
+
+        let opt = FileOptions {
+            id: Uuid::new_v4(),
+            file_size: exp.len().try_into().unwrap(),
+            #[cfg(unix)]
+            perm: FilePermissions {
+                mode: None,
+                user_id: None,
+                group_id: None,
+            },
+            compression: None,
+        };
+
+        let mut tx = mk.create_writer(&opt.id).await.unwrap();
+        let rx = tokio::net::unix::pipe::OpenOptions::new()
+            .open_receiver(mk.pipe_path(&opt.id))
+            .unwrap();
+
+        let mut buf = vec![0; exp.len()];
+        let mut take = rx.take(opt.file_size);
+
+        let write = tx.write(exp);
+        let read = take.read(&mut buf);
+
+        let (written, read) = tokio::try_join!(write, read).unwrap();
+
+        assert_eq!(written, exp.len());
+        assert_eq!(read, exp.len());
 
         assert_eq!(buf, exp);
     }

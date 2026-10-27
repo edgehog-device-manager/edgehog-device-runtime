@@ -17,13 +17,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use eyre::Context;
-use tokio::net::windows::named_pipe::{
-    ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
-};
+use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tracing::{info, instrument, trace};
 use uuid::Uuid;
 
-use crate::file_transfer::FileOptions;
+use std::path::PathBuf;
 
 use super::Pipe;
 
@@ -31,29 +29,36 @@ use super::Pipe;
 pub(crate) struct MakeNamedPipe {}
 
 impl MakeNamedPipe {
-    fn pipe_name(&self, id: &Uuid) -> String {
-        format!(r"\\.\pipe\edgehog-device-runtime-stream-{id}")
+    fn pipe_name(&self, id: &Uuid) -> PathBuf {
+        PathBuf::from(format!(r"\\.\pipe\edgehog-device-runtime-stream-{id}"))
     }
 }
 
 impl Pipe for MakeNamedPipe {
-    type Writer = NamedPipeClient;
+    type Writer = NamedPipeServer;
     type Reader = NamedPipeServer;
 
     fn new() -> Self {
         Self {}
     }
 
-    #[instrument(skip_all, fields(id = %opt.id))]
-    async fn open_writer(&self, opt: &FileOptions) -> eyre::Result<Self::Writer> {
-        let pipe_name = self.pipe_name(&opt.id);
+    fn get_path(&self, id: &Uuid) -> PathBuf {
+        self.pipe_name(id)
+    }
 
-        trace!(pipe_name, "opening client");
+    #[instrument(skip_all, fields(%id))]
+    async fn create_writer(&self, id: &Uuid) -> eyre::Result<Self::Writer> {
+        let pipe_name = self.pipe_name(id);
 
-        let tx = ClientOptions::new()
-            .read(false)
-            .open(pipe_name)
-            .wrap_err("couldn't open client")?;
+        trace!(pipe_name = %pipe_name.display(), "opening server to write");
+
+        let tx = ServerOptions::new()
+            .access_outbound(true)
+            .first_pipe_instance(true)
+            .create(pipe_name)
+            .wrap_err("couldn't create server")?;
+
+        tx.connect().await.wrap_err("couldn't wait client")?;
 
         info!("named pipe opened");
 
@@ -64,7 +69,7 @@ impl Pipe for MakeNamedPipe {
     async fn create_reader(&self, id: &Uuid) -> eyre::Result<Self::Reader> {
         let pipe_name = self.pipe_name(id);
 
-        trace!(pipe_name, "opening server");
+        trace!(pipe_name = %pipe_name.display(), "opening server to read");
 
         let rx = ServerOptions::new()
             .access_outbound(false)
@@ -80,7 +85,7 @@ impl Pipe for MakeNamedPipe {
     }
 
     #[instrument(skip_all)]
-    async fn remove_reader(&self, _id: &Uuid) -> eyre::Result<()> {
+    async fn remove_pipe(&self, _id: &Uuid) -> eyre::Result<()> {
         // NOTE in windows dropping the pipe is sufficient
         Ok(())
     }
@@ -89,7 +94,10 @@ impl Pipe for MakeNamedPipe {
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::windows::named_pipe::ClientOptions,
+    };
     use uuid::Uuid;
 
     use crate::file_transfer::FileOptions;
@@ -114,7 +122,7 @@ mod tests {
     #[rstest::rstest]
     #[timeout(std::time::Duration::from_secs(5))]
     #[tokio::test]
-    async fn make_pipe() {
+    async fn make_pipe_reader() {
         let mk = mkp();
 
         let exp = b"Hello, World!";
@@ -125,8 +133,63 @@ mod tests {
             compression: None,
         };
 
-        let read = mk.create_reader(&opt.id);
-        let write = mk.open_writer(&opt);
+        let id = opt.id;
+
+        let read = tokio::task::spawn({
+            let mk = mk.clone();
+
+            async move { mk.create_reader(&id).await.expect("couldn't create reader") }
+        });
+        let write = tokio::task::spawn_blocking(move || {
+            ClientOptions::new()
+                .read(false)
+                .open(mk.pipe_name(&id))
+                .expect("couldn't open client")
+        });
+
+        let (rx, mut tx) = tokio::try_join!(read, write).unwrap();
+
+        let mut buf = vec![0; exp.len()];
+        let mut take = rx.take(opt.file_size);
+
+        let write = tx.write(exp);
+        let read = take.read(&mut buf);
+
+        let (read, written) = tokio::try_join!(write, read).unwrap();
+
+        assert_eq!(written, exp.len());
+        assert_eq!(read, exp.len());
+
+        assert_eq!(buf, exp);
+    }
+
+    #[rstest::rstest]
+    #[timeout(std::time::Duration::from_secs(5))]
+    #[tokio::test]
+    async fn make_pipe_writer() {
+        let mk = mkp();
+
+        let exp = b"Hello, World!";
+
+        let opt = FileOptions {
+            id: Uuid::new_v4(),
+            file_size: exp.len().try_into().unwrap(),
+            compression: None,
+        };
+
+        let id = opt.id;
+
+        let write = tokio::task::spawn({
+            let mk = mk.clone();
+
+            async move { mk.create_writer(&id).await.expect("couldn't create writer") }
+        });
+        let read = tokio::task::spawn_blocking(move || {
+            ClientOptions::new()
+                .read(true)
+                .open(mk.pipe_name(&id))
+                .expect("couldn't open client")
+        });
 
         let (rx, mut tx) = tokio::try_join!(read, write).unwrap();
 
