@@ -37,8 +37,7 @@ env:
   RUSTDOCFLAGS: -D warnings
   MAIN_CRATE: "{{ .MAIN_CRATE }}"
   SEMVER_RELEASE_TYPE:
-    sh: |
-      [[ "${GITHUB_BASE_REF:-}" =~ release-[0-9]+\.[0-9]+ ]] && echo patch || echo minor
+    sh: bash ./scripts/ci/get-release-type.sh
 
 tasks:
   ci:
