@@ -57,7 +57,7 @@ annotate() {
         return
     fi
 
-    uv run reuse annotate \
+    reuse annotate \
         --copyright 'SECO Mind Srl' \
         --copyright-prefix string \
         --merge-copyrights \

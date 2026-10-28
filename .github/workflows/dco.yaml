@@ -27,19 +27,33 @@ on:
     inputs:
       pr:
         type: string
+
+# Spend CI time only on latest ref
+concurrency:
+  group: dco-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
-  actions: read
-  pull-requests: read
+  contents: read
+
 defaults:
   run:
     shell: bash
 env:
   GH_TOKEN: ${{ github.token }}
+  INPUTS_PR: ${{ inputs.pr }}
+  GH_REPOSITORY: ${{ github.repository }}
 jobs:
   check:
+    name: check
+    permissions:
+      contents: read # clones the repo
+      checks: read # checks the action rollup
+      actions: read # checks the action rollup
+      pull-requests: read # checks the action rollup
     runs-on: ubuntu-26.04
     steps:
-      - run: echo 'Checking DCO status for PR \#'${{ inputs.pr }}''
+      - run: echo "Checking DCO status for PR '\#$INPUTS_PR'"
       - name: check DCO passed
         # Check the DCO only for PRs
         if: inputs.pr != ''
@@ -47,9 +61,9 @@ jobs:
         # Use the gh to view the status checks on the PR, find the one named DCO and check that the
         # conclusion is "SUCCESS" and not something like "ACTION_REQUIRED"
         run: |
-          DCO="$(gh pr view '${{ inputs.pr }}' --json statusCheckRollup \
+          DCO="$(gh pr view "$INPUTS_PR" --json statusCheckRollup \
             --jq '.statusCheckRollup.[] | select ( .name == "DCO" ) | .conclusion ' \
-            --repo ${{ github.repository }}
+            --repo "$GH_REPOSITORY"
           )"
           echo "DCO status is '$DCO'"
           test "$DCO" == "SUCCESS"

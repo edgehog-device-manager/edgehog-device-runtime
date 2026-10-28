@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # This file is part of Edgehog.
 #
 # Copyright 2026 SECO Mind Srl
@@ -6,7 +8,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,15 +18,26 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-[project]
-name = "edgehog-device-runtime"
-version = "0.1.0"
-description = "Python dependencies for scripts and tools"
-readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+set -eEuo pipefail
 
-[dependency-groups]
-dev = [
-    "reuse>=6.2.0",
-]
+# Trap -e errors
+trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
+
+# Let's you enable debug mode in the github action
+if [[ -n ${RUNNER_DEBUG:-} ]]; then
+    set -x
+fi
+
+base_ref="${GITHUB_BASE_REF:-}"
+
+if [[ -z $base_ref ]]; then
+    echo Missing GITHUB_BASE_REF env variable >&2
+fi
+
+if [[ $base_ref = main || $base_ref = master ]]; then
+    echo "major"
+elif [[ $base_ref =~ release-[0-9]+\.[0-9]+ ]]; then
+    echo patch
+else
+    echo minor
+fi
