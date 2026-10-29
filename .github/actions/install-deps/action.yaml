@@ -34,27 +34,13 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev libudev-dev libsystemd-dev upower
-        curl -LO "$PB_REL/download/v$PB_VERSION/protoc-$PB_VERSION-linux-x86_64.zip"
-        unzip "protoc-$PB_VERSION-linux-x86_64.zip" -d "$HOME/.local"
-        rm "protoc-$PB_VERSION-linux-x86_64.zip"
-        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
     - name: Install MacOS system dependencies
       if: ${{ startsWith(inputs.for-image, 'macos-') }}
       shell: bash
       run: |
         echo "nothing to install"
-      # Setup vcpkg binary cache
-      # https://learn.microsoft.com/en-us/vcpkg/users/binarycaching#gha-quickstart
-    - uses: actions/github-script@v9
-      if: ${{ startsWith(inputs.for-image, 'windows-') }}
-      with:
-        script: |
-          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
     - name: Install Windows system dependencies
       if: ${{ startsWith(inputs.for-image, 'windows-') }}
       shell: bash
       run: |
-        echo 'VCPKG_BINARY_SOURCES="clear;x-gha,readwrite"' >>"$GITHUB_ENV"
-        echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >>"$GITHUB_ENV"
         vcpkg install sqlite3:x64-windows-static-md

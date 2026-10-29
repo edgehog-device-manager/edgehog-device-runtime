@@ -21,22 +21,25 @@ updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
     cooldown:
-      default-days: 5
+      default-days: 7
     groups:
       minor-or-patch:
         applies-to: version-updates
         update-types:
           - minor
           - patch
+    commit-message:
+      prefix: chore
+      include: scope
   - package-ecosystem: cargo
     directory: "/"
     versioning-strategy: increase-if-necessary
     schedule:
-      interval: daily
+      interval: weekly
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 30
       semver-minor-days: 7
       semver-patch-days: 3
@@ -46,27 +49,18 @@ updates:
         update-types:
           - minor
           - patch
+    commit-message:
+      prefix: chore
+      include: scope
   - package-ecosystem: rust-toolchain
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 30
       semver-minor-days: 7
       semver-patch-days: 3
-  - package-ecosystem: "uv"
-    directory: "/"
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 5
-      semver-major-days: 30
-      semver-minor-days: 7
-      semver-patch-days: 3
-    groups:
-      minor-or-patch:
-        applies-to: version-updates
-        update-types:
-          - minor
-          - patch
+    commit-message:
+      prefix: chore
+      include: scope

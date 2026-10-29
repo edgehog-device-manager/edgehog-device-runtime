@@ -28,10 +28,12 @@ set: [errexit, nounset, pipefail]
 
 vars:
   MAIN_CRATE: edgehog-device-runtime
-  LIBRARY: false
   MSRV: 1.89
 
 env:
+  IS_CRATE:
+    sh: test -f ./Cargo.toml && echo true || echo false
+  IS_LIBRARY: false
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
   MAIN_CRATE: "{{ .MAIN_CRATE }}"
@@ -49,77 +51,128 @@ tasks:
       - check-spelling
       - check-for-publish
       - check-proto
+      - check-no-yml
+      - check-prettier
+      - check-shell
+      - check-shfmt
       - cargo-fmt
-      - cargo-clippy
-      - cargo-docs-rs
-      - cargo-features
-      - cargo-test
-      - cargo-semver-checks
+      - check-zizmor
     cmds:
-      - task: cargo-msrv
-      - task: cargo-minimal-versions
+      - task: cargo-clippy
+      - task: cargo-test
+      - task: cargo-semver-checks
       - task: coverage
+      - task: cargo-docs-rs
+      - task: cargo-minimal-versions
+      - task: cargo-features
+      - task: cargo-msrv
 
   reuse-lint:
     desc: "Check for files missing the copyright"
-    cmd: uv run reuse lint
+    cmd: reuse lint
 
   check-copyright:
     desc: "Check that the copyright on changed files is up to date"
+    requires:
+      vars:
+        - BASE_REF
     cmds:
-      - ./scripts/ci/add-copyright-to-modified.sh
+      - ./scripts/ci/add-copyright-to-modified.sh  "{{ .BASE_REF }}"
       - git diff --exit-code --name-only
 
   check-spelling:
     desc: "Check for spelling errors"
     cmd: typos
 
+  check-no-yml:
+    desc: "Check that there are no `.yml` instead of `.yaml`"
+    cmd: ./scripts/ci/no-yml-files.sh
+
+  check-prettier:
+    desc: "Format files with prettier"
+    cmds:
+      - cmd: |
+          ./scripts/ci/list-repo-files.sh '*.yaml' '*.json' '*.md' |
+            xargs --max-args 1 -P "$(nproc)"  prettier --write
+      - cmd: git diff --exit-code
+
+  check-shell:
+    desc: "Check statically all the shell files with shellcheck"
+    cmd: |
+      ./scripts/ci/list-repo-files.sh '*.sh' |
+        xargs --max-args 1 -P "$(nproc)" shellcheck
+
+  check-shfmt:
+    desc: "Format all the shell files with shfmt"
+    cmd: |
+      ./scripts/ci/list-repo-files.sh '*.sh'|
+        xargs --max-args 1 -P "$(nproc)" shfmt -w -d -i 4
+
   check-for-publish:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check that the crate can be published"
     cmd: ./scripts/ci/check-for-publish.sh
 
   cargo-fmt:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check cargo fmt"
     cmd: cargo fmt --check --all
 
+  check-zizmor:
+    desc: "Check the Github Action CI"
+    env:
+      OUT_FORMAT:
+        sh: "[[ $CI = true ]] && echo github || echo plain"
+    cmd: zizmor --format "$OUT_FORMAT" ./.github
+
   cargo-clippy:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check cargo clippy"
     cmd: cargo clippy --locked --all-targets --all-features --workspace
 
   cargo-docs-rs:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Check that the doc build on docs.rs"
     cmd: cargo +nightly docs-rs --locked -p '{{ .MAIN_CRATE }}'
 
   cargo-features:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run the test for each features"
     cmd: cargo hack --each-feature test --locked -p  '{{ .MAIN_CRATE }}'
 
   cargo-test:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run all the unit test"
     cmds:
       - cargo nextest run --locked --all-features --workspace
       - cargo test --locked --all-features --doc --workspace
 
   cargo-msrv:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run check with the msrv {{ .MSRV }}"
     cmds:
       - cargo '+{{ .MSRV }}' hack --no-dev-deps check --all-features -p '{{ .MAIN_CRATE }}'
 
   cargo-minimal-versions:
     desc: "Check if the minimal versiosn are correct"
-    if: "{{ .LIBRARY }}"
+    if: '[[ "$IS_LIBRARY" = "true" ]]'
     cmd: cargo minimal-versions check --workspace --ignore-private --detach-path-deps=skip-exact --direct
 
   cargo-semver-checks:
     desc: "Check if the minimal versiosn are correct"
-    if: "{{ .LIBRARY }}"
-    cmd: cargo semver-checks check-release
+    if: '[[ "$IS_LIBRARY" = "true" ]]'
+    env:
+      SEMVER_RELEASE_TYPE:
+        sh: bash ./scripts/ci/get-release-type.sh
+    cmd: cargo semver-checks check-release --release-type "$SEMVER_RELEASE_TYPE"
 
   coverage:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Generate the test coverage"
     cmd: ./scripts/ci/coverage.sh
 
   e2e-test:
+    if: '[[ "$IS_CRATE" = "true" ]]'
     desc: "Run the e2e-test with Astarte"
     cmd: ./scripts/ci/e2e-test.sh
 
