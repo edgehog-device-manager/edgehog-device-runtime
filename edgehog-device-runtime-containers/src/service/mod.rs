@@ -612,27 +612,22 @@ impl<D> Service<D> {
         }
 
         for id in deployment.device_mappings {
-            self.store.delete_device_mapping(id).await?;
+            DeviceMappingResource::unset(&mut self.context(id)).await?;
         }
 
         for id in deployment.device_requests {
-            self.store.delete_device_request(id).await?;
+            DeviceRequestResource::unset(&mut self.context(id)).await?;
         }
 
         for id in deployment.file_binds {
-            self.store.delete_file_bind(id).await?;
+            FileBindResource::unset(&mut self.context(id)).await?;
         }
 
         for id in deployment.env_files {
-            self.store.delete_env_file(id).await?;
+            EnvFileResource::unset(&mut self.context(id)).await?;
         }
 
-        AvailableDeployment::new(&deployment_id)
-            .unset(&mut self.device)
-            .await
-            .map_err(ResourceError::from)?;
-
-        self.store.delete_deployment(deployment_id).await?;
+        Deployment::unset(&mut self.context(deployment_id)).await?;
 
         Ok(())
     }
@@ -2129,6 +2124,46 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
                 predicate::eq(format!("/{}/pulled", image.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceMappings"),
+                predicate::eq(format!("/{}/present", device_mapping.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceRequests"),
+                predicate::eq(format!("/{}/present", device_request.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableFileBinds"),
+                predicate::eq(format!("/{}/present", file_bind.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableEnvFiles"),
+                predicate::eq(format!("/{}/present", env_file.id)),
             )
             .returning(|_, _| Ok(()));
 

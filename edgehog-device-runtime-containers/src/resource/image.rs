@@ -52,6 +52,13 @@ where
 
         Ok(())
     }
+    async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableImage::new(&ctx.id).unset(ctx.device).await?;
+
+        ctx.store.delete_image(ctx.id).await?;
+
+        Ok(())
+    }
 }
 
 impl<D> Create<D> for ImageResource
@@ -121,14 +128,6 @@ where
                 return Err(ResourceError::docker(err));
             }
         }
-
-        Ok(())
-    }
-
-    async fn unset(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        AvailableImage::new(&ctx.id).unset(ctx.device).await?;
-
-        ctx.store.delete_image(ctx.id).await?;
 
         Ok(())
     }

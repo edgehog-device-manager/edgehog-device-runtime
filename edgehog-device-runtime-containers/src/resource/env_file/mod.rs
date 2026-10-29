@@ -128,6 +128,13 @@ where
 
         Ok(())
     }
+    async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableEnvFile::new(&ctx.id).unset(ctx.device).await?;
+
+        ctx.store.delete_env_file(ctx.id).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

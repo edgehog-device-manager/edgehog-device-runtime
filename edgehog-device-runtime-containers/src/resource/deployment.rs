@@ -126,4 +126,12 @@ where
 
         Ok(())
     }
+
+    async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableDeployment::new(&ctx.id).unset(ctx.device).await?;
+
+        ctx.store.delete_deployment(ctx.id).await?;
+
+        Ok(())
+    }
 }
