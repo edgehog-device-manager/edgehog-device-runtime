@@ -29,7 +29,10 @@ use uuid::Uuid;
 use crate::{
     error::DockerError,
     events::deployment::{DeploymentEvent, EventStatus},
-    properties::{deployment::AvailableDeployment, AvailableProp, Client},
+    properties::{
+        deployment::AvailableDeployment, device_mapping::AvailableDeviceMapping, AvailableProp,
+        Client,
+    },
     requests::{
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
         ReqError,
@@ -547,6 +550,11 @@ impl<D> Service<D> {
 
         for id in deployment.device_mapping {
             self.store.delete_device_mapping(id).await?;
+
+            AvailableDeviceMapping::new(&id)
+                .unset(&mut self.device)
+                .await
+                .map_err(ResourceError::from)?;
         }
 
         AvailableDeployment::new(&deployment_id)
