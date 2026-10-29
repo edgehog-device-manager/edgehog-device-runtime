@@ -28,10 +28,7 @@ if [[ -n ${RUNNER_DEBUG:-} ]]; then
     set -x
 fi
 
-files=$(
-    git ls-files --cached --no-deleted |
-        { grep '.yml$' || true; }
-)
+files=$(./scripts/ci/list-repo-files.sh '*.yml')
 
 if [[ -n $files ]]; then
     echo "Yaml files should have a .yaml extension"

@@ -28,10 +28,8 @@ if [[ -n ${RUNNER_DEBUG:-} ]]; then
     set -x
 fi
 
-files=$(
-    git ls-files --cached --no-deleted |
-        { grep '.sh$' || true; }
-)
-
-echo "$files" | xargs --max-args 1 -P "$(nproc)" shfmt -w -d -i 4
-echo "$files" | xargs --max-args 1 -P "$(nproc)" shellcheck
+# Pass the extension as argument
+for glob in "$@"; do
+    # Filter files base with optional extension
+    git ls-files --cached --no-deleted "$glob"
+done

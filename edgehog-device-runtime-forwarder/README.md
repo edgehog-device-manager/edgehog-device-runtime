@@ -1,6 +1,21 @@
-<!---
-  Copyright 2024 SECO Mind Srl
-  SPDX-License-Identifier: Apache-2.0
+<!--
+This file is part of Edgehog.
+
+Copyright 2024, 2026 SECO Mind Srl
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 -->
 
 # Edgehog Device Runtime Forwarder Library
@@ -11,7 +26,7 @@ The Edgehog Device Runtime Forwarder Library facilitates the communication and i
 between devices and Edgehog through WebSocket connections. This could be useful in the scenario where a remote user, who
 has access to Edgehog, wishes to open a remote terminal exposed by the device on a specific port and make it
 accessible through a WebSocket connection.
-This README provides a guide to  understanding the structure of the library and how its components work together.
+This README provides a guide to understanding the structure of the library and how its components work together.
 
 ## Sequence Diagram
 
@@ -51,7 +66,7 @@ a web page, the end user gains access to a terminal.
 
 - Establishes a WebSocket connection between the device and Edgehog.
 - Acts as a multiplexer for forwarding messages between Edgehog and internal device connections (e.g., with
-[ttyd](https://github.com/tsl0922/ttyd)).
+  [ttyd](https://github.com/tsl0922/ttyd)).
 - Handles WebSocket frames (carrying HTTP requests/responses or other WebSocket frames), decoding binary data into an
   internal Rust representation.
 - Handles reconnection operations on WebSocket errors.
@@ -66,7 +81,7 @@ a web page, the end user gains access to a terminal.
 ### Connection
 
 - Defines `Connection` and `ConnectionHandle` structs, necessary to create new connections. At the moment, the only
-supported connections types are HTTP and WebSocket.
+  supported connections types are HTTP and WebSocket.
 - Spawns Tokio tasks responsible for managing connections.
 - Sends messages and encodes responses into protobuf messages.
 

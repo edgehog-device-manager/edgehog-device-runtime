@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.13.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-store-v0.12.2...edgehog-device-runtime-store-v0.13.0) - 2026-10-09
+
 ### `edgehog-device-runtime-store` - [0.13.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-store-v0.12.2...edgehog-device-runtime-store-v0.13.0) - 2026-10-09
 
 #### Added
@@ -37,13 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - _(proto)_ move the service proto to the repo
 
-
 ## [0.12.2](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.12.1...v0.12.2) - 2026-08-25
 
 ### Added
 
 - _(astarte)_ update to v0.15 and make fields optional
-
 
 ## [0.12.1](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.12.0...v0.12.1) - 2026-07-30
 

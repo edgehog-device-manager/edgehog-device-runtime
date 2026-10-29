@@ -28,7 +28,6 @@ set: [errexit, nounset, pipefail]
 
 vars:
   MAIN_CRATE: edgehog-device-runtime
-  LIBRARY: false
   MSRV: 1.89
 
 env:
@@ -55,6 +54,7 @@ tasks:
       - check-no-yml
       - check-prettier
       - check-shell
+      - check-shfmt
       - cargo-fmt
       - check-zizmor
     cmds:
@@ -90,11 +90,23 @@ tasks:
 
   check-prettier:
     desc: "Format files with prettier"
-    cmd: prettier --check --write .
+    cmds:
+      - cmd: |
+          ./scripts/ci/list-repo-files.sh '*.yaml' '*.json' '*.md' |
+            xargs --max-args 1 -P "$(nproc)"  prettier --write
+      - cmd: git diff --exit-code
 
   check-shell:
-    desc: "Format and check all the shell files"
-    cmd: ./scripts/ci/check-shell.sh
+    desc: "Check statically all the shell files with shellcheck"
+    cmd: |
+      ./scripts/ci/list-repo-files.sh '*.sh' |
+        xargs --max-args 1 -P "$(nproc)" shellcheck
+
+  check-shfmt:
+    desc: "Format all the shell files with shfmt"
+    cmd: |
+      ./scripts/ci/list-repo-files.sh '*.sh'|
+        xargs --max-args 1 -P "$(nproc)" shfmt -w -d -i 4
 
   check-for-publish:
     if: '[[ "$IS_CRATE" = "true" ]]'

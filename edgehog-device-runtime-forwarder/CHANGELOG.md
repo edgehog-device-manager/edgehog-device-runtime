@@ -31,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - _(astarte)_ update to v0.15 and make fields optional
 
-
 ## [0.12.1](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.12.0...v0.12.1) - 2026-07-30
 
 ## [0.12.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-forwarder-v0.11.1...edgehog-device-runtime-forwarder-v0.12.0) - 2026-07-23
