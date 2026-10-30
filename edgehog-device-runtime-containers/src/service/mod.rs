@@ -30,7 +30,10 @@ use crate::{
     Docker,
     error::DockerError,
     events::deployment::{DeploymentEvent, EventStatus},
-    properties::{AvailableProp, Client, deployment::AvailableDeployment},
+    properties::{
+        AvailableProp, Client, deployment::AvailableDeployment,
+        device_mapping::AvailableDeviceMapping, device_request::AvailableDeviceRequest,
+    },
     requests::{
         ReqError,
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
@@ -606,10 +609,20 @@ impl<D> Service<D> {
         }
 
         for id in deployment.device_mappings {
+            AvailableDeviceMapping::new(&id)
+                .unset(&mut self.device)
+                .await
+                .map_err(ResourceError::from)?;
+
             self.store.delete_device_mapping(id).await?;
         }
 
         for id in deployment.device_requests {
+            AvailableDeviceRequest::new(&id)
+                .unset(&mut self.device)
+                .await
+                .map_err(ResourceError::from)?;
+
             self.store.delete_device_request(id).await?;
         }
 

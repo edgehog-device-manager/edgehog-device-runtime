@@ -25,6 +25,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-10-29
+
+### Other
+
+- (v0.10.7): forward port the release
+
+## [0.10.7] - 2026-10-29
+
+### Fixed
+
+- (containers): unset resources without the Create trait
+
 ## [0.12.2](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.12.1...v0.12.2) - 2026-08-25
 
 ### Added
@@ -39,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - _(fileTransfer)_ add the file transfer interface
+
+## [0.11.2] - 2026-06-12
+
+### Changed
+
+- (securityEvents) don't forward sdk events
 
 ## [0.11.1] - 2026-05-27
 

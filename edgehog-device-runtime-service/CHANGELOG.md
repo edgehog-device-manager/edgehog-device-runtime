@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - _(v0.11.1)_ forward port the release
 
+## [0.11.2] - 2026-06-12
+
 ## [0.11.1] - 2026-05-27
 
 ## [0.11.0] - 2026-05-26
