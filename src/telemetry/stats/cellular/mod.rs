@@ -347,20 +347,20 @@ impl CellularConnectionStatusTelemetry {
 
             let modem_base = ModemProxy::builder(conn)
                 .path(&path)
-                .wrap_err("invalid modem path")?
                 .build()
-                .await?;
+                .await
+                .wrap_err("couldn't build the modem proxy")?;
 
             let device_id = modem_base.device_identifier().await?;
 
             if interfaces.contains_key("org.freedesktop.ModemManager1.Modem.Simple") {
-                let modem_simple = SimpleProxy::builder(conn).path(&path)?.build().await?;
+                let modem_simple = SimpleProxy::builder(conn).path(&path).build().await?;
 
                 Self::handle_modem_simple(&mut status, &modem_simple).await?;
             }
 
             if interfaces.contains_key("org.freedesktop.ModemManager1.Modem.Location") {
-                let modem_location = LocationProxy::builder(conn).path(&path)?.build().await?;
+                let modem_location = LocationProxy::builder(conn).path(&path).build().await?;
 
                 Self::handle_modem_location(&mut status, &modem_location).await?;
             }

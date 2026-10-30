@@ -16,17 +16,17 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-pub(crate) mod upower;
-
 use astarte_device_sdk::IntoAstarteObject;
 use astarte_device_sdk::chrono::Utc;
 use tracing::{debug, error};
-use zbus::zvariant::OwnedObjectPath;
+use zbus::OwnedObjectPath;
 
 use self::upower::{BatteryState, DeviceProxy, PowerDeviceType, UPowerProxy};
 use crate::Client;
 use crate::data::send_object_with_timestamp;
 use crate::telemetry::sender::TelemetryTask;
+
+pub(crate) mod upower;
 
 pub(crate) const INTERFACE: &str = "io.edgehog.devicemanager.BatteryStatus";
 
@@ -58,7 +58,7 @@ impl BatteryStatus {
         device_path: &OwnedObjectPath,
     ) -> eyre::Result<Option<(String, Self)>> {
         let device = DeviceProxy::builder(connection)
-            .path(device_path)?
+            .path(device_path)
             .build()
             .await?;
 

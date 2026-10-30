@@ -98,7 +98,7 @@ impl GeolocationTelemetry {
         debug!(%client_path);
 
         let client = geoclue::ClientProxy::builder(conn)
-            .path(client_path)?
+            .path(client_path)
             .build()
             .await?;
 
@@ -116,9 +116,9 @@ impl GeolocationTelemetry {
         // Create a proxy for the Location object
         let location = geoclue::LocationProxy::builder(conn)
             .path(location_path)
-            .wrap_err("location not available yet")?
             .build()
-            .await?;
+            .await
+            .wrap_err("location not available yet")?;
 
         // Read the properties
         let latitude = location.latitude().await?;
