@@ -23,7 +23,8 @@
 use std::future::Future;
 
 use astarte_device_sdk::error::AstarteError;
-use tracing::{debug, warn};
+use futures::future;
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -116,6 +117,16 @@ where
 {
     const RESOURCE_NAME: &str;
 
+    /// Publish an error in a resource.
+    fn error<E>(_ctx: &mut Context<'_, D>, error: &E) -> impl Future<Output = ()> + Send
+    where
+        E: std::error::Error + Send + Sync,
+    {
+        error!(%error, "error in '{}' resource", Self::RESOURCE_NAME);
+
+        future::ready(())
+    }
+
     /// Fetches and updates the state of the resource
     fn fetch(
         ctx: &mut Context<'_, D>,
@@ -143,15 +154,23 @@ where
             })
         })?;
 
-        match state {
+        let result = match state {
             State::Missing => {
                 debug!("resource missing, creating it");
 
-                resource.create(&mut ctx).await?;
+                resource.create(&mut ctx).await
             }
             State::Created => {
                 debug!("resource already created");
+
+                return Ok(resource);
             }
+        };
+
+        if let Err(error) = result {
+            Self::error(&mut ctx, &error).await;
+
+            return Err(error);
         }
 
         Ok(resource)
@@ -165,15 +184,23 @@ where
             })
         })?;
 
-        match state {
+        let result = match state {
             State::Missing => {
                 debug!("resource already missing");
+
+                return Ok(());
             }
             State::Created => {
                 debug!("resource found, deleting it");
 
-                resource.delete(&mut ctx).await?
+                resource.delete(&mut ctx).await
             }
+        };
+
+        if let Err(error) = result {
+            Self::error(&mut ctx, &error).await;
+
+            return Err(error);
         }
 
         resource.unset(&mut ctx).await?;

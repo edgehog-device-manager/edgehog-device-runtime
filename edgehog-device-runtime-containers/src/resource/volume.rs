@@ -17,7 +17,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use edgehog_store::models::containers::volume::{ReclaimPolicy, VolumeStatus};
-use tracing::{debug, instrument};
+use tracing::{debug, error, instrument};
 
 use crate::{
     properties::{
@@ -60,15 +60,25 @@ impl VolumeResource {
             return Ok(());
         }
 
-        match state {
+        debug!("deleting volume");
+
+        let result = match state {
             State::Missing => {
                 debug!("resource already missing");
+
+                return Ok(());
             }
             State::Created => {
                 debug!("resource found, deleting it");
 
-                resource.delete(&mut ctx).await?
+                resource.delete(&mut ctx).await
             }
+        };
+
+        if let Err(error) = result {
+            Self::error(&mut ctx, &error).await;
+
+            return Err(error);
         }
 
         resource.unset(&mut ctx).await?;
@@ -100,7 +110,22 @@ impl<D> Create<D> for VolumeResource
 where
     D: Client + Send + Sync + 'static,
 {
-    const RESOURCE_NAME: &str = "voulume";
+    const RESOURCE_NAME: &str = "volume";
+
+    async fn error<E>(ctx: &mut Context<'_, D>, error: &E)
+    where
+        E: std::error::Error + Send + Sync,
+    {
+        error!(%error, "error in volume resource");
+
+        let result = AvailableVolume::new(&ctx.id)
+            .send(ctx.device, AvailableVolumeStatus::Error)
+            .await;
+
+        if let Err(error) = result {
+            error!(%error, "error while updating resource status to error");
+        }
+    }
 
     async fn fetch(ctx: &mut Context<'_, D>) -> Result<Option<(State, Self)>> {
         let Some(resource) = ctx.store.find_volume(ctx.id).await? else {

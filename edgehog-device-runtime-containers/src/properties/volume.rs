@@ -139,8 +139,8 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
-                predicate::eq(format!("/{id}/created")),
-                predicate::eq(AstarteData::Boolean(true)),
+                predicate::eq(format!("/{id}/status")),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Present)),
             )
             .returning(|_, _, _| Ok(()));
         client
@@ -149,8 +149,8 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
-                predicate::eq(format!("/{id}/status")),
-                predicate::eq(AstarteData::from(AvailableVolumeStatus::Present)),
+                predicate::eq(format!("/{id}/created")),
+                predicate::eq(AstarteData::Boolean(true)),
             )
             .returning(|_, _, _| Ok(()));
 
@@ -169,6 +169,15 @@ mod tests {
         let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
         let mut seq = Sequence::new();
 
+        client
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{id}/status")),
+            )
+            .returning(|_, _| Ok(()));
         client
             .expect_unset_property()
             .once()

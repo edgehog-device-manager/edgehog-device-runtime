@@ -960,6 +960,7 @@ mod tests {
     use crate::network::{Network, NetworkId};
     use crate::properties::container::ContainerStatus;
     use crate::properties::deployment::DeploymentStatus;
+    use crate::properties::volume::AvailableVolumeStatus;
     use crate::requests::ContainerRequest;
     use crate::requests::container::tests::{create_container_req, create_container_request_event};
     use crate::requests::deployment::tests::create_deployment_request_event;
@@ -1056,6 +1057,18 @@ mod tests {
         client: &mut Docker,
     ) {
         let endpoint = format!("/{id}/created");
+        let endpoint_status = format!("/{id}/status");
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint_status.clone()),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
         device
             .expect_set_property()
             .once()
@@ -1074,6 +1087,16 @@ mod tests {
             .with(predicate::eq(id.to_string()))
             .returning(|_| Err(not_found_response()));
 
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(endpoint_status.clone()),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
         device
             .expect_set_property()
             .once()
@@ -1655,6 +1678,16 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
                 predicate::eq(format!("/{}/created", volume.id)),
                 predicate::eq(AstarteData::from(false)),
             )
@@ -1670,6 +1703,16 @@ mod tests {
             })
             .returning(|_| Ok(Default::default()));
 
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Present)),
+            )
+            .returning(|_, _, _| Ok(()));
         device
             .expect_set_property()
             .once()
@@ -2093,11 +2136,30 @@ mod tests {
             .in_sequence(&mut seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+                predicate::eq(AstarteData::from(AvailableVolumeStatus::Deleting)),
+            )
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
                 predicate::eq(format!("/{}/created", volume.id)),
                 predicate::eq(AstarteData::Boolean(false)),
             )
             .returning(|_, _, _| Ok(()));
 
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableVolumes"),
+                predicate::eq(format!("/{}/status", volume.id)),
+            )
+            .returning(|_, _| Ok(()));
         device
             .expect_unset_property()
             .once()
