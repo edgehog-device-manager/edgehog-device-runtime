@@ -32,7 +32,10 @@ use crate::{
     Docker,
     error::DockerError,
     events::deployment::{DeploymentEvent, EventStatus},
-    properties::{AvailableProp, Client, deployment::AvailableDeployment},
+    properties::{
+        AvailableProp, Client, deployment::AvailableDeployment,
+        device_mapping::AvailableDeviceMapping, device_request::AvailableDeviceRequest,
+    },
     requests::{
         ReqError,
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
@@ -612,10 +615,20 @@ impl<D> Service<D> {
         }
 
         for id in deployment.device_mappings {
+            AvailableDeviceMapping::new(&id)
+                .unset(&mut self.device)
+                .await
+                .map_err(ResourceError::from)?;
+
             self.store.delete_device_mapping(id).await?;
         }
 
         for id in deployment.device_requests {
+            AvailableDeviceRequest::new(&id)
+                .unset(&mut self.device)
+                .await
+                .map_err(ResourceError::from)?;
+
             self.store.delete_device_request(id).await?;
         }
 
@@ -2129,6 +2142,26 @@ mod tests {
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
                 predicate::eq(format!("/{}/pulled", image.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceMappings"),
+                predicate::eq(format!("/{}/present", device_mapping.id)),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableDeviceRequests"),
+                predicate::eq(format!("/{}/present", device_request.id)),
             )
             .returning(|_, _| Ok(()));
 
