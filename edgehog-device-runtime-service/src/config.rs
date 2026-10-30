@@ -18,109 +18,26 @@
 
 //! Configuration for the service
 
-use std::net::{SocketAddr, SocketAddrV4};
-use std::path::PathBuf;
-
-use serde::{Deserialize, Serialize};
+use edgehog_config::service::{Listener, ServiceConfig};
 
 /// Configuration for the [`EdgehogService`](crate::service::EdgehogService)
-#[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
-pub struct Config {
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ServiceArgs {
     /// Flag to enable the service
-    #[serde(default)]
     pub enabled: bool,
     /// Listener for the service
-    #[serde(default)]
     pub listener: Listener,
 }
 
-/// Listener for the service
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Listener {
-    /// Unix domain socket
-    Unix(PathBuf),
-    /// TCP socket
-    Socket(SocketAddr),
-}
+impl From<Option<ServiceConfig>> for ServiceArgs {
+    fn from(value: Option<ServiceConfig>) -> Self {
+        let Some(ServiceConfig { enabled, listener }) = value else {
+            return Self::default();
+        };
 
-impl Default for Listener {
-    fn default() -> Self {
-        if cfg!(unix) {
-            let path = std::env::var("XDG_RUNTIME_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("/tmp"))
-                .join("edgehog-device-runtime.sock");
-
-            Listener::Unix(path)
-        } else {
-            Listener::Socket(SocketAddr::V4(SocketAddrV4::new(
-                std::net::Ipv4Addr::LOCALHOST,
-                50052,
-            )))
+        Self {
+            enabled: enabled.unwrap_or(true),
+            listener: listener.unwrap_or_default(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::net::{Ipv4Addr, SocketAddrV4};
-
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    #[test]
-    #[cfg(unix)]
-    fn get_default_unix() {
-        let root = std::env::var("XDG_RUNTIME_DIR").unwrap_or("/tmp".to_string());
-        let mut path = PathBuf::from(root);
-
-        path.push("edgehog-device-runtime.sock");
-
-        let exp = Config {
-            enabled: false,
-            listener: Listener::Unix(path),
-        };
-
-        assert_eq!(Config::default(), exp);
-    }
-
-    #[test]
-    fn should_deserialize_config() {
-        let file = r#"
-        [listener]
-        unix = "/foo"
-        "#;
-
-        let exp = Config {
-            enabled: false,
-            listener: Listener::Unix(PathBuf::from("/foo")),
-        };
-
-        let res: Config = toml::from_str(file).unwrap();
-
-        assert_eq!(res, exp);
-    }
-
-    #[test]
-    fn should_serialize_config() {
-        let exp = r#"enabled = true
-
-[listener]
-socket = "0.0.0.0:8080"
-"#;
-
-        let conf = Config {
-            enabled: true,
-            listener: Listener::Socket(SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::UNSPECIFIED,
-                8080,
-            ))),
-        };
-
-        let res = toml::to_string_pretty(&conf).unwrap();
-
-        assert_eq!(res, exp);
     }
 }

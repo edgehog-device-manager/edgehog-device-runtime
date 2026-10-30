@@ -29,7 +29,8 @@ rust-version.workspace = true
 astarte-device-sdk = { workspace = true, features = ["derive"] }
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
-edgehog-device-runtime = { path = ".." }
+edgehog.workspace = true
+edgehog-service.workspace = true
 eyre.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -51,9 +52,9 @@ features = [
 ]
 
 [features]
-message-hub = ["edgehog-device-runtime/message-hub"]
+message-hub = ["edgehog/message-hub"]
 # It's not strictly required, but in development it will show an error in the device manager option
 # when compiling with the flags all-features and workspace enabled
-containers = ["edgehog-device-runtime/containers"]
-service = ["edgehog-device-runtime/service"]
-forwarder = ["edgehog-device-runtime/forwarder"]
+containers = ["edgehog/containers"]
+service = ["edgehog/service"]
+forwarder = ["edgehog/forwarder"]

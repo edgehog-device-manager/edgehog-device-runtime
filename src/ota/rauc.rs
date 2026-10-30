@@ -18,6 +18,7 @@
 
 use std::task::Poll;
 
+use edgehog_config::ota::RaucDbus;
 use eyre::Context;
 use futures::stream::FusedStream;
 use futures::{Stream, StreamExt, TryStreamExt, future, ready};
@@ -26,11 +27,10 @@ use tracing::{debug, error, info, instrument, warn};
 use zbus::proxy;
 use zbus::zvariant::{DeserializeDict, SerializeDict, Type};
 
-use crate::ota::config::RaucDbus;
 use crate::ota::{DeployProgress, DeployStatus, SystemUpdate};
 
 use super::ProgressStream;
-use super::config::OtaConfig;
+use super::config::OtaArgs;
 
 #[derive(DeserializeDict, SerializeDict, Type, Debug)]
 #[zvariant(signature = "dict")]
@@ -205,7 +205,7 @@ impl SystemUpdate for OTARauc<'static> {
 
 impl<'a> OTARauc<'a> {
     #[instrument]
-    pub async fn connect(config: &OtaConfig) -> eyre::Result<OTARauc<'a>> {
+    pub async fn connect(config: &OtaArgs) -> eyre::Result<OTARauc<'a>> {
         let connection = match &config.rauc.dbus_socket {
             RaucDbus::System => zbus::Connection::system().await?,
             RaucDbus::Session => zbus::Connection::session().await?,
