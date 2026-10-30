@@ -1,0 +1,9 @@
+{
+  "events": [
+    {
+      "interface": "io.edgehog.devicemanager.apps.VolumeCommand",
+      "path": "/b5796ba7-c58b-4bcb-8c27-99c2eb687632/command",
+      "data": "Delete"
+    }
+  ]
+}

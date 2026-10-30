@@ -18,7 +18,11 @@
 
 //! Create image request
 
-use astarte_device_sdk::FromEvent;
+use astarte_device_sdk::{
+    AstarteData, FromEvent, astarte_device_error, event::FromEventError, types::TypeError,
+};
+use tracing::error;
+use uuid::Uuid;
 
 use super::ReqUuid;
 
@@ -38,6 +42,75 @@ pub struct CreateVolume {
     #[mapping(required)]
     pub(crate) driver: String,
     pub(crate) options: Option<Vec<String>>,
+    pub(crate) reclaim_policy: Option<String>,
+}
+
+/// Command submitted to a specific volume.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VolumeCommand {
+    pub(crate) volume_id: Uuid,
+    pub(crate) command: CommandValue,
+}
+
+impl FromEvent for VolumeCommand {
+    type Err = astarte_device_error::Error<FromEventError>;
+
+    fn from_event(event: astarte_device_sdk::DeviceEvent) -> Result<Self, Self::Err> {
+        let volume_id = event
+            .path
+            .strip_prefix('/')
+            .and_then(|path| path.strip_suffix("/command"))
+            .and_then(|id| Uuid::parse_str(id).ok())
+            .ok_or_else(|| {
+                astarte_device_error::Error::with(
+                    FromEventError::Interface(astarte_device_sdk::error::InterfaceError::Path),
+                    "not a valid volume command path",
+                )
+            })?;
+
+        let event = VolumeCommandEvent::from_event(event)?;
+
+        match event {
+            VolumeCommandEvent::Command(command) => Ok(Self { volume_id, command }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromEvent, PartialEq, Eq, PartialOrd, Ord)]
+#[from_event(
+    interface = "io.edgehog.devicemanager.apps.VolumeCommand",
+    aggregation = "individual"
+)]
+enum VolumeCommandEvent {
+    #[mapping(endpoint = "/%{volume_id}/command")]
+    Command(CommandValue),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum CommandValue {
+    /// delete a retained container
+    Delete,
+}
+
+impl TryFrom<AstarteData> for CommandValue {
+    type Error = astarte_device_error::Error<TypeError>;
+
+    fn try_from(value: AstarteData) -> Result<Self, Self::Error> {
+        let value = String::try_from(value)?;
+
+        match value.as_str() {
+            "Delete" => Ok(Self::Delete),
+            _ => {
+                error!("unrecognize VolumeCommand command value {value}");
+
+                Err(astarte_device_error::Error::with(
+                    TypeError::Conversion,
+                    "unrecognize VolumeCommand command value",
+                )
+                .set_ctx(value))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -64,6 +137,7 @@ pub(crate) mod tests {
                 .map(str::to_string)
                 .to_vec(),
             ),
+            reclaim_policy: Some("Delete".to_string()),
         }
     }
 
@@ -81,6 +155,10 @@ pub(crate) mod tests {
             (
                 "options".to_string(),
                 AstarteData::StringArray(volume.options.clone().unwrap_or_default()),
+            ),
+            (
+                "reclaimPolicy".to_string(),
+                AstarteData::String(volume.reclaim_policy.clone().unwrap_or_default()),
             ),
         ]
         .into_iter()
