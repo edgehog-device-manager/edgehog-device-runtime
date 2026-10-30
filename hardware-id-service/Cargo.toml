@@ -6,7 +6,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,7 +35,12 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true, features = ["v5", "v4"] }
-zbus = { workspace = true, default-features = false, features = ["tokio"] }
+
+[dependencies.zbus]
+workspace = true
+default-features = false
+features = ["tokio-multithread", "tracing", "object-manager", "proxy", "service"]
+optional = true
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 procfs.workspace = true

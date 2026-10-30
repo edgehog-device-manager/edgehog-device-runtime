@@ -70,7 +70,7 @@ pub trait Rauc {
     fn install_bundle(
         &self,
         source: &str,
-        args: std::collections::HashMap<String, zbus::zvariant::Value<'_>>,
+        args: std::collections::HashMap<String, zbus::Variant<'_>>,
     ) -> zbus::Result<()>;
 
     /// Provides bundle info.

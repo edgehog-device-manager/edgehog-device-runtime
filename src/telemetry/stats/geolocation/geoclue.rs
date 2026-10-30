@@ -45,13 +45,13 @@ pub(crate) trait Manager {
     fn add_agent(&self, id: &str) -> zbus::Result<()>;
 
     /// CreateClient method
-    fn create_client(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn create_client(&self) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// DeleteClient method
-    fn delete_client(&self, client: &zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
+    fn delete_client(&self, client: &zbus::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// GetClient method
-    fn get_client(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn get_client(&self) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// AvailableAccuracyLevel property
     #[zbus(property)]
@@ -91,8 +91,8 @@ pub(crate) trait Client {
     #[zbus(signal)]
     fn location_updated(
         &self,
-        old: zbus::zvariant::ObjectPath<'_>,
-        new: zbus::zvariant::ObjectPath<'_>,
+        old: zbus::ObjectPath<'_>,
+        new: zbus::ObjectPath<'_>,
     ) -> zbus::Result<()>;
 
     /// Active property
@@ -113,7 +113,7 @@ pub(crate) trait Client {
 
     /// Location property
     #[zbus(property)]
-    fn location(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn location(&self) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// RequestedAccuracyLevel property
     #[zbus(property)]
