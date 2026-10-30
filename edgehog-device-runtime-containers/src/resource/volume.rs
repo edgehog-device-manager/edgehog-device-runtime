@@ -85,7 +85,7 @@ where
             .await?;
 
         if exists {
-            Ok(Some((State::Created, resource)))
+            Ok(Some((State::Existing, resource)))
         } else {
             Ok(Some((State::Missing, resource)))
         }

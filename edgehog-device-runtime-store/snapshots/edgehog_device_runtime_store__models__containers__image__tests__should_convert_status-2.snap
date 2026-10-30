@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-store/src/models/containers/image.rs
+expression: "format!(\"{exp} = {val}\")"
+---
+Published = 1

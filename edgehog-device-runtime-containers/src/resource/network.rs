@@ -89,7 +89,7 @@ where
                 .update_network_local_id(ctx.id, resource.network.id.id.clone())
                 .await?;
 
-            Ok(Some((State::Created, resource)))
+            Ok(Some((State::Existing, resource)))
         } else {
             Ok(Some((State::Missing, resource)))
         }
