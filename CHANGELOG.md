@@ -25,6 +25,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.13.0...v0.13.1) - 2026-10-30
+### `edgehog-device-runtime` - [0.13.1](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.13.0...v0.13.1) - 2026-10-30
+
+#### Fixed
+
+- _(ci)_ change permissions
+
+
+
+
+
+
+## [0.13.1](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.0...edgehog-device-runtime-containers-v0.13.1) - 2026-10-30
+### `edgehog-device-runtime-containers` - [0.13.1](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.0...edgehog-device-runtime-containers-v0.13.1) - 2026-10-30
+
+#### Added
+
+- _(containers)_ add unset method to all resources
+
+
+
 ## [0.13.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-store-v0.12.2...edgehog-device-runtime-store-v0.13.0) - 2026-10-09
 
 ### `edgehog-device-runtime-store` - [0.13.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-store-v0.12.2...edgehog-device-runtime-store-v0.13.0) - 2026-10-09
