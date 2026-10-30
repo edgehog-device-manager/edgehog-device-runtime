@@ -134,7 +134,7 @@ uuid = "1.23.1"
 walkdir = "2.5.0"
 wifiscanner = "0.5.1"
 windows-sys = "0.61.2"
-zbus = { version = "5.16.0", default-features = false }
+zbus = { version = "6.2.0", default-features = false }
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
@@ -177,7 +177,6 @@ url.workspace = true
 uuid = { workspace = true, features = ["serde", "v4", "v5"] }
 walkdir.workspace = true
 wifiscanner = { workspace = true, optional = true }
-zbus = { workspace = true, default-features = false, features = ["tokio"], optional = true }
 
 [dependencies.reqwest]
 workspace = true
@@ -190,6 +189,12 @@ features = [
   "system-proxy",
   "gzip",
 ]
+
+[dependencies.zbus]
+workspace = true
+default-features = false
+features = ["tokio-multithread", "tracing", "object-manager", "proxy"]
+optional = true
 
 [dev-dependencies]
 astarte-device-sdk-mock.workspace = true

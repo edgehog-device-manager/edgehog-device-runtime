@@ -100,9 +100,9 @@ where
 
         let modem_base = ModemProxy::builder(&conn)
             .path(&path)
-            .wrap_err("invalid modem path")?
             .build()
-            .await?;
+            .await
+            .wrap_err("couldn't build modem proxy")?;
 
         let device_id = modem_base
             .device_identifier()
@@ -143,7 +143,6 @@ async fn handle_sim(
 
         let sim = SimProxy::builder(conn)
             .path(&sim_path)
-            .wrap_err("invalid sim path")?
             .build()
             .await
             .wrap_err("couldn't build sim")?;
