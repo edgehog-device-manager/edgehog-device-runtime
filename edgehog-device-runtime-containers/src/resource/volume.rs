@@ -53,6 +53,13 @@ where
 
         Ok(())
     }
+    async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableVolume::new(&ctx.id).unset(ctx.device).await?;
+
+        ctx.store.delete_volume(ctx.id).await?;
+
+        Ok(())
+    }
 }
 
 impl<D> Create<D> for VolumeResource
@@ -104,14 +111,6 @@ where
             .remove(ctx.client)
             .await
             .map_err(ResourceError::docker)?;
-
-        Ok(())
-    }
-
-    async fn unset(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        AvailableVolume::new(&ctx.id).unset(ctx.device).await?;
-
-        ctx.store.delete_volume(ctx.id).await?;
 
         Ok(())
     }

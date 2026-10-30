@@ -150,6 +150,13 @@ where
 
         Ok(())
     }
+    async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableFileBind::new(&ctx.id).unset(ctx.device).await?;
+
+        ctx.store.delete_file_bind(ctx.id).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

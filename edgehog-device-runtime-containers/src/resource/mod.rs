@@ -108,6 +108,9 @@ where
 {
     /// Publish a resource status.
     fn publish(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
+
+    /// Unset and delete the resource.
+    fn unset(ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 }
 
 pub(crate) trait Create<D>: Resource<D>
@@ -124,8 +127,6 @@ where
     fn create(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
     fn delete(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
-
-    fn unset(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;
 
     async fn refresh(ctx: &mut Context<'_, D>) -> Result<()> {
         if Self::fetch(ctx).await?.is_none() {
@@ -176,7 +177,7 @@ where
             }
         }
 
-        resource.unset(&mut ctx).await?;
+        Self::unset(&mut ctx).await?;
 
         Ok(())
     }

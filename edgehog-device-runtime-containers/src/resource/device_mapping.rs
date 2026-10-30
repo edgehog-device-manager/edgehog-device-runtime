@@ -42,4 +42,13 @@ where
 
         Ok(())
     }
+    async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableDeviceMapping::new(&ctx.id)
+            .unset(ctx.device)
+            .await?;
+
+        ctx.store.delete_device_mapping(ctx.id).await?;
+
+        Ok(())
+    }
 }
