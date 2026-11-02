@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "cellular-modems-service"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "color-eyre",
  "eyre",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "e2e-test-containers"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "astarte-device-sdk",
  "aws-lc-rs",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "e2e-test-forwarder"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "clap",
  "edgehog-device-runtime-forwarder",
@@ -1302,14 +1302,14 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-forwarder-proto"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "prost",
 ]
 
 [[package]]
 name = "edgehog-device-runtime"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
@@ -1369,7 +1369,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-containers"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-forwarder"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-tls",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-proto"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "chrono",
  "prost",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-service"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -1458,7 +1458,7 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-store"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "deadpool",
  "diesel",
@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "edgehogctl"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "astarte-device-tls",
  "aws-lc-rs",
