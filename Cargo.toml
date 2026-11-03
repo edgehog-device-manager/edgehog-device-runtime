@@ -45,7 +45,11 @@ members = [
 ]
 
 [workspace.package]
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/edgehog-device-manager/edgehog-device-runtime"
@@ -77,6 +81,7 @@ diesel = "2.3.9"
 diesel_migrations = "2.3.1"
 dirs = "7.0.0"
 displaydoc = "0.2.6"
+<<<<<<< Updated upstream
 edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.13.0" }
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.13.0" }
 edgehog-device-forwarder-proto = { path = "./edgehog-device-forwarder-proto/", version = "=0.13.0" }
@@ -84,6 +89,16 @@ edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./ed
 edgehog-proto = { package = "edgehog-device-runtime-proto", path = "./edgehog-device-runtime-proto/", version = "=0.13.0" }
 edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.13.0" }
 edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.13.0" }
+=======
+edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.12.4" }
+edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.12.4" }
+edgehog-device-forwarder-proto = "0.1.0"
+edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.12.4" }
+edgehog-proto = { package = "edgehog-device-runtime-proto", version = "0.10.0" }
+edgehog-service = { package = "edgehog-device-runtime-service", path = "./edgehog-device-runtime-service", version = "=0.12.4" }
+edgehog-store = { package = "edgehog-device-runtime-store", path = "./edgehog-device-runtime-store", version = "=0.12.4" }
+edgehog-tls = { package = "edgehog-device-runtime-tls", path = "./edgehog-device-runtime-tls", version = "=0.12.4" }
+>>>>>>> Stashed changes
 eyre = "0.6.12"
 futures = "0.3.31"
 hex = "0.4.3"

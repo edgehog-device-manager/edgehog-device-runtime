@@ -689,7 +689,11 @@ dependencies = [
 
 [[package]]
 name = "cellular-modems-service"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "color-eyre",
  "eyre",
@@ -1270,7 +1274,11 @@ dependencies = [
 
 [[package]]
 name = "e2e-test-containers"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "astarte-device-sdk",
  "aws-lc-rs",
@@ -1291,7 +1299,11 @@ dependencies = [
 
 [[package]]
 name = "e2e-test-forwarder"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "clap",
  "edgehog-device-runtime-forwarder",
@@ -1309,7 +1321,11 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
@@ -1369,7 +1385,11 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-containers"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
@@ -1402,7 +1422,11 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-forwarder"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "astarte-device-sdk",
  "astarte-device-tls",
@@ -1438,7 +1462,11 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-service"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -1458,7 +1486,11 @@ dependencies = [
 
 [[package]]
 name = "edgehog-device-runtime-store"
+<<<<<<< Updated upstream
 version = "0.13.0"
+=======
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "deadpool",
  "diesel",
@@ -1477,8 +1509,25 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< Updated upstream
 name = "edgehogctl"
 version = "0.13.0"
+=======
+name = "edgehog-device-runtime-tls"
+version = "0.12.4"
+dependencies = [
+ "cfg-if",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-platform-verifier",
+ "tracing",
+ "webpki-roots",
+]
+
+[[package]]
+name = "edgehogctl"
+version = "0.12.4"
+>>>>>>> Stashed changes
 dependencies = [
  "astarte-device-tls",
  "aws-lc-rs",
