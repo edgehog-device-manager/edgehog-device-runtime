@@ -53,12 +53,14 @@ impl<'a> AvailableContainer<'a> {
         }
     }
 
-    pub(crate) fn with_inspect(id: &'a Uuid, inspect: ContainerInspectResponse) -> Self {
+    pub(crate) fn with_inspect(id: &'a Uuid, inspect: &ContainerInspectResponse) -> Self {
         let (oom_killed, exit_code, health_status, health_failed) = inspect
             .state
+            .as_ref()
             .map(|state| {
                 let (health_status, health_failed) = state
                     .health
+                    .as_ref()
                     .map(|health| {
                         (
                             health.status.map(|status| status.to_string()),
@@ -78,7 +80,7 @@ impl<'a> AvailableContainer<'a> {
 
         Self {
             id,
-            image_id: inspect.image,
+            image_id: inspect.image.clone(),
             oom_killed,
             exit_code,
             health_status,
@@ -370,7 +372,7 @@ pub(crate) mod tests {
             ..Default::default()
         };
 
-        let container = AvailableContainer::with_inspect(&id, inspect);
+        let container = AvailableContainer::with_inspect(&id, &inspect);
 
         assert_eq!(
             container,

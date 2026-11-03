@@ -120,6 +120,16 @@ pub struct DeploymentUpdate {
     pub(crate) to: Uuid,
 }
 
+impl DeploymentUpdate {
+    /// Inverts the deployment into a rollback
+    pub(crate) fn into_rollback(self) -> Self {
+        Self {
+            from: self.to,
+            to: self.from,
+        }
+    }
+}
+
 impl FromEvent for DeploymentUpdate {
     type Err = Error<FromEventError>;
 
