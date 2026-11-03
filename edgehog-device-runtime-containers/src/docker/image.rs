@@ -334,8 +334,19 @@ impl Display for Image {
 
 impl From<&Image> for CreateImageOptions {
     fn from(value: &Image) -> Self {
+        let mut reference = value.reference.clone();
+
+        let image_name = reference
+            .rsplit_once('/')
+            .map(|(_, image_name)| image_name)
+            .unwrap_or(&reference);
+
+        if !(image_name.contains(":") || image_name.contains('@')) {
+            reference += ":latest";
+        }
+
         CreateImageOptions {
-            from_image: Some(value.reference.clone()),
+            from_image: Some(reference),
             ..Default::default()
         }
     }
@@ -613,5 +624,43 @@ mod tests {
         };
         let cred = image.docker_credentials().unwrap().unwrap();
         assert_eq!(cred, exp)
+    }
+
+    #[test]
+    fn create_image_options_from_image() {
+        let cases = [
+            ("alpine", "alpine:latest"),
+            ("alpine:latest", "alpine:latest"),
+            ("alpine:3.18", "alpine:3.18"),
+            ("library/alpine", "library/alpine:latest"),
+            ("library/alpine:3.18", "library/alpine:3.18"),
+            ("registry.example.com/alpine", "registry.example.com/alpine:latest"),
+            ("registry.example.com:5000/alpine", "registry.example.com:5000/alpine:latest"),
+            ("registry.example.com:5000/alpine:3.18", "registry.example.com:5000/alpine:3.18"),
+            ("registry.example.com:5000/org/alpine", "registry.example.com:5000/org/alpine:latest"),
+            (
+                "alpine@sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a",
+                "alpine@sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a",
+            ),
+            (
+                "registry.example.com:5000/alpine@sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a",
+                "registry.example.com:5000/alpine@sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a",
+            ),
+            (
+                "registry.example.com:5000/alpine:3.18@sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a",
+                "registry.example.com:5000/alpine:3.18@sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a",
+            ),
+        ];
+
+        for (input, expected) in cases {
+            let image = Image::new(None, input, None);
+            let options = CreateImageOptions::from(&image);
+
+            assert_eq!(
+                options.from_image.unwrap(),
+                expected,
+                "failed for input: {input}"
+            );
+        }
     }
 }
