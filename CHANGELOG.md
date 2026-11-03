@@ -25,6 +25,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.1...edgehog-device-runtime-containers-v0.13.2) - 2026-11-03
+### `edgehog-device-runtime-containers` - [0.13.2](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.1...edgehog-device-runtime-containers-v0.13.2) - 2026-11-03
+
+#### Fixed
+
+- _(containers)_ add latests if a image tag or digest is missing
+
+#### Other
+
+- _(v0.12.4)_ forward port the release
+
+
+
 ## [0.12.4] - 2026-11-03
 
 ### Other
