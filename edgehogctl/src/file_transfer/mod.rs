@@ -86,6 +86,8 @@ struct ServerToDevice {
     file_size_bytes: u64,
     destination_type: String,
     destination: String,
+    pre_hook: Vec<String>,
+    post_hook: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -99,6 +101,8 @@ struct DeviceToServer {
     progress: bool,
     source_type: String,
     source: String,
+    pre_hook: Vec<String>,
+    post_hook: Vec<String>,
 }
 
 #[derive(Debug, Clone, clap::Subcommand)]
@@ -214,6 +218,10 @@ pub(crate) struct Download {
     url: Url,
     /// Path of the file on the file system to download
     path: PathBuf,
+    #[arg(long)]
+    pre_hook: Option<Vec<String>>,
+    #[arg(long)]
+    post_hook: Option<Vec<String>>,
 }
 
 impl Download {
@@ -246,6 +254,8 @@ impl Download {
             file_size_bytes,
             destination_type: self.destination_type.to_string(),
             destination: self.destination.unwrap_or_default(),
+            pre_hook: self.pre_hook.unwrap_or_default(),
+            post_hook: self.post_hook.unwrap_or_default(),
         };
 
         let client = reqwest::Client::builder()
@@ -302,6 +312,10 @@ pub(crate) struct Upload {
     source: Option<String>,
     /// Url to download the file from
     url: Url,
+    #[arg(long)]
+    pre_hook: Option<Vec<String>>,
+    #[arg(long)]
+    post_hook: Option<Vec<String>>,
 }
 
 impl Upload {
@@ -324,6 +338,8 @@ impl Upload {
             progress: self.progress,
             source_type: self.source_type.to_string(),
             source: self.source.unwrap_or_default(),
+            pre_hook: self.pre_hook.unwrap_or_default(),
+            post_hook: self.post_hook.unwrap_or_default(),
         };
 
         let client = reqwest::Client::builder()

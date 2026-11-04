@@ -22,6 +22,7 @@ use tracing::warn;
 
 pub(crate) mod capabilities;
 pub(crate) mod file;
+pub(crate) mod hooks;
 pub(crate) mod request;
 pub(crate) mod status;
 
@@ -54,6 +55,12 @@ pub(crate) struct ServerToDevice {
     pub(crate) file_mode: Option<i64>,
     pub(crate) user_id: Option<i64>,
     pub(crate) group_id: Option<i64>,
+    pub(crate) hook_uid: Option<i64>,
+    pub(crate) hook_gid: Option<i64>,
+    pub(crate) pre_hook_timeout: Option<i32>,
+    pub(crate) pre_hook: Option<Vec<String>>,
+    pub(crate) post_hook_timeout: Option<i32>,
+    pub(crate) post_hook: Option<Vec<String>>,
 }
 
 impl From<ServerToDevice> for AstarteObject {
@@ -92,6 +99,24 @@ impl From<ServerToDevice> for AstarteObject {
         if let Some(value) = value.group_id {
             data.insert("groupId".to_string(), AstarteData::from(value));
         }
+        if let Some(value) = value.hook_uid {
+            data.insert("hookUid".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.hook_gid {
+            data.insert("hookGid".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.pre_hook_timeout {
+            data.insert("preHookTimeout".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.pre_hook {
+            data.insert("preHook".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.post_hook_timeout {
+            data.insert("postHookTimeout".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.post_hook {
+            data.insert("postHook".to_string(), AstarteData::from(value));
+        }
 
         data
     }
@@ -118,6 +143,12 @@ pub(crate) struct DeviceToServer {
     pub(crate) http_header_keys: Option<Vec<String>>,
     pub(crate) http_header_values: Option<Vec<String>>,
     pub(crate) progress: Option<bool>,
+    pub(crate) hook_uid: Option<i64>,
+    pub(crate) hook_gid: Option<i64>,
+    pub(crate) pre_hook_timeout: Option<i32>,
+    pub(crate) pre_hook: Option<Vec<String>>,
+    pub(crate) post_hook_timeout: Option<i32>,
+    pub(crate) post_hook: Option<Vec<String>>,
 }
 
 impl From<DeviceToServer> for AstarteObject {
@@ -141,6 +172,24 @@ impl From<DeviceToServer> for AstarteObject {
         }
         if let Some(value) = value.progress {
             data.insert("progress".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.hook_uid {
+            data.insert("hookUid".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.hook_gid {
+            data.insert("hookGid".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.pre_hook_timeout {
+            data.insert("preHookTimeout".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.pre_hook {
+            data.insert("preHook".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.post_hook_timeout {
+            data.insert("postHookTimeout".to_string(), AstarteData::from(value));
+        }
+        if let Some(value) = value.post_hook {
+            data.insert("postHook".to_string(), AstarteData::from(value));
         }
 
         data
@@ -189,7 +238,9 @@ pub(crate) mod tests {
             id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
             url: "https://s3.example.com".to_string(),
             http_header_keys: Some(vec!["authorization".to_string()]),
-            http_header_values: Some(vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()]),
+            http_header_values: Some(vec![
+                "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string(),
+            ]),
             encoding: "tar.gz".to_string(),
             file_size_bytes: 4096,
             progress: Some(true),
@@ -200,6 +251,12 @@ pub(crate) mod tests {
             group_id: Some(100),
             destination_type: "storage".to_string(),
             destination: "testfile.txt".to_string(),
+            pre_hook: None,
+            post_hook: None,
+            hook_uid: None,
+            hook_gid: None,
+            pre_hook_timeout: None,
+            post_hook_timeout: None,
         }
     }
 
@@ -209,16 +266,35 @@ pub(crate) mod tests {
             id: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
             url: "https://s3.example.com".to_string(),
             http_header_keys: Some(vec!["authorization".to_string()]),
-            http_header_values: Some(vec!["Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string()]),
+            http_header_values: Some(vec![
+                "Bearer tXYBVo1eA+8MTQTgFovzb9/nKej1d7zS4/k64l3Tm7tOkzxGemBJqDKN5lhEr1ARkb6AXpMqRc6FKo3kk800kA==".to_string(),
+            ]),
             encoding: "tar.gz".to_string(),
             progress: Some(true),
             source_type: "storage".to_string(),
             source: "6389218e-0e05-4587-96e3-3e6e2b522a2b".to_string(),
+            pre_hook: None,
+            post_hook: None,
+            hook_uid: None,
+            hook_gid: None,
+            pre_hook_timeout: None,
+            post_hook_timeout: None,
         }
     }
 
     #[rstest]
-    fn from_and_to_event_download(fs_server_to_device: ServerToDevice) {
+    fn from_and_to_event_download(mut fs_server_to_device: ServerToDevice) {
+        fs_server_to_device.pre_hook = Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "echo hello".to_string(),
+        ]);
+        fs_server_to_device.post_hook = Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "echo hello".to_string(),
+        ]);
+
         let data = AstarteObject::from(fs_server_to_device.clone());
 
         let event = DeviceEvent {
@@ -242,7 +318,18 @@ pub(crate) mod tests {
     }
 
     #[rstest]
-    fn from_and_to_event_upload(fs_device_to_server: DeviceToServer) {
+    fn from_and_to_event_upload(mut fs_device_to_server: DeviceToServer) {
+        fs_device_to_server.pre_hook = Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "echo hello".to_string(),
+        ]);
+        fs_device_to_server.post_hook = Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "echo hello".to_string(),
+        ]);
+
         let data = AstarteObject::from(fs_device_to_server.clone());
 
         let event = DeviceEvent {

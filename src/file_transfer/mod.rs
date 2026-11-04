@@ -44,6 +44,7 @@ use uuid::Uuid;
 use crate::controller::actor::Persisted;
 use crate::file_transfer::encoding::tar_gz::TarGzEncoding;
 use crate::file_transfer::encoding::{EncoderBuilder, TarEncoding};
+use crate::file_transfer::hooks::HookExecutor;
 use crate::file_transfer::http::FtHttpClient;
 use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::interface::request::FileTransferRequest;
@@ -72,6 +73,7 @@ pub mod config;
 mod encoding;
 pub(crate) mod errno;
 pub(crate) mod file_system;
+mod hooks;
 pub(crate) mod http;
 pub(crate) mod interface;
 pub mod request;
@@ -351,6 +353,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
             .create_write_handle(file_name.as_deref(), &opt)
             .await?;
 
+        let mut hook_executor = HookExecutor::with_write_handle(&file, download);
+
+        hook_executor.pre(&mut self.device).await?;
+
         if let Err(error) = self.download_to_write_handle(download, &mut file).await {
             error!(%error, "error while downloading to write handle, cleaning up file");
             file.cleanup().await?;
@@ -370,6 +376,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             error!(%error, "can't send stored file to astarte");
         }
 
+        hook_executor.post(&mut self.device).await?;
+
         if let Some(ttl) = download.ttl {
             self.queue_cleanup(download, ttl).await?;
         }
@@ -380,64 +388,78 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all)]
     async fn download_stream(&mut self, download: &Download<'_>) -> eyre::Result<()>
     where
+        C: Client + Send + Sync + 'static,
         F: Space,
         S: Pipe,
     {
         let opt = FileOptions::from(download);
-        let pipe = self.stream.open_writer(&opt).await?;
 
-        let mut response = self
-            .client
-            .download(
-                &download.url,
-                download.headers.clone(),
-                0,
-                download.download_length(),
-            )
+        self.stream
+            .with_writer(&opt.id, async |pipe| {
+                let mut hook_executor = HookExecutor::with_path_size_download(
+                    self.stream.get_path(&opt.id),
+                    None,
+                    download,
+                );
+
+                hook_executor.pre(&mut self.device).await?;
+
+                let mut response = self
+                    .client
+                    .download(
+                        &download.url,
+                        download.headers.clone(),
+                        0,
+                        download.download_length(),
+                    )
+                    .await
+                    .wrap_err("download request error")?;
+
+                let limit_size = download.file_size;
+                let progress = FileTransferProgress::start(
+                    download.transfer(),
+                    download.progress,
+                    response.total_length(),
+                );
+                let writer = PipeStreamWriter::new(pipe, limit_size)
+                    .write_header()
+                    .await
+                    .wrap_err("error while writing header")?;
+
+                let (writer, status) = match download.encoding {
+                    encoding @ Some(Encoding::TarGz | Encoding::Tar) => {
+                        return Err(eyre!("{:?} is not supported for download stream", encoding));
+                    }
+                    Some(Encoding::Gz) => {
+                        let decoder = GzipDecoder::new(writer);
+                        let writer = Digest::new(decoder, download.digest_type);
+                        let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
+                        response.write_chunks(&mut writer).await?;
+
+                        let (decoder, status) =
+                            errno::check_result(writer.into_inner().check_digest(&download.digest));
+
+                        (decoder.into_inner(), status)
+                    }
+                    None => {
+                        let writer = Digest::new(writer, download.digest_type);
+                        let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
+                        response.write_chunks(&mut writer).await?;
+
+                        errno::check_result(writer.into_inner().check_digest(&download.digest))
+                    }
+                };
+
+                writer
+                    .write_footer(status)
+                    .await
+                    .wrap_err("error while writing footer")?;
+
+                hook_executor.post(&mut self.device).await?;
+
+                Ok(())
+            })
             .await
-            .wrap_err("download request error")?;
-
-        let limit_size = download.file_size;
-        let progress = FileTransferProgress::start(
-            download.transfer(),
-            download.progress,
-            response.total_length(),
-        );
-        let writer = PipeStreamWriter::new(pipe, limit_size)
-            .write_header()
-            .await
-            .wrap_err("error while writing header")?;
-
-        let (writer, status) = match download.encoding {
-            encoding @ Some(Encoding::TarGz | Encoding::Tar) => {
-                return Err(eyre!("{:?} is not supported for download stream", encoding));
-            }
-            Some(Encoding::Gz) => {
-                let decoder = GzipDecoder::new(writer);
-                let writer = Digest::new(decoder, download.digest_type);
-                let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
-                response.write_chunks(&mut writer).await?;
-
-                let (decoder, status) =
-                    errno::check_result(writer.into_inner().check_digest(&download.digest));
-
-                (decoder.into_inner(), status)
-            }
-            None => {
-                let writer = Digest::new(writer, download.digest_type);
-                let mut writer = ProgressUpdate::track(writer, progress, &self.tracker);
-                response.write_chunks(&mut writer).await?;
-
-                errno::check_result(writer.into_inner().check_digest(&download.digest))
-            }
-        };
-
-        writer
-            .write_footer(status)
-            .await
-            .wrap_err("error while writing footer")?;
-
-        Ok(())
     }
 
     #[instrument(skip_all, fields(path))]
@@ -448,6 +470,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     ) -> eyre::Result<()>
     where
         F: Space,
+        C: Client + Send + Sync + 'static,
     {
         let opt = FileOptions::from(download);
 
@@ -467,6 +490,10 @@ impl<F, S, C> FileTransfer<F, S, C> {
 
         let mut file = WriteHandle::with_path(path, &opt).await?;
 
+        let mut hook_executor = HookExecutor::with_write_handle(&file, download);
+
+        hook_executor.pre(&mut self.device).await?;
+
         if let Err(error) = self.download_to_write_handle(download, &mut file).await {
             error!(%error, "error while downloading to write handle, cleaning up file");
             file.cleanup().await?;
@@ -478,6 +505,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
             file.cleanup().await?;
             return Err(eyre!(error));
         }
+
+        hook_executor.post(&mut self.device).await?;
 
         Ok(())
     }
@@ -550,7 +579,7 @@ impl<F, S, C> FileTransfer<F, S, C> {
     async fn upload(&mut self, req: &Upload<'_>) -> eyre::Result<()>
     where
         S: Pipe,
-        C: PropAccess,
+        C: PropAccess + Client + Send + Sync + 'static,
     {
         match &req.source {
             Source::Storage { id } => self.upload_store(id, req).await,
@@ -562,50 +591,64 @@ impl<F, S, C> FileTransfer<F, S, C> {
     #[instrument(skip_all, fields(%id))]
     async fn upload_store(&mut self, id: &Uuid, req: &Upload<'_>) -> eyre::Result<()>
     where
-        C: PropAccess,
+        C: PropAccess + Client + Send + Sync + 'static,
     {
+        let path = StoredFile::fetch_path(&self.device, &id.to_string()).await?;
+        let mut hook_executor = HookExecutor::with_path_upload(path.clone().into(), req);
+
+        hook_executor.pre(&mut self.device).await?;
+
         match req.encoding {
             Some(Encoding::Gz) => {
-                let path = StoredFile::fetch_path(&self.device, &id.to_string()).await?;
-                let reader = self.storage.open_read(id, path).await?;
-                self.upload_gz(req, reader).await
+                let reader = self.storage.open_read(id, path.into()).await?;
+                self.upload_gz(req, reader).await?;
             }
             Some(Encoding::TarGz) => {
-                let paths = self.storage.find_paths(id).await?;
-                self.upload_tar(req, paths, TarGzEncoding).await
+                let paths = self.storage.find_paths(path).await?;
+                self.upload_tar(req, paths, TarGzEncoding).await?;
             }
             Some(Encoding::Tar) => {
-                let paths = self.storage.find_paths(id).await?;
-                self.upload_tar(req, paths, TarEncoding).await
+                let paths = self.storage.find_paths(path).await?;
+                self.upload_tar(req, paths, TarEncoding).await?;
             }
             None => {
-                let path = StoredFile::fetch_path(&self.device, &id.to_string()).await?;
-                let reader = self.storage.open_read(id, path).await?;
-                self.upload_file(req, reader).await
+                let reader = self.storage.open_read(id, path.into()).await?;
+                self.upload_file(req, reader).await?;
             }
         }
+
+        hook_executor.post(&mut self.device).await
     }
 
     #[instrument(skip_all, fields(path = %path.display()))]
-    async fn upload_filesystem(&mut self, path: &Path, req: &Upload<'_>) -> eyre::Result<()> {
+    async fn upload_filesystem(&mut self, path: &Path, req: &Upload<'_>) -> eyre::Result
+    where
+        C: Client + Send + Sync + 'static,
+    {
+        let mut hook_executor = HookExecutor::with_path_upload(path.to_path_buf(), req);
+
+        hook_executor.pre(&mut self.device).await?;
+
         match req.encoding {
             Some(Encoding::Gz) => {
                 let reader = tokio::fs::File::open(path).await?;
-                self.upload_gz(req, reader).await
+                self.upload_gz(req, reader).await?;
             }
             Some(Encoding::TarGz) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
-                self.upload_tar(req, paths, TarGzEncoding).await
+                self.upload_tar(req, paths, TarGzEncoding).await?;
             }
             Some(Encoding::Tar) => {
                 let paths = Paths::read(path.to_path_buf()).await?;
-                self.upload_tar(req, paths, TarEncoding).await
+                self.upload_tar(req, paths, TarEncoding).await?;
             }
             None => {
                 let reader = tokio::fs::File::open(path).await?;
-                self.upload_file(req, reader).await
+                self.upload_file(req, reader).await?;
             }
         }
+
+        hook_executor.post(&mut self.device).await
     }
 
     #[instrument(skip_all)]
@@ -670,9 +713,16 @@ impl<F, S, C> FileTransfer<F, S, C> {
     async fn upload_stream(&mut self, req: &Upload<'_>) -> eyre::Result<()>
     where
         S: Pipe,
+        C: Client + Send + Sync + 'static,
     {
+        let path = self.stream.get_path(&req.id);
+
         self.stream
             .with_reader(&req.id, |reader| async {
+                let mut hook_executor = HookExecutor::with_path_upload(path, req);
+
+                hook_executor.pre(&mut self.device).await?;
+
                 let reader = PipeStreamReader::new(reader)
                     .read_header()
                     .await
@@ -697,6 +747,8 @@ impl<F, S, C> FileTransfer<F, S, C> {
                     .expect_footer()
                     .await?
                     .check_status()?;
+
+                hook_executor.post(&mut self.device).await?;
 
                 Ok(())
             })
@@ -918,7 +970,10 @@ mod tests {
     use uuid::Uuid;
 
     use super::file_system::store::tests::TEST_RESERVED_PERCENTAGE;
-    use super::request::{FileDigest, FilePermissions};
+    use super::interface::hooks::tests::exit_status_ok;
+    use super::interface::hooks::{HookPhase, HookResponse};
+    use super::interface::status::TransferDirection;
+    use super::request::{CommandHook, FileDigest, FilePermissions};
     use super::*;
 
     async fn mk_def_transfer(
@@ -983,6 +1038,8 @@ mod tests {
             destination: Destination::Storage {
                 name: Some(Cow::Owned(Path::new("test.txt").to_owned())),
             },
+            pre_hook: None,
+            post_hook: None,
         })
     }
 
@@ -1141,6 +1198,8 @@ mod tests {
             progress: true,
             encoding: None,
             source: Source::Storage { id: Uuid::new_v4() },
+            pre_hook: None,
+            post_hook: None,
         })
     }
 
@@ -1230,6 +1289,10 @@ mod tests {
         seq: &mut Sequence,
         id: Uuid,
     ) {
+        device
+            .expect_clone()
+            .in_sequence(seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_set_property()
             .with(
@@ -1356,6 +1419,8 @@ mod tests {
             destination: Destination::Storage {
                 name: Some(Cow::Owned(PathBuf::from("bundle.tar"))),
             },
+            pre_hook: None,
+            post_hook: None,
         });
 
         let mut seq = Sequence::new();
@@ -1485,6 +1550,10 @@ mod tests {
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
         device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+        device
             .expect_send_object()
             .with(
                 eq("io.edgehog.devicemanager.fileTransfer.Response"),
@@ -1527,6 +1596,10 @@ mod tests {
             )
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
@@ -1571,6 +1644,10 @@ mod tests {
             )
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
@@ -1646,6 +1723,10 @@ mod tests {
 
         let mut seq = Sequence::new();
         let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
         device
             .expect_send_object()
             .with(
@@ -1743,6 +1824,10 @@ mod tests {
             .in_sequence(&mut seq)
             .return_once(move |_, _| Ok(Some(file_path_str.into())));
         device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+        device
             .expect_send_object()
             .with(
                 eq("io.edgehog.devicemanager.fileTransfer.Response"),
@@ -1775,5 +1860,103 @@ mod tests {
             .await;
 
         assert!(job.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_upload_with_hooks() {
+        #[cfg(windows)]
+        let cmd = vec![
+            "cmd".to_string(),
+            "/C".to_string(),
+            "echo hello".to_string(),
+        ];
+        #[cfg(not(windows))]
+        let cmd = vec!["sh".to_string(), "-c".to_string(), "echo hello".to_string()];
+        let hook = CommandHook::new(&cmd, None, None, None)
+            .unwrap()
+            .expect("hook should be created");
+
+        let server = MockServer::start_async().await;
+        let mut mock_upload_event = mk_upload(&server).await;
+        let target = mock_upload_event.req.target().to_string();
+        let upload_id = match &mut mock_upload_event.req {
+            Request::Upload(u) => {
+                u.pre_hook = Some(hook.clone());
+                u.post_hook = Some(hook);
+                u.id
+            }
+            Request::Download(_) => unreachable!(),
+        };
+
+        let dir = TempDir::with_prefix("upload").unwrap();
+        let dir_path = dir.path().join(&target);
+        let file_path = dir_path.join(WriteHandle::DEFAULT_FILE_NAME);
+        let file_path_str = file_path.to_str().unwrap().to_string();
+
+        let transfer_id = FileTransferId {
+            id: upload_id,
+            direction: TransferDirection::Upload,
+        };
+
+        let expected_pre = HookResponse::exit_status(transfer_id, HookPhase::Pre, exit_status_ok());
+        let expected_post =
+            HookResponse::exit_status(transfer_id, HookPhase::Post, exit_status_ok());
+
+        let mut seq = Sequence::new();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        device
+            .expect_property()
+            .with(
+                eq("io.edgehog.devicemanager.storage.File"),
+                eq(format!("/{target}/pathOnDevice")),
+            )
+            .in_sequence(&mut seq)
+            .return_once(move |_, _| Ok(Some(file_path_str.into())));
+        device
+            .expect_send_object()
+            .with(
+                eq(HookResponse::INTERFACE),
+                eq("/response"),
+                eq(AstarteObject::try_from(expected_pre).unwrap()),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_send_object()
+            .with(
+                eq(HookResponse::INTERFACE),
+                eq("/response"),
+                eq(AstarteObject::try_from(expected_post).unwrap()),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        device
+            .expect_clone()
+            .in_sequence(&mut seq)
+            .return_once(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+        device
+            .expect_send_object()
+            .with(
+                eq("io.edgehog.devicemanager.fileTransfer.Response"),
+                eq("/request"),
+                always(),
+            )
+            .once()
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+
+        let (tx, _rx) = watch::channel(None);
+        let mut transfer = mk_transfer_with_dir(device, tx, &dir).await;
+
+        tokio::fs::create_dir_all(&dir_path).await.unwrap();
+        tokio::fs::write(&file_path, mock_upload_event.content)
+            .await
+            .unwrap();
+
+        transfer.handle(mock_upload_event.req).await.unwrap();
+
+        mock_upload_event.first_call.assert_async().await;
     }
 }

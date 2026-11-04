@@ -40,7 +40,7 @@ use crate::file_transfer::interface::capabilities::{
     FILESYSTEM_TARGET, STORAGE_TARGET, STREAMING_TARGET,
 };
 use crate::file_transfer::interface::status::{FileTransferId, TransferDirection};
-use crate::file_transfer::request::TransferJobTag;
+use crate::file_transfer::request::{CommandHook, TransferJobTag};
 use crate::jobs::derive;
 
 #[derive(Debug, Clone, PartialEq, minicbor::Encode, minicbor::Decode)]
@@ -67,6 +67,10 @@ pub(crate) struct Download<'a> {
     pub(crate) permission: FilePermissions,
     #[n(9)]
     pub(crate) destination: Destination<'a>,
+    #[n(10)]
+    pub(crate) pre_hook: Option<CommandHook<'a>>,
+    #[n(11)]
+    pub(crate) post_hook: Option<CommandHook<'a>>,
 }
 
 impl<'a> Download<'a> {
@@ -118,6 +122,12 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
             group_id,
             destination_type,
             destination,
+            pre_hook,
+            post_hook,
+            hook_uid,
+            hook_gid,
+            pre_hook_timeout,
+            post_hook_timeout,
         } = value;
 
         let headers = http_header_keys
@@ -162,6 +172,15 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
         let destination = Destination::from_str(destination_type, destination)
             .wrap_err("couldn't parse destination")?;
 
+        let pre_hook = pre_hook
+            .as_deref()
+            .and_then(|s| CommandHook::new(s, *hook_uid, *hook_gid, *pre_hook_timeout).transpose())
+            .transpose()?;
+        let post_hook = post_hook
+            .as_deref()
+            .and_then(|s| CommandHook::new(s, *hook_uid, *hook_gid, *post_hook_timeout).transpose())
+            .transpose()?;
+
         Ok(Self {
             id: id.parse()?,
             url: url.parse()?,
@@ -174,6 +193,8 @@ impl<'a> TryFrom<&'a ServerToDevice> for Download<'a> {
             ttl,
             permission,
             destination,
+            pre_hook,
+            post_hook,
         })
     }
 }
@@ -243,6 +264,22 @@ pub(crate) enum Destination<'a> {
 }
 
 impl<'a> Destination<'a> {
+    pub(crate) fn target_name(&self) -> &str {
+        match self {
+            Destination::Storage { .. } => "storage",
+            Destination::Stream => "stream",
+            Destination::FileSystem { .. } => "file_system",
+        }
+    }
+
+    pub(crate) fn target_value(&self) -> Option<Cow<'a, Path>> {
+        match self {
+            Destination::Storage { name } => name.clone(),
+            Destination::Stream => None,
+            Destination::FileSystem { path } => Some(path.clone()),
+        }
+    }
+
     #[instrument]
     fn from_str(destination_type: &str, destination: &'a str) -> eyre::Result<Self> {
         match destination_type {
@@ -330,6 +367,8 @@ mod tests {
             destination: Destination::Storage {
                 name: Some(Cow::Owned(PathBuf::from("testfile.txt"))),
             },
+            pre_hook: None,
+            post_hook: None,
         }
     }
 

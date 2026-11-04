@@ -96,7 +96,7 @@ impl FileTransferResponse {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct FileTransferId {
     pub(crate) id: Uuid,
     pub(crate) direction: TransferDirection,
