@@ -40,7 +40,6 @@ uuid = { workspace = true, features = ["v5", "v4"] }
 workspace = true
 default-features = false
 features = ["tokio-multithread", "tracing", "object-manager", "proxy", "service"]
-optional = true
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 procfs.workspace = true

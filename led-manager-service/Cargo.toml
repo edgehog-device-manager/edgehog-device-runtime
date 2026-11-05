@@ -37,4 +37,3 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 workspace = true
 default-features = false
 features = ["tokio-multithread", "tracing", "object-manager", "proxy", "service"]
-optional = true
