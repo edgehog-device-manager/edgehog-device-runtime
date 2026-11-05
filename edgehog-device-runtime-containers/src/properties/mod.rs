@@ -58,19 +58,41 @@ pub(crate) trait AvailableProp {
 
     fn interface() -> &'static str;
 
-    fn field() -> &'static str;
-
     fn id(&self) -> &Uuid;
 
-    async fn send<D>(&self, device: &mut D, data: Self::Data) -> Result<(), PropertyError>
+    /// Only updates the status and not the other fields
+    async fn send_status<D>(self, device: &mut D, data: Self::Data) -> Result<(), PropertyError>
+    where
+        D: Client + Send + Sync + 'static;
+
+    /// Send all the fields of the property.
+    async fn send<D>(self, device: &mut D, data: Self::Data) -> Result<(), PropertyError>
+    where
+        D: Client + Send + Sync + 'static;
+
+    /// Unsets all the fields of the property.
+    async fn unset<D>(&self, device: &mut D) -> Result<(), PropertyError>
+    where
+        D: Client + Send + Sync + 'static;
+
+    async fn send_opt_field<D, T>(
+        id: &Uuid,
+        device: &mut D,
+        field: &str,
+        data: Option<T>,
+    ) -> Result<(), PropertyError>
     where
         D: Client + Send + Sync + 'static,
+        T: Into<AstarteData> + Send + 'static,
     {
-        self.send_field(device, Self::field(), data).await
+        match data {
+            Some(data) => Self::send_field(id, device, field, data).await,
+            None => Self::unset_field(id, device, field).await,
+        }
     }
 
     async fn send_field<D, T>(
-        &self,
+        id: &Uuid,
         device: &mut D,
         field: &str,
         data: T,
@@ -80,7 +102,7 @@ pub(crate) trait AvailableProp {
         T: Into<AstarteData> + Send + 'static,
     {
         let interface = Self::interface();
-        let endpoint = format!("/{}/{}", self.id(), field);
+        let endpoint = format!("/{}/{}", id, field);
 
         device
             .set_property(interface, &endpoint, data.into())
@@ -98,13 +120,12 @@ pub(crate) trait AvailableProp {
             })
     }
 
-    async fn unset<D>(&self, device: &mut D) -> Result<(), PropertyError>
+    async fn unset_field<D>(id: &Uuid, device: &mut D, field: &str) -> Result<(), PropertyError>
     where
         D: Client + Send + Sync + 'static,
     {
         let interface = Self::interface();
-        let field = Self::field();
-        let endpoint = format!("/{}/{}", self.id(), field);
+        let endpoint = format!("/{}/{}", id, field);
 
         device
             .unset_property(interface, &endpoint)
@@ -120,5 +141,72 @@ pub(crate) trait AvailableProp {
                     endpoint,
                 }
             })
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use astarte_device_sdk::pairing::api::PairingApi;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk_mock::{MockDeviceClient, mockall::Sequence};
+    use mockall::predicate;
+
+    use super::*;
+
+    pub(crate) fn expect_send_field<T>(
+        client: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        seq: &mut Sequence,
+        interface: &'static str,
+        id: &Uuid,
+        field: &str,
+        data: T,
+    ) where
+        T: Into<AstarteData>,
+    {
+        client
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq(interface),
+                predicate::eq(format!("/{id}/{field}")),
+                predicate::eq(data.into()),
+            )
+            .returning(|_, _, _| Ok(()));
+    }
+
+    pub(crate) fn expect_unset_field(
+        client: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        seq: &mut Sequence,
+        interface: &'static str,
+        id: &Uuid,
+        field: &str,
+    ) {
+        client
+            .expect_unset_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq(interface),
+                predicate::eq(format!("/{id}/{field}")),
+            )
+            .returning(|_, _| Ok(()));
+    }
+
+    pub(crate) fn expect_send_opt_field<T>(
+        client: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        seq: &mut Sequence,
+        interface: &'static str,
+        id: &Uuid,
+        field: &str,
+        data: Option<T>,
+    ) where
+        T: Into<AstarteData>,
+    {
+        match data {
+            Some(data) => expect_send_field(client, seq, interface, id, field, data),
+            None => expect_unset_field(client, seq, interface, id, field),
+        }
     }
 }
