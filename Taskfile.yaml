@@ -53,6 +53,7 @@ tasks:
       - check-prettier
       - check-shell
       - check-shfmt
+      - check-sql
       - cargo-fmt
       - check-zizmor
     cmds:
@@ -103,8 +104,14 @@ tasks:
   check-shfmt:
     desc: "Format all the shell files with shfmt"
     cmd: |
-      ./scripts/ci/list-repo-files.sh '*.sh'|
+      ./scripts/ci/list-repo-files.sh '*.sh' |
         xargs --max-args 1 -P "$(nproc)" shfmt -w -d -i 4
+
+  check-sql:
+    desc: "Check all the SQL files with sqlfluff"
+    cmd: |
+      ./scripts/ci/list-repo-files.sh '*.sql' |
+        xargs sqlfluff fix -p0
 
   check-for-publish:
     if: '[[ "$IS_CRATE" = "true" ]]'
