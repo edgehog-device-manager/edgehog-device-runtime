@@ -1233,6 +1233,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "edgehog-device-runtime",
+ "edgehog-device-runtime-service",
  "eyre",
  "reqwest",
  "serde",
@@ -1301,6 +1302,7 @@ dependencies = [
  "diesel",
  "dirs",
  "displaydoc",
+ "edgehog-device-runtime-config",
  "edgehog-device-runtime-containers",
  "edgehog-device-runtime-forwarder",
  "edgehog-device-runtime-service",
@@ -1342,6 +1344,18 @@ dependencies = [
  "wifiscanner",
  "windows-sys 0.61.2",
  "zbus",
+]
+
+[[package]]
+name = "edgehog-device-runtime-config"
+version = "0.13.2"
+dependencies = [
+ "astarte-test-utils",
+ "insta",
+ "pretty_assertions",
+ "serde",
+ "toml 1.2.0+spec-1.1.0",
+ "url",
 ]
 
 [[package]]
@@ -1419,6 +1433,7 @@ version = "0.13.2"
 dependencies = [
  "async-trait",
  "cfg-if",
+ "edgehog-device-runtime-config",
  "edgehog-device-runtime-containers",
  "edgehog-device-runtime-proto",
  "eyre",
