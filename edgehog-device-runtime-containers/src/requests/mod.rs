@@ -30,6 +30,8 @@ use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 use tracing::error;
 use uuid::Uuid;
 
+use crate::requests::volume::VolumeCommand;
+
 use self::device_mapping::CreateDeviceMapping;
 use self::device_request::CreateDeviceRequest;
 use self::env_file::CreateEnvFile;
@@ -101,24 +103,8 @@ pub enum ContainerRequest {
     DeploymentCommand(DeploymentCommand),
     /// Update between two deployments
     DeploymentUpdate(DeploymentUpdate),
-}
-
-impl ContainerRequest {
-    pub(crate) fn deployment_id(&self) -> Uuid {
-        match self {
-            ContainerRequest::Image(value) => value.deployment_id.0,
-            ContainerRequest::Volume(value) => value.deployment_id.0,
-            ContainerRequest::Network(value) => value.deployment_id.0,
-            ContainerRequest::Container(value) => value.deployment_id.0,
-            ContainerRequest::DeviceMapping(value) => value.deployment_id.0,
-            ContainerRequest::DeviceRequest(value) => value.deployment_id.0,
-            ContainerRequest::FileBind(value) => value.deployment_id.0,
-            ContainerRequest::EnvFile(value) => value.deployment_id.0,
-            ContainerRequest::Deployment(create_deployment) => create_deployment.id.0,
-            ContainerRequest::DeploymentCommand(deployment_command) => deployment_command.id,
-            ContainerRequest::DeploymentUpdate(deployment_update) => deployment_update.from,
-        }
-    }
+    /// Request to execute a command on a volume
+    VolumeCommand(VolumeCommand),
 }
 
 impl FromEvent for ContainerRequest {
@@ -159,6 +145,9 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.DeploymentUpdate" => {
                 DeploymentUpdate::from_event(value).map(ContainerRequest::DeploymentUpdate)
+            }
+            "io.edgehog.devicemanager.apps.VolumeCommand" => {
+                VolumeCommand::from_event(value).map(ContainerRequest::VolumeCommand)
             }
             _ => Err(Error::with(
                 FromEventError::Interface(

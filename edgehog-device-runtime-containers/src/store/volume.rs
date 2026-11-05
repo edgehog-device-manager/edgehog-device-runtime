@@ -24,7 +24,9 @@ use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::QueryModel;
 use edgehog_store::models::containers::container::ContainerMissingVolume;
-use edgehog_store::models::containers::volume::{Volume, VolumeDriverOpts, VolumeStatus};
+use edgehog_store::models::containers::volume::{
+    ReclaimPolicy, Volume, VolumeDriverOpts, VolumeStatus,
+};
 use edgehog_store::schema::containers::{container_volumes, volume_driver_opts, volumes};
 use itertools::Itertools;
 use tracing::instrument;
@@ -41,7 +43,7 @@ impl StateStore {
     #[instrument(skip_all, fields(%volume.id))]
     pub(crate) async fn create_volume(&self, volume: CreateVolume) -> Result<()> {
         let opts = Vec::<VolumeDriverOpts>::try_from(&volume)?;
-        let volume = Volume::from(volume);
+        let volume = Volume::try_from(volume)?;
 
         self.handle
             .for_write(move |writer| {
@@ -146,6 +148,7 @@ impl StateStore {
                     *volume.id,
                     volume.driver,
                     driver_opts,
+                    volume.reclaim_policy.unwrap_or_default(),
                 ))))
             })
             .await?;
@@ -167,20 +170,31 @@ impl StateStore {
     }
 }
 
-impl From<CreateVolume> for Volume {
-    fn from(
+impl TryFrom<CreateVolume> for Volume {
+    type Error = StoreError;
+
+    fn try_from(
         CreateVolume {
             id,
             deployment_id: _,
             driver,
             options: _,
+            reclaim_policy,
         }: CreateVolume,
-    ) -> Self {
-        Self {
+    ) -> std::result::Result<Self, Self::Error> {
+        let reclaim_policy = reclaim_policy
+            .map(ReclaimPolicy::try_from)
+            .transpose()
+            .map_err(|ctx| StoreError::Conversion { ctx })?;
+
+        let volume = Self {
             id: SqlUuid::new(id),
             status: VolumeStatus::default(),
             driver,
-        }
+            reclaim_policy,
+        };
+
+        Ok(volume)
     }
 }
 
@@ -274,6 +288,7 @@ pub(crate) mod tests {
                     .map(str::to_string)
                     .to_vec(),
             ),
+            reclaim_policy: None,
         };
         store.create_volume(volume).await.unwrap();
 
@@ -283,6 +298,7 @@ pub(crate) mod tests {
             id: SqlUuid::new(volume_id),
             status: VolumeStatus::Received,
             driver: "local".to_string(),
+            reclaim_policy: None,
         };
 
         assert_eq!(res, exp);
@@ -330,6 +346,7 @@ pub(crate) mod tests {
             id: SqlUuid::new(volume.id.0),
             status: VolumeStatus::Received,
             driver: "local".to_string(),
+            reclaim_policy: Some(ReclaimPolicy::Delete),
         };
 
         assert_eq!(res, exp);
@@ -385,6 +402,7 @@ pub(crate) mod tests {
                     .map(str::to_string)
                     .to_vec(),
             ),
+            reclaim_policy: None,
         };
         store.create_volume(volume).await.unwrap();
 
@@ -399,6 +417,7 @@ pub(crate) mod tests {
             id: SqlUuid::new(volume_id),
             status: VolumeStatus::Published,
             driver: "local".to_string(),
+            reclaim_policy: None,
         };
 
         assert_eq!(res, exp);

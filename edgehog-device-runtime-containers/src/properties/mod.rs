@@ -98,12 +98,11 @@ pub(crate) trait AvailableProp {
             })
     }
 
-    async fn unset<D>(&self, device: &mut D) -> Result<(), PropertyError>
+    async fn unset_field<D>(&self, device: &mut D, field: &str) -> Result<(), PropertyError>
     where
         D: Client + Send + Sync + 'static,
     {
         let interface = Self::interface();
-        let field = Self::field();
         let endpoint = format!("/{}/{}", self.id(), field);
 
         device
@@ -120,5 +119,14 @@ pub(crate) trait AvailableProp {
                     endpoint,
                 }
             })
+    }
+
+    async fn unset<D>(&self, device: &mut D) -> Result<(), PropertyError>
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        let field = Self::field();
+
+        self.unset_field(device, field).await
     }
 }
