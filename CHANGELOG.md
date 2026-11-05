@@ -25,6 +25,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.13.2...v0.14.0) - 2026-11-05
+### `edgehog-device-runtime` - [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/v0.13.2...v0.14.0) - 2026-11-05
+
+#### Fixed
+
+- _(ci)_ change permissions
+
+#### Other
+
+- _(v0.13.2)_ forward port the release
+
+
+
+
+## [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-forwarder-v0.13.2...edgehog-device-runtime-forwarder-v0.14.0) - 2026-11-05
+### `edgehog-device-runtime-forwarder` - [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-forwarder-v0.13.2...edgehog-device-runtime-forwarder-v0.14.0) - 2026-11-05
+
+#### Other
+
+- _(v0.13.2)_ forward port the release
+
+
+
+## [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.2...edgehog-device-runtime-containers-v0.14.0) - 2026-11-05
+### `edgehog-device-runtime-containers` - [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.2...edgehog-device-runtime-containers-v0.14.0) - 2026-11-05
+
+#### Added
+
+- _(containers)_ add image pull policy
+- _(containers)_ add unset method to all resources
+
+#### Other
+
+- _(v0.13.2)_ forward port the release
+
+
+## [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-store-v0.13.2...edgehog-device-runtime-store-v0.14.0) - 2026-11-05
+### `edgehog-device-runtime-store` - [0.14.0](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-store-v0.13.2...edgehog-device-runtime-store-v0.14.0) - 2026-11-05
+
+#### Added
+
+- _(containers)_ add image pull policy
+
+
 ## [0.13.2](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.1...edgehog-device-runtime-containers-v0.13.2) - 2026-11-03
 
 ### `edgehog-device-runtime-containers` - [0.13.2](https://github.com/edgehog-device-manager/edgehog-device-runtime/compare/edgehog-device-runtime-containers-v0.13.1...edgehog-device-runtime-containers-v0.13.2) - 2026-11-03
