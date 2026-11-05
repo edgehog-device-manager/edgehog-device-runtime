@@ -75,9 +75,9 @@ async fn main() -> eyre::Result<()> {
         modems: HashMap::new(),
     };
 
-    let _conn = zbus::connection::Builder::session()?
-        .name(SERVICE_NAME)?
-        .serve_at("/io/edgehog/CellularModems", cellular_modems)?
+    let _conn = zbus::connection::Builder::session()
+        .name(SERVICE_NAME)
+        .serve_at("/io/edgehog/CellularModems", cellular_modems)
         .build()
         .await?;
 

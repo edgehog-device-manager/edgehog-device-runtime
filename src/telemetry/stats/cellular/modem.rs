@@ -47,7 +47,7 @@ pub trait ModemManager1 {
     /// ReportKernelEvent method
     fn report_kernel_event(
         &self,
-        properties: std::collections::HashMap<&str, &zbus::zvariant::Value<'_>>,
+        properties: std::collections::HashMap<&str, &zbus::Variant<'_>>,
     ) -> zbus::Result<()>;
 
     /// ScanDevices method
@@ -86,11 +86,11 @@ pub trait Modem {
     /// CreateBearer method
     fn create_bearer(
         &self,
-        properties: std::collections::HashMap<&str, &zbus::zvariant::Value<'_>>,
-    ) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+        properties: std::collections::HashMap<&str, &zbus::Variant<'_>>,
+    ) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// DeleteBearer method
-    fn delete_bearer(&self, bearer: &zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
+    fn delete_bearer(&self, bearer: &zbus::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// Enable method
     fn enable(&self, enable: bool) -> zbus::Result<()>;
@@ -101,10 +101,10 @@ pub trait Modem {
     /// GetCellInfo method
     fn get_cell_info(
         &self,
-    ) -> zbus::Result<Vec<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>>;
+    ) -> zbus::Result<Vec<std::collections::HashMap<String, zbus::OwnedVariant>>>;
 
     /// ListBearers method
-    fn list_bearers(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
+    fn list_bearers(&self) -> zbus::Result<Vec<zbus::OwnedObjectPath>>;
 
     /// Reset method
     fn reset(&self) -> zbus::Result<()>;
@@ -238,7 +238,7 @@ pub trait Modem {
 
     /// Sim property
     #[zbus(property)]
-    fn sim(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn sim(&self) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// SimSlots property
     #[zbus(property, object = "Sim", object_vec)]
@@ -390,9 +390,7 @@ pub trait Modem3gpp {
     fn register(&self, operator_id: &str) -> zbus::Result<()>;
 
     /// Scan method
-    fn scan(
-        &self,
-    ) -> zbus::Result<Vec<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>>;
+    fn scan(&self) -> zbus::Result<Vec<std::collections::HashMap<String, zbus::OwnedVariant>>>;
 
     /// SetCarrierLock method
     fn set_carrier_lock(&self, data: &[u8]) -> zbus::Result<()>;
@@ -403,13 +401,13 @@ pub trait Modem3gpp {
     /// SetInitialEpsBearerSettings method
     fn set_initial_eps_bearer_settings(
         &self,
-        settings: std::collections::HashMap<&str, &zbus::zvariant::Value<'_>>,
+        settings: std::collections::HashMap<&str, &zbus::Variant<'_>>,
     ) -> zbus::Result<()>;
 
     /// SetNr5gRegistrationSettings method
     fn set_nr5g_registration_settings(
         &self,
-        properties: std::collections::HashMap<&str, &zbus::zvariant::Value<'_>>,
+        properties: std::collections::HashMap<&str, &zbus::Variant<'_>>,
     ) -> zbus::Result<()>;
 
     /// SetPacketServiceState method
@@ -429,25 +427,25 @@ pub trait Modem3gpp {
 
     /// InitialEpsBearer property
     #[zbus(property)]
-    fn initial_eps_bearer(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+    fn initial_eps_bearer(&self) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// InitialEpsBearerSettings property
     #[zbus(property)]
     fn initial_eps_bearer_settings(
         &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    ) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// NetworkRejection property
     #[zbus(property)]
     fn network_rejection(
         &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    ) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Nr5gRegistrationSettings property
     #[zbus(property)]
     fn nr5g_registration_settings(
         &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    ) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// OperatorCode property
     #[zbus(property)]
@@ -499,12 +497,12 @@ pub trait Signal {
     /// SetupThresholds method
     fn setup_thresholds(
         &self,
-        settings: std::collections::HashMap<&str, &zbus::zvariant::Value<'_>>,
+        settings: std::collections::HashMap<&str, &zbus::Variant<'_>>,
     ) -> zbus::Result<()>;
 
     /// Cdma property
     #[zbus(property)]
-    fn cdma(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn cdma(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// ErrorRateThreshold property
     #[zbus(property)]
@@ -512,19 +510,19 @@ pub trait Signal {
 
     /// Evdo property
     #[zbus(property)]
-    fn evdo(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn evdo(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Gsm property
     #[zbus(property)]
-    fn gsm(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn gsm(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Lte property
     #[zbus(property)]
-    fn lte(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn lte(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Nr5g property
     #[zbus(property)]
-    fn nr5g(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn nr5g(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Rate property
     #[zbus(property)]
@@ -536,7 +534,7 @@ pub trait Signal {
 
     /// Umts property
     #[zbus(property)]
-    fn umts(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn umts(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 }
 
 /// # D-Bus interface proxy for: `org.freedesktop.ModemManager1.Modem.Simple`
@@ -561,16 +559,14 @@ pub trait Simple {
     /// Connect method
     fn connect(
         &self,
-        properties: std::collections::HashMap<&str, &zbus::zvariant::Value<'_>>,
-    ) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+        properties: std::collections::HashMap<&str, &zbus::Variant<'_>>,
+    ) -> zbus::Result<zbus::OwnedObjectPath>;
 
     /// Disconnect method
-    fn disconnect(&self, bearer: &zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
+    fn disconnect(&self, bearer: &zbus::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// GetStatus method
-    fn get_status(
-        &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn get_status(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 }
 
 /// # D-Bus interface proxy for: `org.freedesktop.ModemManager1.Modem.Location`
@@ -593,9 +589,7 @@ pub trait Simple {
 )]
 pub trait Location {
     /// GetLocation method
-    fn get_location(
-        &self,
-    ) -> zbus::Result<std::collections::HashMap<u32, zbus::zvariant::OwnedValue>>;
+    fn get_location(&self) -> zbus::Result<std::collections::HashMap<u32, zbus::OwnedVariant>>;
 
     /// InjectAssistanceData method
     fn inject_assistance_data(&self, data: &[u8]) -> zbus::Result<()>;
@@ -627,7 +621,7 @@ pub trait Location {
 
     /// Location property
     #[zbus(property)]
-    fn location(&self) -> zbus::Result<std::collections::HashMap<u32, zbus::zvariant::OwnedValue>>;
+    fn location(&self) -> zbus::Result<std::collections::HashMap<u32, zbus::OwnedVariant>>;
 
     /// SignalsLocation property
     #[zbus(property)]
@@ -689,15 +683,11 @@ pub trait Bearer {
 
     /// Ip4Config property
     #[zbus(property)]
-    fn ip4_config(
-        &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn ip4_config(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Ip6Config property
     #[zbus(property)]
-    fn ip6_config(
-        &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn ip6_config(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// IpTimeout property
     #[zbus(property)]
@@ -713,9 +703,7 @@ pub trait Bearer {
 
     /// Properties property
     #[zbus(property)]
-    fn properties(
-        &self,
-    ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn properties(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// ReloadStatsSupported property
     #[zbus(property)]
@@ -723,7 +711,7 @@ pub trait Bearer {
 
     /// Stats property
     #[zbus(property)]
-    fn stats(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
+    fn stats(&self) -> zbus::Result<std::collections::HashMap<String, zbus::OwnedVariant>>;
 
     /// Suspended property
     #[zbus(property)]
