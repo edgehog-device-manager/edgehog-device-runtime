@@ -17,8 +17,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use edgehog_store::models::containers::network::NetworkStatus;
+use tracing::instrument;
 
 use crate::{
+    events::{
+        DatastreamEvent,
+        network::{NetworkEvent, NetworkEventStatus},
+    },
     network::Network,
     properties::{AvailableProp, Client, network::AvailableNetwork},
 };
@@ -93,6 +98,13 @@ where
         } else {
             Ok(Some((State::Missing, resource)))
         }
+    }
+
+    #[instrument(skip_all)]
+    async fn on_error(ctx: &mut Context<'_, D>, error: &(dyn std::error::Error + Send + Sync)) {
+        NetworkEvent::with_error(NetworkEventStatus::Error, error)
+            .send(&ctx.id, ctx.device)
+            .await;
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {

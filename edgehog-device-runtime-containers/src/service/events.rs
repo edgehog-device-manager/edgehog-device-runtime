@@ -28,7 +28,10 @@ use tracing::{error, instrument};
 use uuid::Uuid;
 
 use crate::{
-    events::deployment::{DeploymentEvent, EventStatus},
+    events::{
+        DatastreamEvent,
+        deployment::{DeploymentEvent, DeploymentEventStatus},
+    },
     properties::Client,
     requests::{
         ContainerRequest,
@@ -144,7 +147,7 @@ impl<D> ServiceHandle<D> {
 
             error!(error = format!("{:#}", error), "couldn't store request");
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&deployment_id, &mut self.device)
                 .await;
         }

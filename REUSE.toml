@@ -33,7 +33,7 @@ SPDX-FileCopyrightText = "2024 - 2026 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["snapshots/*.snap", "edgehog-device-runtime-store/snapshots/*.snap"]
+path = ["**.snap"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 - 2026 SECO Mind Srl"
 SPDX-License-Identifier = "CC0-1.0"
