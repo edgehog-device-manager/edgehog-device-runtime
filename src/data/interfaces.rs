@@ -245,10 +245,22 @@ fn add_containers<C, S>(
     );
     const APPS_AVAILABLE_ENV_FILES: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableEnvFiles.json");
-    const APPS_DEPLOYMENT_COMMAND: &str =
-        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentCommand.json");
+    const APPS_IMAGE_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.ImageEvent.json");
+    const APPS_VOLUME_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.VolumeEvent.json");
+    const APPS_NETWORK_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.NetworkEvent.json");
+    const APPS_FILE_BIND_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.FileBindEvent.json");
+    const APPS_ENV_FILE_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.EnvFileEvent.json");
+    const APPS_CONTAINER_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.ContainerEvent.json");
     const APPS_DEPLOYMENT_EVENT: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentEvent.json");
+    const APPS_DEPLOYMENT_COMMAND: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentCommand.json");
     const APPS_DEPLOYMENT_UPDATE: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentUpdate.json");
     const APPS_STATS_CONTAINER_BLKIO: &str = include_str!(
@@ -291,8 +303,14 @@ fn add_containers<C, S>(
             .interface_str(APPS_AVAILABLE_FILE_BINDS)?
             .interface_str(APPS_CREATE_ENV_FILE_REQUEST)?
             .interface_str(APPS_AVAILABLE_ENV_FILES)?
-            .interface_str(APPS_DEPLOYMENT_COMMAND)?
+            .interface_str(APPS_IMAGE_EVENT)?
+            .interface_str(APPS_VOLUME_EVENT)?
+            .interface_str(APPS_NETWORK_EVENT)?
+            .interface_str(APPS_FILE_BIND_EVENT)?
+            .interface_str(APPS_ENV_FILE_EVENT)?
+            .interface_str(APPS_CONTAINER_EVENT)?
             .interface_str(APPS_DEPLOYMENT_EVENT)?
+            .interface_str(APPS_DEPLOYMENT_COMMAND)?
             .interface_str(APPS_DEPLOYMENT_UPDATE)?
             .interface_str(APPS_STATS_CONTAINER_BLKIO)?
             .interface_str(APPS_STATS_CONTAINER_CPU)?
