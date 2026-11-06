@@ -25,20 +25,23 @@ use astarte_device_sdk::event::FromEventError;
 use astarte_device_sdk::properties::PropAccess;
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::models::containers::deployment::DeploymentStatus;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
 use crate::{
     Docker,
     error::DockerError,
-    events::deployment::{DeploymentEvent, EventStatus},
+    events::{
+        DatastreamEvent,
+        deployment::{DeploymentEvent, DeploymentEventStatus},
+    },
     properties::{AvailableProp, Client, deployment::AvailableDeployment},
     requests::{
         ReqError,
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
     },
     resource::{
-        Context, Create, Resource, ResourceError, State, container::ContainerResource,
+        Context, Create, Resource, ResourceError, container::ContainerResource,
         deployment::Deployment, device_mapping::DeviceMappingResource,
         device_request::DeviceRequestResource, env_file::EnvFileResource,
         file_bind::FileBindResource, image::ImageResource, network::NetworkResource,
@@ -310,7 +313,7 @@ impl<D> Service<D> {
             let error = eyre::Report::new(err);
             error!(error = format!("{:#}", error), "failed to create resource");
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&deployment_id, &mut self.device)
                 .await;
         }
@@ -331,9 +334,12 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &mut self.device)
-                    .await;
+                DeploymentEvent::with_message(
+                    DeploymentEventStatus::Error,
+                    format!("{id} not found"),
+                )
+                .send(&id, &mut self.device)
+                .await;
 
                 return;
             }
@@ -344,7 +350,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -354,7 +360,7 @@ impl<D> Service<D> {
 
         info!("starting deployment");
 
-        DeploymentEvent::with_message(EventStatus::Starting, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Starting, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -366,7 +372,7 @@ impl<D> Service<D> {
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail);
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
@@ -375,7 +381,7 @@ impl<D> Service<D> {
 
         crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
 
-        DeploymentEvent::with_message(EventStatus::Started, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Started, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -409,9 +415,11 @@ impl<D> Service<D> {
         }
 
         for id in deployment.containers.values().copied() {
-            let mut container = ContainerResource::up(self.context(id)).await?;
+            ContainerResource::up(self.context(id)).await?;
+        }
 
-            container.start(self.context(id)).await?;
+        for id in deployment.containers.values().copied() {
+            ContainerResource::start(self.context(id)).await?;
         }
 
         AvailableDeployment::new(&deployment_id)
@@ -438,9 +446,12 @@ impl<D> Service<D> {
             Ok(None) => {
                 error!("{id} not found");
 
-                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &mut self.device)
-                    .await;
+                DeploymentEvent::with_message(
+                    DeploymentEventStatus::Error,
+                    format!("{id} not found"),
+                )
+                .send(&id, &mut self.device)
+                .await;
 
                 return;
             }
@@ -449,7 +460,7 @@ impl<D> Service<D> {
 
                 error!(error = format!("{:#}", error), "couldn't start deployment");
 
-                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -459,7 +470,7 @@ impl<D> Service<D> {
 
         info!("stopping deployment");
 
-        DeploymentEvent::with_message(EventStatus::Stopping, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Stopping, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -470,14 +481,14 @@ impl<D> Service<D> {
 
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStopFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
             return;
         }
 
-        DeploymentEvent::with_message(EventStatus::Stopped, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Stopped, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -494,25 +505,7 @@ impl<D> Service<D> {
         for id in containers {
             debug!(%id, "stopping container");
 
-            let mut ctx = self.context(*id);
-            let (state, mut container) =
-                ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
-                    opt.ok_or(ResourceError::Missing {
-                        id: ctx.id,
-                        resource: "container",
-                    })
-                })?;
-
-            match state {
-                State::Missing => {
-                    warn!(%id, "container already missing, cannot stop");
-
-                    continue;
-                }
-                State::Recreatable | State::Existing => {}
-            }
-
-            container.stop(ctx).await?;
+            ContainerResource::stop(self.context(*id)).await?;
         }
 
         AvailableDeployment::new(&deployment)
@@ -543,9 +536,12 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, format!("{id} not found"))
-                    .send(&id, &mut self.device)
-                    .await;
+                DeploymentEvent::with_message(
+                    DeploymentEventStatus::Error,
+                    format!("{id} not found"),
+                )
+                .send(&id, &mut self.device)
+                .await;
 
                 return;
             }
@@ -556,7 +552,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                     .send(&id, &mut self.device)
                     .await;
 
@@ -566,7 +562,7 @@ impl<D> Service<D> {
 
         info!("deleting deployment");
 
-        DeploymentEvent::with_message(EventStatus::Deleting, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Deleting, "")
             .send(&id, &mut self.device)
             .await;
 
@@ -577,7 +573,7 @@ impl<D> Service<D> {
 
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerUndeploymentFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, error.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, error.as_ref())
                 .send(&id, &mut self.device)
                 .await;
 
@@ -651,7 +647,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, msg)
+                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
                     .send(&bundle.from, &mut self.device)
                     .await;
 
@@ -664,7 +660,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
                     .send(&bundle.from, &mut self.device)
                     .await;
 
@@ -680,7 +676,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(EventStatus::Error, msg)
+                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
                     .send(&bundle.to, &mut self.device)
                     .await;
 
@@ -693,7 +689,7 @@ impl<D> Service<D> {
 
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
                     .send(&bundle.to, &mut self.device)
                     .await;
 
@@ -703,7 +699,7 @@ impl<D> Service<D> {
 
         info!("updating deployment");
 
-        DeploymentEvent::with_message(EventStatus::Updating, "")
+        DeploymentEvent::with_message(DeploymentEventStatus::Updating, "")
             .send(&bundle.from, &mut self.device)
             .await;
 
@@ -718,7 +714,7 @@ impl<D> Service<D> {
 
             crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-            DeploymentEvent::with_error(EventStatus::Error, err.as_ref())
+            DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
                 .send(&bundle.from, &mut self.device)
                 .await;
 
@@ -797,25 +793,7 @@ impl<D> Service<D> {
         for id in to_restart {
             debug!(%id, "restarting container");
 
-            let mut ctx = self.context(*id);
-            let (state, mut container) =
-                ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
-                    opt.ok_or(ResourceError::Missing {
-                        id: ctx.id,
-                        resource: "container",
-                    })
-                })?;
-
-            match state {
-                State::Missing => {
-                    warn!(%id, "container missing, cannot restart");
-
-                    continue;
-                }
-                State::Recreatable | State::Existing => {}
-            }
-
-            container.start(ctx).await?;
+            ContainerResource::start(self.context(*id)).await?;
         }
 
         AvailableDeployment::new(&deployment)
@@ -921,7 +899,13 @@ mod tests {
     use crate::container::tests::create_container_resource;
     use crate::image::Image;
     use crate::network::{Network, NetworkId};
-    use crate::properties::container::ContainerStatus;
+    use crate::properties::container::{
+        AvailableContainer, ContainerStatus,
+        tests::{
+            expect_available_container_send, expect_available_container_send_status,
+            expect_available_container_unset,
+        },
+    };
     use crate::properties::deployment::DeploymentStatus;
     use crate::requests::ContainerRequest;
     use crate::requests::container::tests::{create_container_req, create_container_request_event};
@@ -1145,17 +1129,8 @@ mod tests {
         device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
-        let endpoint = format!("/{id}/status");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint.clone()),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+        let prop = AvailableContainer::new(&id);
+        expect_available_container_send(device, seq, &prop, ContainerStatus::Received);
 
         client
             .expect_inspect_container()
@@ -1163,16 +1138,8 @@ mod tests {
             .in_sequence(seq)
             .with(predicate::eq(id.to_string()), predicate::always())
             .returning(|_, _| Err(not_found_response()));
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+
+        expect_available_container_send(device, seq, &prop, ContainerStatus::Missing);
     }
 
     #[tokio::test]
@@ -1730,17 +1697,20 @@ mod tests {
             .with(predicate::eq(container.id.to_string()), predicate::always())
             .returning(|_, _| Err(not_found_response()));
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint.clone()),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+        let container_prop = AvailableContainer::new(&container.id);
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &container_prop,
+            ContainerStatus::Missing,
+        );
+
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &container_prop,
+            ContainerStatus::Creating,
+        );
 
         device
             .expect_property()
@@ -1785,16 +1755,53 @@ mod tests {
                 })
             });
 
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint.clone()),
-                predicate::eq(AstarteData::String(ContainerStatus::Created.to_string())),
-            )
-            .returning(|_, _, _| Ok(()));
+        let created_inspect = bollard::models::ContainerInspectResponse {
+            id: Some("local-container-id".to_string()),
+            image: Some(
+                "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a"
+                    .to_string(),
+            ),
+            restart_count: Some(0),
+            state: Some(bollard::models::ContainerState {
+                status: Some(bollard::models::ContainerStateStatusEnum::CREATED),
+                exit_code: Some(0),
+                health: Some(bollard::models::Health {
+                    status: Some(bollard::models::HealthStatusEnum::STARTING),
+                    failing_streak: Some(0),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let created_prop = AvailableContainer::with_inspect(&container.id, created_inspect.clone());
+
+        for _ in 0..2 {
+            let created_inspect = created_inspect.clone();
+            client
+                .expect_inspect_container()
+                .once()
+                .in_sequence(&mut seq)
+                .with(
+                    predicate::eq("local-container-id".to_string()),
+                    predicate::always(),
+                )
+                .return_once(move |_, _| Ok(created_inspect));
+
+            expect_available_container_send(
+                &mut device,
+                &mut seq,
+                &created_prop,
+                ContainerStatus::Created,
+            );
+        }
+
+        expect_available_container_send_status(
+            &mut device,
+            &mut seq,
+            &container.id,
+            ContainerStatus::Starting,
+        );
 
         client
             .expect_start_container()
@@ -1806,17 +1813,43 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_set_property()
+        let running_inspect = bollard::models::ContainerInspectResponse {
+            id: Some("local-container-id".to_string()),
+            image: Some(
+                "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a"
+                    .to_string(),
+            ),
+            restart_count: Some(0),
+            state: Some(bollard::models::ContainerState {
+                status: Some(bollard::models::ContainerStateStatusEnum::RUNNING),
+                exit_code: Some(0),
+                health: Some(bollard::models::Health {
+                    status: Some(bollard::models::HealthStatusEnum::HEALTHY),
+                    failing_streak: Some(0),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let running_prop = AvailableContainer::with_inspect(&container.id, running_inspect.clone());
+
+        client
+            .expect_inspect_container()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == endpoint
-                    && *value == ContainerStatus::Running.to_string()
-            })
-            .returning(|_, _, _| Ok(()));
+            .with(
+                predicate::eq("local-container-id".to_string()),
+                predicate::always(),
+            )
+            .return_once(move |_, _| Ok(running_inspect));
+
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &running_prop,
+            ContainerStatus::Running,
+        );
 
         let endpoint = format!("/{}/status", deployment_id);
         device
@@ -2019,28 +2052,15 @@ mod tests {
             .in_sequence(&mut seq)
             .return_once(|_, _| Err(not_found_response()));
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::String(ContainerStatus::Received.to_string())),
-            )
-            .returning(|_, _, _| Ok(()));
+        let container_prop = AvailableContainer::new(&container.id);
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &container_prop,
+            ContainerStatus::Missing,
+        );
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-            )
-            .returning(|_, _| Ok(()));
+        expect_available_container_unset(&mut device, &mut seq, &container.id);
 
         client
             .expect_inspect_volume()
