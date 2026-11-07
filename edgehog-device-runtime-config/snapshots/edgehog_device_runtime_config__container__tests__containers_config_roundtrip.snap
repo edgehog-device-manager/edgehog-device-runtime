@@ -1,0 +1,7 @@
+---
+source: edgehog-device-runtime-config/src/container.rs
+expression: toml_str
+---
+enabled = true
+required = true
+max_retries = 3

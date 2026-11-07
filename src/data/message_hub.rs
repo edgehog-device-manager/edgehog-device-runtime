@@ -23,32 +23,35 @@ use astarte_device_sdk::builder::DeviceBuilder;
 use astarte_device_sdk::prelude::*;
 use astarte_device_sdk::store::SqliteStore;
 use astarte_device_sdk::transport::grpc::{Grpc, GrpcConfig};
+use edgehog_config::sdk::MessageHubConfig;
 use eyre::Context;
 use serde::Deserialize;
 use tokio::task::JoinSet;
+use tracing::warn;
 use url::Url;
 use uuid::{Uuid, uuid};
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 
 use super::interfaces::add_interfaces;
 
 /// Device runtime node identifier.
 const DEVICE_RUNTIME_NODE_UUID: Uuid = uuid!("d72a6187-7cf1-44cc-87e8-e991936166db");
+const DEFAULT_MESSAGE_HUB_ENDPOINT: &str = "http://[::1]:50051";
 
 /// Struct containing the configuration options for the Astarte message hub.
 #[derive(Debug, Deserialize, Clone)]
-pub struct AstarteMessageHubOptions {
+pub struct MessageHubOptions {
     /// The Endpoint of the Astarte Message Hub
     pub endpoint: Url,
 }
 
-impl AstarteMessageHubOptions {
+impl MessageHubOptions {
     pub async fn connect(
         &self,
         tasks: &mut JoinSet<eyre::Result<()>>,
         store: SqliteStore,
-        options: &DeviceManagerOptions,
+        options: &DeviceRuntimeOptions,
     ) -> eyre::Result<DeviceClient<Grpc<SqliteStore>>> {
         let grpc_cfg = GrpcConfig::from_url(DEVICE_RUNTIME_NODE_UUID, self.endpoint.to_string())
             .wrap_err("invalid message-hub endpoint")?;
@@ -65,5 +68,24 @@ impl AstarteMessageHubOptions {
         tasks.spawn(async move { connection.handle_events().await.map_err(Into::into) });
 
         Ok(device)
+    }
+}
+
+impl TryFrom<MessageHubConfig> for MessageHubOptions {
+    type Error = eyre::Report;
+
+    fn try_from(value: MessageHubConfig) -> Result<Self, Self::Error> {
+        let MessageHubConfig { endpoint } = value;
+
+        let endpoint = match endpoint {
+            Some(endpoint) => endpoint,
+            None => {
+                warn!("no message-hub  endpoint configured, using the default");
+
+                Url::parse(DEFAULT_MESSAGE_HUB_ENDPOINT)?
+            }
+        };
+
+        Ok(Self { endpoint })
     }
 }

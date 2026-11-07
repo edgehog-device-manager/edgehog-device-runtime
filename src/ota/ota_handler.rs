@@ -29,7 +29,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace};
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 use crate::controller::actor::Actor;
 use crate::ota::OtaError;
 use crate::ota::rauc::OTARauc;
@@ -91,7 +91,7 @@ impl OtaHandler {
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
         client: C,
-        opts: &DeviceManagerOptions,
+        opts: &DeviceRuntimeOptions,
     ) -> eyre::Result<Self>
     where
         C: Client + Send + Sync + 'static,

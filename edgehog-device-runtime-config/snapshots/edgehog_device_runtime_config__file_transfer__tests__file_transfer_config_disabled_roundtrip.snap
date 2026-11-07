@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-config/src/file_transfer.rs
+expression: toml_str
+---
+enabled = false

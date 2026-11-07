@@ -28,8 +28,8 @@ use edgehog_proto::containers::v1::{
     ListInfoIds, ListInfoSummary, ListRequest, ListResponse, StartRequest, StatsRequest,
     StatsResponse, StopRequest,
 };
-use edgehog_proto::tonic::{self, Response, Status};
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::{self, Response, Status};
 use tracing::error;
 use uuid::Uuid;
 
@@ -241,12 +241,15 @@ impl ContainersService for EdgehogService {
 
         let (tx, rx) = tokio::sync::mpsc::channel(4);
         let mut interval = tokio::time::interval(Duration::from_secs(interval));
-        let containers = self.container_handle()?;
+
+        if !self.containers.initialized() {
+            return Err(Status::unavailable("container service not available"));
+        }
 
         let sender = StatsSender {
             tx,
             ids,
-            containers: containers.clone(),
+            containers: self.containers.clone(),
         };
 
         tokio::spawn(async move {
