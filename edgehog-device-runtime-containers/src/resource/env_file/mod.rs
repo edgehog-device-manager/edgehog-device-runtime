@@ -22,6 +22,8 @@ use astarte_device_sdk::properties::PropAccess;
 use edgehog_store::models::containers::file_bind::{EnvFile, EnvFileStatus, TargetType};
 use tracing::{error, instrument};
 
+use crate::events::DatastreamEvent;
+use crate::events::env_file::{EnvFileEvent, EnvFileEventStatus};
 use crate::properties::{AvailableProp, Client, env_file::AvailableEnvFile};
 use crate::resource::ResourceError;
 
@@ -45,7 +47,23 @@ impl<'a> EnvFileResource<'a> {
     #[instrument(skip_all, fields(id = %ctx.id))]
     pub(crate) async fn check<D>(ctx: &mut Context<'_, D>) -> Result<()>
     where
-        D: PropAccess + Send + Sync + 'static,
+        D: Client + PropAccess + Send + Sync + 'static,
+    {
+        if let Err(error) = Self::exists(ctx).await {
+            EnvFileEvent::with_error(EnvFileEventStatus::Error, &error)
+                .send(&ctx.id, ctx.device)
+                .await;
+
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip_all)]
+    pub(crate) async fn exists<D>(ctx: &mut Context<'_, D>) -> Result<()>
+    where
+        D: Client + PropAccess + Send + Sync + 'static,
     {
         let Some(inner) = ctx.store.find_env_file(ctx.id).await? else {
             error!("env file not found in database");

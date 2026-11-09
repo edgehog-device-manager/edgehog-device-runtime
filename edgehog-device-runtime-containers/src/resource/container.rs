@@ -21,9 +21,11 @@ use std::ops::ControlFlow;
 use astarte_device_sdk::properties::PropAccess;
 use bollard::models::ContainerStateStatusEnum;
 use edgehog_store::models::containers::container::ContainerStatus;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use crate::container::Container;
+use crate::events::DatastreamEvent;
+use crate::events::container::{ContainerEvent, ContainerEventStatus};
 use crate::properties::container::{AvailableContainer, ContainerStatus as PropertyStatus};
 use crate::properties::{AvailableProp, Client};
 use crate::resource::file_bind::FileBindResource;
@@ -224,6 +226,7 @@ where
 
         Ok(())
     }
+
     async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableContainer::new(&ctx.id).unset(ctx.device).await?;
 
@@ -255,6 +258,13 @@ where
         } else {
             Ok(Some((State::Missing, this)))
         }
+    }
+
+    #[instrument(skip_all)]
+    async fn on_error(ctx: &mut Context<'_, D>, error: &(dyn std::error::Error + Send + Sync)) {
+        ContainerEvent::with_error(ContainerEventStatus::Error, error)
+            .send(&ctx.id, ctx.device)
+            .await;
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {

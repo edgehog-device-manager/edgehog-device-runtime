@@ -117,6 +117,7 @@ where
     // fixes an issue with features normalization when testing with `--all-features --workspace`
     spawn_listener(
         tasks,
+        device,
         &config,
         &store,
         &client,
@@ -140,19 +141,22 @@ where
     Ok(Some((tx, container_handle)))
 }
 
-fn spawn_listener(
+fn spawn_listener<D>(
     tasks: &mut JoinSet<Result<(), eyre::Error>>,
+    device: &D,
     config: &ContainersConfig,
     store: &StateStore,
     client: &Docker,
     tx: tokio::sync::mpsc::Sender<ContainerEvent>,
     cancel: &CancellationToken,
-) {
+) where
+    D: Client + Send + Sync + 'static,
+{
     if cfg!(test) {
         return;
     }
 
-    let mut listener = RuntimeListener::new(client.clone(), store.clone(), tx);
+    let mut listener = RuntimeListener::new(device.clone(), client.clone(), store.clone(), tx);
 
     let cancel = cancel.clone();
     let max_retries = config.max_retries;

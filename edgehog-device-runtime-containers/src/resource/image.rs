@@ -20,6 +20,10 @@ use edgehog_store::models::containers::image::{ImageStatus, PullPolicy};
 use tracing::warn;
 
 use crate::{
+    events::{
+        DatastreamEvent,
+        image::{ImageEvent, ImageEventStatus},
+    },
     image::{Image, ImageError},
     properties::{AvailableProp, Client, image::AvailableImage},
 };
@@ -96,6 +100,12 @@ where
         } else {
             Ok(Some((State::Missing, resource)))
         }
+    }
+
+    async fn on_error(ctx: &mut Context<'_, D>, error: &(dyn std::error::Error + Send + Sync)) {
+        ImageEvent::with_error(ImageEventStatus::Error, error)
+            .send(&ctx.id, ctx.device)
+            .await;
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {

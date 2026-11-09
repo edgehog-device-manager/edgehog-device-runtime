@@ -1,12 +1,12 @@
 // This file is part of Edgehog.
 //
-// Copyright 2023-2024 SECO Mind Srl
+// Copyright 2023, 2024, 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,13 +23,16 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use bollard::{models::EventMessage, query_parameters::EventsOptionsBuilder};
-use futures::{Stream, TryStreamExt};
+use bollard::query_parameters::EventsOptionsBuilder;
+use futures::{Stream, StreamExt, TryStreamExt};
 
 pub(crate) use crate::client::*;
 use crate::error::DockerError;
 
+use self::event::ContainerRuntimeEvent;
+
 pub(crate) mod container;
+pub(crate) mod event;
 pub(crate) mod image;
 pub(crate) mod network;
 pub(crate) mod volume;
@@ -73,7 +76,7 @@ impl Docker {
     }
 
     /// Ping the Docker daemon
-    pub fn events(&self) -> impl Stream<Item = Result<EventMessage, DockerError>> + use<> {
+    pub fn events(&self) -> impl Stream<Item = Result<ContainerRuntimeEvent, DockerError>> + use<> {
         let types = ["container", "image", "volume", "network"]
             .map(str::to_string)
             .to_vec();
@@ -85,6 +88,7 @@ impl Docker {
         // Discard the result since it returns the string `OK`
         self.client
             .events(Some(options))
+            .map(|r| r.map(ContainerRuntimeEvent::from))
             .map_err(DockerError::Events)
     }
 }
