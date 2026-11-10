@@ -1,5 +1,0 @@
----
-source: edgehog-device-runtime-containers/src/events/container.rs
-expression: status
----
-Error

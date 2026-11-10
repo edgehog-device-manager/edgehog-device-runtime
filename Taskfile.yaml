@@ -186,3 +186,26 @@ tasks:
     desc: "Generates the protobuf definitions"
     cmds:
       - ./scripts/ci/generate-proto.sh
+
+  migrations:runtime:create:
+    desc: "Generates a runtime diesel migration"
+    interactive: true
+    requires:
+      vars:
+        - MIGRATION_NAME
+    cmds:
+      - ./scripts/store/generate.sh runtime '{{.MIGRATION_NAME}}'
+
+  migrations:containers:create:
+    desc: "Generates a container diesel migration"
+    interactive: true
+    requires:
+      vars:
+        - MIGRATION_NAME
+    cmds:
+      - ./scripts/store/generate.sh containers '{{.MIGRATION_NAME}}'
+
+  migrations:run:
+    desc: "Run all the diesel migrations"
+    cmds:
+      - ./scripts/store/migrate.sh

@@ -25,7 +25,7 @@ use astarte_device_sdk::event::FromEventError;
 use astarte_device_sdk::properties::PropAccess;
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::models::containers::deployment::DeploymentStatus;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -41,7 +41,7 @@ use crate::{
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
     },
     resource::{
-        Context, Create, Resource, ResourceError, State, container::ContainerResource,
+        Context, Create, Resource, ResourceError, container::ContainerResource,
         deployment::Deployment, device_mapping::DeviceMappingResource,
         device_request::DeviceRequestResource, env_file::EnvFileResource,
         file_bind::FileBindResource, image::ImageResource, network::NetworkResource,
@@ -72,6 +72,11 @@ pub enum ServiceError {
     Store(#[from] StoreError),
     /// couldn't complete operation on a resource
     Resource(#[from] ResourceError),
+    /// couldn't update deployment {message}
+    Update {
+        /// Error message for the update
+        message: String,
+    },
 }
 
 impl<T> From<T> for ServiceError
@@ -364,7 +369,7 @@ impl<D> Service<D> {
             .send(&id, &mut self.device)
             .await;
 
-        if let Err(err) = self.start_deployment(id, deployment).await {
+        if let Err(err) = self.start_deployment(id, &deployment).await {
             let error = eyre::Report::new(err);
 
             error!(error = format!("{:#}", error), "couldn't start deployment");
@@ -388,35 +393,41 @@ impl<D> Service<D> {
         info!("deployment started");
     }
 
-    async fn start_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
+    async fn start_deployment(&mut self, deployment_id: Uuid, deployment: &Deployment) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
         crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartInit);
 
-        for id in deployment.images {
-            ImageResource::up(self.context(id)).await?;
+        for id in &deployment.images {
+            ImageResource::up(self.context(*id)).await?;
         }
 
-        for id in deployment.volumes {
-            VolumeResource::up(self.context(id)).await?;
+        for id in &deployment.volumes {
+            VolumeResource::up(self.context(*id)).await?;
         }
 
-        for id in deployment.networks {
-            NetworkResource::up(self.context(id)).await?;
+        for id in &deployment.networks {
+            NetworkResource::up(self.context(*id)).await?;
         }
 
-        for id in deployment.file_binds {
-            FileBindResource::check(&mut self.context(id)).await?;
+        for id in &deployment.file_binds {
+            FileBindResource::check(&mut self.context(*id)).await?;
         }
 
-        for id in deployment.env_files {
-            EnvFileResource::check(&mut self.context(id)).await?;
+        for id in &deployment.env_files {
+            EnvFileResource::check(&mut self.context(*id)).await?;
         }
 
+        // Create all the containers and then start theme
+        let mut containers = Vec::new();
         for id in deployment.containers.values().copied() {
-            let mut container = ContainerResource::up(self.context(id)).await?;
+            let resouces = ContainerResource::up(self.context(id)).await?;
 
+            containers.push((id, resouces));
+        }
+
+        for (id, mut container) in containers {
             container.start(self.context(id)).await?;
         }
 
@@ -503,25 +514,7 @@ impl<D> Service<D> {
         for id in containers {
             debug!(%id, "stopping container");
 
-            let mut ctx = self.context(*id);
-            let (state, mut container) =
-                ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
-                    opt.ok_or(ResourceError::Missing {
-                        id: ctx.id,
-                        resource: "container",
-                    })
-                })?;
-
-            match state {
-                State::Missing => {
-                    warn!(%id, "container already missing, cannot stop");
-
-                    continue;
-                }
-                State::Recreatable | State::Existing => {}
-            }
-
-            container.stop(ctx).await?;
+            ContainerResource::stop(self.context(*id)).await?;
         }
 
         AvailableDeployment::new(&deployment)
@@ -651,62 +644,15 @@ impl<D> Service<D> {
     {
         crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
 
-        let from_deployment = match self
-            .store
-            .load_deployment_containers_update_from(bundle)
-            .await
-        {
-            Ok(Some(deployment)) => deployment,
-            Ok(None) => {
-                let msg = format!("{} not found", bundle.from);
-                error!("{msg}");
-
+        let change = match self.deployment_change(bundle).await {
+            Ok(change) => change,
+            Err(error) => {
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
+                error!(%error, "couldn't get deployemnt change");
+
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, &error)
                     .send(&bundle.from, &mut self.device)
-                    .await;
-
-                return;
-            }
-            Err(err) => {
-                let err = eyre::Report::new(err);
-
-                error!(error = format!("{:#}", err), "couldn't update deployment");
-
-                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
-
-                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
-                    .send(&bundle.from, &mut self.device)
-                    .await;
-
-                return;
-            }
-        };
-
-        let to_deployment = match self.store.find_complete_deployment(bundle.to).await {
-            Ok(Some(deployment)) => deployment,
-            Ok(None) => {
-                let msg = format!("{} not found", bundle.to);
-                error!("{msg}");
-
-                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
-
-                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
-                    .send(&bundle.to, &mut self.device)
-                    .await;
-
-                return;
-            }
-            Err(err) => {
-                let err = eyre::Report::new(err);
-
-                error!(error = format!("{:#}", err), "couldn't update deployment");
-
-                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
-
-                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
-                    .send(&bundle.to, &mut self.device)
                     .await;
 
                 return;
@@ -719,11 +665,7 @@ impl<D> Service<D> {
             .send(&bundle.from, &mut self.device)
             .await;
 
-        // TODO: consider if it's necessary a retry logic
-        if let Err(err) = self
-            .update_deployment(bundle, &from_deployment, to_deployment)
-            .await
-        {
+        if let Err(err) = self.update_deployment(bundle, &change).await {
             let err = eyre::Report::new(err);
 
             error!(error = format!("{:#}", err), "couldn't update deployment");
@@ -735,8 +677,8 @@ impl<D> Service<D> {
                 .await;
 
             // Start the old deployment on error
-            if let Err(error) = self.restart_failed(bundle.from, &from_deployment).await {
-                error!(%error, "couldn't restart deployment after failed update")
+            if let Err(error) = self.rollback_update(bundle).await {
+                error!(%error, "couldn't rollback deployment after failed update")
             }
 
             return;
@@ -747,22 +689,41 @@ impl<D> Service<D> {
         info!("deployment updated");
     }
 
+    async fn deployment_change(&mut self, bundle: DeploymentUpdate) -> Result<DeploymentChange> {
+        let to_stop = self
+            .store
+            .load_deployment_containers_update_from(bundle)
+            .await?
+            .ok_or(ServiceError::Update {
+                message: format!("deployment {} not found", bundle.from),
+            })?;
+
+        let to_start = self
+            .store
+            .find_complete_deployment(bundle.to)
+            .await?
+            .ok_or(ServiceError::Update {
+                message: format!("deployment {} not found", bundle.from),
+            })?;
+
+        Ok(DeploymentChange { to_stop, to_start })
+    }
+
     async fn update_deployment(
         &mut self,
         bundle: DeploymentUpdate,
-        to_stop: &[SqlUuid],
-        to_start: Deployment,
+        change: &DeploymentChange,
     ) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
-        self.stop_deployment(bundle.from, to_stop)
+        self.stop_deployment(bundle.from, &change.to_stop)
             .await
             .inspect_err(|_| {
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail)
             })?;
 
-        self.start_deployment(bundle.to, to_start)
+        self.start_deployment(bundle.to, &change.to_start)
             .await
             .inspect_err(|_| {
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail)
@@ -802,41 +763,23 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    async fn restart_failed(&mut self, deployment: Uuid, to_restart: &[SqlUuid]) -> Result<()>
+    async fn rollback_update(&mut self, bundle: DeploymentUpdate) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
-        for id in to_restart {
-            debug!(%id, "restarting container");
+        let bundle = bundle.into_rollback();
 
-            let mut ctx = self.context(*id);
-            let (state, mut container) =
-                ContainerResource::fetch(&mut ctx).await.and_then(|opt| {
-                    opt.ok_or(ResourceError::Missing {
-                        id: ctx.id,
-                        resource: "container",
-                    })
-                })?;
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
 
-            match state {
-                State::Missing => {
-                    warn!(%id, "container missing, cannot restart");
+        let change = self.deployment_change(bundle).await?;
 
-                    continue;
-                }
-                State::Recreatable | State::Existing => {}
-            }
+        info!("rollbacking deployment");
 
-            container.start(ctx).await?;
-        }
+        self.update_deployment(bundle, &change).await?;
 
-        AvailableDeployment::new(&deployment)
-            .send(
-                &mut self.device,
-                crate::properties::deployment::DeploymentStatus::Started,
-            )
-            .await
-            .map_err(ResourceError::from)?;
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
+
+        info!("deployment rollbacked");
 
         Ok(())
     }
@@ -909,6 +852,15 @@ impl Display for ResourceType {
     }
 }
 
+/// Deployment update.
+///
+/// Specifies the deployment to start and the containers to stop.
+#[derive(Debug)]
+struct DeploymentChange {
+    to_stop: Vec<SqlUuid>,
+    to_start: Deployment,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -933,7 +885,13 @@ mod tests {
     use crate::container::tests::create_container_resource;
     use crate::image::Image;
     use crate::network::{Network, NetworkId};
-    use crate::properties::container::ContainerStatus;
+    use crate::properties::container::{
+        AvailableContainer, ContainerStatus,
+        tests::{
+            expect_available_container_send, expect_available_container_send_status,
+            expect_available_container_unset,
+        },
+    };
     use crate::properties::deployment::DeploymentStatus;
     use crate::requests::ContainerRequest;
     use crate::requests::container::tests::{create_container_req, create_container_request_event};
@@ -1157,17 +1115,8 @@ mod tests {
         device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
-        let endpoint = format!("/{id}/status");
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint.clone()),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+        let prop = AvailableContainer::new(&id);
+        expect_available_container_send(device, seq, &prop, ContainerStatus::Received);
 
         client
             .expect_inspect_container()
@@ -1175,16 +1124,8 @@ mod tests {
             .in_sequence(seq)
             .with(predicate::eq(id.to_string()), predicate::always())
             .returning(|_, _| Err(not_found_response()));
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+
+        expect_available_container_send(device, seq, &prop, ContainerStatus::Missing);
     }
 
     #[tokio::test]
@@ -1742,17 +1683,20 @@ mod tests {
             .with(predicate::eq(container.id.to_string()), predicate::always())
             .returning(|_, _| Err(not_found_response()));
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint.clone()),
-                predicate::eq(AstarteData::from("Received")),
-            )
-            .returning(|_, _, _| Ok(()));
+        let container_prop = AvailableContainer::new(&container.id);
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &container_prop,
+            ContainerStatus::Missing,
+        );
+
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &container_prop,
+            ContainerStatus::Creating,
+        );
 
         device
             .expect_property()
@@ -1797,16 +1741,53 @@ mod tests {
                 })
             });
 
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint.clone()),
-                predicate::eq(AstarteData::String(ContainerStatus::Created.to_string())),
-            )
-            .returning(|_, _, _| Ok(()));
+        let created_inspect = bollard::models::ContainerInspectResponse {
+            id: Some("local-container-id".to_string()),
+            image: Some(
+                "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a"
+                    .to_string(),
+            ),
+            restart_count: Some(0),
+            state: Some(bollard::models::ContainerState {
+                status: Some(bollard::models::ContainerStateStatusEnum::CREATED),
+                exit_code: Some(0),
+                health: Some(bollard::models::Health {
+                    status: Some(bollard::models::HealthStatusEnum::STARTING),
+                    failing_streak: Some(0),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let created_prop = AvailableContainer::with_inspect(&container.id, &created_inspect);
+
+        for _ in 0..2 {
+            let created_inspect = created_inspect.clone();
+            client
+                .expect_inspect_container()
+                .once()
+                .in_sequence(&mut seq)
+                .with(
+                    predicate::eq("local-container-id".to_string()),
+                    predicate::always(),
+                )
+                .return_once(move |_, _| Ok(created_inspect));
+
+            expect_available_container_send(
+                &mut device,
+                &mut seq,
+                &created_prop,
+                ContainerStatus::Created,
+            );
+        }
+
+        expect_available_container_send_status(
+            &mut device,
+            &mut seq,
+            &container.id,
+            ContainerStatus::Starting,
+        );
 
         client
             .expect_start_container()
@@ -1818,17 +1799,43 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_set_property()
+        let running_inspect = bollard::models::ContainerInspectResponse {
+            id: Some("local-container-id".to_string()),
+            image: Some(
+                "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a"
+                    .to_string(),
+            ),
+            restart_count: Some(0),
+            state: Some(bollard::models::ContainerState {
+                status: Some(bollard::models::ContainerStateStatusEnum::RUNNING),
+                exit_code: Some(0),
+                health: Some(bollard::models::Health {
+                    status: Some(bollard::models::HealthStatusEnum::HEALTHY),
+                    failing_streak: Some(0),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let running_prop = AvailableContainer::with_inspect(&container.id, &running_inspect);
+
+        client
+            .expect_inspect_container()
             .once()
             .in_sequence(&mut seq)
-            .withf(move |interface, path, value| {
-                interface == "io.edgehog.devicemanager.apps.AvailableContainers"
-                    && path == endpoint
-                    && *value == ContainerStatus::Running.to_string()
-            })
-            .returning(|_, _, _| Ok(()));
+            .with(
+                predicate::eq("local-container-id".to_string()),
+                predicate::always(),
+            )
+            .return_once(move |_, _| Ok(running_inspect));
+
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &running_prop,
+            ContainerStatus::Running,
+        );
 
         let endpoint = format!("/{}/status", deployment_id);
         device
@@ -2031,28 +2038,15 @@ mod tests {
             .in_sequence(&mut seq)
             .return_once(|_, _| Err(not_found_response()));
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-                predicate::eq(AstarteData::String(ContainerStatus::Received.to_string())),
-            )
-            .returning(|_, _, _| Ok(()));
+        let container_prop = AvailableContainer::new(&container.id);
+        expect_available_container_send(
+            &mut device,
+            &mut seq,
+            &container_prop,
+            ContainerStatus::Missing,
+        );
 
-        let endpoint = format!("/{}/status", container.id);
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableContainers"),
-                predicate::eq(endpoint),
-            )
-            .returning(|_, _| Ok(()));
+        expect_available_container_unset(&mut device, &mut seq, &container.id);
 
         client
             .expect_inspect_volume()
