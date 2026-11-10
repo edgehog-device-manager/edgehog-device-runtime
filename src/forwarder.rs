@@ -25,10 +25,10 @@ use astarte_device_sdk::astarte_device_error::Error;
 use astarte_device_sdk::error::AstarteError;
 use astarte_device_sdk::prelude::PropAccess;
 use astarte_device_sdk::types::{AstarteData, TypeError};
+use edgehog_config::forwarder::ForwarderConfig;
 use edgehog_forwarder::astarte::SessionInfo;
 use edgehog_forwarder::connections_manager::{ConnectionsManager, Disconnected};
 use reqwest::Url;
-use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
@@ -52,16 +52,27 @@ pub enum ForwarderError {
 }
 
 /// Configuration for the forwarder service.
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-pub struct ForwarderConfig {
+#[derive(Debug, Clone, Copy)]
+pub struct ForwarderArgs {
     /// Flag to enable the forwarder
-    #[serde(default = "ForwarderConfig::default_enabled")]
     pub(crate) enabled: bool,
 }
 
-impl ForwarderConfig {
-    const fn default_enabled() -> bool {
-        true
+impl Default for ForwarderArgs {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+impl From<Option<ForwarderConfig>> for ForwarderArgs {
+    fn from(value: Option<ForwarderConfig>) -> Self {
+        let Some(ForwarderConfig { enabled }) = value else {
+            return Self::default();
+        };
+
+        Self {
+            enabled: enabled.unwrap_or(true),
+        }
     }
 }
 

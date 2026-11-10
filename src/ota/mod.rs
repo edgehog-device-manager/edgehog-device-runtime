@@ -23,6 +23,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use edgehog_config::ota::Reboot;
 use event::OtaRequest;
 use futures::TryStreamExt;
 use futures::stream::BoxStream;
@@ -38,13 +39,13 @@ use uuid::Uuid;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 use crate::controller::actor::Actor;
 use crate::http::default_http_client_builder;
 use crate::ota::rauc::BundleInfo;
 use crate::repository::StateRepository;
 
-use self::config::{OtaConfig, Reboot};
+use self::config::OtaArgs;
 
 pub mod config;
 pub mod event;
@@ -329,7 +330,7 @@ where
     U: StateRepository<PersistentState>,
 {
     pub system_update: T,
-    pub config: OtaConfig,
+    pub config: OtaArgs,
     pub state_repository: U,
     pub download_file_path: PathBuf,
     pub ota_status: OtaStatus,
@@ -387,7 +388,7 @@ where
     U: StateRepository<PersistentState>,
 {
     pub fn new(
-        opts: &DeviceManagerOptions,
+        opts: &DeviceRuntimeOptions,
         tx_publisher: mpsc::Sender<OtaStatus>,
         flag: OtaInProgress,
         system_update: T,
@@ -1025,7 +1026,7 @@ mod tests {
     use crate::repository::file_state_repository::FileStateError;
     use crate::repository::{MockStateRepository, StateRepository};
 
-    use super::config::OtaConfig;
+    use super::config::OtaArgs;
     use super::ota_handler::OtaInProgress;
 
     /// Creates a temporary directory that will be deleted when the returned TempDir is dropped.
@@ -1054,7 +1055,7 @@ mod tests {
                 ota_status: OtaStatus::Idle,
                 publisher_tx,
                 flag: OtaInProgress::default(),
-                config: OtaConfig::default(),
+                config: OtaArgs::default(),
             }
         }
 
@@ -1073,7 +1074,7 @@ mod tests {
                 ota_status: OtaStatus::Idle,
                 publisher_tx,
                 flag: OtaInProgress::default(),
-                config: OtaConfig::default(),
+                config: OtaArgs::default(),
             };
 
             (mock, dir)

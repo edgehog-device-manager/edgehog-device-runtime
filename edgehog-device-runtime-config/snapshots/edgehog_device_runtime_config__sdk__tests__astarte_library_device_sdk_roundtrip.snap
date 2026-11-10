@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-config/src/sdk.rs
+expression: toml_str
+---
+astarte_library = "astarte-device-sdk"
