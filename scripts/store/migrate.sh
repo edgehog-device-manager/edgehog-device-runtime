@@ -8,7 +8,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,5 +23,16 @@ set -exEuo pipefail
 # Trap -e errors
 trap 'echo "Exit status $? at line $LINENO from: $BASH_COMMAND"' ERR
 
-diesel migration run --migration-dir "edgehog-device-runtime-store/migrations/runtime"
-diesel migration run --migration-dir "edgehog-device-runtime-store/migrations/containers"
+target_dir=$(cargo metadata --no-deps --format-version 1 | jq '.target_directory' --raw-output)
+
+rm -r "$target_dir/edgehog-db/" || true
+mkdir -p "$target_dir/edgehog-db/"
+
+export DATABASE_URL="sqlite://$target_dir/edgehog-db/state.db"
+
+diesel migration run \
+    --config-file "edgehog-device-runtime-store/diesel.toml" \
+    --migration-dir "edgehog-device-runtime-store/migrations/runtime"
+diesel migration run \
+    --config-file "edgehog-device-runtime-store/diesel.toml" \
+    --migration-dir "edgehog-device-runtime-store/migrations/containers"
