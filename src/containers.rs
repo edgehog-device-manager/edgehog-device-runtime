@@ -19,15 +19,16 @@
 use std::sync::Arc;
 
 use astarte_device_sdk::prelude::PropAccess;
+use edgehog_containers::properties::image_policy::ContainerPolicy as RuntimeContainerPolicy;
 use edgehog_containers::requests::ContainerRequest;
 use edgehog_containers::service::Service;
 use edgehog_containers::service::events::{ContainerEvent, EventError, ServiceHandle};
+use edgehog_containers::service::image_policy::ImagePolicyService;
 use edgehog_containers::store::StateStore;
 use edgehog_containers::{Docker, events::RuntimeListener};
 use edgehog_store::db;
-use eyre::WrapErr;
-use eyre::eyre;
-use serde::Deserialize;
+use eyre::{WrapErr, eyre};
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -51,7 +52,7 @@ pub const MAX_INIT_RETRIES: usize = 10;
 pub const CHANNEL_SIZE: usize = 64;
 
 /// Configuration for the container service.
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ContainersConfig {
     #[serde(default = "ContainersConfig::default_enabled")]
     pub(crate) enabled: bool,
@@ -61,6 +62,9 @@ pub struct ContainersConfig {
     /// Maximum number of retries for the initialization of the service
     #[serde(default = "ContainersConfig::default_max_retries")]
     max_retries: usize,
+    /// Pulling policy for various containers
+    #[serde(default)]
+    pub(crate) policies: DefaultPolicies,
 }
 
 impl ContainersConfig {
@@ -78,6 +82,31 @@ impl Default for ContainersConfig {
             enabled: true,
             required: false,
             max_retries: Self::default_max_retries(),
+            policies: DefaultPolicies::default(),
+        }
+    }
+}
+
+/// Pulling policies for container registries, allowing a default fallback policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DefaultPolicies {
+    /// Pulling policy applied when no repository-specific rule matches
+    #[serde(default)]
+    pub default: PolicyType,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PolicyType {
+    #[default]
+    InsecureAcceptAnything,
+    Reject,
+}
+
+impl From<PolicyType> for RuntimeContainerPolicy {
+    fn from(value: PolicyType) -> Self {
+        match value {
+            PolicyType::InsecureAcceptAnything => Self::InsecureAcceptAnything,
+            PolicyType::Reject => Self::Reject,
         }
     }
 }
@@ -93,6 +122,9 @@ pub(crate) async fn setup<D>(
 where
     D: Client + PropAccess + Clone + Send + Sync + 'static,
 {
+    let default_policy = RuntimeContainerPolicy::from(config.policies.default);
+    let policies = ImagePolicyService::new(default_policy);
+
     // Try to connect to docker or fail.
     let client = match Docker::connect().await {
         Ok(client) => client,
@@ -127,7 +159,7 @@ where
 
     let service = ContainerService {
         config,
-        service: Service::new(client.clone(), device.clone(), store.clone()),
+        service: Service::new(client.clone(), device.clone(), store.clone(), policies),
     };
     let receiver = ContainerReceiver {
         handle: ServiceHandle::new(device.clone(), store.clone(), container_tx),
@@ -248,5 +280,44 @@ where
         self.service.on_event(msg).await;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn should_deserialize_empty_containers_config() {
+        let cfg: ContainersConfig = toml::from_str("").unwrap();
+
+        assert!(cfg.enabled);
+        assert!(!cfg.required);
+        assert_eq!(cfg.max_retries, MAX_INIT_RETRIES);
+        assert_eq!(cfg.policies, DefaultPolicies::default());
+        assert_eq!(cfg.policies.default, PolicyType::InsecureAcceptAnything);
+    }
+
+    #[test]
+    fn should_deserialize_containers_policy_config() {
+        let raw = r#"
+enabled = true
+
+[policies]
+default = "Reject"
+"#;
+
+        let cfg: ContainersConfig = toml::from_str(raw).unwrap();
+
+        assert_eq!(
+            cfg.policies,
+            DefaultPolicies {
+                default: PolicyType::Reject,
+            }
+        );
+
+        let _service = ImagePolicyService::new(RuntimeContainerPolicy::from(cfg.policies.default));
     }
 }

@@ -1,0 +1,166 @@
+// This file is part of Edgehog.
+//
+// Copyright 2026 SECO Mind Srl
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+//! Image policy events sent from the device to Astarte.
+
+use std::fmt::Display;
+
+use astarte_device_sdk::{AstarteData, IntoAstarteObject};
+
+use super::DatastreamEvent;
+
+/// Image policy event
+#[derive(Debug, Clone, IntoAstarteObject)]
+#[astarte_object(rename_all = "camelCase")]
+pub(crate) struct ImagePolicyEvent {
+    pub(crate) status: ImagePolicyEventStatus,
+    pub(crate) message: String,
+    pub(crate) add_info: Vec<String>,
+}
+
+impl DatastreamEvent for ImagePolicyEvent {
+    const INTERFACE: &str = "io.edgehog.devicemanager.apps.ImagePolicyEvent";
+
+    type Status = ImagePolicyEventStatus;
+
+    fn new(status: Self::Status, message: impl Into<String>, add_info: Vec<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+            add_info,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImagePolicyEventStatus {
+    Created,
+    Removed,
+    Error,
+}
+
+impl Display for ImagePolicyEventStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImagePolicyEventStatus::Created => write!(f, "Created"),
+            ImagePolicyEventStatus::Error => write!(f, "Error"),
+            ImagePolicyEventStatus::Removed => write!(f, "Removed"),
+        }
+    }
+}
+
+impl From<ImagePolicyEventStatus> for AstarteData {
+    fn from(value: ImagePolicyEventStatus) -> Self {
+        AstarteData::String(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use astarte_device_sdk::aggregate::AstarteObject;
+    use astarte_device_sdk::pairing::api::PairingApi;
+    use astarte_device_sdk::store::SqliteStore;
+    use astarte_device_sdk::transport::mqtt::Mqtt;
+    use astarte_device_sdk_mock::MockDeviceClient;
+    use astarte_device_sdk_mock::mockall::Sequence;
+    use mockall::predicate;
+    use rstest::rstest;
+
+    use crate::service::image_policy::Sha256Digest;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn should_send_event() {
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        let id = Sha256Digest::hash(b"docker.io");
+
+        let exp_p = format!("/{id}");
+        client
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.ImagePolicyEvent"),
+                predicate::eq(exp_p),
+                predicate::eq(AstarteObject::from_iter([
+                    ("status".to_string(), AstarteData::from("Created")),
+                    ("message".to_string(), AstarteData::from("")),
+                    (
+                        "addInfo".to_string(),
+                        AstarteData::from(Vec::<String>::new()),
+                    ),
+                ])),
+                predicate::always(),
+            )
+            .returning(|_, _, _, _| Ok(()));
+
+        let event = ImagePolicyEvent::with_status(ImagePolicyEventStatus::Created);
+
+        event.send(&id, &mut client).await;
+    }
+
+    #[tokio::test]
+    async fn should_send_error_event() {
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        let id = Sha256Digest::hash(b"quay.io/my-org");
+
+        let exp_p = format!("/{id}");
+        client
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.ImagePolicyEvent"),
+                predicate::eq(exp_p),
+                predicate::eq(AstarteObject::from_iter([
+                    ("status".to_string(), AstarteData::from("Error")),
+                    ("message".to_string(), AstarteData::from("some failure")),
+                    (
+                        "addInfo".to_string(),
+                        AstarteData::from(vec!["cause".to_string()]),
+                    ),
+                ])),
+                predicate::always(),
+            )
+            .returning(|_, _, _, _| Ok(()));
+
+        let event = ImagePolicyEvent::new(
+            ImagePolicyEventStatus::Error,
+            "some failure",
+            vec!["cause".to_string()],
+        );
+
+        event.send(&id, &mut client).await;
+    }
+
+    #[rstest]
+    #[case(ImagePolicyEventStatus::Created, "Created")]
+    #[case(ImagePolicyEventStatus::Removed, "Removed")]
+    #[case(ImagePolicyEventStatus::Error, "Error")]
+    fn should_convert_status_to_string(
+        #[case] status: ImagePolicyEventStatus,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(status.to_string(), expected);
+    }
+}

@@ -1331,9 +1331,11 @@ dependencies = [
 name = "edgehog-device-runtime-containers"
 version = "0.13.2"
 dependencies = [
+ "aho-corasick",
  "astarte-device-sdk",
  "astarte-device-sdk-mock",
  "astarte-test-utils",
+ "aws-lc-rs",
  "base64 0.23.1",
  "bollard",
  "cfg-if",
@@ -1342,6 +1344,7 @@ dependencies = [
  "edgehog-device-runtime-store",
  "eyre",
  "futures",
+ "hex",
  "http-body",
  "http-body-util",
  "hyper",

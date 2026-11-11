@@ -60,6 +60,7 @@ where
 
         Ok(())
     }
+
     async fn unset(ctx: &mut Context<'_, D>) -> Result<()> {
         AvailableImage::new(&ctx.id).unset(ctx.device).await?;
 
@@ -87,11 +88,16 @@ where
             .map_err(ResourceError::docker)?;
 
         if let Some(inspect_image) = image_inspect {
-            let image = AvailableImage::with_inspect(&ctx.id, inspect_image);
-
+            let verified = ctx.policies.is_allowed(&resource.image.reference);
+            let image = AvailableImage::with_inspect(&ctx.id, inspect_image, verified);
             image.send(ctx.device, AvailableImageStatus::Pulled).await?;
+
             ctx.store
                 .update_image_local_id(ctx.id, resource.image.id.clone())
+                .await?;
+
+            ctx.store
+                .update_image_status(ctx.id, ImageStatus::Pulled)
                 .await?;
 
             match resource.pull_policy {
@@ -101,6 +107,11 @@ where
         } else {
             AvailableImage::new(&ctx.id)
                 .send(ctx.device, AvailableImageStatus::Missing)
+                .await?;
+
+            ctx.store.update_image_local_id(ctx.id, None).await?;
+            ctx.store
+                .update_image_status(ctx.id, ImageStatus::Published)
                 .await?;
 
             Ok(Some((State::Missing, resource)))
@@ -114,6 +125,13 @@ where
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
+        if !ctx.policies.is_allowed(&self.image.reference) {
+            return Err(ResourceError::ImageRejected {
+                id: ctx.id,
+                reference: self.image.reference.clone(),
+            });
+        }
+
         AvailableImage::new(&ctx.id)
             .send_status(ctx.device, AvailableImageStatus::Pulling)
             .await?;
@@ -125,7 +143,7 @@ where
             .map_err(ResourceError::docker)?;
 
         if let Some(image_inspect) = image_inspect {
-            let image = AvailableImage::with_inspect(&ctx.id, image_inspect);
+            let image = AvailableImage::with_inspect(&ctx.id, image_inspect, true);
             image.send(ctx.device, AvailableImageStatus::Pulled).await?;
         } else {
             return Err(ResourceError::Invalid {

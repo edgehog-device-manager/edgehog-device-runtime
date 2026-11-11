@@ -28,7 +28,9 @@ description.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+aho-corasick.workspace = true
 astarte-device-sdk = { workspace = true, features = ["derive"] }
+aws-lc-rs.workspace = true
 base64.workspace = true
 bollard = { workspace = true, features = ["chrono"] }
 cfg-if.workspace = true
@@ -37,6 +39,7 @@ displaydoc.workspace = true
 edgehog-store = { workspace = true, features = ["containers"] }
 eyre.workspace = true
 futures.workspace = true
+hex.workspace = true
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }

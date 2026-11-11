@@ -28,6 +28,7 @@ use edgehog_store::models::containers::deployment::DeploymentStatus;
 use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
+use crate::service::image_policy::{ImagePolicyService, PolicySnapshot};
 use crate::{
     Docker,
     error::DockerError,
@@ -35,10 +36,14 @@ use crate::{
         DatastreamEvent,
         deployment::{DeploymentEvent, DeploymentEventStatus},
     },
-    properties::{AvailableProp, Client, deployment::AvailableDeployment},
+    properties::{
+        AvailableProp, Client, PropertyError, deployment::AvailableDeployment,
+        image::AvailableImage,
+    },
     requests::{
         ReqError,
         deployment::{CommandValue, DeploymentCommand, DeploymentUpdate},
+        image_policy::ImagePolicy,
         volume::{self, VolumeCommand},
     },
     resource::{
@@ -54,6 +59,7 @@ use crate::{
 use self::events::ContainerEvent;
 
 pub mod events;
+pub mod image_policy;
 
 type Result<T> = std::result::Result<T, ServiceError>;
 
@@ -73,6 +79,8 @@ pub enum ServiceError {
     Store(#[from] StoreError),
     /// couldn't complete operation on a resource
     Resource(#[from] ResourceError),
+    /// couldn't send or unset a property
+    Property(#[from] PropertyError),
 }
 
 impl<T> From<T> for ServiceError
@@ -93,16 +101,18 @@ pub struct Service<D> {
     client: Docker,
     device: D,
     store: StateStore,
+    policies: ImagePolicyService,
 }
 
 impl<D> Service<D> {
     /// Create a new service
     #[must_use]
-    pub fn new(client: Docker, device: D, store: StateStore) -> Self {
+    pub fn new(client: Docker, device: D, store: StateStore, policies: ImagePolicyService) -> Self {
         Self {
             client,
             device,
             store,
+            policies,
         }
     }
 
@@ -111,7 +121,8 @@ impl<D> Service<D> {
             id: id.into(),
             store: &mut self.store,
             device: &mut self.device,
-            client: &mut self.client,
+            client: &self.client,
+            policies: &self.policies,
         }
     }
 
@@ -121,6 +132,9 @@ impl<D> Service<D> {
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
+        if self.policies.sync_image_policies(&mut self.device).await? {
+            self.reevaluate_pulled_images(None).await;
+        }
         self.publish_received().await?;
 
         // Delete and stop must be before the start to ensure the ports and other resources are
@@ -283,6 +297,9 @@ impl<D> Service<D> {
                 self.refresh(id).await;
             }
             ContainerEvent::VolumeCmd(cmd) => self.handle_volume_command(cmd).await,
+            ContainerEvent::ImagePolicy(policy) => {
+                self.handle_image_policy(policy).await;
+            }
         }
     }
 
@@ -312,6 +329,59 @@ impl<D> Service<D> {
             error!(error = format!("{:#}", error), "couldn't delete deployment");
 
             return;
+        }
+    }
+
+    #[instrument(skip_all)]
+    async fn handle_image_policy(&mut self, policy: ImagePolicy)
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        if let Some(prev) = self
+            .policies
+            .handle_image_policy(&mut self.device, policy)
+            .await
+        {
+            self.reevaluate_pulled_images(Some(&prev)).await;
+        }
+    }
+
+    /// Re-evaluates already-pulled images against the active [`ImagePolicyService`] and publishes
+    /// `/%{image_id}/verified` on `AvailableImages` for each image whose status changed.
+    #[instrument(skip_all)]
+    async fn reevaluate_pulled_images(&mut self, prev: Option<&PolicySnapshot>)
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        let images = match self.store.load_pulled_images().await {
+            Ok(images) => images,
+            Err(err) => {
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    "couldn't load pulled images to re-evaluate policies"
+                );
+
+                return;
+            }
+        };
+
+        for (id, reference) in images {
+            let verified = self.policies.is_allowed(&reference);
+
+            if prev.is_some_and(|p| p.is_allowed(&reference) == verified) {
+                continue;
+            }
+
+            if let Err(err) = AvailableImage::new(&id)
+                .send_verified(&mut self.device, verified)
+                .await
+            {
+                error!(
+                    error = format!("{:#}", eyre::Report::new(err)),
+                    %id,
+                    "couldn't publish verified status for image"
+                );
+            }
         }
     }
 
@@ -982,6 +1052,19 @@ mod tests {
         ServiceHandle<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
         mpsc::Receiver<ContainerEvent>,
     ) {
+        mock_service_with_policies(tempdir, client, device, ImagePolicyService::default()).await
+    }
+
+    async fn mock_service_with_policies(
+        tempdir: &TempDir,
+        client: Docker,
+        device: MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        policies: ImagePolicyService,
+    ) -> (
+        Service<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
+        ServiceHandle<MockDeviceClient<Mqtt<SqliteStore, PairingApi>>>,
+        mpsc::Receiver<ContainerEvent>,
+    ) {
         let db_file = tempdir.path().join("state.db");
         let db_file = db_file.to_str().unwrap();
 
@@ -991,9 +1074,31 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
 
         let handle = ServiceHandle::new(device.clone(), store.clone(), tx);
-        let service = Service::new(client, device, store);
+        let service = Service::new(client, device, store, policies);
 
         (service, handle, rx)
+    }
+
+    fn expect_fetch_image(
+        id: Uuid,
+        reference: &str,
+        seq: &mut Sequence,
+        device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        client: &mut Docker,
+    ) {
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(seq)
+            .with(predicate::eq(reference.to_string()))
+            .returning(|_| Err(not_found_response()));
+
+        expect_available_image_send(
+            device,
+            seq,
+            AvailableImage::new(&id),
+            AvailableImageStatus::Missing,
+        );
     }
 
     fn expect_image(
@@ -1003,96 +1108,14 @@ mod tests {
         device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/pulled").clone()),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_status_send(
+            device,
+            seq,
+            AvailableImage::new(&id),
+            AvailableImageStatus::Received,
+        );
 
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/status").clone()),
-                predicate::eq(AstarteData::from(AvailableImageStatus::Received)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        client
-            .expect_inspect_image()
-            .once()
-            .in_sequence(seq)
-            .with(predicate::eq(reference.to_string()))
-            .returning(|_| Err(not_found_response()));
-
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/pulled")),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/status").clone()),
-                predicate::eq(AstarteData::from(AvailableImageStatus::Missing)),
-            )
-            .returning(|_, _, _| Ok(()));
-
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/imageId").clone()),
-            )
-            .returning(|_, _| Ok(()));
-
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/repoTags").clone()),
-            )
-            .returning(|_, _| Ok(()));
-
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/repoDigests").clone()),
-            )
-            .returning(|_, _| Ok(()));
-
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{id}/size").clone()),
-            )
-            .returning(|_, _| Ok(()));
+        expect_fetch_image(id, reference, seq, device, client);
     }
 
     fn expect_volume(
@@ -1632,18 +1655,12 @@ mod tests {
             )
             .returning(|_, _, _, _| Ok(()));
 
-        client
-            .expect_inspect_image()
-            .once()
-            .in_sequence(&mut seq)
-            .with(predicate::eq(image.reference.clone()))
-            .returning(|_| Err(not_found_response()));
-
-        expect_available_image_send(
-            &mut device,
+        expect_fetch_image(
+            image.id.0,
+            &image.reference,
             &mut seq,
-            AvailableImage::new(&Uuid::from(image.id)),
-            AvailableImageStatus::Missing,
+            &mut device,
+            &mut client,
         );
 
         expect_status_send(
@@ -1694,6 +1711,7 @@ mod tests {
                     ),
                     ..Default::default()
                 },
+                true,
             ),
             AvailableImageStatus::Pulled,
         );
@@ -2284,18 +2302,12 @@ mod tests {
             )
             .returning(|_, _| Ok(()));
 
-        client
-            .expect_inspect_image()
-            .once()
-            .in_sequence(&mut seq)
-            .with(predicate::eq(image.reference.clone()))
-            .returning(|_| Err(not_found_response()));
-
-        expect_available_image_send(
-            &mut device,
+        expect_fetch_image(
+            image.id.0,
+            &image.reference,
             &mut seq,
-            AvailableImage::new(&Uuid::from(image.id)),
-            AvailableImageStatus::Missing,
+            &mut device,
+            &mut client,
         );
 
         expect_available_image_unset(&mut device, &mut seq, &Uuid::from(image.id));
@@ -2434,5 +2446,771 @@ mod tests {
 
         let delete_event = events.recv().await.unwrap();
         service.on_event(delete_event).await;
+    }
+
+    #[tokio::test]
+    async fn should_reject_image_pull_when_dynamic_policy_rejects() {
+        let tempdir = TempDir::new().unwrap();
+        let cancel = CancellationToken::new();
+
+        let deployment_id = Uuid::new_v4();
+        let image = create_image_req(deployment_id);
+
+        let mut client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+
+        expect_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
+
+        // Send dynamic ImagePolicy pieces for `docker.io` -> `Reject`
+        let registry_id = crate::requests::image_policy::tests::registry_id_for("docker.io");
+
+        // Incomplete rule -> Missing status
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Missing")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        // Complete rule -> Present status and Created event
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Present")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let event_endpoint = format!("/{registry_id}");
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImagePolicyEvent"
+                        && path == event_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Created"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        // ImageResource::up inspects the image again, sees 404, sets /pulled = false,
+        // and then rejects the pull before create_image is ever called.
+        expect_fetch_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
+
+        client.expect_create_image().never();
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let image_endpoint = format!("/{}", image.id);
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImageEvent"
+                        && path == image_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Error"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+
+        // Publish image request
+        let req = ContainerRequest::from_event(create_image_request_event(&image)).unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        let event = events.recv().await.unwrap();
+        service.on_event(event).await;
+
+        let repo_req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/repository"),
+                Some("docker.io"),
+            ))
+            .unwrap();
+        handle.on_event(&cancel, repo_req).await.unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        let type_req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/type"),
+                Some("Reject"),
+            ))
+            .unwrap();
+        handle.on_event(&cancel, type_req).await.unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        // Attempting to pull the missing image must fail with ResourceError::ImageRejected
+        let res = ImageResource::up(service.context(image.id.0)).await;
+        assert!(matches!(res, Err(ResourceError::ImageRejected { .. })));
+    }
+
+    #[tokio::test]
+    async fn should_reject_image_pull_when_default_policy_is_reject() {
+        let tempdir = TempDir::new().unwrap();
+        let cancel = CancellationToken::new();
+
+        let deployment_id = Uuid::new_v4();
+        let image = create_image_req(deployment_id);
+
+        let policies =
+            ImagePolicyService::new(crate::properties::image_policy::ContainerPolicy::Reject);
+
+        let mut client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+
+        expect_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
+
+        expect_fetch_image(
+            image.id.0,
+            &image.reference,
+            &mut seq,
+            &mut device,
+            &mut client,
+        );
+
+        client.expect_create_image().never();
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let image_endpoint = format!("/{}", image.id);
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImageEvent"
+                        && path == image_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Error"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        let (mut service, mut handle, mut events) =
+            mock_service_with_policies(&tempdir, client, device, policies).await;
+
+        let req = ContainerRequest::from_event(create_image_request_event(&image)).unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        let res = ImageResource::up(service.context(image.id.0)).await;
+        assert!(matches!(res, Err(ResourceError::ImageRejected { .. })));
+    }
+
+    #[tokio::test]
+    async fn should_not_reject_cached_image_when_policy_is_reject_and_mark_unverified() {
+        let tempdir = TempDir::new().unwrap();
+        let cancel = CancellationToken::new();
+
+        let deployment_id = Uuid::new_v4();
+        let mut image = create_image_req(deployment_id);
+        image.pull_policy = Some("IfNotPresent".to_string());
+
+        let policies =
+            ImagePolicyService::new(crate::properties::image_policy::ContainerPolicy::Reject);
+
+        let mut client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+
+        // During ImageResource::publish -> sets pulled=false and status=Received, then fetch finds
+        // cached image, sets pulled=true, status=Pulled, imageId, and verified=false.
+        expect_status_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::new(&Uuid::from(image.id)),
+            AvailableImageStatus::Received,
+        );
+
+        let cached_inspect = bollard::models::ImageInspect {
+            id: Some("sha256:cached-local-id".to_string()),
+            ..Default::default()
+        };
+
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(image.reference.clone()))
+            .returning({
+                let cached_inspect = cached_inspect.clone();
+                move |_| Ok(cached_inspect.clone())
+            });
+
+        expect_available_image_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::with_inspect(&Uuid::from(image.id), cached_inspect.clone(), false),
+            AvailableImageStatus::Pulled,
+        );
+
+        // During ImageResource::up -> fetch sees cached image (`State::Existing`),
+        // sets pulled=true, status=Pulled, imageId, and verified=false, and does NOT call
+        // create_image or fail.
+        client
+            .expect_inspect_image()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq("sha256:cached-local-id".to_string()))
+            .returning({
+                let cached_inspect = cached_inspect.clone();
+                move |_| Ok(cached_inspect.clone())
+            });
+
+        expect_available_image_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::with_inspect(&Uuid::from(image.id), cached_inspect, false),
+            AvailableImageStatus::Pulled,
+        );
+
+        client.expect_create_image().never();
+
+        let (mut service, mut handle, mut events) =
+            mock_service_with_policies(&tempdir, client, device, policies).await;
+
+        let req = ContainerRequest::from_event(create_image_request_event(&image)).unwrap();
+        handle.on_event(&cancel, req).await.unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        ImageResource::up(service.context(image.id.0))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn should_load_stored_image_policies_on_initialize() {
+        use astarte_device_sdk::astarte_interfaces::schema::Ownership;
+        use astarte_device_sdk::store::StoredProp;
+
+        let tempdir = TempDir::new().unwrap();
+
+        let registry_id = crate::requests::image_policy::tests::registry_id_for("docker.io");
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+
+        device
+            .expect_interface_props()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq("io.edgehog.devicemanager.apps.ImagePolicy"))
+            .returning(move |_| {
+                Ok(vec![
+                    StoredProp {
+                        interface: "io.edgehog.devicemanager.apps.ImagePolicy".to_string(),
+                        path: format!("/policy/{registry_id}/repository"),
+                        value: AstarteData::String("docker.io".to_string()),
+                        interface_major: 0,
+                        ownership: Ownership::Server,
+                    },
+                    StoredProp {
+                        interface: "io.edgehog.devicemanager.apps.ImagePolicy".to_string(),
+                        path: format!("/policy/{registry_id}/type"),
+                        value: AstarteData::String("Reject".to_string()),
+                        interface_major: 0,
+                        ownership: Ownership::Server,
+                    },
+                ])
+            });
+
+        // No previously published policy statuses
+        device
+            .expect_interface_props()
+            .once()
+            .in_sequence(&mut seq)
+            .with(predicate::eq(
+                "io.edgehog.devicemanager.apps.AvailableImagePolicies",
+            ))
+            .returning(|_| Ok(Vec::new()));
+
+        // The stored rule is complete -> Present status
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Present")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let (mut service, _handle, _events) = mock_service(&tempdir, client, device).await;
+
+        assert!(service.policies.is_allowed("postgres:15"));
+
+        service.initialize().await.unwrap();
+
+        assert!(!service.policies.is_allowed("postgres:15"));
+    }
+
+    #[tokio::test]
+    async fn should_report_image_policy_status_and_events() {
+        let tempdir = TempDir::new().unwrap();
+
+        let registry_id = crate::requests::image_policy::tests::registry_id_for("docker.io");
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+
+        // 1. Incomplete rule -> Missing status, no event
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Missing")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        // 2. Complete rule -> Present status and Created event
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Present")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let event_endpoint = format!("/{registry_id}");
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImagePolicyEvent"
+                        && path == event_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Created"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        // 3. SignedBy -> Error status and Error event, keeping previous Reject rule active
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Error")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let event_endpoint = format!("/{registry_id}");
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImagePolicyEvent"
+                        && path == event_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Error"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        // 4. Invalid scope -> Error status and Error event
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Error")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let event_endpoint = format!("/{registry_id}");
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImagePolicyEvent"
+                        && path == event_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Error"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        // 5. Unset the repository -> rule incomplete again -> Missing status
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Missing")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        // 6. Unset all fields -> status property is unset and Removed event is sent
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let event_endpoint = format!("/{registry_id}");
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImagePolicyEvent"
+                        && path == event_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Removed"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+
+        // 1. Incomplete rule
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/repository"),
+                Some("docker.io"),
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        // 2. Complete rule
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/type"),
+                Some("Reject"),
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        // 3. SignedBy -> rejected with Error, Reject stays active
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/type"),
+                Some("SignedBy"),
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+        assert!(!service.policies.is_allowed("postgres:15"));
+
+        // 4. Invalid scope
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/repository"),
+                Some("   /"),
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        // 5 & 6. Unset all the fields
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/repository"),
+                None,
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/type"),
+                None,
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+    }
+
+    #[tokio::test]
+    async fn should_reevaluate_pulled_images_on_policy_change() {
+        use crate::requests::{ReqUuid, image::CreateImage};
+        use edgehog_store::models::containers::image::ImageStatus;
+
+        let tempdir = TempDir::new().unwrap();
+        let registry_id = crate::requests::image_policy::tests::registry_id_for("docker.io");
+        let deployment_id = Uuid::new_v4();
+
+        let postgres_id = Uuid::new_v4();
+        let quay_id = Uuid::new_v4();
+        let nginx_id = Uuid::new_v4();
+
+        let client = Docker::connect().await.unwrap();
+        let mut device = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        device
+            .expect_clone()
+            .once()
+            .in_sequence(&mut seq)
+            .returning(MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new);
+
+        // 1. Incomplete rule -> Missing status, no image re-evaluation
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Missing")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        // 2. Complete Reject rule for docker.io -> Present status, Created event,
+        //    and only the pulled postgres:15 image gets verified = false
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Present")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_send_object_with_timestamp()
+            .once()
+            .in_sequence(&mut seq)
+            .withf({
+                let event_endpoint = format!("/{registry_id}");
+                move |interface, path, data, _| {
+                    interface == "io.edgehog.devicemanager.apps.ImagePolicyEvent"
+                        && path == event_endpoint
+                        && data.get("status") == Some(&AstarteData::from("Created"))
+                }
+            })
+            .returning(|_, _, _, _| Ok(()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{postgres_id}/verified")),
+                predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        // 3. Unset /type -> Missing status, and postgres:15 flips back to verified = true
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImagePolicies"),
+                predicate::eq(format!("/{registry_id}/status")),
+                predicate::eq(AstarteData::from("Missing")),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{postgres_id}/verified")),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        let (mut service, mut handle, mut events) = mock_service(&tempdir, client, device).await;
+
+        // Seed StateStore:
+        // - postgres:15 (Pulled, non-canonical docker.io reference)
+        service
+            .store
+            .create_image(CreateImage {
+                id: ReqUuid(postgres_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "postgres:15".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+        service
+            .store
+            .update_image_status(postgres_id, ImageStatus::Pulled)
+            .await
+            .unwrap();
+
+        // - quay.io/my-org/app:1.0 (Pulled, unaffected registry)
+        service
+            .store
+            .create_image(CreateImage {
+                id: ReqUuid(quay_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "quay.io/my-org/app:1.0".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+        service
+            .store
+            .update_image_status(quay_id, ImageStatus::Pulled)
+            .await
+            .unwrap();
+
+        // - nginx:latest (Published only, not pulled)
+        service
+            .store
+            .create_image(CreateImage {
+                id: ReqUuid(nginx_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "nginx:latest".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+        service
+            .store
+            .update_image_status(nginx_id, ImageStatus::Published)
+            .await
+            .unwrap();
+
+        // 1. Set repository scope
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/repository"),
+                Some("docker.io"),
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        // 2. Set type = Reject
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/type"),
+                Some("Reject"),
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
+
+        // 3. Unset type
+        let req =
+            ContainerRequest::from_event(crate::requests::image_policy::tests::image_policy_event(
+                &format!("/policy/{registry_id}/type"),
+                None,
+            ))
+            .unwrap();
+        handle
+            .on_event(&CancellationToken::new(), req)
+            .await
+            .unwrap();
+        service.on_event(events.recv().await.unwrap()).await;
     }
 }

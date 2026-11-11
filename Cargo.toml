@@ -54,6 +54,7 @@ description = "Edgehog Device Runtime is a portable middleware, that enables rem
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
+aho-corasick = "1.1.5"
 astarte-device-sdk = "0.15.0"
 astarte-device-sdk-mock = "0.15.0"
 astarte-device-tls = { version = "0.15.0", default-features = false }

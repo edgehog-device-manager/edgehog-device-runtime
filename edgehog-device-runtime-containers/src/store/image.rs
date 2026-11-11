@@ -18,8 +18,10 @@
 
 use std::str::FromStr;
 
-use diesel::{ExpressionMethods, OptionalExtension, RunQueryDsl, delete, insert_or_ignore_into};
-use diesel::{QueryDsl, update};
+use diesel::{
+    BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, delete,
+    insert_or_ignore_into, update,
+};
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::QueryModel;
@@ -187,6 +189,31 @@ impl StateStore {
             .await?;
 
         Ok(id)
+    }
+
+    /// Fetches the id and reference of all images currently pulled on the runtime.
+    #[instrument(skip(self))]
+    pub(crate) async fn load_pulled_images(&self) -> Result<Vec<(Uuid, String)>> {
+        let images = self
+            .handle
+            .for_read(move |reader| {
+                let rows = images::table
+                    .select((images::id, images::reference))
+                    .filter(
+                        images::status
+                            .eq(ImageStatus::Pulled)
+                            .or(images::local_id.is_not_null()),
+                    )
+                    .load::<(SqlUuid, String)>(reader)?;
+
+                Ok(rows
+                    .into_iter()
+                    .map(|(id, reference)| (*id, reference))
+                    .collect())
+            })
+            .await?;
+
+        Ok(images)
     }
 }
 
@@ -359,6 +386,96 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(res, (image_id, reference))
+    }
+
+    #[tokio::test]
+    async fn should_load_pulled_images() {
+        let tmp = TempDir::with_prefix("load_pulled_images").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+        let deployment_id = Uuid::new_v4();
+
+        // 1. Received image (not pulled)
+        let received_id = Uuid::new_v4();
+        store
+            .create_image(CreateImage {
+                id: ReqUuid(received_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "redis:7".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+
+        // 2. Published image with no local_id (not pulled)
+        let published_id = Uuid::new_v4();
+        store
+            .create_image(CreateImage {
+                id: ReqUuid(published_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "nginx:latest".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+        store
+            .update_image_status(published_id, ImageStatus::Published)
+            .await
+            .unwrap();
+
+        // 3. Cached image (Published status with local_id set)
+        let cached_id = Uuid::new_v4();
+        store
+            .create_image(CreateImage {
+                id: ReqUuid(cached_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "postgres:15".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+        store
+            .update_image_status(cached_id, ImageStatus::Published)
+            .await
+            .unwrap();
+        store
+            .update_image_local_id(cached_id, Some("sha256:cached".to_string()))
+            .await
+            .unwrap();
+
+        // 4. Pulled image
+        let pulled_id = Uuid::new_v4();
+        store
+            .create_image(CreateImage {
+                id: ReqUuid(pulled_id),
+                deployment_id: ReqUuid(deployment_id),
+                reference: "quay.io/my-org/app:1.0".to_string(),
+                registry_auth: None,
+                pull_policy: None,
+            })
+            .await
+            .unwrap();
+        store
+            .update_image_status(pulled_id, ImageStatus::Pulled)
+            .await
+            .unwrap();
+
+        let mut loaded = store.load_pulled_images().await.unwrap();
+        loaded.sort_by_key(|(id, _)| *id);
+
+        let mut expected = vec![
+            (cached_id, "postgres:15".to_string()),
+            (pulled_id, "quay.io/my-org/app:1.0".to_string()),
+        ];
+        expected.sort_by_key(|(id, _)| *id);
+
+        assert_eq!(loaded, expected);
     }
 
     #[rstest::rstest]

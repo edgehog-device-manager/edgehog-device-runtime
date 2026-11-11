@@ -229,11 +229,13 @@ mod tests {
                 move |_, _| Ok(Some(AstarteData::String(path_on_device.clone())))
             });
 
+        let policies = crate::service::image_policy::ImagePolicyService::default();
         let mut ctx = Context {
             id: file_bind.id.0,
             store: &mut store,
             device: &mut device,
             client: &client,
+            policies: &policies,
         };
 
         FileBindResource::exists(&mut ctx).await.unwrap();

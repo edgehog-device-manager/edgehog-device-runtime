@@ -44,6 +44,7 @@ pub(crate) mod deployment;
 pub(crate) mod env_file;
 pub(crate) mod file_bind;
 pub(crate) mod image;
+pub(crate) mod image_policy;
 pub(crate) mod network;
 pub(crate) mod volume;
 
@@ -75,17 +76,19 @@ pub(crate) trait DatastreamEvent:
         Self::new(status, message, add_info)
     }
 
-    async fn send<D>(self, id: &Uuid, device: &mut D)
+    async fn send<D, I>(self, id: &I, device: &mut D)
     where
         D: Client + Sync + 'static,
+        I: std::fmt::Display + ?Sized,
     {
         self.send_with_timestamp(id, device, None).await
     }
 
     #[instrument(skip_all, fields(%id))]
-    async fn send_with_timestamp<D>(self, id: &Uuid, device: &mut D, ts: Option<DateTime<Utc>>)
+    async fn send_with_timestamp<D, I>(self, id: &I, device: &mut D, ts: Option<DateTime<Utc>>)
     where
         D: Client + Sync + 'static,
+        I: std::fmt::Display + ?Sized,
     {
         let data: AstarteObject = match self.try_into() {
             Ok(data) => data,

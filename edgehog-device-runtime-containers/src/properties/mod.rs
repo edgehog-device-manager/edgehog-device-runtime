@@ -31,6 +31,7 @@ pub(crate) mod device_request;
 pub(crate) mod env_file;
 pub(crate) mod file_bind;
 pub(crate) mod image;
+pub mod image_policy;
 pub(crate) mod network;
 pub(crate) mod volume;
 
