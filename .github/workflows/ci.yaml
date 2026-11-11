@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
       - name: Set up Homebrew
         id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@c262868c096d909fc278daa87ed9772967331ea3 # 2026.11.02.1
+        uses: Homebrew/actions/setup-homebrew@63a2d4d8d4193eab3e62b1b782ff3ab8408f5b29 # 2026.11.09.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: install rust toolchain
@@ -90,14 +90,14 @@ jobs:
           cache: true
       - parallel:
           - name: Cache Homebrew prefix from Brewfile
-            uses: Homebrew/actions/cache-homebrew-prefix@c262868c096d909fc278daa87ed9772967331ea3 # 2026.11.02.1
+            uses: Homebrew/actions/cache-homebrew-prefix@63a2d4d8d4193eab3e62b1b782ff3ab8408f5b29 # 2026.11.09.1
             with:
               brewfile: true
           - uses: $/.github/actions/install-deps
           - name: install sccache
             # zizmor: ignore[cache-poisoning] we release and publish in another job without cache
             uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-          - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+          - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
             with:
               tool: |
                 cargo-docs-rs
