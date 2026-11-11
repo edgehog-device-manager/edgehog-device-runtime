@@ -1,0 +1,5 @@
+---
+source: edgehog-device-runtime-config/src/telemetry.rs
+expression: toml_str
+---
+interface_name = "io.edgehog.devicemanager.SystemStatus"

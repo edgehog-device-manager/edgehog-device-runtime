@@ -18,16 +18,22 @@
 
 use std::path::PathBuf;
 
-use eyre::Context;
+use edgehog_config::ConfigFile;
+use edgehog_config::sdk::AstarteLibrary;
+use eyre::{Context, OptionExt};
 use serde::Deserialize;
-use tracing::info;
+use tracing::{info, trace, warn};
 
 pub use self::controller::Runtime;
-use self::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
-use self::telemetry::TelemetryInterfaceConfig;
+use self::data::device_sdk::DeviceSdkOptions;
+#[cfg(feature = "message-hub")]
+use self::data::message_hub::MessageHubOptions;
+use self::telemetry::TelemetryInterfaceArgs;
 pub use astarte_device_sdk::Client;
 
+pub mod cli;
 mod commands;
+pub mod config;
 #[cfg(feature = "containers")]
 pub mod containers;
 mod controller;
@@ -56,33 +62,28 @@ pub mod systemd_wrapper;
 pub mod telemetry;
 
 #[derive(Deserialize, Debug, Clone)]
-pub enum AstarteLibrary {
-    #[serde(rename = "astarte-device-sdk")]
-    AstarteDeviceSdk,
+pub enum AstarteOptions {
+    Sdk(DeviceSdkOptions),
     #[cfg(feature = "message-hub")]
-    #[serde(rename = "astarte-message-hub")]
-    AstarteMessageHub,
+    MessageHub(MessageHubOptions),
 }
 
 #[derive(Debug, Clone)]
 pub struct DeviceManagerOptions {
-    pub astarte_library: AstarteLibrary,
-    pub astarte_device_sdk: Option<AstarteDeviceSdkConfigOptions>,
-    #[cfg(feature = "message-hub")]
-    pub astarte_message_hub: Option<data::astarte_message_hub_node::AstarteMessageHubOptions>,
+    pub astarte_library: AstarteOptions,
     #[cfg(feature = "containers")]
-    pub containers: containers::ContainersConfig,
+    pub containers: containers::ContainersArgs,
     #[cfg(feature = "service")]
-    pub service: Option<edgehog_service::config::Config>,
+    pub service: edgehog_service::config::ServiceArgs,
     #[cfg(feature = "file-transfer")]
     pub file_transfer: self::file_transfer::config::FileTransferArgs,
     #[cfg(feature = "forwarder")]
-    pub forwarder: self::forwarder::ForwarderConfig,
+    pub forwarder: self::forwarder::ForwarderArgs,
     #[cfg(all(feature = "zbus", target_os = "linux"))]
-    pub ota: self::ota::config::OtaConfig,
+    pub ota: self::ota::config::OtaArgs,
+    pub telemetry_config: Vec<TelemetryInterfaceArgs<'static>>,
     pub store_directory: PathBuf,
     pub download_directory: PathBuf,
-    pub telemetry_config: Option<Vec<TelemetryInterfaceConfig<'static>>>,
 }
 
 impl DeviceManagerOptions {
@@ -117,6 +118,92 @@ impl DeviceManagerOptions {
         self.download_directory = download;
 
         Ok(self)
+    }
+}
+
+impl TryFrom<ConfigFile> for DeviceManagerOptions {
+    type Error = eyre::Error;
+
+    fn try_from(value: ConfigFile) -> Result<Self, Self::Error> {
+        let ConfigFile {
+            astarte_library,
+            astarte_device_sdk,
+            astarte_message_hub,
+            containers,
+            service,
+            ota,
+            file_transfer,
+            forwarder,
+            #[expect(deprecated)]
+            interfaces_directory,
+            store_directory,
+            download_directory,
+            telemetry_config,
+        } = value;
+
+        let astarte_library = match astarte_library.unwrap_or_default() {
+            AstarteLibrary::AstarteDeviceSdk => {
+                trace!("configured the astarte sdk library");
+
+                let config =
+                    astarte_device_sdk.ok_or_eyre("missing Astarte device SDK configuration")?;
+
+                let options = DeviceSdkOptions::try_from(config)?;
+
+                AstarteOptions::Sdk(options)
+            }
+            #[cfg(feature = "message-hub")]
+            AstarteLibrary::AstarteMessageHub => {
+                trace!("configured the messge hub");
+
+                let config =
+                    astarte_message_hub.ok_or_eyre("missing Astarte device SDK configuration")?;
+
+                let options = MessageHubOptions::try_from(config)?;
+
+                AstarteOptions::MessageHub(options)
+            }
+        };
+
+        let store_directory = store_directory.ok_or_eyre("config is missing store directory")?;
+
+        let download_directory =
+            download_directory.unwrap_or_else(|| store_directory.join("download"));
+
+        #[cfg(feature = "file-transfer")]
+        let file_transfer = self::file_transfer::config::FileTransferArgs::with_store_dir(
+            file_transfer,
+            &store_directory,
+        );
+
+        if interfaces_directory.is_some() {
+            warn!(
+                "DEPRECATED: the interface directory is no longer used, the interfaces are included in the binary"
+            )
+        }
+
+        let telemetry_config = telemetry_config
+            .unwrap_or_default()
+            .into_iter()
+            .map(TelemetryInterfaceArgs::from)
+            .collect();
+
+        Ok(Self {
+            astarte_library,
+            #[cfg(feature = "containers")]
+            containers: self::containers::ContainersArgs::from(containers),
+            #[cfg(feature = "service")]
+            service: edgehog_service::config::ServiceArgs::from(service),
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            ota: ota::config::OtaArgs::from(ota),
+            #[cfg(feature = "file-transfer")]
+            file_transfer,
+            #[cfg(feature = "forwarder")]
+            forwarder: self::forwarder::ForwarderArgs::from(forwarder),
+            telemetry_config,
+            store_directory,
+            download_directory,
+        })
     }
 }
 

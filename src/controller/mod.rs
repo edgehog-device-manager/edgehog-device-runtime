@@ -133,7 +133,7 @@ impl<C> Runtime<C> {
 
         let telemetry = Telemetry::from_config(
             client.clone(),
-            &opts.telemetry_config.unwrap_or_default(),
+            &opts.telemetry_config,
             opts.store_directory.clone(),
         )
         .await;
@@ -177,7 +177,7 @@ impl<C> Runtime<C> {
 
         #[cfg(feature = "service")]
         Self::setup_service(
-            opts.service.unwrap_or_default(),
+            opts.service,
             tasks,
             cancel.child_token(),
             #[cfg(feature = "containers")]
@@ -298,7 +298,7 @@ impl<C> Runtime<C> {
     #[cfg(feature = "containers")]
     async fn setup_containers(
         device: &C,
-        config: crate::containers::ContainersConfig,
+        config: crate::containers::ContainersArgs,
         store: &edgehog_store::db::Handle,
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
@@ -328,7 +328,7 @@ impl<C> Runtime<C> {
     #[cfg(feature = "forwarder")]
     fn setup_forwarder(
         client: &C,
-        config: crate::forwarder::ForwarderConfig,
+        config: crate::forwarder::ForwarderArgs,
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
     ) -> Option<mpsc::Sender<edgehog_forwarder::astarte::SessionInfo>>
@@ -352,7 +352,7 @@ impl<C> Runtime<C> {
 
     #[cfg(feature = "service")]
     fn setup_service(
-        config: edgehog_service::config::Config,
+        config: edgehog_service::config::ServiceArgs,
         tasks: &mut JoinSet<eyre::Result<()>>,
         cancel: CancellationToken,
         #[cfg(feature = "containers")] container_handle: Option<
