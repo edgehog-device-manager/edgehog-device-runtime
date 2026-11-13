@@ -25,7 +25,10 @@ use crate::{
         image::{ImageEvent, ImageEventStatus},
     },
     image::{Image, ImageError},
-    properties::{AvailableProp, Client, image::AvailableImage},
+    properties::{
+        AvailableProp, Client,
+        image::{AvailableImage, AvailableImageStatus},
+    },
 };
 
 use super::{Context, Create, Resource, ResourceError, Result, State};
@@ -47,8 +50,9 @@ where
     D: Client + Send + Sync + 'static,
 {
     async fn publish(ctx: &mut Context<'_, D>) -> Result<()> {
-        AvailableImage::new(&ctx.id).send(ctx.device, false).await?;
-
+        AvailableImage::new(&ctx.id)
+            .send_status(ctx.device, AvailableImageStatus::Received)
+            .await?;
         ctx.store
             .update_image_status(ctx.id, ImageStatus::Published)
             .await?;
@@ -77,18 +81,16 @@ where
             return Ok(None);
         };
 
-        let pulled = resource
+        let image_inspect = resource
             .image
             .inspect(ctx.client)
             .await
-            .map_err(ResourceError::docker)?
-            .is_some();
+            .map_err(ResourceError::docker)?;
 
-        AvailableImage::new(&ctx.id)
-            .send(ctx.device, pulled)
-            .await?;
+        if let Some(inspect_image) = image_inspect {
+            let image = AvailableImage::with_inspect(&ctx.id, inspect_image);
 
-        if pulled {
+            image.send(ctx.device, AvailableImageStatus::Pulled).await?;
             ctx.store
                 .update_image_local_id(ctx.id, resource.image.id.clone())
                 .await?;
@@ -98,6 +100,10 @@ where
                 PullPolicy::IfNotPresent => Ok(Some((State::Existing, resource))),
             }
         } else {
+            AvailableImage::new(&ctx.id)
+                .send(ctx.device, AvailableImageStatus::Missing)
+                .await?;
+
             Ok(Some((State::Missing, resource)))
         }
     }
@@ -109,16 +115,30 @@ where
     }
 
     async fn create(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
-        self.image
+        AvailableImage::new(&ctx.id)
+            .send_status(ctx.device, AvailableImageStatus::Pulling)
+            .await?;
+
+        let image_inspect = self
+            .image
             .pull(ctx.client)
             .await
             .map_err(ResourceError::docker)?;
 
+        if let Some(image_inspect) = image_inspect {
+            let image = AvailableImage::with_inspect(&ctx.id, image_inspect);
+            image.send(ctx.device, AvailableImageStatus::Pulled).await?;
+        } else {
+            return Err(ResourceError::Invalid {
+                id: ctx.id,
+                resource: "image",
+                ctx: "couldn't inspect the image after pull",
+            });
+        };
+
         ctx.store
             .update_image_local_id(ctx.id, self.image.id.clone())
             .await?;
-
-        AvailableImage::new(&ctx.id).send(ctx.device, true).await?;
 
         ctx.store
             .update_image_status(ctx.id, ImageStatus::Pulled)
@@ -128,6 +148,9 @@ where
     }
 
     async fn delete(&mut self, ctx: &mut Context<'_, D>) -> Result<()> {
+        AvailableImage::new(&ctx.id)
+            .send_status(ctx.device, AvailableImageStatus::Deleting)
+            .await?;
         match self.image.remove(ctx.client).await {
             Ok(_) => {}
             // HACK: this is a work around for two images having the same digest but different
