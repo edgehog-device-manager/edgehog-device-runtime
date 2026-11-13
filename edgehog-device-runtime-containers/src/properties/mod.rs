@@ -103,7 +103,6 @@ pub(crate) trait AvailableProp {
     {
         let interface = Self::interface();
         let endpoint = format!("/{}/{}", id, field);
-
         device
             .set_property(interface, &endpoint, data.into())
             .await

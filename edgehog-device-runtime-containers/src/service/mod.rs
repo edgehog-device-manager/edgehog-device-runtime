@@ -899,14 +899,20 @@ mod tests {
     use crate::container::tests::create_container_resource;
     use crate::image::Image;
     use crate::network::{Network, NetworkId};
-    use crate::properties::container::{
-        AvailableContainer, ContainerStatus,
-        tests::{
-            expect_available_container_send, expect_available_container_send_status,
-            expect_available_container_unset,
+    use crate::properties::deployment::DeploymentStatus;
+    use crate::properties::image::{AvailableImage, AvailableImageStatus};
+    use crate::properties::{
+        container::{
+            AvailableContainer, ContainerStatus,
+            tests::{
+                expect_available_container_send, expect_available_container_send_status,
+                expect_available_container_unset,
+            },
+        },
+        image::tests::{
+            expect_available_image_send, expect_available_image_unset, expect_status_send,
         },
     };
-    use crate::properties::deployment::DeploymentStatus;
     use crate::requests::ContainerRequest;
     use crate::requests::container::tests::{create_container_req, create_container_request_event};
     use crate::requests::deployment::tests::create_deployment_request_event;
@@ -965,15 +971,25 @@ mod tests {
         device: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
         client: &mut Docker,
     ) {
-        let image_path = format!("/{id}/pulled");
         device
             .expect_set_property()
             .once()
             .in_sequence(seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path.clone()),
+                predicate::eq(format!("/{id}/pulled").clone()),
                 predicate::eq(AstarteData::Boolean(false)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/status").clone()),
+                predicate::eq(AstarteData::from(AvailableImageStatus::Received)),
             )
             .returning(|_, _, _| Ok(()));
 
@@ -990,10 +1006,61 @@ mod tests {
             .in_sequence(seq)
             .with(
                 predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
+                predicate::eq(format!("/{id}/pulled")),
                 predicate::eq(AstarteData::Boolean(false)),
             )
             .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_set_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/status").clone()),
+                predicate::eq(AstarteData::from(AvailableImageStatus::Missing)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/imageId").clone()),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/repoTags").clone()),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/repoDigests").clone()),
+            )
+            .returning(|_, _| Ok(()));
+
+        device
+            .expect_unset_property()
+            .once()
+            .in_sequence(seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/size").clone()),
+            )
+            .returning(|_, _| Ok(()));
     }
 
     fn expect_volume(
@@ -1518,17 +1585,19 @@ mod tests {
             .with(predicate::eq(image.reference.clone()))
             .returning(|_| Err(not_found_response()));
 
-        let image_path = format!("/{}/pulled", image.id);
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_available_image_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::new(&Uuid::from(image.id)),
+            AvailableImageStatus::Missing,
+        );
+
+        expect_status_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::new(&Uuid::from(image.id)),
+            AvailableImageStatus::Pulling,
+        );
 
         client
             .expect_create_image()
@@ -1559,17 +1628,21 @@ mod tests {
                 })
             });
 
-        let image_path = format!("/{}/pulled", image.id);
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(image_path),
-                predicate::eq(AstarteData::Boolean(true)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_available_image_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::with_inspect(
+                &Uuid::from(image.id),
+                bollard::plugin::ImageInspect {
+                    id: Some(
+                        "sha256:d2c94e258dcb3c5ac2798d32e1249e42ef01cba4841c2234249495f87264ac5a"
+                            .to_string(),
+                    ),
+                    ..Default::default()
+                },
+            ),
+            AvailableImageStatus::Pulled,
+        );
 
         client
             .expect_inspect_volume()
@@ -2125,26 +2198,14 @@ mod tests {
             .with(predicate::eq(image.reference.clone()))
             .returning(|_| Err(not_found_response()));
 
-        device
-            .expect_set_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{}/pulled", image.id)),
-                predicate::eq(AstarteData::Boolean(false)),
-            )
-            .returning(|_, _, _| Ok(()));
+        expect_available_image_send(
+            &mut device,
+            &mut seq,
+            AvailableImage::new(&Uuid::from(image.id)),
+            AvailableImageStatus::Missing,
+        );
 
-        device
-            .expect_unset_property()
-            .once()
-            .in_sequence(&mut seq)
-            .with(
-                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
-                predicate::eq(format!("/{}/pulled", image.id)),
-            )
-            .returning(|_, _| Ok(()));
+        expect_available_image_unset(&mut device, &mut seq, &Uuid::from(image.id));
 
         device
             .expect_unset_property()
