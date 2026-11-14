@@ -20,7 +20,7 @@
 
 use astarte_device_sdk::builder::DeviceBuilder;
 
-use crate::DeviceManagerOptions;
+use crate::DeviceRuntimeOptions;
 
 const BASE_IMAGE: &str =
     include_str!("../../deps/interfaces/io.edgehog.devicemanager.BaseImage.json");
@@ -53,7 +53,7 @@ pub(crate) fn add_interfaces<C, S>(
         )),
         expect(unused)
     )]
-    config: &DeviceManagerOptions,
+    config: &DeviceRuntimeOptions,
 ) -> eyre::Result<DeviceBuilder<C, S>> {
     builder = builder
         .interface_str(BASE_IMAGE)?
@@ -108,7 +108,7 @@ pub(crate) fn add_interfaces<C, S>(
 #[cfg(feature = "forwarder")]
 fn add_forwarder<S, C>(
     mut builder: DeviceBuilder<C, S>,
-    config: &crate::forwarder::ForwarderConfig,
+    config: &crate::forwarder::ForwarderArgs,
 ) -> Result<DeviceBuilder<C, S>, eyre::Error> {
     const FORWARDER_SESSION_REQUEST: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.ForwarderSessionRequest.json");
@@ -151,7 +151,7 @@ fn add_zbus_linux<C, S>(
 #[cfg(all(feature = "zbus", target_os = "linux"))]
 fn add_ota<C, S>(
     mut builder: DeviceBuilder<C, S>,
-    config: &crate::ota::config::OtaConfig,
+    config: &crate::ota::config::OtaArgs,
 ) -> Result<DeviceBuilder<C, S>, eyre::Error> {
     const OTA_EVENT: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.OTAEvent.json");
@@ -195,7 +195,7 @@ fn add_wifi_scan<C, S>(
 #[cfg(feature = "containers")]
 fn add_containers<C, S>(
     mut builder: DeviceBuilder<C, S>,
-    config: &crate::containers::ContainersConfig,
+    config: &crate::containers::ContainersArgs,
 ) -> Result<DeviceBuilder<C, S>, eyre::Error> {
     const APPS_AVAILABLE_CONTAINERS: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableContainers.json"

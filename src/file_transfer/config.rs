@@ -18,82 +18,12 @@
 
 //! Configuration for the file-transfer service.
 
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use edgehog_config::file_transfer::{FileTransferConfig, Percentage};
 
 /// Max free space to keep on the device.
 pub const DEFAULT_MAX_FREE_PERCENTAGE: Percentage = Percentage::new(20).unwrap();
-
-/// Value from 0 to 100
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Percentage(u8);
-
-impl Percentage {
-    /// Creates a new percentage.
-    pub const fn new(value: u8) -> Option<Self> {
-        if value <= 100 {
-            Some(Self(value))
-        } else {
-            None
-        }
-    }
-
-    /// Calculate the percentage.
-    pub fn calculate(&self, value: u64) -> u64 {
-        value.saturating_mul(self.0.into()).div_ceil(100)
-    }
-}
-
-impl Deref for Percentage {
-    type Target = u8;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Serialize for Percentage {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Percentage {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = u8::deserialize(deserializer)?;
-
-        Self::new(value).ok_or(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Unsigned(value.into()),
-            &"an Unsigned integer as percentage between 0 and 100",
-        ))
-    }
-}
-
-/// Configuration for the FileTransfer
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileTransferConfig {
-    /// Enables the file-transfer service
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    /// Sets a custom directory for the `storage` target.
-    ///
-    /// The default is the subdirectory `file-store/` in the configured `store_directory`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub storage_dir: Option<PathBuf>,
-    /// Percentage of free space reserved for the system.
-    ///
-    /// The default is the 20% of the free space can not bee occupied by a file transfer.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub storage_reserved: Option<Percentage>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileTransferArgs {

@@ -16,24 +16,18 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fmt::Display;
+use edgehog_config::ota::{OtaConfig, RaucDbus, Reboot};
 
-use serde::Deserialize;
-
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-pub struct OtaConfig {
-    #[serde(default = "default_true")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OtaArgs {
     pub enabled: bool,
-    #[serde(default)]
     pub reboot: Reboot,
-    #[serde(default)]
     pub streaming: bool,
     /// RAUC configuration for the OTA
-    #[serde(default)]
     pub rauc: RaucConfig,
 }
 
-impl Default for OtaConfig {
+impl Default for OtaArgs {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -44,42 +38,42 @@ impl Default for OtaConfig {
     }
 }
 
-fn default_true() -> bool {
-    true
-}
+impl From<Option<OtaConfig>> for OtaArgs {
+    fn from(value: Option<OtaConfig>) -> Self {
+        let Some(OtaConfig {
+            enabled,
+            reboot,
+            streaming,
+            rauc,
+        }) = value
+        else {
+            return Self::default();
+        };
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Reboot {
-    #[default]
-    Default,
-    External,
+        Self {
+            enabled: enabled.unwrap_or(true),
+            reboot: reboot.unwrap_or_default(),
+            streaming: streaming.unwrap_or_default(),
+            rauc: RaucConfig::from(rauc),
+        }
+    }
 }
 
 /// Configuration for RAUC
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RaucConfig {
     /// DBUS socket to connect to
-    #[serde(default)]
     pub dbus_socket: RaucDbus,
 }
 
-/// DBUS socket to communicate with the RAUC service
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum RaucDbus {
-    /// Uses the system bus
-    #[default]
-    System,
-    /// Uses the current user session bus
-    Session,
-}
+impl From<Option<edgehog_config::ota::RaucConfig>> for RaucConfig {
+    fn from(value: Option<edgehog_config::ota::RaucConfig>) -> Self {
+        let Some(edgehog_config::ota::RaucConfig { dbus_socket }) = value else {
+            return Self::default();
+        };
 
-impl Display for RaucDbus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RaucDbus::System => write!(f, "system"),
-            RaucDbus::Session => write!(f, "session"),
+        Self {
+            dbus_socket: dbus_socket.unwrap_or_default(),
         }
     }
 }
@@ -92,7 +86,7 @@ mod tests {
 
     #[test]
     fn default_values() {
-        let exp = OtaConfig {
+        let exp = OtaArgs {
             enabled: true,
             reboot: Reboot::Default,
             streaming: false,
@@ -101,87 +95,6 @@ mod tests {
             },
         };
 
-        assert_eq!(OtaConfig::default(), exp);
-    }
-
-    #[test]
-    fn should_deserialize() {
-        let string = r#"
-        reboot = "external"
-        streaming = true
-        "#;
-
-        let config: OtaConfig = toml::from_str(string).unwrap();
-
-        let exp = OtaConfig {
-            enabled: true,
-            reboot: Reboot::External,
-            streaming: true,
-            rauc: RaucConfig {
-                dbus_socket: RaucDbus::System,
-            },
-        };
-
-        assert_eq!(config, exp);
-    }
-
-    #[test]
-    fn should_deserialize_default() {
-        let string = r#"
-        "#;
-
-        let config: OtaConfig = toml::from_str(string).unwrap();
-
-        let exp = OtaConfig {
-            enabled: true,
-            reboot: Reboot::Default,
-            streaming: false,
-            rauc: RaucConfig {
-                dbus_socket: RaucDbus::System,
-            },
-        };
-
-        assert_eq!(config, exp);
-    }
-
-    #[test]
-    fn should_deserialize_rauc() {
-        let string = r#"
-        [rauc]
-        dbus_socket = "session"
-        "#;
-
-        let config: OtaConfig = toml::from_str(string).unwrap();
-
-        let exp = OtaConfig {
-            enabled: true,
-            reboot: Reboot::Default,
-            streaming: false,
-            rauc: RaucConfig {
-                dbus_socket: RaucDbus::Session,
-            },
-        };
-
-        assert_eq!(config, exp);
-    }
-
-    #[test]
-    fn should_disable() {
-        let string = r#"
-        enabled = false
-        "#;
-
-        let config: OtaConfig = toml::from_str(string).unwrap();
-
-        let exp = OtaConfig {
-            enabled: false,
-            reboot: Reboot::Default,
-            streaming: false,
-            rauc: RaucConfig {
-                dbus_socket: RaucDbus::default(),
-            },
-        };
-
-        assert_eq!(config, exp);
+        assert_eq!(OtaArgs::default(), exp);
     }
 }

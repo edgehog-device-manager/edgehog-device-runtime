@@ -1,0 +1,42 @@
+---
+source: edgehog-device-runtime-service/src/service/config/v1.rs
+expression: toml_str
+---
+astarte_library = "astarte-device-sdk"
+
+[astarte_device_sdk]
+realm = "test-realm"
+device_id = "device-uuid-1234"
+credentials_secret = "secret-token-xyz"
+pairing_token = "pairing-token-abc"
+pairing_url = "https://astarte.example.com/pairing"
+ignore_ssl = true
+
+[containers]
+enabled = true
+required = true
+max_retries = 3
+
+[ota]
+enabled = true
+reboot = "external"
+streaming = true
+
+[ota.rauc]
+dbus_socket = "system"
+
+[file_transfer]
+enabled = true
+storage_reserved = 20
+
+[forwarder]
+enabled = true
+
+[[telemetry_config]]
+interface_name = "com.example.Telemetry1"
+enabled = true
+period = 60
+
+[[telemetry_config]]
+interface_name = "com.example.Telemetry2"
+enabled = false
