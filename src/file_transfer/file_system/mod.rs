@@ -71,6 +71,10 @@ impl WriteHandle {
         self.current_size
     }
 
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
     #[cfg(unix)]
     fn mask(mode: u32) -> u32 {
         0o600 | mode

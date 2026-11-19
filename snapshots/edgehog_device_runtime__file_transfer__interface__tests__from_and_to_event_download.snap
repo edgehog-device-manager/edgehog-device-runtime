@@ -92,5 +92,25 @@ AstarteObject {
                 100,
             ),
         ),
+        (
+            "preHook",
+            StringArray(
+                [
+                    "sh",
+                    "-c",
+                    "echo hello",
+                ],
+            ),
+        ),
+        (
+            "postHook",
+            StringArray(
+                [
+                    "sh",
+                    "-c",
+                    "echo hello",
+                ],
+            ),
+        ),
     ],
 }
