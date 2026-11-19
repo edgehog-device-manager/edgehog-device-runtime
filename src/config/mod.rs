@@ -16,119 +16,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::Path;
 
-use edgehog_device_runtime::telemetry::TelemetryInterfaceConfig;
-use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions};
-use eyre::{OptionExt, ensure};
-use serde::Deserialize;
-use tracing::{info, warn};
+use edgehog_config::sdk::AstarteLibrary;
+use edgehog_config::{ConfigFile, Mergiable};
+use eyre::{Context, ensure};
+use tracing::{debug, info, trace};
 
-use crate::cli::{Cli, Command, DeviceSdkArgs, OverrideOption};
+use crate::DeviceManagerOptions;
+use crate::cli::Cli;
+use crate::repository::StateRepository;
+use crate::repository::file_state_repository::FileStateRepository;
 
-/// Configuration file
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct Config {
-    pub astarte_library: Option<AstarteLibrary>,
+const PATHS: [&str; 2] = ["edgehog-config.toml", "/etc/edgehog/config.toml"];
 
-    pub astarte_device_sdk: Option<DeviceSdkArgs>,
-    #[cfg(feature = "message-hub")]
-    pub astarte_message_hub: Option<crate::cli::MsgHubArgs>,
-
-    #[cfg(feature = "containers")]
-    pub containers: Option<edgehog_device_runtime::containers::ContainersConfig>,
-
-    #[cfg(feature = "service")]
-    pub service: Option<edgehog_service::config::Config>,
-
-    #[cfg(all(feature = "zbus", target_os = "linux"))]
-    pub ota: Option<edgehog_device_runtime::ota::config::OtaConfig>,
-
-    #[cfg(feature = "file-transfer")]
-    pub file_transfer: Option<edgehog_device_runtime::file_transfer::config::FileTransferConfig>,
-
-    #[cfg(feature = "forwarder")]
-    pub forwarder: Option<edgehog_device_runtime::forwarder::ForwarderConfig>,
-
-    #[deprecated(note = "the interfaces are included in the binary")]
-    pub interfaces_directory: Option<PathBuf>,
-    pub store_directory: Option<PathBuf>,
-    pub download_directory: Option<PathBuf>,
-    pub telemetry_config: Option<Vec<TelemetryInterfaceConfig<'static>>>,
-}
-
-impl TryFrom<Config> for DeviceManagerOptions {
-    type Error = eyre::Error;
-
-    fn try_from(value: Config) -> Result<Self, Self::Error> {
-        let astarte_library = value
-            .astarte_library
-            .ok_or_eyre("config is missing astarte_library value")?;
-
-        let astarte_device_sdk = value
-            .astarte_device_sdk
-            .map(|opt| opt.try_into())
-            .transpose()?;
-
-        #[cfg(feature = "message-hub")]
-        let astarte_message_hub = value
-            .astarte_message_hub
-            .map(|opt| opt.try_into())
-            .transpose()?;
-
-        let store_directory = value
-            .store_directory
-            .ok_or_eyre("config is missing store directory")?;
-
-        let download_directory = value
-            .download_directory
-            .unwrap_or(store_directory.join("download"));
-
-        #[cfg(all(feature = "zbus", target_os = "linux"))]
-        let ota = value.ota.unwrap_or_default();
-
-        #[cfg(feature = "file-transfer")]
-        let file_transfer =
-            edgehog_device_runtime::file_transfer::config::FileTransferArgs::with_store_dir(
-                value.file_transfer,
-                &store_directory,
-            );
-
-        #[expect(deprecated)]
-        if value.interfaces_directory.is_some() {
-            warn!(
-                "DEPRECATED: the interface directory is no longer used, the interfaces are included in the binary"
-            )
-        }
-
-        Ok(Self {
-            astarte_library,
-            astarte_device_sdk,
-            #[cfg(feature = "message-hub")]
-            astarte_message_hub,
-            #[cfg(feature = "containers")]
-            containers: value.containers.unwrap_or_default(),
-            #[cfg(feature = "service")]
-            service: value.service,
-            #[cfg(all(feature = "zbus", target_os = "linux"))]
-            ota,
-            #[cfg(feature = "file-transfer")]
-            file_transfer,
-            #[cfg(feature = "forwarder")]
-            forwarder: value.forwarder.unwrap_or_default(),
-            store_directory,
-            download_directory,
-            telemetry_config: value.telemetry_config,
-        })
-    }
-}
-
+/// Read configuration options
 pub async fn read_options(cli: Cli) -> eyre::Result<DeviceManagerOptions> {
-    let paths = [
-        Path::new("edgehog-config.toml"),
-        Path::new("/etc/edgehog/config.toml"),
-    ];
-
     if let Some(path) = &cli.config {
         ensure!(
             path.exists(),
@@ -137,71 +41,168 @@ pub async fn read_options(cli: Cli) -> eyre::Result<DeviceManagerOptions> {
         );
     }
 
-    let override_config_file_path = cli.config.or(cli.configuration_file);
+    let override_config_file_path = cli.config.as_deref().or(cli.configuration_file.as_deref());
 
-    let mut paths = override_config_file_path
-        .as_deref()
-        .into_iter()
-        .chain(paths)
-        .filter(|f| f.is_file());
+    let mut config = read_config_file(override_config_file_path).await?;
 
-    let mut config = if let Some(path) = paths.next() {
-        info!(config = %path.display(), "reading config file");
+    config.merge(ConfigFile::from(cli));
 
-        let config = tokio::fs::read_to_string(path).await?;
+    match config.astarte_library {
+        Some(AstarteLibrary::AstarteDeviceSdk) | None => {
+            #[cfg(all(feature = "zbus", target_os = "linux"))]
+            if config
+                .astarte_device_sdk
+                .as_ref()
+                .is_none_or(|c| c.device_id.is_none())
+            {
+                let device_id = crate::data::device_sdk::hardware_id_from_dbus().await?;
 
-        toml::from_str(&config)?
-    } else {
-        Config::default()
-    };
-
-    match cli.command {
-        Some(Command::DeviceSdk { device, shared }) => {
-            config.astarte_library = Some(AstarteLibrary::AstarteDeviceSdk);
-
-            if let Some(sdk) = &mut config.astarte_device_sdk {
-                sdk.merge(device)
-            } else {
-                config.astarte_device_sdk = Some(device);
+                config.astarte_device_sdk.get_or_insert_default().device_id = device_id;
             }
 
-            #[expect(deprecated)]
-            config.interfaces_directory.merge(shared.interfaces_dir);
-            config.store_directory.merge(shared.store_dir);
+            read_credential(&mut config).await?;
         }
-        None => {
-            // Default to the sdk if it's not set, since the msg-hub config could be set in the file
-            config.astarte_library = config
-                .astarte_library
-                .or(Some(AstarteLibrary::AstarteDeviceSdk));
-
-            if let Some(device) = cli.device {
-                if let Some(sdk) = &mut config.astarte_device_sdk {
-                    sdk.merge(device)
-                } else {
-                    config.astarte_device_sdk = Some(device);
-                }
-            }
-
-            if let Some(shared) = cli.shared {
-                #[expect(deprecated)]
-                config.interfaces_directory.merge(shared.interfaces_dir);
-                config.store_directory.merge(shared.store_dir);
-            }
-        }
-        #[cfg(feature = "message-hub")]
-        Some(Command::MsgHub { msghub, shared }) => {
-            if let Some(hub) = &mut config.astarte_message_hub {
-                hub.merge(msghub);
-            } else {
-                config.astarte_message_hub = Some(msghub);
-            }
-
-            #[expect(deprecated)]
-            config.interfaces_directory.merge(shared.interfaces_dir);
-            config.store_directory.merge(shared.store_dir);
-        }
+        Some(AstarteLibrary::AstarteMessageHub) => {}
     }
 
     config.try_into()
+}
+
+async fn read_config_file(
+    override_config_file_path: Option<&Path>,
+) -> Result<ConfigFile, eyre::Error> {
+    match override_config_file_path {
+        Some(custom_config) => {
+            debug!(config = %custom_config.display(), "reading custom configuration file");
+
+            let custom_config = tokio::fs::read_to_string(custom_config)
+                .await
+                .wrap_err("coudln't read custom configuration file")?;
+            let config: ConfigFile = toml::from_str(&custom_config)
+                .wrap_err("couldn't parse custom configuration file")?;
+
+            Ok(config)
+        }
+        None => {
+            for path in PATHS {
+                match tokio::fs::read_to_string(path).await {
+                    Ok(content) => {
+                        let config_file: ConfigFile = toml::from_str(&content)
+                            .wrap_err_with(|| format!("couldn't parse config file {path}"))?;
+
+                        info!(path, "configuration file");
+
+                        return Ok(config_file);
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                        trace!(path, "file not found");
+                    }
+                    Err(error) => {
+                        return Err(error)
+                            .wrap_err_with(|| format!("couldn't read config file {path}"));
+                    }
+                }
+            }
+
+            debug!("no configuration file found");
+
+            Ok(ConfigFile::default())
+        }
+    }
+}
+
+/// Reads the credentials secret
+pub async fn read_credential(config: &mut ConfigFile) -> eyre::Result<()> {
+    let has_credential_secret = config
+        .astarte_device_sdk
+        .as_ref()
+        .is_some_and(|s| s.credentials_secret.as_ref().is_some());
+
+    if has_credential_secret {
+        info!("has credentials secret");
+
+        return Ok(());
+    }
+
+    let Some(device_id) = config
+        .astarte_device_sdk
+        .as_ref()
+        .and_then(|sdk| sdk.device_id.as_deref())
+    else {
+        debug!("missing device_id");
+
+        return Ok(());
+    };
+
+    let Some(store_directory) = config.store_directory.as_deref() else {
+        debug!("missing store directory");
+
+        return Ok(());
+    };
+
+    let registry =
+        FileStateRepository::new(store_directory, format!("credentials_{device_id}.json"));
+
+    if !StateRepository::<String>::exists(&registry).await {
+        trace!("no legacy state repository");
+
+        return Ok(());
+    }
+
+    let credential_secret = registry
+        .read()
+        .await
+        .wrap_err("couldn't read credential secret")?;
+
+    info!("reading credentials_secret from state repository");
+
+    config
+        .astarte_device_sdk
+        .get_or_insert_default()
+        .credentials_secret = Some(credential_secret);
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use edgehog_config::sdk::DeviceSdkConfig;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn get_credentials_secret_persistence_success() {
+        let dir = TempDir::with_prefix("sdk_cred_persist_ok").unwrap();
+        let path = dir.path();
+
+        let device_id = "device_id";
+
+        let full_path = path.join(format!("credentials_{device_id}.json"));
+
+        let exp = "credential_secret";
+
+        tokio::fs::write(&full_path, format!("\"{exp}\""))
+            .await
+            .unwrap();
+
+        let mut config = ConfigFile {
+            astarte_device_sdk: Some(DeviceSdkConfig {
+                device_id: Some(device_id.to_string()),
+                ..Default::default()
+            }),
+            store_directory: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        read_credential(&mut config).await.unwrap();
+
+        let res = config
+            .astarte_device_sdk
+            .unwrap()
+            .credentials_secret
+            .unwrap();
+
+        assert_eq!(res, exp);
+    }
 }

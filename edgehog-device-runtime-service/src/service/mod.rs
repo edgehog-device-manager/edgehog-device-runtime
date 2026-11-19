@@ -29,7 +29,7 @@ use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::config::Config;
+use crate::config::ServiceArgs;
 
 #[cfg(feature = "containers")]
 mod containers;
@@ -41,10 +41,10 @@ pub struct ServiceOptions {
     pub listener: Listener,
 }
 
-impl TryFrom<Config> for ServiceOptions {
+impl TryFrom<ServiceArgs> for ServiceOptions {
     type Error = eyre::Report;
 
-    fn try_from(value: Config) -> Result<Self, Self::Error> {
+    fn try_from(value: ServiceArgs) -> Result<Self, Self::Error> {
         Ok(ServiceOptions {
             listener: value.listener.try_into()?,
         })
@@ -61,12 +61,12 @@ pub enum Listener {
     Socket(SocketAddr),
 }
 
-impl TryFrom<crate::config::Listener> for Listener {
+impl TryFrom<edgehog_config::service::Listener> for Listener {
     type Error = eyre::Report;
 
-    fn try_from(value: crate::config::Listener) -> Result<Self, Self::Error> {
+    fn try_from(value: edgehog_config::service::Listener) -> Result<Self, Self::Error> {
         match value {
-            crate::config::Listener::Unix(path_buf) => {
+            edgehog_config::service::Listener::Unix(path_buf) => {
                 cfg_if! {
                     if #[cfg(unix)] {
                         Ok(Listener::Unix(path_buf))
@@ -75,7 +75,9 @@ impl TryFrom<crate::config::Listener> for Listener {
                     }
                 }
             }
-            crate::config::Listener::Socket(socket_addr) => Ok(Listener::Socket(socket_addr)),
+            edgehog_config::service::Listener::Socket(socket_addr) => {
+                Ok(Listener::Socket(socket_addr))
+            }
         }
     }
 }

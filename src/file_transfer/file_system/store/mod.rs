@@ -24,6 +24,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use cfg_if::cfg_if;
+use edgehog_config::file_transfer::Percentage;
 use edgehog_store::models::job::job_type::JobType;
 use eyre::WrapErr;
 use futures::{Stream, TryStreamExt};
@@ -32,7 +33,6 @@ use tokio_stream::wrappers::ReadDirStream;
 use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 
-use crate::file_transfer::config::Percentage;
 use crate::file_transfer::encoding::Paths;
 use crate::file_transfer::interface::file::StoredFile;
 use crate::file_transfer::request::{Encoding, FileDigest, TransferJobTag};
