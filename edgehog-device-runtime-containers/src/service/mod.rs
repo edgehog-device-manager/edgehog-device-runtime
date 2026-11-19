@@ -72,6 +72,11 @@ pub enum ServiceError {
     Store(#[from] StoreError),
     /// couldn't complete operation on a resource
     Resource(#[from] ResourceError),
+    /// couldn't update deployment {message}
+    Update {
+        /// Error message for the update
+        message: String,
+    },
 }
 
 impl<T> From<T> for ServiceError
@@ -364,7 +369,7 @@ impl<D> Service<D> {
             .send(&id, &mut self.device)
             .await;
 
-        if let Err(err) = self.start_deployment(id, deployment).await {
+        if let Err(err) = self.start_deployment(id, &deployment).await {
             let error = eyre::Report::new(err);
 
             error!(error = format!("{:#}", error), "couldn't start deployment");
@@ -388,38 +393,42 @@ impl<D> Service<D> {
         info!("deployment started");
     }
 
-    async fn start_deployment(&mut self, deployment_id: Uuid, deployment: Deployment) -> Result<()>
+    async fn start_deployment(&mut self, deployment_id: Uuid, deployment: &Deployment) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
         crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartInit);
 
-        for id in deployment.images {
-            ImageResource::up(self.context(id)).await?;
+        for id in &deployment.images {
+            ImageResource::up(self.context(*id)).await?;
         }
 
-        for id in deployment.volumes {
-            VolumeResource::up(self.context(id)).await?;
+        for id in &deployment.volumes {
+            VolumeResource::up(self.context(*id)).await?;
         }
 
-        for id in deployment.networks {
-            NetworkResource::up(self.context(id)).await?;
+        for id in &deployment.networks {
+            NetworkResource::up(self.context(*id)).await?;
         }
 
-        for id in deployment.file_binds {
-            FileBindResource::check(&mut self.context(id)).await?;
+        for id in &deployment.file_binds {
+            FileBindResource::check(&mut self.context(*id)).await?;
         }
 
-        for id in deployment.env_files {
-            EnvFileResource::check(&mut self.context(id)).await?;
+        for id in &deployment.env_files {
+            EnvFileResource::check(&mut self.context(*id)).await?;
         }
 
+        // Create all the containers and then start theme
+        let mut containers = Vec::new();
         for id in deployment.containers.values().copied() {
-            ContainerResource::up(self.context(id)).await?;
+            let resouces = ContainerResource::up(self.context(id)).await?;
+
+            containers.push((id, resouces));
         }
 
-        for id in deployment.containers.values().copied() {
-            ContainerResource::start(self.context(id)).await?;
+        for (id, mut container) in containers {
+            container.start(self.context(id)).await?;
         }
 
         AvailableDeployment::new(&deployment_id)
@@ -635,62 +644,15 @@ impl<D> Service<D> {
     {
         crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
 
-        let from_deployment = match self
-            .store
-            .load_deployment_containers_update_from(bundle)
-            .await
-        {
-            Ok(Some(deployment)) => deployment,
-            Ok(None) => {
-                let msg = format!("{} not found", bundle.from);
-                error!("{msg}");
-
+        let change = match self.deployment_change(bundle).await {
+            Ok(change) => change,
+            Err(error) => {
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
 
-                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
+                error!(%error, "couldn't get deployemnt change");
+
+                DeploymentEvent::with_error(DeploymentEventStatus::Error, &error)
                     .send(&bundle.from, &mut self.device)
-                    .await;
-
-                return;
-            }
-            Err(err) => {
-                let err = eyre::Report::new(err);
-
-                error!(error = format!("{:#}", err), "couldn't update deployment");
-
-                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
-
-                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
-                    .send(&bundle.from, &mut self.device)
-                    .await;
-
-                return;
-            }
-        };
-
-        let to_deployment = match self.store.find_complete_deployment(bundle.to).await {
-            Ok(Some(deployment)) => deployment,
-            Ok(None) => {
-                let msg = format!("{} not found", bundle.to);
-                error!("{msg}");
-
-                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
-
-                DeploymentEvent::with_message(DeploymentEventStatus::Error, msg)
-                    .send(&bundle.to, &mut self.device)
-                    .await;
-
-                return;
-            }
-            Err(err) => {
-                let err = eyre::Report::new(err);
-
-                error!(error = format!("{:#}", err), "couldn't update deployment");
-
-                crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentFail);
-
-                DeploymentEvent::with_error(DeploymentEventStatus::Error, err.as_ref())
-                    .send(&bundle.to, &mut self.device)
                     .await;
 
                 return;
@@ -703,11 +665,7 @@ impl<D> Service<D> {
             .send(&bundle.from, &mut self.device)
             .await;
 
-        // TODO: consider if it's necessary a retry logic
-        if let Err(err) = self
-            .update_deployment(bundle, &from_deployment, to_deployment)
-            .await
-        {
+        if let Err(err) = self.update_deployment(bundle, &change).await {
             let err = eyre::Report::new(err);
 
             error!(error = format!("{:#}", err), "couldn't update deployment");
@@ -719,8 +677,8 @@ impl<D> Service<D> {
                 .await;
 
             // Start the old deployment on error
-            if let Err(error) = self.restart_failed(bundle.from, &from_deployment).await {
-                error!(%error, "couldn't restart deployment after failed update")
+            if let Err(error) = self.rollback_update(bundle).await {
+                error!(%error, "couldn't rollback deployment after failed update")
             }
 
             return;
@@ -731,22 +689,41 @@ impl<D> Service<D> {
         info!("deployment updated");
     }
 
+    async fn deployment_change(&mut self, bundle: DeploymentUpdate) -> Result<DeploymentChange> {
+        let to_stop = self
+            .store
+            .load_deployment_containers_update_from(bundle)
+            .await?
+            .ok_or(ServiceError::Update {
+                message: format!("deployment {} not found", bundle.from),
+            })?;
+
+        let to_start = self
+            .store
+            .find_complete_deployment(bundle.to)
+            .await?
+            .ok_or(ServiceError::Update {
+                message: format!("deployment {} not found", bundle.from),
+            })?;
+
+        Ok(DeploymentChange { to_stop, to_start })
+    }
+
     async fn update_deployment(
         &mut self,
         bundle: DeploymentUpdate,
-        to_stop: &[SqlUuid],
-        to_start: Deployment,
+        change: &DeploymentChange,
     ) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
-        self.stop_deployment(bundle.from, to_stop)
+        self.stop_deployment(bundle.from, &change.to_stop)
             .await
             .inspect_err(|_| {
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail)
             })?;
 
-        self.start_deployment(bundle.to, to_start)
+        self.start_deployment(bundle.to, &change.to_start)
             .await
             .inspect_err(|_| {
                 crate::tracing::notify(crate::tracing::SecurityEvent::ContainerStartFail)
@@ -786,23 +763,23 @@ impl<D> Service<D> {
     }
 
     #[instrument(skip_all)]
-    async fn restart_failed(&mut self, deployment: Uuid, to_restart: &[SqlUuid]) -> Result<()>
+    async fn rollback_update(&mut self, bundle: DeploymentUpdate) -> Result<()>
     where
         D: Client + PropAccess + Send + Sync + 'static,
     {
-        for id in to_restart {
-            debug!(%id, "restarting container");
+        let bundle = bundle.into_rollback();
 
-            ContainerResource::start(self.context(*id)).await?;
-        }
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentInit);
 
-        AvailableDeployment::new(&deployment)
-            .send(
-                &mut self.device,
-                crate::properties::deployment::DeploymentStatus::Started,
-            )
-            .await
-            .map_err(ResourceError::from)?;
+        let change = self.deployment_change(bundle).await?;
+
+        info!("rollbacking deployment");
+
+        self.update_deployment(bundle, &change).await?;
+
+        crate::tracing::notify(crate::tracing::SecurityEvent::ContainerDeploymentOk);
+
+        info!("deployment rollbacked");
 
         Ok(())
     }
@@ -873,6 +850,15 @@ impl Display for ResourceType {
             ResourceType::EnvFile => write!(f, "EnvFile"),
         }
     }
+}
+
+/// Deployment update.
+///
+/// Specifies the deployment to start and the containers to stop.
+#[derive(Debug)]
+struct DeploymentChange {
+    to_stop: Vec<SqlUuid>,
+    to_start: Deployment,
 }
 
 #[cfg(test)]
@@ -1774,7 +1760,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let created_prop = AvailableContainer::with_inspect(&container.id, created_inspect.clone());
+        let created_prop = AvailableContainer::with_inspect(&container.id, &created_inspect);
 
         for _ in 0..2 {
             let created_inspect = created_inspect.clone();
@@ -1832,7 +1818,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let running_prop = AvailableContainer::with_inspect(&container.id, running_inspect.clone());
+        let running_prop = AvailableContainer::with_inspect(&container.id, &running_inspect);
 
         client
             .expect_inspect_container()
