@@ -92,7 +92,7 @@ jobs:
           cache: true
       - parallel:
           - name: Cache Homebrew prefix from Brewfile
-            uses: Homebrew/actions/cache-homebrew-prefix@c262868c096d909fc278daa87ed9772967331ea3 # 2026.11.02.1
+            uses: Homebrew/actions/cache-homebrew-prefix@63a2d4d8d4193eab3e62b1b782ff3ab8408f5b29 # 2026.11.09.1
             with:
               brewfile: true
           - uses: $/.github/actions/install-deps
