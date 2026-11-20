@@ -139,8 +139,8 @@ where
 
     /// Set the resource into an error state and send the event to the cloud.
     fn on_error(
-        ctx: &mut Context<'_, D>,
-        error: &(dyn std::error::Error + Send + Sync),
+        _ctx: &mut Context<'_, D>,
+        _error: &(dyn std::error::Error + Send + Sync),
     ) -> impl Future<Output = ()> + Send;
 
     fn create(&mut self, ctx: &mut Context<'_, D>) -> impl Future<Output = Result<()>> + Send;

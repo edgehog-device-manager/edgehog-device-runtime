@@ -225,7 +225,7 @@ impl Image {
     ///
     /// See the [Docker API reference](https://docs.docker.com/engine/api/v1.43/#tag/Image/operation/ImageCreate)
     #[instrument(skip_all, fields(image = self.id_or_ref()))]
-    pub async fn pull(&mut self, client: &Client) -> Result<(), ImageError> {
+    pub async fn pull(&mut self, client: &Client) -> Result<Option<ImageInspect>, ImageError> {
         let options = CreateImageOptions::from(&*self);
 
         debug!("Creating the {}", self);
@@ -250,11 +250,11 @@ impl Image {
             .map_err(ImageError::Pull)?;
 
         // Set the id and check the errors
-        self.inspect(client).await?;
+        let inspect_image = self.inspect(client).await?;
 
         info!("{} created", self);
 
-        Ok(())
+        Ok(inspect_image)
     }
 
     /// Remove an image and it's parents.
