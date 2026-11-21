@@ -18,11 +18,11 @@
 
 //! Stream the bytes to a named pipe or unix socket.
 
+use std::path::PathBuf;
+
 use tokio::io::{AsyncRead, AsyncWrite};
 use tracing::instrument;
 use uuid::Uuid;
-
-use super::FileOptions;
 
 #[cfg(unix)]
 mod unix;
@@ -56,12 +56,28 @@ impl<S> Streaming<S>
 where
     S: Pipe,
 {
-    #[instrument(skip_all, fields(id = %opt.id))]
-    pub(crate) async fn open_writer(&self, opt: &FileOptions) -> eyre::Result<S::Writer> {
-        self.sys.open_writer(opt).await
+    #[instrument(skip_all, fields(%id), ret)]
+    pub(crate) fn get_path(&self, id: &Uuid) -> PathBuf {
+        self.sys.get_path(id)
     }
 
-    #[instrument(skip(self, fut))]
+    #[instrument(skip_all)]
+    pub(crate) async fn with_writer<Fut, F, T>(&self, id: &Uuid, fut: F) -> eyre::Result<T>
+    where
+        Fut: Future<Output = eyre::Result<T>>,
+        F: FnOnce(S::Writer) -> Fut,
+        S: Pipe,
+    {
+        let writer = self.sys.create_writer(id).await?;
+
+        let result = fut(writer).await;
+
+        self.sys.remove_pipe(id).await?;
+
+        result
+    }
+
+    #[instrument(skip_all)]
     pub(crate) async fn with_reader<F, Fut, T>(&self, id: &Uuid, fut: F) -> eyre::Result<T>
     where
         Fut: Future<Output = eyre::Result<T>>,
@@ -72,7 +88,7 @@ where
 
         let result = fut(reader).await;
 
-        self.sys.remove_reader(id).await?;
+        self.sys.remove_pipe(id).await?;
 
         result
     }
@@ -80,18 +96,17 @@ where
 
 pub(crate) trait Pipe {
     type Reader: AsyncRead + Unpin + Send + 'static;
-    type Writer: AsyncWrite + Unpin + Send;
+    type Writer: AsyncWrite + Unpin + Send + 'static;
 
     fn new() -> Self;
 
-    fn open_writer(
-        &self,
-        opt: &FileOptions,
-    ) -> impl Future<Output = eyre::Result<Self::Writer>> + Send;
+    fn get_path(&self, id: &Uuid) -> PathBuf;
+
+    fn create_writer(&self, id: &Uuid) -> impl Future<Output = eyre::Result<Self::Writer>> + Send;
 
     fn create_reader(&self, id: &Uuid) -> impl Future<Output = eyre::Result<Self::Reader>> + Send;
 
-    fn remove_reader(&self, id: &Uuid) -> impl Future<Output = eyre::Result<()>> + Send;
+    fn remove_pipe(&self, id: &Uuid) -> impl Future<Output = eyre::Result<()>> + Send;
 }
 
 #[cfg(test)]
