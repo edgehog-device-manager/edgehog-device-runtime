@@ -26,7 +26,7 @@ if [[ -n ${RUNNER_DEBUG:-} ]]; then
     set -x
 fi
 
-files=$(find . -name '*.yml')
+files=$(./scripts/ci/list-repo-files.sh '*.yml')
 
 if [[ -n $files ]]; then
     echo "Yaml files should have a .yaml extension"
