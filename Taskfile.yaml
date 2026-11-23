@@ -161,10 +161,8 @@ tasks:
   cargo-minimal-versions:
     desc: "Check if the minimal versiosn are correct"
     if: '[[ "$IS_LIBRARY" = "true" ]]'
-    env:
-      # allow warnings since we will have unused workspace dev dependencies
-      RUSTFLAGS: -A warnings
-    cmd: cargo minimal-versions check --workspace --ignore-private --detach-path-deps=skip-exact --direct
+    # allow warnings since we will have unused workspace dev dependencies
+    cmd: RUSTFLAGS="-A warnings" RUSTDOCFLAGS="-A warnings" cargo minimal-versions check --workspace --ignore-private --detach-path-deps=skip-exact --direct
 
   cargo-semver-checks:
     desc: "Check if the minimal versiosn are correct"
