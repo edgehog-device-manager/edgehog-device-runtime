@@ -24,9 +24,11 @@ use eyre::eyre;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+use self::astarte::Astarte;
 use self::file_transfer::FileTransfer;
 use self::jobs::Jobs;
 
+mod astarte;
 mod client;
 mod file_transfer;
 mod jobs;
@@ -39,6 +41,11 @@ struct Cli {
 
 #[derive(Debug, Clone, clap::Subcommand)]
 enum Command {
+    Astarte {
+        /// Astarte commands
+        #[clap(subcommand)]
+        command: Astarte,
+    },
     #[clap(alias = "ft")]
     FileTransfer {
         /// Direction of the transfer
@@ -83,6 +90,7 @@ async fn main() -> eyre::Result<()> {
         .map_err(|_| eyre!("failed to install default crypto provider"))?;
 
     match cli.command {
+        Command::Astarte { command } => command.run().await?,
         Command::FileTransfer { command } => {
             command.transfer().await?;
         }
@@ -93,4 +101,47 @@ async fn main() -> eyre::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_astarte_send_data_cli() {
+        let cli = Cli::try_parse_from([
+            "edgehogctl",
+            "astarte",
+            "send-data",
+            "--config",
+            "config.toml",
+            "data.json",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Astarte {
+                command: Astarte::SendData(_)
+            }
+        ));
+
+        let cli = Cli::try_parse_from([
+            "edgehogctl",
+            "astarte",
+            "send-data",
+            "--config",
+            "config.toml",
+            "--token",
+            "jwt-token",
+            "--curl",
+            "data.json",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Astarte {
+                command: Astarte::SendData(_)
+            }
+        ));
+    }
 }

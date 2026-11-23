@@ -7,7 +7,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-   http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -36,3 +36,16 @@ To setup an S3 compatible server you must use [RustFS](https://hub.docker.com/r/
 a container running on local host.
 
 > At the moment we don't let configure other provider
+
+## Astarte
+
+To send data events from a JSON file to a device via Astarte AppEngine API:
+
+```bash
+edgehogctl astarte send-data --config <path/to/edgehog-config.toml> <path/to/data.json>
+```
+
+- `--token <TOKEN>`: optional Astarte JWT token. If omitted, `edgehogctl` generates one via
+  `astartectl utils gen-jwt all-realm-apis`.
+- `--curl`: prints the requests as a bash script of `curl` commands (using `$TOKEN`) instead of
+  sending them.
