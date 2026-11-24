@@ -19,18 +19,15 @@
 use diesel::dsl::exists;
 use diesel::{
     CombineDsl, ExpressionMethods, NullableExpressionMethods, QueryDsl, RunQueryDsl,
-    SelectableHelper, SqliteConnection, delete, insert_or_ignore_into, select, update,
+    SqliteConnection, delete, insert_or_ignore_into, select, update,
 };
 use edgehog_store::conversions::SqlUuid;
 use edgehog_store::db::HandleError;
 use edgehog_store::models::QueryModel;
-use edgehog_store::models::containers::container::{
-    Container, ContainerDeviceMapping, ContainerDeviceRequest, ContainerNetwork, ContainerVolume,
-};
+use edgehog_store::models::containers::container::Container;
 use edgehog_store::models::containers::deployment::{
     Deployment, DeploymentContainer, DeploymentMissingContainer, DeploymentStatus,
 };
-use edgehog_store::models::containers::file_bind::{ContainerEnvFile, ContainerFileBind};
 use edgehog_store::schema::containers::{
     container_device_mappings, container_device_requests, container_env_files,
     container_file_binds, container_missing_device_mappings, container_missing_device_requests,
@@ -43,7 +40,7 @@ use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use crate::requests::deployment::{CreateDeployment, DeploymentUpdate};
-use crate::resource::deployment::{Deployment as DeploymentResource, DeploymentRow};
+use crate::resource::deployment::Deployment as DeploymentResource;
 
 use super::{Result, StateStore};
 
@@ -237,22 +234,92 @@ impl StateStore {
                     return Ok(None);
                 }
 
-                let rows = Deployment::join_resources()
+                let containers = deployment_containers::table
                     .filter(deployment_containers::deployment_id.eq(id))
                     .select((
-                        deployment_containers::container_id,
                         deployment_containers::idx,
-                        containers::image_id.assume_not_null(),
-                        Option::<ContainerNetwork>::as_select(),
-                        Option::<ContainerVolume>::as_select(),
-                        Option::<ContainerDeviceMapping>::as_select(),
-                        Option::<ContainerDeviceRequest>::as_select(),
-                        Option::<ContainerFileBind>::as_select(),
-                        Option::<ContainerEnvFile>::as_select(),
+                        deployment_containers::container_id,
                     ))
-                    .load::<DeploymentRow>(reader)?;
+                    .order_by(deployment_containers::idx)
+                    .load::<(i64, SqlUuid)>(reader)?
+                    .into_iter()
+                    .map(|(idx, id)| (idx, Uuid::from(id)))
+                    .collect();
 
-                Ok(Some(DeploymentResource::from(rows)))
+                let images = deployment_containers::table
+                    .inner_join(containers::table)
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .filter(containers::image_id.is_not_null())
+                    .select(containers::image_id.assume_not_null())
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let volumes = deployment_containers::table
+                    .inner_join(containers::table.inner_join(container_volumes::table))
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_volumes::volume_id)
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let networks = deployment_containers::table
+                    .inner_join(containers::table.inner_join(container_networks::table))
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_networks::network_id)
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let device_mappings = deployment_containers::table
+                    .inner_join(containers::table.inner_join(container_device_mappings::table))
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_device_mappings::device_mapping_id)
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let device_requests = deployment_containers::table
+                    .inner_join(containers::table.inner_join(container_device_requests::table))
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_device_requests::device_request_id)
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let file_binds = deployment_containers::table
+                    .inner_join(containers::table.inner_join(container_file_binds::table))
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_file_binds::file_bind_id)
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                let env_files = deployment_containers::table
+                    .inner_join(containers::table.inner_join(container_env_files::table))
+                    .filter(deployment_containers::deployment_id.eq(id))
+                    .select(container_env_files::env_file_id)
+                    .load::<SqlUuid>(reader)?
+                    .into_iter()
+                    .map(Uuid::from)
+                    .collect();
+
+                Ok(Some(DeploymentResource {
+                    containers,
+                    images,
+                    volumes,
+                    networks,
+                    device_mappings,
+                    device_requests,
+                    file_binds,
+                    env_files,
+                }))
             })
             .await?;
 
@@ -440,33 +507,91 @@ fn is_deployment_complete(
     reader: &mut SqliteConnection,
     id: &SqlUuid,
 ) -> std::result::Result<bool, HandleError> {
-    select(exists(
-        deployments::table
-            .left_join(deployment_missing_containers::table)
-            .inner_join(
-                deployment_containers::table.inner_join(
-                    containers::table
-                        .left_join(container_missing_images::table)
-                        .left_join(container_missing_networks::table)
-                        .left_join(container_missing_volumes::table)
-                        .left_join(container_missing_device_mappings::table)
-                        .left_join(container_missing_device_requests::table)
-                        .left_join(container_missing_file_binds::table)
-                        .left_join(container_missing_env_files::table),
-                ),
-            )
-            .filter(deployments::id.eq(id))
-            .filter(deployment_missing_containers::deployment_id.is_null())
-            .filter(container_missing_images::container_id.is_null())
-            .filter(container_missing_networks::container_id.is_null())
-            .filter(container_missing_volumes::container_id.is_null())
-            .filter(container_missing_device_mappings::container_id.is_null())
-            .filter(container_missing_device_requests::container_id.is_null())
-            .filter(container_missing_file_binds::container_id.is_null())
-            .filter(container_missing_env_files::container_id.is_null()),
+    let has_containers = select(exists(
+        deployment_containers::table.filter(deployment_containers::deployment_id.eq(id)),
     ))
-    .first::<bool>(reader)
-    .map_err(HandleError::Query)
+    .first::<bool>(reader)?;
+    if !has_containers {
+        return Ok(false);
+    }
+
+    let has_missing_containers = select(exists(
+        deployment_missing_containers::table
+            .filter(deployment_missing_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_containers {
+        return Ok(false);
+    }
+
+    let has_missing_images = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_images::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_images {
+        return Ok(false);
+    }
+
+    let has_missing_networks = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_networks::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_networks {
+        return Ok(false);
+    }
+
+    let has_missing_volumes = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_volumes::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_volumes {
+        return Ok(false);
+    }
+
+    let has_missing_device_mappings = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_device_mappings::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_device_mappings {
+        return Ok(false);
+    }
+
+    let has_missing_device_requests = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_device_requests::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_device_requests {
+        return Ok(false);
+    }
+
+    let has_missing_file_binds = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_file_binds::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+    if has_missing_file_binds {
+        return Ok(false);
+    }
+
+    let has_missing_env_files = select(exists(
+        deployment_containers::table
+            .inner_join(containers::table.inner_join(container_missing_env_files::table))
+            .filter(deployment_containers::deployment_id.eq(id)),
+    ))
+    .first::<bool>(reader)?;
+
+    Ok(!has_missing_env_files)
 }
 
 impl From<CreateDeployment> for Deployment {
@@ -480,11 +605,12 @@ impl From<CreateDeployment> for Deployment {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashSet};
+    use std::collections::BTreeMap;
 
     use diesel::OptionalExtension;
     use edgehog_store::db;
     use pretty_assertions::assert_eq;
+    use rustc_hash::FxHashSet;
     use tempfile::TempDir;
 
     use crate::requests::container::tests::create_container_req;
@@ -664,13 +790,13 @@ mod tests {
             .unwrap();
         let exp = DeploymentResource {
             containers: BTreeMap::from_iter([(0, container.id.0)]),
-            images: HashSet::from_iter([image.id.0]),
-            volumes: HashSet::from_iter([volume.id.0]),
-            networks: HashSet::from_iter([network.id.0]),
-            device_mappings: HashSet::from_iter([device_mapping.id.0]),
-            device_requests: HashSet::from_iter([device_request.id.0]),
-            file_binds: HashSet::from_iter([file_bind.id.0]),
-            env_files: HashSet::from_iter([env_file.id.0]),
+            images: FxHashSet::from_iter([image.id.0]),
+            volumes: FxHashSet::from_iter([volume.id.0]),
+            networks: FxHashSet::from_iter([network.id.0]),
+            device_mappings: FxHashSet::from_iter([device_mapping.id.0]),
+            device_requests: FxHashSet::from_iter([device_request.id.0]),
+            file_binds: FxHashSet::from_iter([file_bind.id.0]),
+            env_files: FxHashSet::from_iter([env_file.id.0]),
         };
 
         assert_eq!(deployment, exp);
@@ -757,13 +883,13 @@ mod tests {
 
         let exp = DeploymentResource {
             containers: BTreeMap::from_iter([(0, container_1.id.0)]),
-            images: HashSet::new(),
-            volumes: HashSet::new(),
-            networks: HashSet::new(),
-            device_mappings: HashSet::new(),
-            device_requests: HashSet::new(),
-            file_binds: HashSet::new(),
-            env_files: HashSet::new(),
+            images: FxHashSet::default(),
+            volumes: FxHashSet::default(),
+            networks: FxHashSet::default(),
+            device_mappings: FxHashSet::default(),
+            device_requests: FxHashSet::default(),
+            file_binds: FxHashSet::default(),
+            env_files: FxHashSet::default(),
         };
 
         assert_eq!(res, exp);
@@ -844,15 +970,431 @@ mod tests {
 
         let exp = DeploymentResource {
             containers: BTreeMap::from_iter([(0, container_1.id.0), (1, container_2.id.0)]),
-            images: HashSet::from_iter([image.id.0]),
-            volumes: HashSet::from_iter([volume.id.0]),
-            networks: HashSet::from_iter([network.id.0]),
-            device_mappings: HashSet::from_iter([device_mapping.id.0]),
-            device_requests: HashSet::from_iter([device_request.id.0]),
-            file_binds: HashSet::from_iter([file_bind.id.0]),
-            env_files: HashSet::from_iter([env_file.id.0]),
+            images: FxHashSet::from_iter([image.id.0]),
+            volumes: FxHashSet::from_iter([volume.id.0]),
+            networks: FxHashSet::from_iter([network.id.0]),
+            device_mappings: FxHashSet::from_iter([device_mapping.id.0]),
+            device_requests: FxHashSet::from_iter([device_request.id.0]),
+            file_binds: FxHashSet::from_iter([file_bind.id.0]),
+            env_files: FxHashSet::from_iter([env_file.id.0]),
         };
 
+        assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn find_complete_deployment_not_found() {
+        let tmp = TempDir::with_prefix("find_complete_deployment_not_found").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let res = store
+            .find_complete_deployment(Uuid::new_v4())
+            .await
+            .unwrap();
+        assert_eq!(res, None);
+    }
+
+    #[tokio::test]
+    async fn find_complete_deployment_incomplete() {
+        let tmp = TempDir::with_prefix("find_complete_deployment_incomplete").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let deployment_id = Uuid::new_v4();
+        let image = create_image_req(deployment_id);
+        let volume = create_volume_req(deployment_id);
+        let network = create_network_req(deployment_id);
+        let device_mapping = create_device_mapping_req(deployment_id);
+        let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
+        let container = create_container_req(
+            deployment_id,
+            &image,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+            &file_bind,
+            &env_file,
+        );
+
+        // Missing container
+        let deployment = CreateDeployment {
+            id: ReqUuid(deployment_id),
+            containers: VecReqUuid(vec![container.id]),
+        };
+        store.create_deployment(deployment).await.unwrap();
+        assert_eq!(
+            store.find_complete_deployment(deployment_id).await.unwrap(),
+            None
+        );
+
+        // Container created, but all resources missing
+        store
+            .create_container(Box::new(container.clone()))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.find_complete_deployment(deployment_id).await.unwrap(),
+            None
+        );
+
+        // Create resources one by one; still incomplete until the last one
+        store.create_image(image.clone()).await.unwrap();
+        store.create_volume(volume.clone()).await.unwrap();
+        store.create_network(network.clone()).await.unwrap();
+        store
+            .create_device_mapping(device_mapping.clone())
+            .await
+            .unwrap();
+        store
+            .create_device_request(device_request.clone())
+            .await
+            .unwrap();
+        store.create_file_bind(file_bind.clone()).await.unwrap();
+        assert_eq!(
+            store.find_complete_deployment(deployment_id).await.unwrap(),
+            None
+        );
+
+        // Create the final missing resource (env_file)
+        store.create_env_file(env_file.clone()).await.unwrap();
+        let res = store
+            .find_complete_deployment(deployment_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let exp = DeploymentResource {
+            containers: BTreeMap::from_iter([(0, container.id.0)]),
+            images: FxHashSet::from_iter([image.id.0]),
+            volumes: FxHashSet::from_iter([volume.id.0]),
+            networks: FxHashSet::from_iter([network.id.0]),
+            device_mappings: FxHashSet::from_iter([device_mapping.id.0]),
+            device_requests: FxHashSet::from_iter([device_request.id.0]),
+            file_binds: FxHashSet::from_iter([file_bind.id.0]),
+            env_files: FxHashSet::from_iter([env_file.id.0]),
+        };
+        assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn find_complete_deployment_without_optional_resources() {
+        let tmp = TempDir::with_prefix("find_complete_deployment_no_opt").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let deployment_id = Uuid::new_v4();
+        let image = create_image_req(deployment_id);
+        let volume = create_volume_req(deployment_id);
+        let network = create_network_req(deployment_id);
+        let device_mapping = create_device_mapping_req(deployment_id);
+        let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
+        let mut container = create_container_req(
+            deployment_id,
+            &image,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+            &file_bind,
+            &env_file,
+        );
+        container.network_ids = None;
+        container.volume_ids = None;
+        container.device_mapping_ids = None;
+        container.device_request_ids = None;
+        container.file_bind_ids = None;
+        container.env_file_ids = None;
+
+        store.create_image(image.clone()).await.unwrap();
+        store
+            .create_container(Box::new(container.clone()))
+            .await
+            .unwrap();
+
+        let deployment = CreateDeployment {
+            id: ReqUuid(deployment_id),
+            containers: VecReqUuid(vec![container.id]),
+        };
+        store.create_deployment(deployment).await.unwrap();
+
+        let res = store
+            .find_complete_deployment(deployment_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let exp = DeploymentResource {
+            containers: BTreeMap::from_iter([(0, container.id.0)]),
+            images: FxHashSet::from_iter([image.id.0]),
+            volumes: FxHashSet::default(),
+            networks: FxHashSet::default(),
+            device_mappings: FxHashSet::default(),
+            device_requests: FxHashSet::default(),
+            file_binds: FxHashSet::default(),
+            env_files: FxHashSet::default(),
+        };
+        assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn find_complete_deployment_multiple_resources_and_isolation() {
+        let tmp = TempDir::with_prefix("find_complete_deployment_multi").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        // Deployment 1: 2 containers with multiple distinct & shared resources
+        let deployment_1_id = Uuid::new_v4();
+        let image_1 = create_image_req(deployment_1_id);
+        let image_2 = create_image_req(deployment_1_id);
+        let volume_1 = create_volume_req(deployment_1_id);
+        let volume_2 = create_volume_req(deployment_1_id);
+        let network_1 = create_network_req(deployment_1_id);
+        let network_2 = create_network_req(deployment_1_id);
+        let device_mapping_1 = create_device_mapping_req(deployment_1_id);
+        let device_mapping_2 = create_device_mapping_req(deployment_1_id);
+        let device_request_1 = create_device_request(deployment_1_id);
+        let device_request_2 = create_device_request(deployment_1_id);
+        let file_bind_1 = create_file_bind_req(deployment_1_id);
+        let file_bind_2 = create_file_bind_req(deployment_1_id);
+        let env_file_1 = create_env_file_req(deployment_1_id);
+        let env_file_2 = create_env_file_req(deployment_1_id);
+
+        let mut container_1 = create_container_req(
+            deployment_1_id,
+            &image_1,
+            &volume_1,
+            &network_1,
+            &device_mapping_1,
+            &device_request_1,
+            &file_bind_1,
+            &env_file_1,
+        );
+        container_1.volume_ids = Some(VecReqUuid(vec![volume_1.id, volume_2.id]));
+        container_1.network_ids = Some(VecReqUuid(vec![network_1.id, network_2.id]));
+        container_1.device_mapping_ids =
+            Some(VecReqUuid(vec![device_mapping_1.id, device_mapping_2.id]));
+        container_1.device_request_ids =
+            Some(VecReqUuid(vec![device_request_1.id, device_request_2.id]));
+        container_1.file_bind_ids = Some(VecReqUuid(vec![file_bind_1.id, file_bind_2.id]));
+        container_1.env_file_ids = Some(VecReqUuid(vec![env_file_1.id, env_file_2.id]));
+
+        let container_2 = create_container_req(
+            deployment_1_id,
+            &image_2,
+            &volume_2,
+            &network_2,
+            &device_mapping_2,
+            &device_request_2,
+            &file_bind_2,
+            &env_file_2,
+        );
+
+        for image in [&image_1, &image_2] {
+            store.create_image(image.clone()).await.unwrap();
+        }
+        for volume in [&volume_1, &volume_2] {
+            store.create_volume(volume.clone()).await.unwrap();
+        }
+        for network in [&network_1, &network_2] {
+            store.create_network(network.clone()).await.unwrap();
+        }
+        for dm in [&device_mapping_1, &device_mapping_2] {
+            store.create_device_mapping(dm.clone()).await.unwrap();
+        }
+        for dr in [&device_request_1, &device_request_2] {
+            store.create_device_request(dr.clone()).await.unwrap();
+        }
+        for fb in [&file_bind_1, &file_bind_2] {
+            store.create_file_bind(fb.clone()).await.unwrap();
+        }
+        for ef in [&env_file_1, &env_file_2] {
+            store.create_env_file(ef.clone()).await.unwrap();
+        }
+        store
+            .create_container(Box::new(container_1.clone()))
+            .await
+            .unwrap();
+        store
+            .create_container(Box::new(container_2.clone()))
+            .await
+            .unwrap();
+        store
+            .create_deployment(CreateDeployment {
+                id: ReqUuid(deployment_1_id),
+                containers: VecReqUuid(vec![container_1.id, container_2.id]),
+            })
+            .await
+            .unwrap();
+
+        // Deployment 2: completely separate container & resources
+        let deployment_2_id = Uuid::new_v4();
+        let other_image = create_image_req(deployment_2_id);
+        let other_volume = create_volume_req(deployment_2_id);
+        let other_network = create_network_req(deployment_2_id);
+        let other_dm = create_device_mapping_req(deployment_2_id);
+        let other_dr = create_device_request(deployment_2_id);
+        let other_fb = create_file_bind_req(deployment_2_id);
+        let other_ef = create_env_file_req(deployment_2_id);
+        let other_container = create_container_req(
+            deployment_2_id,
+            &other_image,
+            &other_volume,
+            &other_network,
+            &other_dm,
+            &other_dr,
+            &other_fb,
+            &other_ef,
+        );
+        store.create_image(other_image).await.unwrap();
+        store.create_volume(other_volume).await.unwrap();
+        store.create_network(other_network).await.unwrap();
+        store.create_device_mapping(other_dm).await.unwrap();
+        store.create_device_request(other_dr).await.unwrap();
+        store.create_file_bind(other_fb).await.unwrap();
+        store.create_env_file(other_ef).await.unwrap();
+        store
+            .create_container(Box::new(other_container.clone()))
+            .await
+            .unwrap();
+        store
+            .create_deployment(CreateDeployment {
+                id: ReqUuid(deployment_2_id),
+                containers: VecReqUuid(vec![other_container.id]),
+            })
+            .await
+            .unwrap();
+
+        let res = store
+            .find_complete_deployment(deployment_1_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let exp = DeploymentResource {
+            containers: BTreeMap::from_iter([(0, container_1.id.0), (1, container_2.id.0)]),
+            images: FxHashSet::from_iter([image_1.id.0, image_2.id.0]),
+            volumes: FxHashSet::from_iter([volume_1.id.0, volume_2.id.0]),
+            networks: FxHashSet::from_iter([network_1.id.0, network_2.id.0]),
+            device_mappings: FxHashSet::from_iter([device_mapping_1.id.0, device_mapping_2.id.0]),
+            device_requests: FxHashSet::from_iter([device_request_1.id.0, device_request_2.id.0]),
+            file_binds: FxHashSet::from_iter([file_bind_1.id.0, file_bind_2.id.0]),
+            env_files: FxHashSet::from_iter([env_file_1.id.0, env_file_2.id.0]),
+        };
+        assert_eq!(res, exp);
+    }
+
+    #[tokio::test]
+    async fn find_complete_deployment_partial_containers() {
+        let tmp = TempDir::with_prefix("find_complete_deployment_partial").unwrap();
+        let db_file = tmp.path().join("state.db");
+        let db_file = db_file.to_str().unwrap();
+
+        let handle = db::Handle::open(db_file).await.unwrap();
+        let store = StateStore::new(handle);
+
+        let deployment_id = Uuid::new_v4();
+        let image_1 = create_image_req(deployment_id);
+        let image_2 = create_image_req(deployment_id);
+        let volume = create_volume_req(deployment_id);
+        let network = create_network_req(deployment_id);
+        let device_mapping = create_device_mapping_req(deployment_id);
+        let device_request = create_device_request(deployment_id);
+        let file_bind = create_file_bind_req(deployment_id);
+        let env_file = create_env_file_req(deployment_id);
+
+        let container_1 = create_container_req(
+            deployment_id,
+            &image_1,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+            &file_bind,
+            &env_file,
+        );
+        let container_2 = create_container_req(
+            deployment_id,
+            &image_2,
+            &volume,
+            &network,
+            &device_mapping,
+            &device_request,
+            &file_bind,
+            &env_file,
+        );
+
+        // Create all resources for container_1, but leave image_2 missing for container_2
+        store.create_image(image_1.clone()).await.unwrap();
+        store.create_volume(volume.clone()).await.unwrap();
+        store.create_network(network.clone()).await.unwrap();
+        store
+            .create_device_mapping(device_mapping.clone())
+            .await
+            .unwrap();
+        store
+            .create_device_request(device_request.clone())
+            .await
+            .unwrap();
+        store.create_file_bind(file_bind.clone()).await.unwrap();
+        store.create_env_file(env_file.clone()).await.unwrap();
+        store
+            .create_container(Box::new(container_1.clone()))
+            .await
+            .unwrap();
+        store
+            .create_container(Box::new(container_2.clone()))
+            .await
+            .unwrap();
+
+        store
+            .create_deployment(CreateDeployment {
+                id: ReqUuid(deployment_id),
+                containers: VecReqUuid(vec![container_1.id, container_2.id]),
+            })
+            .await
+            .unwrap();
+
+        // Container 1 is complete, container 2 is missing image_2 -> deployment is incomplete
+        assert_eq!(
+            store.find_complete_deployment(deployment_id).await.unwrap(),
+            None
+        );
+
+        // Once image_2 is created, the deployment becomes complete
+        store.create_image(image_2.clone()).await.unwrap();
+        let res = store
+            .find_complete_deployment(deployment_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let exp = DeploymentResource {
+            containers: BTreeMap::from_iter([(0, container_1.id.0), (1, container_2.id.0)]),
+            images: FxHashSet::from_iter([image_1.id.0, image_2.id.0]),
+            volumes: FxHashSet::from_iter([volume.id.0]),
+            networks: FxHashSet::from_iter([network.id.0]),
+            device_mappings: FxHashSet::from_iter([device_mapping.id.0]),
+            device_requests: FxHashSet::from_iter([device_request.id.0]),
+            file_binds: FxHashSet::from_iter([file_bind.id.0]),
+            env_files: FxHashSet::from_iter([env_file.id.0]),
+        };
         assert_eq!(res, exp);
     }
 }

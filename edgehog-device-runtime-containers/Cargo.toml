@@ -38,6 +38,7 @@ edgehog-store = { workspace = true, features = ["containers"] }
 eyre.workspace = true
 futures.workspace = true
 http-body = { workspace = true, optional = true }
+rustc-hash.workspace = true
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 itertools.workspace = true
