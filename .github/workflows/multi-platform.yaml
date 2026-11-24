@@ -35,8 +35,6 @@ defaults:
 env:
   CI: "true"
   CARGO_TERM_COLOR: always
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
   NEXTEST_PROFILE: "ci"
@@ -64,7 +62,6 @@ jobs:
             with:
               for-image: "${{ matrix.os }}"
           - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
-          - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
           - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
             with:
               tool: cargo-nextest
