@@ -55,6 +55,7 @@ tasks:
       - check-prettier
       - check-shell
       - check-shfmt
+      - check-sql
       - cargo-fmt
       - check-zizmor
     cmds:
@@ -100,13 +101,19 @@ tasks:
     desc: "Check statically all the shell files with shellcheck"
     cmd: |
       ./scripts/ci/list-repo-files.sh '*.sh' |
-        xargs --max-args 1 -P "$(nproc)" shellcheck
+        xargs --max-args 1 -P "$(nproc)" shellcheck --external-sources
 
   check-shfmt:
     desc: "Format all the shell files with shfmt"
     cmd: |
-      ./scripts/ci/list-repo-files.sh '*.sh'|
+      ./scripts/ci/list-repo-files.sh '*.sh' |
         xargs --max-args 1 -P "$(nproc)" shfmt -w -d -i 4
+
+  check-sql:
+    desc: "Check all the SQL files with sqlfluff"
+    cmd: |
+      ./scripts/ci/list-repo-files.sh '*.sql' |
+        xargs sqlfluff fix -p0
 
   check-for-publish:
     if: '[[ "$IS_CRATE" = "true" ]]'
@@ -156,7 +163,8 @@ tasks:
   cargo-minimal-versions:
     desc: "Check if the minimal versiosn are correct"
     if: '[[ "$IS_LIBRARY" = "true" ]]'
-    cmd: cargo minimal-versions check --workspace --ignore-private --detach-path-deps=skip-exact --direct
+    # allow warnings since we will have unused workspace dev dependencies
+    cmd: CARGO_BUILD_WARNINGS="allow" RUSTFLAGS="-A warnings" RUSTDOCFLAGS="-A warnings" cargo minimal-versions check --workspace --ignore-private --detach-path-deps=skip-exact --direct
 
   cargo-semver-checks:
     desc: "Check if the minimal versiosn are correct"
