@@ -1368,6 +1368,7 @@ dependencies = [
  "mockall",
  "pretty_assertions",
  "rstest",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1438,6 +1439,7 @@ dependencies = [
 name = "edgehog-device-runtime-store"
 version = "0.13.2"
 dependencies = [
+ "bollard",
  "deadpool",
  "diesel",
  "diesel_migrations",
@@ -1447,6 +1449,8 @@ dependencies = [
  "pretty_assertions",
  "rstest",
  "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -32,6 +32,7 @@ pub(crate) mod env_file;
 pub(crate) mod file_bind;
 pub(crate) mod image;
 pub(crate) mod network;
+pub(crate) mod network_options;
 pub(crate) mod volume;
 
 /// Error returned when failing to publish a property

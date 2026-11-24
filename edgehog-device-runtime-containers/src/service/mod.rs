@@ -28,6 +28,7 @@ use edgehog_store::models::containers::deployment::DeploymentStatus;
 use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
+use crate::resource::network_options::NetworkOptionsResource;
 use crate::{
     Docker,
     error::DockerError,
@@ -166,6 +167,11 @@ impl<D> Service<D> {
             let mut context = self.context(id);
 
             DeviceRequestResource::publish(&mut context).await?;
+        }
+        for id in self.store.load_network_options_to_publish().await? {
+            let mut context = self.context(id);
+
+            NetworkOptionsResource::publish(&mut context).await?;
         }
 
         for id in self.store.load_file_binds_to_publish().await? {
@@ -329,6 +335,9 @@ impl<D> Service<D> {
             }
             ResourceType::DeviceRequest => {
                 DeviceRequestResource::publish(&mut self.context(*id.uuid())).await
+            }
+            ResourceType::NetworkOptions => {
+                NetworkOptionsResource::publish(&mut self.context(*id.uuid())).await
             }
             ResourceType::FileBind => {
                 FileBindResource::publish(&mut self.context(*id.uuid())).await
@@ -800,6 +809,7 @@ impl<D> Service<D> {
             ResourceType::Deployment
             | ResourceType::DeviceMapping
             | ResourceType::DeviceRequest
+            | ResourceType::NetworkOptions
             | ResourceType::FileBind
             | ResourceType::EnvFile => {
                 debug!("nothing to refresh");
@@ -880,6 +890,8 @@ pub enum ResourceType {
     DeviceMapping,
     /// Device request resource.
     DeviceRequest,
+    /// Network option resource.
+    NetworkOptions,
     /// File bind resource.
     FileBind,
     /// Env file resource.
@@ -898,6 +910,7 @@ impl Display for ResourceType {
             ResourceType::Network => write!(f, "Network"),
             ResourceType::DeviceMapping => write!(f, "DeviceMapping"),
             ResourceType::DeviceRequest => write!(f, "DeviceRequest"),
+            ResourceType::NetworkOptions => write!(f, "NetworkOptions"),
             ResourceType::Container => write!(f, "Container"),
             ResourceType::Deployment => write!(f, "Deployment"),
             ResourceType::FileBind => write!(f, "FileBind"),

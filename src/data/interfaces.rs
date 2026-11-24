@@ -209,6 +209,9 @@ fn add_containers<C, S>(
     const APPS_AVAILABLE_DEVICE_REQUESTS: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableDeviceRequests.json"
     );
+    const APPS_AVAILABLE_NETWORK_OPTIONS: &str = include_str!(
+        "../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableNetworkOptions.json"
+    );
     const APPS_AVAILABLE_IMAGES: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableImages.json");
     const APPS_AVAILABLE_NETWORKS: &str =
@@ -237,6 +240,9 @@ fn add_containers<C, S>(
     );
     const APPS_CREATE_FILE_BIND_REQUEST: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.apps.CreateFileBindRequest.json"
+    );
+    const APPS_CREATE_NETWORK_OPTIONS_REQUEST: &str = include_str!(
+        "../../deps/interfaces/io.edgehog.devicemanager.apps.CreateNetworkOptionsRequest.json"
     );
     const APPS_AVAILABLE_FILE_BINDS: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableFileBinds.json");
@@ -294,6 +300,7 @@ fn add_containers<C, S>(
             .interface_str(APPS_AVAILABLE_IMAGES)?
             .interface_str(APPS_AVAILABLE_NETWORKS)?
             .interface_str(APPS_AVAILABLE_VOLUMES)?
+            .interface_str(APPS_AVAILABLE_NETWORK_OPTIONS)?
             .interface_str(APPS_CREATE_CONTAINER_REQUEST)?
             .interface_str(APPS_CREATE_DEPLOYMENT_REQUEST)?
             .interface_str(APPS_CREATE_DEVICE_MAPPING_REQUEST)?
@@ -302,6 +309,7 @@ fn add_containers<C, S>(
             .interface_str(APPS_CREATE_NETWORK_REQUEST)?
             .interface_str(APPS_CREATE_VOLUME_REQUEST)?
             .interface_str(APPS_CREATE_FILE_BIND_REQUEST)?
+            .interface_str(APPS_CREATE_NETWORK_OPTIONS_REQUEST)?
             .interface_str(APPS_AVAILABLE_FILE_BINDS)?
             .interface_str(APPS_CREATE_ENV_FILE_REQUEST)?
             .interface_str(APPS_AVAILABLE_ENV_FILES)?
