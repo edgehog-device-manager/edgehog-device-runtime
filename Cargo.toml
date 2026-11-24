@@ -147,7 +147,6 @@ cfg-if.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
 diesel.workspace = true
-dirs.workspace = true
 displaydoc.workspace = true
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
@@ -159,7 +158,6 @@ hex.workspace = true
 minicbor = { workspace = true, features = ["derive", "std"] }
 minicbor-io = { workspace = true, features = ["async-io"] }
 pin-project.workspace = true
-rustix = { workspace = true, features = ["fs"] }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -190,12 +188,6 @@ features = [
   "gzip",
 ]
 
-[dependencies.zbus]
-workspace = true
-default-features = false
-features = ["tokio-multithread", "tracing", "object-manager", "proxy"]
-optional = true
-
 [dev-dependencies]
 astarte-device-sdk-mock.workspace = true
 edgehog-containers = { workspace = true, features = ["__mock"] }
@@ -211,12 +203,22 @@ tokio-stream = { workspace = true, features = ["net"] }
 [build-dependencies]
 rustc_version.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 procfs.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+dirs.workspace = true
 systemd = { workspace = true, optional = true }
 udev = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies.zbus]
+workspace = true
+default-features = false
+features = ["tokio-multithread", "tracing", "object-manager", "proxy"]
+optional = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"], optional = true }

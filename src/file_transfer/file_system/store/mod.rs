@@ -116,11 +116,7 @@ impl<F> FileStorage<F> {
             }
         };
 
-        if !file_type.is_symlink() {
-            return false;
-        }
-
-        true
+        file_type.is_symlink()
     }
 
     /// Cleanup partial files whose job does not exist
