@@ -42,6 +42,7 @@ use edgehog_store::models::containers::container::{
 use edgehog_store::models::containers::deployment::DeploymentMissingContainer;
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
 use edgehog_store::models::containers::device_request::DeviceRequest;
+
 use edgehog_store::models::containers::file_bind::{
     ContainerEnvFile, ContainerFileBind, ContainerMissingEnvFile, ContainerMissingFileBind,
     EnvFile, FileBind,
@@ -935,6 +936,7 @@ pub(crate) mod tests {
     use crate::resource::container::ContainerResource;
     use crate::resource::env_file::EnvFileResource;
     use crate::resource::file_bind::FileBindResource;
+    use crate::store::StateStore;
     use crate::store::container::tests::find_container;
     use crate::store::env_file::tests::env_file_to_store;
     use crate::store::file_bind::tests::file_bind_to_store;
@@ -1004,6 +1006,7 @@ pub(crate) mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+
         let file_bind = create_file_bind_req(deployment_id);
         let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(

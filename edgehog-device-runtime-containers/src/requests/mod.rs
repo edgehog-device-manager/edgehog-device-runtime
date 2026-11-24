@@ -34,6 +34,8 @@ use crate::requests::volume::VolumeCommand;
 
 use self::device_mapping::CreateDeviceMapping;
 use self::device_request::CreateDeviceRequest;
+use self::network_options::CreateNetworkOptions;
+
 use self::env_file::CreateEnvFile;
 use self::file_bind::CreateFileBind;
 use self::{image::CreateImage, network::CreateNetwork, volume::CreateVolume};
@@ -46,6 +48,7 @@ pub mod env_file;
 pub mod file_bind;
 pub mod image;
 pub mod network;
+pub mod network_options;
 pub mod volume;
 
 /// Error from handling the Astarte request.
@@ -91,6 +94,8 @@ pub enum ContainerRequest {
     DeviceMapping(CreateDeviceMapping),
     /// Request to create a device request.
     DeviceRequest(CreateDeviceRequest),
+    /// Request to create a network options.
+    NetworkOptions(Box<CreateNetworkOptions>),
     /// Request to create a file bind.
     FileBind(CreateFileBind),
     /// Request to create an env file.
@@ -126,6 +131,10 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.CreateDeviceRequest" => {
                 CreateDeviceRequest::from_event(value).map(ContainerRequest::DeviceRequest)
+            }
+            "io.edgehog.devicemanager.apps.CreateNetworkOptionsRequest" => {
+                CreateNetworkOptions::from_event(value)
+                    .map(|value| ContainerRequest::NetworkOptions(Box::new(value)))
             }
             "io.edgehog.devicemanager.apps.CreateFileBindRequest" => {
                 CreateFileBind::from_event(value).map(ContainerRequest::FileBind)

@@ -34,6 +34,7 @@ use diesel::{
 
 use super::container::Container;
 
+use crate::schema::containers::network_options;
 use crate::{
     conversions::SqlUuid,
     models::{ExistsFilterById, QueryModel},
@@ -60,16 +61,19 @@ type ContainerResources = LeftJoin<
         LeftJoin<
             LeftJoin<
                 LeftJoin<
-                    LeftJoin<containers::table, container_networks::table>,
-                    container_volumes::table,
+                    LeftJoin<
+                        LeftJoin<containers::table, container_networks::table>,
+                        container_volumes::table,
+                    >,
+                    container_device_mappings::table,
                 >,
-                container_device_mappings::table,
+                container_device_requests::table,
             >,
-            container_device_requests::table,
+            container_file_binds::table,
         >,
-        container_file_binds::table,
+        container_env_files::table,
     >,
-    container_env_files::table,
+    network_options::table,
 >;
 type DeploymentResources = InnerJoin<deployment_containers::table, ContainerResources>;
 type FilteredDeploymentJoin = Filter<DeploymentResources, IsNotNull<containers::image_id>>;
@@ -87,7 +91,8 @@ impl Deployment {
                     .left_join(container_device_mappings::table)
                     .left_join(container_device_requests::table)
                     .left_join(container_file_binds::table)
-                    .left_join(container_env_files::table),
+                    .left_join(container_env_files::table)
+                    .left_join(network_options::table),
             )
             .filter(containers::image_id.is_not_null())
     }
