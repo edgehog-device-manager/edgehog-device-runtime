@@ -138,16 +138,15 @@ zbus = { version = "6.2.0", default-features = false }
 
 [dependencies]
 astarte-device-sdk = { workspace = true, features = ["derive"] }
-astarte-device-tls = { workspace = true, default-features = false }
-async-compression = { workspace = true, features = ["gzip", "tokio"] }
-async-tar = { workspace = true, default-features = false, features = ["runtime-tokio", "xattr"] }
+astarte-device-tls = { workspace = true, default-features = false, optional = true }
+async-compression = { workspace = true, features = ["gzip", "tokio"], optional = true }
+async-tar = { workspace = true, default-features = false, features = ["runtime-tokio", "xattr"], optional = true }
 aws-lc-rs.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
 diesel.workspace = true
-dirs.workspace = true
 displaydoc.workspace = true
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
@@ -156,10 +155,9 @@ edgehog-store.workspace = true
 eyre.workspace = true
 futures.workspace = true
 hex.workspace = true
-minicbor = { workspace = true, features = ["derive", "std"] }
-minicbor-io = { workspace = true, features = ["async-io"] }
-pin-project.workspace = true
-rustix = { workspace = true, features = ["fs"] }
+minicbor = { workspace = true, features = ["derive", "std"], optional = true }
+minicbor-io = { workspace = true, features = ["async-io"], optional = true }
+pin-project = { workspace = true, optional = true }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -175,7 +173,7 @@ tracing-journald = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { workspace = true, features = ["serde", "v4", "v5"] }
-walkdir.workspace = true
+walkdir = { workspace = true, optional = true }
 wifiscanner = { workspace = true, optional = true }
 
 [dependencies.reqwest]
@@ -189,12 +187,6 @@ features = [
   "system-proxy",
   "gzip",
 ]
-
-[dependencies.zbus]
-workspace = true
-default-features = false
-features = ["tokio-multithread", "tracing", "object-manager", "proxy"]
-optional = true
 
 [dev-dependencies]
 astarte-device-sdk-mock.workspace = true
@@ -211,12 +203,22 @@ tokio-stream = { workspace = true, features = ["net"] }
 [build-dependencies]
 rustc_version.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"], optional = true }
+
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 procfs.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+dirs = { workspace = true, optional = true }
 systemd = { workspace = true, optional = true }
 udev = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies.zbus]
+workspace = true
+default-features = false
+features = ["tokio-multithread", "tracing", "object-manager", "proxy"]
+optional = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"], optional = true }
@@ -243,13 +245,27 @@ containers = [
 # installed
 cross = ["bindgen", "vendored"]
 # Enable the file transfer feature
-file-transfer = ["windows-sys"]
+file-transfer = [
+  "dep:astarte-device-tls",
+  "dep:async-compression",
+  "dep:async-tar",
+  "dep:dirs",
+  "dep:minicbor",
+  "dep:minicbor-io",
+  "dep:pin-project",
+  "dep:rustix",
+  "dep:walkdir",
+  "dep:windows-sys",
+]
 # Enable the forwarder service
 forwarder = ["dep:edgehog-forwarder"]
 # Enable connecting to astarte through the Message Hub
 message-hub = ["astarte-device-sdk/message-hub"]
 # Preferred, use the platform certificate and TLS verifier.
-platform-verifier = ["astarte-device-tls/platform-verifier"]
+platform-verifier = [
+  "astarte-device-tls?/platform-verifier",
+  "edgehog-forwarder?/platform-verifier",
+]
 # Enable logging of security events to journald
 security-events = ["dep:tracing-journald"]
 # Local service for the runtime
@@ -268,12 +284,16 @@ vendored = [
 # Uses the webpki-roots as a CA bundles
 webpki-roots = [
   "astarte-device-sdk/webpki",
-  "astarte-device-tls/webpki-roots",
+  "astarte-device-tls?/webpki-roots",
+  "edgehog-forwarder?/webpki-roots",
 ]
 # Enable the wifi scanning telemetry
 wifiscanner = ["dep:wifiscanner"]
 # Enable the communication with DBUS
-zbus = ["dep:zbus"]
+zbus = [
+  "dep:astarte-device-tls",
+  "dep:zbus",
+]
 
 [profile.release-optimised]
 inherits = "release"

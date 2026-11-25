@@ -31,7 +31,7 @@ ALTER TABLE containers RENAME COLUMN read_only_rootfs_v2 TO read_only_rootfs;
 
 UPDATE containers SET restart_policy = 0
 WHERE restart_policy IS null;
-ALTER TABLE containers ADD COLUMN restart_policy_v2 INTEGER NOT NULL 0;
+ALTER TABLE containers ADD COLUMN restart_policy_v2 INTEGER NOT NULL DEFAULT 0;
 UPDATE containers SET restart_policy_v2 = restart_policy;
 ALTER TABLE containers DROP COLUMN restart_policy;
 ALTER TABLE containers RENAME COLUMN restart_policy_v2 TO restart_policy;

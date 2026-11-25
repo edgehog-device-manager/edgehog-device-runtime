@@ -26,12 +26,9 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-astarte-device-sdk.workspace = true
 aws-lc-rs.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
-edgehog-containers.workspace = true
-edgehog-store.workspace = true
 eyre.workspace = true
 rustls.workspace = true
 serde = { workspace = true, features = ["derive"] }

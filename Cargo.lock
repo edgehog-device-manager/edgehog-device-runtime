@@ -1253,12 +1253,9 @@ dependencies = [
 name = "e2e-test-containers"
 version = "0.13.2"
 dependencies = [
- "astarte-device-sdk",
  "aws-lc-rs",
  "clap",
  "color-eyre",
- "edgehog-device-runtime-containers",
- "edgehog-device-runtime-store",
  "eyre",
  "reqwest",
  "rustls",
