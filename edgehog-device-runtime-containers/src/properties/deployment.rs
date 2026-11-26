@@ -98,7 +98,7 @@ impl From<DeploymentStatus> for AstarteData {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use astarte_device_sdk::pairing::api::PairingApi;
     use astarte_device_sdk::store::SqliteStore;
     use astarte_device_sdk::transport::mqtt::Mqtt;
@@ -106,7 +106,26 @@ mod tests {
     use mockall::predicate;
     use uuid::Uuid;
 
+    use crate::properties::tests::{expect_send_field, expect_unset_field};
+
     use super::*;
+
+    pub(crate) fn expect_available_deployment_send(
+        client: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        seq: &mut Sequence,
+        id: &Uuid,
+        status: DeploymentStatus,
+    ) {
+        expect_send_field(client, seq, INTERFACE, id, "status", status);
+    }
+
+    pub(crate) fn expect_available_deployment_unset(
+        client: &mut MockDeviceClient<Mqtt<SqliteStore, PairingApi>>,
+        seq: &mut Sequence,
+        id: &Uuid,
+    ) {
+        expect_unset_field(client, seq, INTERFACE, id, "status");
+    }
 
     #[tokio::test]
     async fn should_store_deployment() {
