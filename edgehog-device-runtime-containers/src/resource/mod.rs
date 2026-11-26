@@ -72,6 +72,15 @@ pub enum ResourceError {
         /// Reason why the resource is invalid
         ctx: &'static str,
     },
+    /// failed {resource} with id {id}, {ctx}
+    Failed {
+        /// the id of the resource
+        id: Uuid,
+        /// The resource type
+        resource: &'static str,
+        /// Reason why the resource was failed
+        ctx: &'static str,
+    },
 }
 
 impl ResourceError {
