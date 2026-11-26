@@ -34,6 +34,11 @@ use edgehog_store::models::containers::container::{
 use edgehog_store::models::containers::container::{ContainerStatus, ContainerUlimit};
 use edgehog_store::models::containers::device_mapping::DeviceMapping;
 use edgehog_store::models::containers::device_request::DeviceRequest;
+use edgehog_store::models::containers::network_options::{
+    NetworkOptions, NetworkOptionsAlias, NetworkOptionsDnsName, NetworkOptionsDriverOpt,
+    NetworkOptionsLink, NetworkOptionsLinkLocalIp,
+};
+
 use edgehog_store::models::containers::file_bind::{EnvFile, FileBind};
 use edgehog_store::schema::containers::{
     container_add_capabilities, container_binds, container_blkio_device_read_bps,
@@ -48,7 +53,9 @@ use edgehog_store::schema::containers::{
     container_missing_env_files, container_missing_file_binds, container_missing_networks,
     container_missing_volumes, container_networks, container_port_bindings,
     container_readonly_paths, container_securityopts, container_storage_options, container_sysctls,
-    container_tmpfs, container_ulimits, containers, device_requests, images,
+    container_tmpfs, container_ulimits, containers, device_requests, images, network_options,
+    network_options_aliases, network_options_dns_names, network_options_driver_opts,
+    network_options_link_local_ips, network_options_links,
 };
 use tracing::{debug, instrument};
 use uuid::Uuid;
@@ -318,6 +325,37 @@ impl StateStore {
                     let device_request = load_stored_device_request(reader, device_request)?;
 
                     resource.add_device_request(device_request);
+                }
+
+                let network_options_list = network_options::table
+                    .filter(network_options::container_id.eq(&id))
+                    .load::<NetworkOptions>(reader)?;
+                for network_options in network_options_list {
+                    let net_opt_id = network_options.id;
+                    let network_options_link_local_ips = network_options_link_local_ips::table
+                        .filter(network_options_link_local_ips::network_options_id.eq(&net_opt_id))
+                        .load::<NetworkOptionsLinkLocalIp>(reader)?;
+                    let network_options_links = network_options_links::table
+                        .filter(network_options_links::network_options_id.eq(&net_opt_id))
+                        .load::<NetworkOptionsLink>(reader)?;
+                    let network_options_driver_opts = network_options_driver_opts::table
+                        .filter(network_options_driver_opts::network_options_id.eq(&net_opt_id))
+                        .load::<NetworkOptionsDriverOpt>(reader)?;
+                    let network_options_dns_names = network_options_dns_names::table
+                        .filter(network_options_dns_names::network_options_id.eq(&net_opt_id))
+                        .load::<NetworkOptionsDnsName>(reader)?;
+                    let network_options_aliases = network_options_aliases::table
+                        .filter(network_options_aliases::network_options_id.eq(&net_opt_id))
+                        .load::<NetworkOptionsAlias>(reader)?;
+
+                    resource.add_network_options(
+                        network_options,
+                        Some(network_options_link_local_ips),
+                        Some(network_options_links),
+                        Some(network_options_driver_opts),
+                        Some(network_options_dns_names),
+                        Some(network_options_aliases),
+                    )
                 }
 
                 let cmds = container_cmds::table
@@ -623,7 +661,6 @@ pub(crate) mod tests {
             &file_bind,
             &env_file,
         );
-
         let mut exp = stored_container_full(container.id.0, &image);
         exp.status = ContainerStatus::Published;
 
@@ -720,7 +757,6 @@ pub(crate) mod tests {
             &file_bind,
             &env_file,
         );
-
         let exp = stored_container_full(container.id.0, &image);
 
         store.create_container(Box::new(container)).await.unwrap();

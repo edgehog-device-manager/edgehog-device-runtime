@@ -202,7 +202,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn create_deployment_request() {
+    pub fn create_deployment_request() {
         let id = ReqUuid(Uuid::new_v4());
         let containers = VecReqUuid(vec![ReqUuid(Uuid::new_v4())]);
         let event = create_deployment_request_event(&id.to_string(), &containers);

@@ -44,6 +44,15 @@ use edgehog_store::models::containers::container::{
     ContainerBlkioWeightDevice, ContainerPortBindData, ContainerRestartPolicy, ContainerUlimit,
 };
 use edgehog_store::models::containers::device_mapping::DeviceMapping as StoreDeviceMapping;
+use edgehog_store::models::containers::network_options::create_endpoint_settings;
+use edgehog_store::models::containers::network_options::{
+    NetworkOptions as StoreNetworkOptions, NetworkOptionsAlias as StoreNetworkOptionsAlias,
+    NetworkOptionsDnsName as StoreNetworkOptionsDnsName,
+    NetworkOptionsDriverOpt as StoreNetworkOptionsDriverOpt,
+    NetworkOptionsLink as StoreNetworkOptionsLink,
+    NetworkOptionsLinkLocalIp as StoreNetworkOptionsLinkLocalIp, NetworkOptionsVecFields,
+};
+
 use eyre::Context;
 use futures::StreamExt;
 use tracing::{debug, info, instrument, trace, warn};
@@ -489,6 +498,37 @@ impl Container {
             });
     }
 
+    pub(crate) fn add_network_options(
+        &mut self,
+        network_options: StoreNetworkOptions,
+        network_options_link_local_ips: Option<Vec<StoreNetworkOptionsLinkLocalIp>>,
+        network_options_links: Option<Vec<StoreNetworkOptionsLink>>,
+        network_options_driver_opts: Option<Vec<StoreNetworkOptionsDriverOpt>>,
+        network_options_dns_names: Option<Vec<StoreNetworkOptionsDnsName>>,
+        network_options_aliases: Option<Vec<StoreNetworkOptionsAlias>>,
+    ) {
+        let endpoint_config = self
+            .req
+            .networking_config
+            .get_or_insert_default()
+            .endpoints_config
+            .get_or_insert_default();
+
+        endpoint_config.insert(
+            network_options.network_id.to_string(),
+            create_endpoint_settings(
+                network_options,
+                NetworkOptionsVecFields {
+                    network_options_link_local_ips,
+                    network_options_links,
+                    network_options_driver_opts,
+                    network_options_dns_names,
+                    network_options_aliases,
+                },
+            ),
+        );
+    }
+
     pub(crate) fn add_cmd(&mut self, cmds: Vec<String>) {
         if cmds.is_empty() {
             return;
@@ -812,9 +852,9 @@ impl Container {
     #[instrument(skip_all)]
     pub async fn create(&mut self, client: &Client) -> Result<(), ContainerError> {
         debug!("creating the {}", self);
-
         let options = CreateContainerOptions::from(&*self);
         let config = self.req.clone();
+
         let res = client
             .create_container(Some(options), *config)
             .await

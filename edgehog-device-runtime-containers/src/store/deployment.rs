@@ -36,7 +36,7 @@ use edgehog_store::schema::containers::{
     container_file_binds, container_missing_device_mappings, container_missing_device_requests,
     container_missing_env_files, container_missing_file_binds, container_missing_images,
     container_missing_networks, container_missing_volumes, container_networks, container_volumes,
-    containers, deployment_containers, deployment_missing_containers, deployments,
+    containers, deployment_containers, deployment_missing_containers, deployments, network_options,
 };
 use itertools::Itertools;
 use tracing::{debug, instrument};
@@ -249,6 +249,7 @@ impl StateStore {
                         Option::<ContainerDeviceRequest>::as_select(),
                         Option::<ContainerFileBind>::as_select(),
                         Option::<ContainerEnvFile>::as_select(),
+                        network_options::network_id.nullable(),
                     ))
                     .load::<DeploymentRow>(reader)?;
 
@@ -495,6 +496,7 @@ mod tests {
     use crate::requests::image::tests::create_image_req;
     use crate::requests::network::tests::create_network_req;
     use crate::requests::volume::tests::create_volume_req;
+
     use crate::requests::{ReqUuid, VecReqUuid};
 
     use super::*;
@@ -527,6 +529,7 @@ mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+
         let file_bind = create_file_bind_req(deployment_id);
         let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(
@@ -619,6 +622,7 @@ mod tests {
         let network = create_network_req(deployment_id);
         let device_mapping = create_device_mapping_req(deployment_id);
         let device_request = create_device_request(deployment_id);
+
         let file_bind = create_file_bind_req(deployment_id);
         let env_file = create_env_file_req(deployment_id);
         let container = create_container_req(
@@ -692,6 +696,7 @@ mod tests {
         let network = create_network_req(deployment_id_1);
         let device_mapping = create_device_mapping_req(deployment_id_1);
         let device_request = create_device_request(deployment_id_1);
+
         let file_bind = create_file_bind_req(deployment_id_1);
         let env_file = create_env_file_req(deployment_id_1);
         let container_1 = create_container_req(
@@ -738,6 +743,7 @@ mod tests {
             &file_bind,
             &env_file,
         );
+
         store
             .create_container(Box::new(container_2.clone()))
             .await
@@ -797,6 +803,7 @@ mod tests {
             &file_bind,
             &env_file,
         );
+
         let container_2 = create_container_req(
             deployment_id,
             &image,

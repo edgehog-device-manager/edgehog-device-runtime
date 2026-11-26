@@ -32,6 +32,7 @@ pub(crate) mod env_file;
 pub(crate) mod file_bind;
 pub(crate) mod image;
 pub(crate) mod network;
+pub(crate) mod network_options;
 pub(crate) mod volume;
 
 type Result<T> = std::result::Result<T, StoreError>;
@@ -93,6 +94,7 @@ mod tests {
 
     use crate::requests::container::tests::create_container_req;
     use crate::requests::device_mapping::tests::create_device_mapping_req;
+
     use crate::requests::device_request::tests::create_device_request;
     use crate::requests::env_file::tests::create_env_file_req;
     use crate::requests::file_bind::tests::create_file_bind_req;

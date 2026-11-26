@@ -38,9 +38,15 @@
         "binds": ["b5796ba7-c58b-4bcb-8c27-99c2eb687632:/var"],
         "portBindings": ["9000:80"],
         "networkMode": "bridge",
-        "extraHosts": ["host.docker.internal:host-gateway"],
-        "capAdd": ["CAP_CHOWN"],
-        "capDrop": ["CAP_KILL"],
+        "extraHosts": [
+          "host.docker.internal:host-gateway"
+        ],
+        "capAdd": [
+          "CAP_CHOWN"
+        ],
+        "capDrop": [
+          "CAP_KILL"
+        ],
         "cpuPeriod": -1,
         "cpuQuota": -1,
         "cpuRealtimePeriod": -1,
@@ -59,6 +65,41 @@
       }
     },
     {
+      "interface": "io.edgehog.devicemanager.apps.CreateNetworkRequest",
+      "path": "/network",
+      "data": {
+        "id": "78549b2b-3888-4976-8bfe-236afab0f91e",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "driver": "bridge",
+        "internal": false,
+        "enableIpv6": false
+      }
+    },
+    {
+      "interface": "io.edgehog.devicemanager.apps.CreateNetworkOptionsRequest",
+      "path": "/networkOptions",
+      "data": {
+        "id": "49a671f6-694f-4a72-8dd9-41c0e510044a",
+        "deploymentId": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
+        "containerId": "03aba87c-1ebe-45e9-ab8c-c4eb89752af9",
+        "networkId": "78549b2b-3888-4976-8bfe-236afab0f91e",
+        "ipv4Address": "172.20.30.33",
+        "dnsNames": [
+          "dns1",
+          "dns2",
+          "dns3"
+        ],
+        "driverOptKeys": [
+          "driverOptKey1",
+          "driverOptKey2"
+        ],
+        "driverOptValues": [
+          "driverOptValue1",
+          "driverOptValues2"
+        ]
+      }
+    },
+    {
       "interface": "io.edgehog.devicemanager.apps.CreateContainerRequest",
       "path": "/container",
       "data": {
@@ -72,11 +113,19 @@
         "restartPolicy": "",
         "env": [],
         "binds": [],
-        "portBindings": ["9001:80"],
+        "portBindings": [
+          "9001:80"
+        ],
         "networkMode": "bridge",
-        "extraHosts": ["host.docker.internal:host-gateway"],
-        "capAdd": ["CAP_CHOWN"],
-        "capDrop": ["CAP_KILL"],
+        "extraHosts": [
+          "host.docker.internal:host-gateway"
+        ],
+        "capAdd": [
+          "CAP_CHOWN"
+        ],
+        "capDrop": [
+          "CAP_KILL"
+        ],
         "cpuPeriod": -1,
         "cpuQuota": -1,
         "cpuRealtimePeriod": -1,
@@ -99,7 +148,9 @@
       "path": "/deployment",
       "data": {
         "id": "6a9b6d3c-4894-4fd0-af1d-44b326282c19",
-        "containers": ["03aba87c-1ebe-45e9-ab8c-c4eb89752af9"]
+        "containers": [
+          "03aba87c-1ebe-45e9-ab8c-c4eb89752af9"
+        ]
       }
     },
     {
@@ -107,7 +158,9 @@
       "path": "/deployment",
       "data": {
         "id": "0f3b4689-70f9-41da-a8ba-bf47be1c840b",
-        "containers": ["4c8f61e6-47e0-4acf-92fd-dbe8e49cb0b0"]
+        "containers": [
+          "4c8f61e6-47e0-4acf-92fd-dbe8e49cb0b0"
+        ]
       }
     },
     {

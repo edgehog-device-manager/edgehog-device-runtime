@@ -389,6 +389,7 @@ pub(crate) mod tests {
             .iter()
             .flat_map(|i| i.iter().map(|id| id.to_string()))
             .collect();
+
         let file_bind_ids = container
             .file_bind_ids
             .iter()
@@ -652,6 +653,7 @@ pub(crate) mod tests {
         let volume = &create_volume_req(deployment_id.0);
         let device_mapping = create_device_mapping_req(deployment_id.0);
         let device_request = create_device_request(deployment_id.0);
+
         let file_bind = create_file_bind_req(deployment_id.0);
         let env_file = create_env_file_req(deployment_id.0);
 

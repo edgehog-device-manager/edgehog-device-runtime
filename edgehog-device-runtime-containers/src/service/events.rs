@@ -44,6 +44,7 @@ use crate::{
         file_bind::CreateFileBind,
         image::CreateImage,
         network::CreateNetwork,
+        network_options::CreateNetworkOptions,
         volume::{self, CreateVolume, VolumeCommand},
     },
     store::StateStore,
@@ -81,6 +82,9 @@ impl From<ContainerRequest> for PersistRequest {
             ContainerRequest::DeviceRequest(create_device_request) => {
                 Self::Deployment(DeploymentRequest::DeviceRequest(create_device_request))
             }
+            ContainerRequest::NetworkOptions(create_network_options) => {
+                Self::Deployment(DeploymentRequest::NetworkOptions(create_network_options))
+            }
             ContainerRequest::FileBind(create_file_bind) => {
                 Self::Deployment(DeploymentRequest::FileBind(create_file_bind))
             }
@@ -117,6 +121,8 @@ enum DeploymentRequest {
     DeviceMapping(CreateDeviceMapping),
     /// Request to create a device request.
     DeviceRequest(CreateDeviceRequest),
+    /// Request to create a device request.
+    NetworkOptions(Box<CreateNetworkOptions>),
     /// Request to create a file bind.
     FileBind(CreateFileBind),
     /// Request to create an env file.
@@ -140,6 +146,7 @@ impl DeploymentRequest {
             DeploymentRequest::Container(value) => value.deployment_id.0,
             DeploymentRequest::DeviceMapping(value) => value.deployment_id.0,
             DeploymentRequest::DeviceRequest(value) => value.deployment_id.0,
+            DeploymentRequest::NetworkOptions(value) => value.deployment_id.0,
             DeploymentRequest::FileBind(value) => value.deployment_id.0,
             DeploymentRequest::EnvFile(value) => value.deployment_id.0,
             DeploymentRequest::Deployment(create_deployment) => create_deployment.id.0,
@@ -253,6 +260,11 @@ impl<D> ServiceHandle<D> {
             }
             DeploymentRequest::EnvFile(create_env_file) => {
                 self.store.create_env_file(create_env_file).await
+            }
+            DeploymentRequest::NetworkOptions(create_network_options) => {
+                self.store
+                    .create_network_options(create_network_options)
+                    .await
             }
             DeploymentRequest::Container(create_container) => {
                 self.store.create_container(create_container).await
@@ -377,6 +389,14 @@ impl From<&ContainerRequest> for ContainerEvent {
                     deployment: create_device_request.deployment_id.0,
                 }
             }
+            ContainerRequest::NetworkOptions(create_network_options) => {
+                let resource = Id::new(ResourceType::NetworkOptions, create_network_options.id.0);
+
+                ContainerEvent::Resource {
+                    resource,
+                    deployment: create_network_options.deployment_id.0,
+                }
+            }
             ContainerRequest::FileBind(create_file_bind) => {
                 let resource = Id::new(ResourceType::FileBind, create_file_bind.id.0);
 
@@ -445,6 +465,7 @@ mod tests {
     use crate::requests::file_bind::tests::create_file_bind_req;
     use crate::requests::image::tests::create_image_req;
     use crate::requests::network::tests::create_network_req;
+    use crate::requests::network_options::tests::create_network_options_req;
     use crate::requests::volume::tests::create_volume_req;
 
     use super::*;
@@ -467,10 +488,15 @@ mod tests {
             &network,
             &device_mapping,
             &device_request,
+            //  &network_options,
             &file_bind,
             &env_file,
         );
-
+        let network_options = create_network_options_req(
+            DEPLOYMENT_ID,
+            Uuid::from(container.id),
+            Uuid::from(network.id),
+        );
         let cases = [
             (
                 ContainerRequest::Image(image.clone()),
@@ -504,6 +530,13 @@ mod tests {
                 ContainerRequest::DeviceRequest(device_request.clone()),
                 ContainerEvent::Resource {
                     resource: Id::new(ResourceType::DeviceRequest, device_request.id.0),
+                    deployment: DEPLOYMENT_ID,
+                },
+            ),
+            (
+                ContainerRequest::NetworkOptions(Box::new(network_options.clone())),
+                ContainerEvent::Resource {
+                    resource: Id::new(ResourceType::NetworkOptions, network_options.id.0),
                     deployment: DEPLOYMENT_ID,
                 },
             ),

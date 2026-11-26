@@ -37,8 +37,11 @@ use super::{Context, Resource, Result};
 ///
 /// It's made of the columns: container_id, image_id, network_id, volume_id
 pub(crate) type DeploymentRow = (
+    // container_id
     SqlUuid,
+    // container_idx
     i64,
+    // image_id
     SqlUuid,
     Option<ContainerNetwork>,
     Option<ContainerVolume>,
@@ -46,6 +49,7 @@ pub(crate) type DeploymentRow = (
     Option<ContainerDeviceRequest>,
     Option<ContainerFileBind>,
     Option<ContainerEnvFile>,
+    Option<SqlUuid>,
 );
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -75,6 +79,7 @@ impl From<Vec<DeploymentRow>> for Deployment {
                 c_device_request,
                 c_file_bind,
                 c_env_file,
+                net_opt_net_id,
             )| {
                 acc.containers.insert(idx, *container_id);
                 acc.images.insert(*image_id);
@@ -103,6 +108,10 @@ impl From<Vec<DeploymentRow>> for Deployment {
 
                 if let Some(c_env_file) = c_env_file {
                     acc.env_files.insert(c_env_file.env_file_id.0);
+                }
+
+                if let Some(net_opt_net_id) = net_opt_net_id {
+                    acc.networks.insert(net_opt_net_id.0);
                 }
 
                 acc

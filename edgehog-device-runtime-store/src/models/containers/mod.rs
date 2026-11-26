@@ -25,4 +25,5 @@ pub mod device_request;
 pub mod file_bind;
 pub mod image;
 pub mod network;
+pub mod network_options;
 pub mod volume;
