@@ -176,7 +176,8 @@ where
             State::Recreatable | State::Missing => {
                 debug!(%state, "resource creatable, creating it");
 
-                resource.create(&mut ctx).await?;
+                let res = resource.create(&mut ctx).await;
+                Self::handle_error(&mut ctx, res).await?;
             }
             State::Existing => {
                 debug!(%state, "resource already created");

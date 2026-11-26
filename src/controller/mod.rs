@@ -507,7 +507,6 @@ impl<C> Runtime<C> {
                     );
                 }
             }
-
             #[cfg(feature = "containers")]
             RuntimeEvent::Container(event) => {
                 if let Some(containers_tx) = &self.containers_tx {

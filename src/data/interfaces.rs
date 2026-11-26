@@ -247,8 +247,6 @@ fn add_containers<C, S>(
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableEnvFiles.json");
     const APPS_IMAGE_EVENT: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.ImageEvent.json");
-    const APPS_VOLUME_EVENT: &str =
-        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.VolumeEvent.json");
     const APPS_NETWORK_EVENT: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.NetworkEvent.json");
     const APPS_FILE_BIND_EVENT: &str =
@@ -282,6 +280,10 @@ fn add_containers<C, S>(
     );
     const APPS_STATS_VOLUME_USAGE: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.stats.VolumeUsage.json");
+    const APPS_VOLUME_COMMAND: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.VolumeCommand.json");
+    const APPS_VOLUME_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.VolumeEvent.json");
 
     if config.enabled {
         builder = builder
@@ -318,7 +320,9 @@ fn add_containers<C, S>(
             .interface_str(APPS_STATS_CONTAINER_MEMORY_STATS)?
             .interface_str(APPS_STATS_CONTAINER_NETWORKS)?
             .interface_str(APPS_STATS_CONTAINER_PROCESSES)?
-            .interface_str(APPS_STATS_VOLUME_USAGE)?;
+            .interface_str(APPS_STATS_VOLUME_USAGE)?
+            .interface_str(APPS_VOLUME_COMMAND)?
+            .interface_str(APPS_VOLUME_EVENT)?;
     }
 
     Ok(builder)
