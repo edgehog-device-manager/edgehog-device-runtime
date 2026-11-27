@@ -32,6 +32,7 @@ members = [
   "e2e-test",
   "e2e-test-forwarder",
   "edgehog-device-forwarder-proto",
+  "edgehog-device-runtime-config",
   "edgehog-device-runtime-containers",
   "edgehog-device-runtime-forwarder",
   "edgehog-device-runtime-proto",
@@ -77,6 +78,7 @@ diesel_migrations = "2.3.1"
 dirs = "7.0.0"
 displaydoc = "0.2.6"
 edgehog = { package = "edgehog-device-runtime", path = ".", version = "=0.13.2" }
+edgehog-config = { package = "edgehog-device-runtime-config", path = "./edgehog-device-runtime-config", version = "=0.13.2" }
 edgehog-containers = { package = "edgehog-device-runtime-containers", path = "./edgehog-device-runtime-containers", version = "=0.13.2" }
 edgehog-device-forwarder-proto = { path = "./edgehog-device-forwarder-proto/", version = "=0.13.2" }
 edgehog-forwarder = { package = "edgehog-device-runtime-forwarder", path = "./edgehog-device-runtime-forwarder", version = "=0.13.2" }
@@ -147,6 +149,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 color-eyre.workspace = true
 diesel.workspace = true
 displaydoc.workspace = true
+edgehog-config.workspace = true
 edgehog-containers = { workspace = true, optional = true }
 edgehog-forwarder = { workspace = true, optional = true }
 edgehog-service = { workspace = true, optional = true }

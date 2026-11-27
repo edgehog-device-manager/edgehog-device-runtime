@@ -20,6 +20,7 @@ use std::io::IsTerminal;
 use std::time::Duration;
 
 use clap::Parser;
+use edgehog_device_runtime::AstarteOptions;
 use eyre::{OptionExt, WrapErr, eyre};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -31,14 +32,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use edgehog_device_runtime::AstarteLibrary;
+use edgehog_device_runtime::cli::Cli;
+use edgehog_device_runtime::config::read_options;
 use edgehog_device_runtime::data::connect_store;
-
-use self::cli::Cli;
-use self::config::read_options;
-
-mod cli;
-pub mod config;
 
 const TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -76,15 +72,8 @@ async fn main() -> eyre::Result<()> {
     let cancel = CancellationToken::new();
 
     match &options.astarte_library {
-        AstarteLibrary::AstarteDeviceSdk => {
-            let astarte_sdk_options = options
-                .astarte_device_sdk
-                .as_ref()
-                .ok_or_eyre("couldn't get astarte options")?;
-
-            let client = astarte_sdk_options
-                .connect(&mut tasks, store, &options)
-                .await?;
+        AstarteOptions::Sdk(device_options) => {
+            let client = device_options.connect(&mut tasks, store, &options).await?;
 
             let mut runtime = edgehog_device_runtime::Runtime::new(
                 &mut tasks,
@@ -104,15 +93,8 @@ async fn main() -> eyre::Result<()> {
             shutdown(&mut tasks, client, cancel.clone());
         }
         #[cfg(feature = "message-hub")]
-        AstarteLibrary::AstarteMessageHub => {
-            let astarte_message_hub_options = options
-                .astarte_message_hub
-                .as_ref()
-                .ok_or_eyre("couldn't get MessageHub options")?;
-
-            let client = astarte_message_hub_options
-                .connect(&mut tasks, store, &options)
-                .await?;
+        AstarteOptions::MessageHub(msghub_options) => {
+            let client = msghub_options.connect(&mut tasks, store, &options).await?;
 
             let mut runtime = edgehog_device_runtime::Runtime::new(
                 &mut tasks,

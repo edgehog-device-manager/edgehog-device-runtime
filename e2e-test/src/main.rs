@@ -17,11 +17,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use astarte_device_sdk::rumqttc::tokio_rustls::rustls;
+use astarte_device_sdk::transport::mqtt::Credential;
 use clap::Parser;
-use edgehog_device_runtime::file_transfer::config::FileTransferArgs;
-use edgehog_device_runtime::telemetry::status::hardware_info::HardwareInfo;
-use edgehog_device_runtime::telemetry::status::os_release::{OsInfo, OsRelease};
-use edgehog_device_runtime::telemetry::status::runtime_info::{RUNTIME_INFO, RuntimeInfo};
+use edgehog::file_transfer::config::FileTransferArgs;
+use edgehog::telemetry::status::hardware_info::HardwareInfo;
+use edgehog::telemetry::status::os_release::{OsInfo, OsRelease};
+use edgehog::telemetry::status::runtime_info::{RUNTIME_INFO, RuntimeInfo};
 use eyre::{OptionExt, WrapErr, eyre};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
@@ -38,9 +39,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use edgehog_device_runtime::data::astarte_device_sdk_lib::AstarteDeviceSdkConfigOptions;
-use edgehog_device_runtime::data::connect_store;
-use edgehog_device_runtime::{AstarteLibrary, DeviceManagerOptions, Runtime};
+use edgehog::data::connect_store;
+use edgehog::data::device_sdk::DeviceSdkOptions;
+use edgehog::{AstarteOptions, DeviceManagerOptions, Runtime};
 
 #[derive(Serialize, Deserialize)]
 struct AstartePayload<T> {
@@ -127,31 +128,27 @@ async fn main() -> color_eyre::Result<()> {
 
     let store_path = TempDir::with_prefix("e2e-test").wrap_err("couldn't create temp directory")?;
 
-    let astarte_options = AstarteDeviceSdkConfigOptions {
+    let astarte_options = DeviceSdkOptions {
         realm: cli.realm.clone(),
-        device_id: Some(cli.device_id.clone()),
-        pairing_token: Some(cli.pairing_token.clone()),
+        device_id: cli.device_id.clone(),
+        credentials: Credential::paring_token(cli.pairing_token.clone()),
         pairing_url,
         ignore_ssl: cli.ignore_ssl,
-        credentials_secret: None,
     };
 
     let device_options = DeviceManagerOptions {
-        astarte_library: AstarteLibrary::AstarteDeviceSdk,
-        astarte_device_sdk: Some(astarte_options.clone()),
+        astarte_library: AstarteOptions::Sdk(astarte_options.clone()),
         store_directory: store_path.path().to_path_buf(),
         download_directory: store_path.path().join("downloads"),
-        telemetry_config: Some(Vec::new()),
-        #[cfg(feature = "message-hub")]
-        astarte_message_hub: None,
+        telemetry_config: Vec::new(),
         #[cfg(feature = "containers")]
-        containers: edgehog_device_runtime::containers::ContainersConfig::default(),
+        containers: edgehog::containers::ContainersArgs::default(),
         #[cfg(feature = "forwarder")]
-        forwarder: edgehog_device_runtime::forwarder::ForwarderConfig::default(),
+        forwarder: edgehog::forwarder::ForwarderArgs::default(),
         #[cfg(feature = "service")]
-        service: None,
+        service: edgehog_service::config::ServiceArgs::default(),
         #[cfg(target_os = "linux")]
-        ota: edgehog_device_runtime::ota::config::OtaConfig::default(),
+        ota: edgehog::ota::config::OtaArgs::default(),
         file_transfer: FileTransferArgs::with_store_dir(None, store_path.path()),
     };
     let device_options = device_options
