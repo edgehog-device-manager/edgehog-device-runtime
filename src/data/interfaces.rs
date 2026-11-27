@@ -261,6 +261,13 @@ fn add_containers<C, S>(
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentCommand.json");
     const APPS_DEPLOYMENT_UPDATE: &str =
         include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.DeploymentUpdate.json");
+    const APPS_IMAGE_POLICY: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.ImagePolicy.json");
+    const APPS_AVAILABLE_IMAGE_POLICIES: &str = include_str!(
+        "../../deps/interfaces/io.edgehog.devicemanager.apps.AvailableImagePolicies.json"
+    );
+    const APPS_IMAGE_POLICY_EVENT: &str =
+        include_str!("../../deps/interfaces/io.edgehog.devicemanager.apps.ImagePolicyEvent.json");
     const APPS_STATS_CONTAINER_BLKIO: &str = include_str!(
         "../../deps/interfaces/io.edgehog.devicemanager.apps.stats.ContainerBlkio.json"
     );
@@ -314,6 +321,9 @@ fn add_containers<C, S>(
             .interface_str(APPS_DEPLOYMENT_EVENT)?
             .interface_str(APPS_DEPLOYMENT_COMMAND)?
             .interface_str(APPS_DEPLOYMENT_UPDATE)?
+            .interface_str(APPS_IMAGE_POLICY)?
+            .interface_str(APPS_AVAILABLE_IMAGE_POLICIES)?
+            .interface_str(APPS_IMAGE_POLICY_EVENT)?
             .interface_str(APPS_STATS_CONTAINER_BLKIO)?
             .interface_str(APPS_STATS_CONTAINER_CPU)?
             .interface_str(APPS_STATS_CONTAINER_MEMORY)?
@@ -321,8 +331,7 @@ fn add_containers<C, S>(
             .interface_str(APPS_STATS_CONTAINER_NETWORKS)?
             .interface_str(APPS_STATS_CONTAINER_PROCESSES)?
             .interface_str(APPS_STATS_VOLUME_USAGE)?
-            .interface_str(APPS_VOLUME_COMMAND)?
-            .interface_str(APPS_VOLUME_EVENT)?;
+            .interface_str(APPS_VOLUME_COMMAND)?;
     }
 
     Ok(builder)

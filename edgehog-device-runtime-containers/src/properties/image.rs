@@ -37,9 +37,12 @@ pub(crate) struct AvailableImage<'a> {
     repo_tags: Option<Vec<String>>,
     registry_digest: Option<Vec<String>>,
     size: Option<i64>,
+    verified: Option<bool>,
 }
 
 impl<'a> AvailableImage<'a> {
+    const VERIFIED_ENDPOINT: &str = "verified";
+
     pub(crate) fn new(id: &'a Uuid) -> Self {
         Self {
             id,
@@ -47,17 +50,30 @@ impl<'a> AvailableImage<'a> {
             repo_tags: None,
             registry_digest: None,
             size: None,
+            verified: None,
         }
     }
 
-    pub(crate) fn with_inspect(id: &'a Uuid, image_inspect: ImageInspect) -> Self {
+    pub(crate) fn with_inspect(id: &'a Uuid, image_inspect: ImageInspect, verified: bool) -> Self {
         Self {
             id,
             image_id: image_inspect.id,
             repo_tags: image_inspect.repo_tags,
             registry_digest: image_inspect.repo_digests,
             size: image_inspect.size,
+            verified: Some(verified),
         }
+    }
+
+    pub(crate) async fn send_verified<D>(
+        &self,
+        device: &mut D,
+        verified: bool,
+    ) -> Result<(), super::PropertyError>
+    where
+        D: Client + Send + Sync + 'static,
+    {
+        Self::send_field(self.id, device, Self::VERIFIED_ENDPOINT, verified).await
     }
 }
 
@@ -96,6 +112,7 @@ impl AvailableProp for AvailableImage<'_> {
             repo_tags,
             registry_digest,
             size,
+            verified,
         } = self;
 
         Self::send_field(id, device, "pulled", data.is_pulled()).await?;
@@ -104,6 +121,7 @@ impl AvailableProp for AvailableImage<'_> {
         Self::send_opt_field(id, device, "repoTags", repo_tags).await?;
         Self::send_opt_field(id, device, "repoDigests", registry_digest).await?;
         Self::send_opt_field(id, device, "size", size).await?;
+        Self::send_opt_field(id, device, Self::VERIFIED_ENDPOINT, verified).await?;
 
         Ok(())
     }
@@ -118,6 +136,8 @@ impl AvailableProp for AvailableImage<'_> {
         Self::unset_field(self.id, device, "repoTags").await?;
         Self::unset_field(self.id, device, "repoDigests").await?;
         Self::unset_field(self.id, device, "size").await?;
+        Self::unset_field(self.id, device, Self::VERIFIED_ENDPOINT).await?;
+
         Ok(())
     }
 }
@@ -172,6 +192,7 @@ pub mod tests {
     use astarte_device_sdk::transport::mqtt::Mqtt;
     use astarte_device_sdk_mock::{MockDeviceClient, mockall::Sequence};
 
+    use mockall::predicate;
     use rstest::rstest;
     use uuid::Uuid;
 
@@ -189,6 +210,7 @@ pub mod tests {
             repo_tags,
             registry_digest,
             size,
+            verified,
         } = image;
 
         expect_send_field(client, seq, INTERFACE, id, "pulled", status.is_pulled());
@@ -197,6 +219,7 @@ pub mod tests {
         expect_send_opt_field(client, seq, INTERFACE, id, "repoTags", repo_tags);
         expect_send_opt_field(client, seq, INTERFACE, id, "repoDigests", registry_digest);
         expect_send_opt_field(client, seq, INTERFACE, id, "size", size);
+        expect_send_opt_field(client, seq, INTERFACE, id, "verified", verified);
     }
 
     pub(crate) fn expect_status_send(
@@ -228,6 +251,7 @@ pub mod tests {
         expect_unset_field(client, seq, INTERFACE, id, "repoTags");
         expect_unset_field(client, seq, INTERFACE, id, "repoDigests");
         expect_unset_field(client, seq, INTERFACE, id, "size");
+        expect_unset_field(client, seq, INTERFACE, id, "verified");
     }
 
     #[rstest]
@@ -313,6 +337,7 @@ pub mod tests {
             repo_tags: Some(Vec::new()),
             registry_digest: Some(Vec::new()),
             size: Some(1),
+            verified: Some(true),
         };
 
         let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
@@ -344,7 +369,7 @@ pub mod tests {
             ..Default::default()
         };
 
-        let image = AvailableImage::with_inspect(&id, inspect);
+        let image = AvailableImage::with_inspect(&id, inspect, true);
 
         assert_eq!(
             image,
@@ -354,8 +379,32 @@ pub mod tests {
                 repo_tags: Some(Vec::new()),
                 registry_digest: Some(Vec::new()),
                 size: Some(1),
+                verified: Some(true),
             }
         );
+    }
+
+    #[tokio::test]
+    async fn should_send_verified_image() {
+        let id = Uuid::new_v4();
+
+        let image = AvailableImage::new(&id);
+
+        let mut client = MockDeviceClient::<Mqtt<SqliteStore, PairingApi>>::new();
+        let mut seq = Sequence::new();
+
+        client
+            .expect_set_property()
+            .once()
+            .in_sequence(&mut seq)
+            .with(
+                predicate::eq("io.edgehog.devicemanager.apps.AvailableImages"),
+                predicate::eq(format!("/{id}/verified")),
+                predicate::eq(AstarteData::Boolean(true)),
+            )
+            .returning(|_, _, _| Ok(()));
+
+        image.send_verified(&mut client, true).await.unwrap();
     }
 
     #[tokio::test]

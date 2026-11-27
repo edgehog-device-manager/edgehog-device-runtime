@@ -30,6 +30,7 @@ use deployment::{CreateDeployment, DeploymentCommand, DeploymentUpdate};
 use tracing::error;
 use uuid::Uuid;
 
+use crate::requests::image_policy::ImagePolicy;
 use crate::requests::volume::VolumeCommand;
 
 use self::device_mapping::CreateDeviceMapping;
@@ -45,6 +46,7 @@ pub mod device_request;
 pub mod env_file;
 pub mod file_bind;
 pub mod image;
+pub mod image_policy;
 pub mod network;
 pub mod volume;
 
@@ -105,6 +107,8 @@ pub enum ContainerRequest {
     DeploymentUpdate(DeploymentUpdate),
     /// Request to execute a command on a volume
     VolumeCommand(VolumeCommand),
+    /// Image policy update
+    ImagePolicy(ImagePolicy),
 }
 
 impl FromEvent for ContainerRequest {
@@ -148,6 +152,9 @@ impl FromEvent for ContainerRequest {
             }
             "io.edgehog.devicemanager.apps.VolumeCommand" => {
                 VolumeCommand::from_event(value).map(ContainerRequest::VolumeCommand)
+            }
+            ImagePolicy::INTERFACE => {
+                ImagePolicy::from_event(value).map(ContainerRequest::ImagePolicy)
             }
             _ => Err(Error::with(
                 FromEventError::Interface(
@@ -370,6 +377,17 @@ mod tests {
         assert_eq!(request, ContainerRequest::EnvFile(expect));
     }
 
+    #[test]
+    fn from_event_image_policy() {
+        let id = image_policy::tests::registry_id_for("docker.io");
+        let event =
+            image_policy::tests::image_policy_event(&format!("/policy/{id}/type"), Some("Reject"));
+        let expect = ImagePolicy::from_event(event.clone()).unwrap();
+
+        let request = ContainerRequest::from_event(event).unwrap();
+
+        assert_eq!(request, ContainerRequest::ImagePolicy(expect));
+    }
     #[test]
     fn optional_string() {
         let cases = [

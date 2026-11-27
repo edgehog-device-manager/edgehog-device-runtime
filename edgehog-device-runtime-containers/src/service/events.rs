@@ -43,6 +43,7 @@ use crate::{
         env_file::CreateEnvFile,
         file_bind::CreateFileBind,
         image::CreateImage,
+        image_policy::ImagePolicy,
         network::CreateNetwork,
         volume::{self, CreateVolume, VolumeCommand},
     },
@@ -61,49 +62,6 @@ use super::{CommandValue, Id, ResourceType};
 enum PersistRequest {
     Deployment(DeploymentRequest),
     Volume(VolumeRequest),
-}
-
-impl From<ContainerRequest> for PersistRequest {
-    fn from(value: ContainerRequest) -> Self {
-        match value {
-            ContainerRequest::Image(create_image) => {
-                Self::Deployment(DeploymentRequest::Image(create_image))
-            }
-            ContainerRequest::Volume(create_volume) => {
-                Self::Deployment(DeploymentRequest::Volume(create_volume))
-            }
-            ContainerRequest::Network(create_network) => {
-                Self::Deployment(DeploymentRequest::Network(create_network))
-            }
-            ContainerRequest::DeviceMapping(create_device_mapping) => {
-                Self::Deployment(DeploymentRequest::DeviceMapping(create_device_mapping))
-            }
-            ContainerRequest::DeviceRequest(create_device_request) => {
-                Self::Deployment(DeploymentRequest::DeviceRequest(create_device_request))
-            }
-            ContainerRequest::FileBind(create_file_bind) => {
-                Self::Deployment(DeploymentRequest::FileBind(create_file_bind))
-            }
-            ContainerRequest::EnvFile(create_env_file) => {
-                Self::Deployment(DeploymentRequest::EnvFile(create_env_file))
-            }
-            ContainerRequest::Container(create_container) => {
-                Self::Deployment(DeploymentRequest::Container(create_container))
-            }
-            ContainerRequest::Deployment(create_deployment) => {
-                Self::Deployment(DeploymentRequest::Deployment(create_deployment))
-            }
-            ContainerRequest::DeploymentCommand(deployment_command) => {
-                Self::Deployment(DeploymentRequest::DeploymentCommand(deployment_command))
-            }
-            ContainerRequest::DeploymentUpdate(deployment_update) => {
-                Self::Deployment(DeploymentRequest::DeploymentUpdate(deployment_update))
-            }
-            ContainerRequest::VolumeCommand(volume_command) => {
-                Self::Volume(VolumeRequest::VolumeCommand(volume_command))
-            }
-        }
-    }
 }
 
 enum DeploymentRequest {
@@ -162,6 +120,55 @@ impl VolumeRequest {
     }
 }
 
+impl From<ContainerRequest> for Option<PersistRequest> {
+    fn from(value: ContainerRequest) -> Self {
+        match value {
+            ContainerRequest::Image(create_image) => Some(PersistRequest::Deployment(
+                DeploymentRequest::Image(create_image),
+            )),
+            ContainerRequest::Volume(create_volume) => Some(PersistRequest::Deployment(
+                DeploymentRequest::Volume(create_volume),
+            )),
+            ContainerRequest::Network(create_network) => Some(PersistRequest::Deployment(
+                DeploymentRequest::Network(create_network),
+            )),
+            ContainerRequest::DeviceMapping(create_device_mapping) => Some(
+                PersistRequest::Deployment(DeploymentRequest::DeviceMapping(create_device_mapping)),
+            ),
+            ContainerRequest::DeviceRequest(create_device_request) => Some(
+                PersistRequest::Deployment(DeploymentRequest::DeviceRequest(create_device_request)),
+            ),
+            ContainerRequest::FileBind(create_file_bind) => Some(PersistRequest::Deployment(
+                DeploymentRequest::FileBind(create_file_bind),
+            )),
+            ContainerRequest::EnvFile(create_env_file) => Some(PersistRequest::Deployment(
+                DeploymentRequest::EnvFile(create_env_file),
+            )),
+            ContainerRequest::Container(create_container) => Some(PersistRequest::Deployment(
+                DeploymentRequest::Container(create_container),
+            )),
+            ContainerRequest::Deployment(create_deployment) => Some(PersistRequest::Deployment(
+                DeploymentRequest::Deployment(create_deployment),
+            )),
+            ContainerRequest::DeploymentCommand(deployment_command) => {
+                Some(PersistRequest::Deployment(
+                    DeploymentRequest::DeploymentCommand(deployment_command),
+                ))
+            }
+            ContainerRequest::DeploymentUpdate(deployment_update) => Some(
+                PersistRequest::Deployment(DeploymentRequest::DeploymentUpdate(deployment_update)),
+            ),
+            ContainerRequest::VolumeCommand(volume_command) => Some(PersistRequest::Volume(
+                VolumeRequest::VolumeCommand(volume_command),
+            )),
+            // Server-owned properties on `io.edgehog.devicemanager.apps.ImagePolicy` and
+            // `io.edgehog.devicemanager.apps.PublicKey` are already persisted by the Astarte
+            // SDK store and reloaded on initialization.
+            ContainerRequest::ImagePolicy(_) => None,
+        }
+    }
+}
+
 /// Handle to the [container service](super::Service).
 #[derive(Debug)]
 pub struct ServiceHandle<D> {
@@ -193,7 +200,9 @@ impl<D> ServiceHandle<D> {
     {
         let event = ContainerEvent::from(&request);
 
-        self.persist_request(request.into()).await;
+        if let Some(request) = request.into() {
+            self.persist_request(request).await;
+        };
 
         let Some(res) = cancel.run_until_cancelled(self.events.send(event)).await else {
             return Ok(());
@@ -313,7 +322,7 @@ impl<D> ServiceHandle<D> {
 }
 
 /// Event sent by the [`ServiceHandle`] to the [`Service`](crate::service::Service)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerEvent {
     /// Resource creation request event.
     Resource {
@@ -328,6 +337,8 @@ pub enum ContainerEvent {
     DeploymentUpdate(DeploymentUpdate),
     /// Volume command event
     VolumeCmd(VolumeCommand),
+    /// Image policy update event.
+    ImagePolicy(ImagePolicy),
     /// Container runtime event happened.
     ///
     /// We need to handle deletion or a container stopped outside of Edgehog.
@@ -412,6 +423,7 @@ impl From<&ContainerRequest> for ContainerEvent {
             ContainerRequest::DeploymentCommand(cmd) => Self::DeploymentCmd(*cmd),
             ContainerRequest::DeploymentUpdate(update) => Self::DeploymentUpdate(*update),
             ContainerRequest::VolumeCommand(cmd) => Self::VolumeCmd(*cmd),
+            ContainerRequest::ImagePolicy(policy) => Self::ImagePolicy(policy.clone()),
         }
     }
 }
@@ -436,6 +448,7 @@ impl From<volume::CommandValue> for VolumeStatus {
 
 #[cfg(test)]
 mod tests {
+    use astarte_device_sdk::FromEvent;
     use rstest::rstest;
 
     use crate::requests::container::tests::create_container_req;
@@ -444,6 +457,7 @@ mod tests {
     use crate::requests::env_file::tests::create_env_file_req;
     use crate::requests::file_bind::tests::create_file_bind_req;
     use crate::requests::image::tests::create_image_req;
+    use crate::requests::image_policy::tests::image_policy_event;
     use crate::requests::network::tests::create_network_req;
     use crate::requests::volume::tests::create_volume_req;
 
@@ -470,6 +484,12 @@ mod tests {
             &file_bind,
             &env_file,
         );
+        let policy_id = crate::requests::image_policy::tests::registry_id_for("docker.io");
+        let image_policy = ImagePolicy::from_event(image_policy_event(
+            &format!("/policy/{policy_id}/type"),
+            Some("Reject"),
+        ))
+        .unwrap();
 
         let cases = [
             (
@@ -527,6 +547,10 @@ mod tests {
                     resource: Id::new(ResourceType::Container, container.id.0),
                     deployment: DEPLOYMENT_ID,
                 },
+            ),
+            (
+                ContainerRequest::ImagePolicy(image_policy.clone()),
+                ContainerEvent::ImagePolicy(image_policy),
             ),
         ];
 

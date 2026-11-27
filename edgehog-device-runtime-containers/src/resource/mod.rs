@@ -31,6 +31,7 @@ use crate::{
     Client as Docker,
     error::DockerError,
     properties::{Client, PropertyError},
+    service::image_policy::ImagePolicyService,
     store::{StateStore, StoreError},
 };
 
@@ -72,6 +73,13 @@ pub enum ResourceError {
         /// Reason why the resource is invalid
         ctx: &'static str,
     },
+    /// image {reference} with id {id} rejected by policy
+    ImageRejected {
+        /// Id of the image resource
+        id: Uuid,
+        /// Reference of the rejected image
+        reference: String,
+    },
 }
 
 impl ResourceError {
@@ -90,6 +98,7 @@ pub(crate) struct Context<'a, D> {
     pub(crate) store: &'a mut StateStore,
     pub(crate) device: &'a mut D,
     pub(crate) client: &'a Docker,
+    pub(crate) policies: &'a ImagePolicyService,
 }
 
 /// State of the object for the request.
