@@ -20,11 +20,12 @@ use std::time::Duration;
 
 use edgehog_proto::containers::v1::StatsResponse;
 use edgehog_proto::tonic::Status;
+use eyre::OptionExt;
 use tokio::sync::mpsc;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::service::containers::SharedContainerHandle;
+use crate::service::containers::{ContainerHandle, SharedContainerHandle};
 
 use super::conv::convert_stats;
 
@@ -35,8 +36,14 @@ pub(crate) struct StatsSender {
 }
 
 impl StatsSender {
+    fn container_handle(&self) -> eyre::Result<&ContainerHandle> {
+        self.containers
+            .get()
+            .ok_or_eyre("container service not available")
+    }
+
     async fn send_all(&self) -> eyre::Result<()> {
-        let stats = self.containers.all_stats().await?;
+        let stats = self.container_handle()?.all_stats().await?;
 
         for (id, stat) in stats {
             let value = convert_stats(&id, stat);
@@ -57,7 +64,7 @@ impl StatsSender {
         }
 
         for id in &self.ids {
-            let res = self.containers.stats(id).await?;
+            let res = self.container_handle()?.stats(id).await?;
 
             let stats = match res {
                 Some(stats) => stats,

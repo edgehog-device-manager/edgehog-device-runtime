@@ -1,0 +1,8 @@
+---
+source: edgehog-device-runtime-config/src/service.rs
+expression: toml_str
+---
+enabled = true
+
+[listener]
+socket = "127.0.0.1:50052"

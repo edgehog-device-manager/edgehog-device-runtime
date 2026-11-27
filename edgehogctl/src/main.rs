@@ -20,19 +20,26 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
 use clap::Parser;
-use eyre::eyre;
+use edgehog_config::ConfigFile;
+use eyre::{OptionExt, eyre};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use self::file_transfer::FileTransfer;
 use self::jobs::Jobs;
+use self::service::Service;
 
 mod client;
 mod file_transfer;
 mod jobs;
+mod service;
 
 #[derive(Debug, clap::Parser)]
 struct Cli {
+    /// Path to the device configuration file.
+    #[clap(long, global = true)]
+    config: Option<PathBuf>,
+
     #[clap(subcommand)]
     command: Command,
 }
@@ -54,6 +61,12 @@ enum Command {
         /// Jobs commands
         #[clap(subcommand)]
         command: Jobs,
+    },
+    #[clap(alias = "svc")]
+    Service {
+        /// Service commands
+        #[clap(subcommand)]
+        command: Service,
     },
 }
 
@@ -82,6 +95,13 @@ async fn main() -> eyre::Result<()> {
         .install_default()
         .map_err(|_| eyre!("failed to install default crypto provider"))?;
 
+    let config = match cli.config {
+        Some(path) => ConfigFile::read(&path)
+            .await?
+            .ok_or_eyre("missing configuration file")?,
+        None => ConfigFile::default(),
+    };
+
     match cli.command {
         Command::FileTransfer { command } => {
             command.transfer().await?;
@@ -90,6 +110,7 @@ async fn main() -> eyre::Result<()> {
             storage_dir,
             command,
         } => command.run(&storage_dir).await?,
+        Command::Service { command } => command.run(&config).await?,
     }
 
     Ok(())

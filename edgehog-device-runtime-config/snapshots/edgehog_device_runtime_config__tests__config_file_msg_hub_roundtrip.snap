@@ -1,0 +1,42 @@
+---
+source: edgehog-device-runtime-config/src/lib.rs
+expression: toml_str
+---
+astarte_library = "astarte-message-hub"
+store_directory = "/var/lib/edgehog"
+download_directory = "/var/lib/edgehog/download"
+
+[astarte_message_hub]
+endpoint = "http://[::1]:50051/"
+
+[containers]
+enabled = true
+required = true
+max_retries = 3
+
+[service]
+enabled = true
+
+[service.listener]
+unix = "/tmp/edgehog-device-runtime.sock"
+
+[ota]
+enabled = true
+reboot = "external"
+streaming = true
+
+[ota.rauc]
+dbus_socket = "system"
+
+[file_transfer]
+enabled = true
+storage_dir = "/foo/bar"
+storage_reserved = 42
+
+[forwarder]
+enabled = true
+
+[[telemetry_config]]
+interface_name = "io.edgehog.devicemanager.SystemStatus"
+enabled = true
+period = 60
