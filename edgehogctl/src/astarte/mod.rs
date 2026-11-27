@@ -1,6 +1,6 @@
 // This file is part of Edgehog.
 //
-// Copyright 2024, 2026 SECO Mind Srl
+// Copyright 2026 SECO Mind Srl
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,30 +16,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::PathBuf;
+use clap::Subcommand;
 
-use clap::{Parser, Subcommand};
+use self::send::SendData;
 
-#[derive(Debug, Clone, Parser)]
-pub struct Cli {
-    #[command(subcommand)]
-    pub command: Command,
-}
+mod send;
 
 #[derive(Debug, Clone, Subcommand)]
-pub enum Command {
-    /// Send the data to astarte.
-    Send {
-        /// Edgehog device config
-        #[arg(long)]
-        config: PathBuf,
-        /// Prints the requests as "curl" commands.
-        #[arg(long, default_value = "false")]
-        curl: bool,
-        /// Astarte JWT token
-        #[arg(long)]
-        token: String,
-        /// Path to a json file containing the data to send.
-        data: PathBuf,
-    },
+pub(crate) enum Astarte {
+    /// Send data to an Astarte device from a JSON events file.
+    SendData(SendData),
+}
+
+impl Astarte {
+    pub(crate) async fn run(self) -> eyre::Result<()> {
+        match self {
+            Astarte::SendData(cmd) => cmd.run().await,
+        }
+    }
 }

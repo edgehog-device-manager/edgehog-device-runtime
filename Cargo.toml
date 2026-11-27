@@ -30,7 +30,6 @@ resolver = "3"
 members = [
   "cellular-modems-service",
   "e2e-test",
-  "e2e-test-containers",
   "e2e-test-forwarder",
   "edgehog-device-forwarder-proto",
   "edgehog-device-runtime-containers",

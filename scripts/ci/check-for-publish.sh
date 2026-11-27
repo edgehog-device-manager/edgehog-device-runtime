@@ -46,7 +46,6 @@ pkgsFiles=$(
     cat <(cargo package --allow-dirty -l -p "edgehog-device-runtime") \
         <(listPackage "cellular-modems-service") \
         <(listPackage "e2e-test") \
-        <(listPackage "e2e-test-containers") \
         <(listPackage "e2e-test-forwarder") \
         <(listPackage "e2e-test-forwarder") \
         <(listPackage "edgehog-device-forwarder-proto") \

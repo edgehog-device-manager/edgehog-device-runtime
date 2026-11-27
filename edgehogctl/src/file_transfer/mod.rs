@@ -25,14 +25,14 @@ use color_eyre::Section;
 use edgehog::file_transfer::request::FileDigest;
 use edgehog::file_transfer::stream::PipeStreamWriter;
 use edgehog::io::digest::Digest;
-use eyre::{OptionExt, ensure};
+use eyre::OptionExt;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{info, instrument};
 use url::Url;
 use uuid::Uuid;
 
-use crate::client::ApiData;
+use crate::client::{ApiData, gen_jwt_token, http_client};
 
 #[derive(Debug, Clone, clap::ValueEnum)]
 enum Encoding {
@@ -248,26 +248,17 @@ impl Download {
             destination: self.destination.unwrap_or_default(),
         };
 
-        let client = reqwest::Client::builder()
-            .use_preconfigured_tls(astarte_device_tls::config()?)
-            .build()?;
+        let client = http_client()?;
 
         let url = self
             .astarte_url
             .join(&format!("/appengine/v1/test/devices/{}/interfaces/io.edgehog.devicemanager.fileTransfer.ServerToDevice/request", self.device_id))?;
 
-        let token = tokio::process::Command::new("astartectl")
-            .args(["utils", "gen-jwt", "all-realm-apis"])
-            .output()
-            .await?;
-
-        ensure!(token.status.success(), "error in astartectl command");
-
-        let token = str::from_utf8(&token.stdout)?.trim();
+        let token = gen_jwt_token().await?;
 
         let resp = client
             .post(url)
-            .bearer_auth(token)
+            .bearer_auth(&token)
             .json(&ApiData { data })
             .send()
             .await?;
@@ -326,26 +317,17 @@ impl Upload {
             source: self.source.unwrap_or_default(),
         };
 
-        let client = reqwest::Client::builder()
-            .use_preconfigured_tls(astarte_device_tls::config()?)
-            .build()?;
+        let client = http_client()?;
 
         let url = self
             .astarte_url
             .join(&format!("/appengine/v1/test/devices/{}/interfaces/io.edgehog.devicemanager.fileTransfer.DeviceToServer/request", self.device_id))?;
 
-        let token = tokio::process::Command::new("astartectl")
-            .args(["utils", "gen-jwt", "all-realm-apis"])
-            .output()
-            .await?;
-
-        ensure!(token.status.success(), "error in astartectl command");
-
-        let token = str::from_utf8(&token.stdout)?.trim();
+        let token = gen_jwt_token().await?;
 
         let resp = client
             .post(url)
-            .bearer_auth(token)
+            .bearer_auth(&token)
             .json(&ApiData { data })
             .send()
             .await?;

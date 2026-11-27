@@ -1250,24 +1250,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "e2e-test-containers"
-version = "0.13.2"
-dependencies = [
- "aws-lc-rs",
- "clap",
- "color-eyre",
- "eyre",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "e2e-test-forwarder"
 version = "0.13.2"
 dependencies = [
@@ -1472,6 +1454,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toml",
  "tracing",
  "tracing-error",
  "tracing-subscriber",
